@@ -91,7 +91,7 @@ flowchart LR
 
 ---
 
-## 3. Evolutionary Artifact Engine (El Mini-Jenkins + Mini-DB para IA)
+## 3. Evolutionary Artifact Engine (El "Pico-Jenkins" + "Pico-Ansible" para IA)
 
 > [!TIP]
 > **Especificación Formal:** Consulta [spec_artifact_engine.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/spec_artifact_engine.md) para la definición canónica de **EAES-v1**.
@@ -102,17 +102,18 @@ Para superar la alucinación producida por soluciones tradicionales, AEP incorpo
 flowchart TD
     subgraph AgentSpace["Espacio del Agente de IA"]
         Prompt["Caso de Uso / Necesidad de Gestión"]
-        MCPCall["Consulta MCP: artifact_resolve(intent)"]
+        MCPCall["Consulta MCP: artifact_query(intent)"]
     end
 
-    subgraph CatalogEngine["Motor de Artefactos (Mini-Jenkins + Mini-DB)"]
+    subgraph CatalogEngine["Motor de Artefactos (Pico-Jenkins + Pico-Ansible)"]
         DB[(Mini-DB: SQLite ~/.local/share/agent-os/artifacts.db<br/>Hash, CUE Spec, Go Source, Métricas)]
         Templates["Catálogo de Plantillas Atómicas (Boilerplates Go)"]
+        Hydrator["Template Hydrator (engine/hydrator.py)"]
         Factory["Artifact Factory (Compilador + golangci-lint)"]
     end
 
     subgraph ExecutionSpace["Plano de Ejecución en Memoria"]
-        RAMExec["Sliver / memfd_create / Pueue"]
+        RAMExec["Inyección en RAM via memfd_create"]
         Output["Resultado Tipado (JSON)"]
     end
 
@@ -120,7 +121,8 @@ flowchart TD
     MCPCall -->|1. ¿Existe artefacto previo validado?| DB
     DB -->|Hit: Reutilizar binario pre-compilado| RAMExec
     DB -->|Miss: Instanciar Plantilla Base| Templates
-    Templates --> Factory
+    Templates --> Hydrator
+    Hydrator --> Factory
     Factory -->|2. Validación estricta y compilación| DB
     Factory -->|3. Inyección inmediata| RAMExec
     RAMExec --> Output
@@ -132,19 +134,54 @@ flowchart TD
 * **Cero dependencias:** No requiere entornos virtuales (`venv`), intérpretes pesados ni paquetes del sistema.
 * **Inyección directa en RAM:** Se mapea directamente con `memfd_create` sin tocar almacenamiento secundario.
 
-### 3.2. Validación Estricta: El "Pydantic" y el "Ansible-Lint" de Go
+### 3.2. Validación Estricta y Prevención de Co-dependencias
 1. **CUE Lang (`schemas/artifact_contract.cue`):** Define los contratos declarativos, tipos y restricciones matemáticas de los parámetros de entrada y salida JSON.
 2. **`golangci-lint` (Modo JSON):** Ejecuta más de 40 linters en paralelo (`govet`, `staticcheck`, `errcheck`). Si la IA comete un error, el linter devuelve un JSON estructurado con la línea y columna exactas, permitiendo la auto-corrección en una sola iteración.
+3. **Topos Guard (`engine/topos_guard.py`):** Validador formal de grafos dirigidos acíclicos (DAG). Bloquea cualquier ejecución que introduzca co-dependencias circulares ($A \otimes B$).
 
 ---
 
-## 4. Arquitectura Global del Sistema (4 Capas)
+## 4. Filosofía de Despliegue: ¿Reemplazar o Aumentar la Shell?
+
+> [!NOTE]
+> **Estrategia de Aumento No-Destructivo:**  
+> AEP **no reemplaza ni destruye** la shell interactiva del usuario (tu configuración de **Ubuntu + Zsh + Oh My Zsh** permanece 100% intacta para el uso humano habitual).  
+> La suite actúa como una **capa de superposición inteligente** que opera en tres dimensiones:
+
+```mermaid
+flowchart TD
+    subgraph HumanDimension["1. Dimensión Humana (Consola Interactiva)"]
+        ZshUser["Zsh + Oh My Zsh (Sin Modificaciones)"]
+        Wrappers["Nuevos Comandos Estructurados: jrun, bg_exec, bg_stat, sys_json"]
+        ZshUser --> Wrappers
+    end
+
+    subgraph SubprocessDimension["2. Dimensión de Subprocesos (Herencia ~/.zshenv)"]
+        Subshell["Subprocesos lanzados por la IA (sh -c / zsh -c)"]
+        EnvFlags["Variables Anti-Bloqueo Inyectadas: PAGER=cat, DEBIAN_FRONTEND=noninteractive"]
+        Subshell --> EnvFlags
+    end
+
+    subgraph AgentDimension["3. Dimensión de Agentes (Protocolo FastMCP)"]
+        Clients["Clientes IA Conectados: Claude Code, Antigravity (agy), ChatGPT Codex, Gemini CLI"]
+        ServerMCP["Servidor FastMCP Unificado (server.py - 9 Herramientas RPC)"]
+        Clients -->|stdio / JSON-RPC| ServerMCP
+    end
+```
+
+1. **Para el Humano:** Disponibilidad de atajos tipados de alto rendimiento en su consola (`bg_exec` para tareas largas, `jrun` para formateo JSON instantáneo).
+2. **Para los Subprocesos de IA:** La herencia universal vía `~/.zshenv` garantiza que ningún proceso hijo lanzado por una IA se congele por paginadores (`less`), prompts interactivos (`sudo`) o buffers interactivos.
+3. **Para los Agentes y Modelos:** Un servidor **FastMCP (`server.py`)** común que se registra de forma transparente en todas las interfaces de IA disponibles en el sistema.
+
+---
+
+## 5. Arquitectura Global del Sistema (4 Capas)
 
 ```mermaid
 flowchart TD
     subgraph L3["Capa 3: Interfaz Agéntica y Descubrimiento"]
         Agent["Agente de IA (Claude Code / OpenCode / Antigravity / Chat)"]
-        MCP["Servidor FastMCP: agent_execution_mcp.py"]
+        MCP["Servidor FastMCP: server.py"]
         SkillsHub["Symlink Hub de Skills (~/.agents/skills & Omarchy Pattern)"]
         Agent -->|Tools RPC| MCP
         Agent -->|Skill Invocation| SkillsHub
@@ -153,11 +190,13 @@ flowchart TD
     subgraph L2["Capa 2: Motores de Ejecución y Despacho"]
         CaminoA["Camino A: Sliver C2 Daemon (gRPC / mTLS)"]
         CaminoB["Camino B: Pueue Daemon (JSON IPC)"]
-        ArtifactEng["Artifact Engine: Go + CUE + SQLite"]
+        ArtifactEng["Artifact Engine: Go + CUE + SQLite + Hydrator"]
+        ToposG["Topos Guard: Detector de Co-dependencias DAG"]
         KernelObs["Observador eBPF / Bwrap Sandbox"]
         MCP -->|sliver-py| CaminoA
         MCP -->|pueue CLI / IPC| CaminoB
-        MCP -->|catalog.py| ArtifactEng
+        MCP -->|catalog.py & hydrator.py| ArtifactEng
+        MCP -->|topos_guard.py| ToposG
         MCP -->|bwrap / bpftrace| KernelObs
     end
 
@@ -181,148 +220,34 @@ flowchart TD
 
 ---
 
-## 5. Flujo de Ejecución: Pruebas en Memoria vs. Paradigma Clásico
+## 6. Catálogo de Herramientas del Servidor FastMCP (`server.py`)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Agent as Agente de IA
-    participant MCP as Servidor FastMCP (AEP)
-    participant Engine as Artifact Engine (SQLite + Go)
-    participant Sliver as Implante Sliver (RAM)
-    participant Pueue as Pueue Daemon (Async)
-    participant Kernel as Linux Kernel (Ubuntu)
+El servidor FastMCP expone **9 herramientas deterministas** para control y ejecución de sistema:
 
-    Note over Agent,Kernel: Flujo de Resolución Evolutiva de Artefactos
-    Agent->>MCP: artifact_resolve(intent="inspect_sockets")
-    MCP->>Engine: Consultar DB por intent_hash
-    alt Artefacto en Caché con SuccessRate >= 0.85
-        Engine-->>MCP: Retornar binario pre-compilado
-    else Artefacto no existe
-        Engine->>Engine: Instanciar tpl_socket_monitor.go + CUE vet
-        Engine->>Engine: Validar con golangci-lint (JSON)
-        Engine->>Engine: go build estático (300ms)
-    end
-    MCP->>Sliver: Inyectar binario vía memfd_create
-    Sliver->>Kernel: syscall fexecve()
-    Kernel-->>Sliver: Retorno estructurado (exit_code, stdout JSON)
-    Sliver-->>MCP: Protobuf Response
-    MCP->>Engine: Registrar métrica de ejecución (latencia, exit_code)
-    MCP-->>Agent: JSON Tipado {total_sockets: 55, sockets: [...]}
-
-    Note over Agent,Kernel: Flujo de Tarea Larga (Compilación / Test Suite)
-    Agent->>MCP: async_job_dispatch(command="cargo test", group="heavy")
-    MCP->>Pueue: pueue add --print-task-id
-    Pueue-->>MCP: task_id: 104
-    MCP-->>Agent: {"status": "queued", "task_id": 104}
-    Note over Agent: El agente continúa su razonamiento sin congelarse
-    Agent->>MCP: async_job_inspect(task_id=104)
-    MCP->>Pueue: pueue log 104 --json
-    Pueue-->>Agent: Salida estructurada de la prueba
-```
+| Herramienta | Parámetros | Propósito |
+| :--- | :--- | :--- |
+| `topos_audit_dag` | `tasks: list[str], dependencies: dict` | Audita un grafo de dependencias y bloquea ciclos co-dependientes ($A \otimes B$). |
+| `artifact_query` | `intent: str, category: str` | Consulta en SQLite si ya existe un binario previo probado con éxito. |
+| `artifact_hydrate` | `template_name: str, params: dict` | Inyecta parámetros en plantillas Go (`tpl_*.go`) produciendo código listo. |
+| `artifact_lint_and_build` | `name: str, intent: str, go_source: str` | Audita (`go vet`), compila estáticamente (`CGO_ENABLED=0`) y persiste en DB. |
+| `artifact_execute_in_ram` | `name: str, args: list[str]` | Inyecta y ejecuta el ELF directamente en memoria RAM vía `memfd_create`. |
+| `async_job_dispatch` | `command: str, label: str, group: str` | Despacha comandos largos al demonio asíncrono **Pueue** sin congelar al agente. |
+| `async_job_inspect` | `task_id: int, lines: int` | Inspecciona el progreso o extrae logs JSON de tareas asíncronas. |
+| `diagnose_system_crashes` | `limit: int` | Recupera trazas de `systemd-coredump` y errores de journald en formato JSON. |
+| `sandbox_run` | `command: str, share_net: bool` | Ejecuta comandos en un sandbox efímero con **Bubblewrap** (`bwrap`). |
 
 ---
 
-## 6. Catálogo de Herramientas del Servidor FastMCP
+## 7. Instalación Rápida y Seeding de Agentes (`scripts/setup.sh`)
 
-El servidor expone herramientas de alto impacto diseñadas para maximizar la resolución y minimizar la saturación del contexto:
+El script de instalación es completamente idempotente, compila las sondas iniciales, configura `~/.zshenv` y registra el servidor MCP simultáneamente en **Claude Code**, **Antigravity CLI (`agy`)** y **ChatGPT Codex**:
 
-1. `c2_implant_inspect(target: "ps" | "netstat" | "ifconfig" | "env")`  
-   Inspecciona procesos y sockets directamente desde la memoria mediante llamadas a gRPC, evitando la creación de subprocesos `/bin/*`.
-2. `c2_execute_in_memory(elf_path: str, args: list[str])`  
-   Ejecuta binarios de validación en memoria mediante `memfd_create` y `fexecve`.
-3. `c2_network_pivot(action: "start_socks5" | "stop_socks5" | "portfwd_add", port: int, remote_target: str)`  
-   Gestiona túneles efímeros y redirección de puertos sin alterar configuraciones de red globales.
-4. `async_job_dispatch(command: str, label: str | None, working_dir: str | None)`  
-   Encola tareas pesadas en **Pueue**, liberando inmediatamente al agente con un identificador de seguimiento.
-5. `async_job_inspect(task_id: int | None, lines: int)`  
-   Recupera el estado o los registros de salida de tareas asíncronas en formato JSON.
-6. `diagnose_system_crashes(limit: int)`  
-   Consulta volcados de memoria recientes (`coredumpctl`) y errores del *journal* para auto-diagnóstico.
-7. `artifact_resolve(intent: str, category: str, params: dict)` *(Evolutionary Engine)*  
-   Consulta la base de datos de artefactos (`artifacts.db`) o sintetiza uno nuevo a partir de plantillas en Go.
-8. `sandbox_run(command: str, share_net: bool, read_only_paths: list[str])` *(Nueva mediante RE)*  
-   Ejecuta comandos de forma segura en un sandbox efímero con **Bubblewrap** (`bwrap`).
-9. `kernel_trace_syscall(process_name: str, duration_sec: int)` *(Nueva mediante RE)*  
-   Rastrea llamadas al sistema mediante **eBPF/bpftrace** y devuelve un resumen de frecuencias y latencias.
-
----
-
-## 7. Guía de Instalación y Aprovisionamiento en Ubuntu
-
-### Paso 1: Dependencias del Sistema y Motores Asíncronos
 ```bash
-sudo apt update && sudo apt install -y \
-    jq jc ripgrep fd-find pueue systemd-coredump bubblewrap \
-    build-essential curl git zsh golang-go
-
-# Instalar Nushell
-if ! command -v nu &> /dev/null; then
-    curl -fsSL https://apt.fury.io/nushell/gpg.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/fury-nushell.gpg
-    echo "deb https://apt.fury.io/nushell/ /" | sudo tee /etc/apt/sources.list.d/fury.list
-    sudo apt update && sudo apt install -y nushell
-fi
-
-# Instalar golangci-lint (calidad y linting estricto para artefactos)
-if ! command -v golangci-lint &> /dev/null; then
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
-fi
-
-# Instalar uv (gestor Python de alta velocidad)
-if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-fi
-
-# Activar demonio Pueue a nivel de usuario
-systemctl --user enable --now pueued || pueued -d
-```
-
-### Paso 2: Despliegue de Sliver C2 y Perfil de Operador
-```bash
-# 1. Instalar Sliver
-curl https://sliver.sh/install | sudo bash
-
-# 2. Generar perfil de operador para el orquestador
-mkdir -p "$HOME/.sliver-client/configs"
-sudo sliver-server operator \
-    --name mcp_orchestrator \
-    --lhost 127.0.0.1 \
-    --save "$HOME/.sliver-client/configs/mcp_orchestrator.cfg"
-sudo chown "$USER:$USER" "$HOME/.sliver-client/configs/mcp_orchestrator.cfg"
-```
-
-### Paso 3: Configuración de Herencia de Shell (`~/.zshenv`)
-Añade las siguientes directivas a tu archivo `~/.zshenv`:
-```zsh
-# Prevenir paginadores interactivos en cualquier subproceso hijo
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$(go env GOPATH)/bin:$PATH"
-export PAGER="cat"
-export SYSTEMD_PAGER="cat"
-export GIT_PAGER="cat"
-export DEBIAN_FRONTEND="noninteractive"
-
-# Wrappers estructurados
-jrun() { jc --pretty "$@"; }
-bg_exec() { pueue add --print-task-id -- "$@"; }
-bg_stat() { pueue status --json; }
-sys_json() { nu -c "sys host | merge (sys mem) | to json"; }
-```
-
-### Paso 4: Inicialización del Catálogo Local de Artefactos (SQLite)
-```bash
+# Clonar o situarse en el repositorio
 cd /home/ancruz/Documents/workspaces/agent-execution-plane
-python3 -c "from engine.catalog import ArtifactCatalog; cat = ArtifactCatalog(); print('Catálogo iniciado en:', cat.db_path)"
-```
 
-### Paso 5: Hub Unificado de Skills (Patrón Omarchy)
-```bash
-mkdir -p "$HOME/.agents/skills"
-mkdir -p "$HOME/.claude/skills"
-mkdir -p "$HOME/.gemini/skills"
-
-# Enlaces simbólicos para compartir las mismas skills entre agentes
-ln -sfn "$HOME/.agents/skills" "$HOME/.claude/skills/shared"
-ln -sfn "$HOME/.agents/skills" "$HOME/.gemini/skills/shared"
+# Ejecutar el bootstrap
+./scripts/setup.sh
 ```
 
 ---
@@ -332,17 +257,22 @@ ln -sfn "$HOME/.agents/skills" "$HOME/.gemini/skills/shared"
 ```
 agent-execution-plane/
 ├── docs/
-│   ├── architecture.md             # Documento de arquitectura original
-│   └── spec_artifact_engine.md     # Especificación canónica EAES-v1
+│   ├── architecture.md             # Arquitectura híbrida base original
+│   └── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
 ├── engine/
 │   ├── __init__.py
-│   └── catalog.py                  # Gestor SQLite de artefactos y métricas
+│   ├── catalog.py                  # Gestor SQLite de artefactos, intent hashing y telemetría
+│   ├── hydrator.py                 # Hidratador dinámico de plantillas atómicas Go
+│   └── topos_guard.py              # Guardián ontológico y detector de co-dependencias DAG
 ├── schemas/
-│   ├── database.sql                # DDL para artifacts.db
-│   └── artifact_contract.cue       # Contratos y tipos en CUE
+│   ├── database.sql                # DDL para artifacts.db (Tablas artifacts y execution_metrics)
+│   └── artifact_contract.cue       # Contratos declarativos y restricciones de tipos en CUE
 ├── templates/
-│   ├── tpl_socket_monitor.go       # Sonda atómica para sockets TCP (/proc/net/tcp)
-│   └── tpl_fd_rescuer.go           # Inspector de descriptores (/proc/$PID/fd)
-├── README.md                       # Manifiesto y guía maestra
-└── .git/
+│   ├── tpl_socket_monitor.go       # Sonda atómica Go: sockets TCP sin invocar netstat (verificada)
+│   └── tpl_fd_rescuer.go           # Sonda atómica Go: inspección de /proc/$PID/fd (verificada)
+├── scripts/
+│   └── setup.sh                    # Instalador idempotente y seeder MCP para Claude, agy y Codex
+├── server.py                       # Servidor FastMCP ejecutable (9 herramientas RPC)
+├── .gitignore                      # Reglas de exclusión para binarios ELF, pycache y DBs
+└── README.md                       # Manifiesto integral con 6 diagramas Mermaid
 ```
