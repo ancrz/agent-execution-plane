@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Go compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+socket_monitor
+fd_rescuer
+ram_runner
+
+# Local databases & logs
+*.db
+*.db-journal
+*.log
+
+# Coredumps
+core
+core.*
