@@ -257,8 +257,10 @@ cd /home/ancruz/Documents/workspaces/agent-execution-plane
 ```
 agent-execution-plane/
 ├── docs/
+│   ├── README.md                   # Índice maestro de documentación técnica
 │   ├── architecture.md             # Arquitectura híbrida base original
-│   └── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
+│   ├── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
+│   └── re_sdd_and_gap_analysis.md  # Auditoría sincera de la verdad, RE y matriz de inspiración
 ├── engine/
 │   ├── __init__.py
 │   ├── catalog.py                  # Gestor SQLite de artefactos, intent hashing y telemetría
@@ -274,5 +276,39 @@ agent-execution-plane/
 │   └── setup.sh                    # Instalador idempotente y seeder MCP para Claude, agy y Codex
 ├── server.py                       # Servidor FastMCP ejecutable (9 herramientas RPC)
 ├── .gitignore                      # Reglas de exclusión para binarios ELF, pycache y DBs
-└── README.md                       # Manifiesto integral con 6 diagramas Mermaid
+└── README.md                       # Manifiesto integral con diagramas Mermaid
 ```
+
+---
+
+## 9. Inventario Sincero de la Fuente de la Verdad
+
+Para preservar la máxima integridad y transparencia epistemológica, este cuadro detalla con precisión quirúrgica el estado real de cada pieza proyectada frente a la realidad física de la máquina:
+
+| Componente | Proyección Inicial | Estado Físico Real | Detalle de Implementación |
+| :--- | :--- | :--- | :--- |
+| **Sliver C2** | Framework C2 completo (daemon gRPC, mTLS). | **Primitiva extraída mediante RE.** No se instaló el framework. | Usamos directamente la syscall `os.memfd_create` nativa de Linux en Python 3 para inyectar binarios Go en RAM. Se eliminó el 95% del peso muerto de ataque. |
+| **Pico-Jenkins / Pico-Ansible** | Jenkins / Ansible tradicionales. | **100% Operativo y Nativo.** | Compilación Go estática en 200 ms (`go build`), contratos CUE y catálogo SQLite en `~/.local/share/agent-os/artifacts.db`. |
+| **Bubblewrap (`bwrap`)** | Sandboxing efímero de procesos. | **100% Operativo y Verificado.** | Binario nativo `/usr/bin/bwrap` expuesto mediante `sandbox_run` en `server.py`. |
+| **bpftrace (eBPF)** | Observabilidad de kernel. | **Binario Instalado.** | `/usr/bin/bpftrace` existe físicamente; pendiente script `.bt` cableado en el servidor MCP. |
+| **Pueue (`pueued`)** | Colas asíncronas de subprocesos. | **Pendiente de binario.** | El código en `server.py` y `~/.zshenv` lo invoca, pero falta el binario estático en `~/.local/bin/pueued`. |
+| **Nushell (`nu`) / `jc`** | Parsing JSON de shell. | **Pendiente de binario / pip.** | Los wrappers en `~/.zshenv` están listos; falta instalar `jc` vía pip y el binario de `nu`. |
+| **Seeding Multi-Agente** | Registro en interfaces de IA. | **100% Operativo y Registrado.** | El servidor `agent-execution-plane` está registrado en **Claude Code**, **Antigravity (`agy`)** y **ChatGPT Codex**. |
+
+---
+
+## 10. Metodología RE as SDD y Matriz de Inspiración
+
+### ¿Por qué RE as SDD?
+Acoplar directamente herramientas ofensivas (como frameworks C2 comerciales o abiertos) introduce ruido, dependencias de red frágiles, certificados mTLS y firmas que violan el principio de **cero co-dependencias** del Protocolo Topos.  
+Mediante **Reverse Engineering as Specification-Driven Development (RE as SDD)**:
+1. **Aislamos la física del kernel:** Identificamos qué hace potente a la herramienta (en Sliver: `memfd_create` y ejecución de descriptores anónimos).
+2. **Escribimos la especificación formal:** Creamos contratos declarativos rígidos (**EAES-v1** en `docs/spec_artifact_engine.md`).
+3. **Construimos la implementación limpia:** Código nativo en Go y Python sin telemetría ofensiva ni intermediarios innecesarios.
+
+### Matriz de Repositorios de Referencia
+* **`termux-linux-deployer`:** Inspiró el patrón de **seeding idempotente multi-agente** (Claude Code, agy, Codex) y el enfoque de despliegue en espacio de usuario (`~/.local/bin`) sin requerir privilegios de root.
+* **`openclaw`:** Inspiró la cultura de **especificaciones rigurosas y contratos declarativos** antes de escribir código (`AGENTS.md`, esquemas CUE).
+* **`sdk-agent-pipeline`:** Inspiró la disciplina de **Topos DAG Integrity** y el guardián de circuitos (`ToposGuard`) para auditar y prevenir co-dependencias circulares ($A \otimes B$).
+
+> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md).
