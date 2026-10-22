@@ -20,9 +20,24 @@ from engine.hydrator import TemplateHydrator
 from engine.topos_guard import ToposGuard, ToposVerdict
 from engine.crash_router import CrashRouter
 from engine import headless_display
-from engine.privilege import capability_tier, privilege_mode, privilege_prefix
+from engine.privilege import (
+    capability_manifest,
+    capability_tier,
+    privilege_mode,
+    privilege_prefix,
+)
 
-mcp = FastMCP("Agent-Execution-Plane")
+_INSTRUCTIONS = (
+    "AEP (Agent Execution Plane): plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes "
+    "de IA sobre Ubuntu. Transmuta primitivas de herramientas ofensivas (ejecución en RAM, "
+    "sandbox, eBPF, introspección de procesos, forense de crashes) en capacidades agénticas "
+    "gobernadas por privilegio en dos niveles: FULL (root/sudo -n -> alcance de sistema/kernel) "
+    "y DIMINISHED (usuario -> alcance acotado, fail-soft). PRIMERA LLAMADA RECOMENDADA: "
+    "`aep_capabilities()` devuelve un manifiesto estilo chmod/777 (r=sensar, w=actuar, "
+    "x=ejecutar por caminos no-tradicionales) con lo que PUEDES hacer ahora mismo."
+)
+
+mcp = FastMCP("Agent-Execution-Plane", instructions=_INSTRUCTIONS)
 catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
 crash_router = CrashRouter()
@@ -45,6 +60,17 @@ PROJECT_DIR = Path(__file__).resolve().parent
 TEMP_BIN_DIR = Path.home() / ".local" / "share" / "agent-os" / "bin"
 AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@mcp.tool()
+def aep_capabilities() -> str:
+    """
+    [AUTO-DESCRIPCIÓN] Manifiesto de autonomía en primera vista. Devuelve, en códigos estilo
+    chmod/777 (r=sensar, w=actuar, x=ejecutar por caminos no-tradicionales), qué puede hacer
+    el agente AHORA según el nivel de privilegio (FULL/DIMINISHED) y qué desbloquea FULL.
+    Llamar primero para entender que este MCP gestiona autonomía agéntica.
+    """
+    return json.dumps(capability_manifest(), indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
