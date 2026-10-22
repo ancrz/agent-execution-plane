@@ -139,6 +139,19 @@ flowchart TD
 2. **`golangci-lint` (Modo JSON):** Ejecuta más de 40 linters en paralelo (`govet`, `staticcheck`, `errcheck`). Si la IA comete un error, el linter devuelve un JSON estructurado con la línea y columna exactas, permitiendo la auto-corrección en una sola iteración.
 3. **Topos Guard (`engine/topos_guard.py`):** Validador formal de grafos dirigidos acíclicos (DAG). Bloquea cualquier ejecución que introduzca co-dependencias circulares ($A \otimes B$).
 
+### 3.3. Memoria Semántica con `sqlite-vec` (Búsqueda Híbrida en 2 Pasos)
+Para superar la fragilidad del hash estricto ante la variabilidad léxica de los LLMs, el catálogo incorpora la extensión nativa **`sqlite-vec`**:
+
+```mermaid
+flowchart LR
+    A["Intención Variable del Agente<br/>(Lenguaje Natural)"] --> B["1. Descubrimiento Semántico<br/>sqlite-vec KNN (Distancia Coseno <= 0.15)"]
+    B --> C["2. Recuperación Determinista<br/>B-Tree ACID (CUE + Binario ELF)"]
+    C --> D["Inyección en RAM<br/>memfd_create (< 1ms)"]
+```
+
+* **Paso 1 (Descubrimiento Difuso):** Mapea intenciones heterogéneas al mismo artefacto mediante embeddings locales en CPU (`all-MiniLM-L6-v2`), evitando re-compilaciones redundantes.
+* **Paso 2 (Recuperación Exacta):** Carga el contrato CUE y el binario Go por clave primaria ($O(1)$) garantizando cero alucinaciones en la ejecución.
+
 ---
 
 ## 4. Filosofía de Despliegue: ¿Reemplazar o Aumentar la Shell?
@@ -303,7 +316,8 @@ agent-execution-plane/
 │   ├── architecture.md             # Arquitectura híbrida base original
 │   ├── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
 │   ├── re_sdd_and_gap_analysis.md  # Auditoría sincera de la verdad, RE y matriz de inspiración
-│   └── pico_abstractions_and_omissions.md # Deconstrucción de Pico-Claw/Ansible/Jenkins y 6 features C2
+│   ├── pico_abstractions_and_omissions.md # Deconstrucción de Pico-Claw/Ansible/Jenkins y 6 features C2
+│   └── sqlite_vec_hybrid_retrieval.md     # Búsqueda híbrida semántica en 2 pasos con sqlite-vec
 ├── engine/
 │   ├── __init__.py
 │   ├── catalog.py                  # Gestor SQLite de artefactos, intent hashing y telemetría
@@ -382,4 +396,4 @@ flowchart LR
     O6 --> T6
 ```
 
-> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md) y la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md).
+> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md), la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md) y la arquitectura de búsqueda vectorial en [docs/sqlite_vec_hybrid_retrieval.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/sqlite_vec_hybrid_retrieval.md).

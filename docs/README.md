@@ -9,11 +9,14 @@ flowchart TD
         D2["spec_artifact_engine.md<br/>(Norma EAES-v1: Go + CUE + SQLite)"]
         D3["re_sdd_and_gap_analysis.md<br/>(Auditoría de Verdad + Matriz de Inspiración)"]
         D4["pico_abstractions_and_omissions.md<br/>(Tríada Pico + 6 Primitivas Ofensivas)"]
+        D5["sqlite_vec_hybrid_retrieval.md<br/>(Búsqueda Híbrida Semántica + sqlite-vec)"]
 
         D1 -->|Formalizado por| D2
         D1 -->|Auditado por| D3
         D2 -->|Ampliación Conceptual| D4
         D3 -->|Transmutación Ofensiva| D4
+        D2 -->|Evolución Semántica| D5
+        D4 -->|Memoria Evolutiva| D5
     end
 ```
 
@@ -48,3 +51,12 @@ flowchart TD
   * **Pico-Ansible:** Contrato de idempotencia (`changed: bool`), subsistema *Pico-Facts* y playbooks DAG.
   * **Pico-Jenkins:** Staging efímero en RAM y rollback por métricas de éxito.
   * **Las 6 mejoras ofensivas omitidas:** Deconstrucción de BOFs a objetos en memoria de 2 ms, perfiles maleables de tokens, telemetría tipo beacon, rescate de hilos colgados en caliente, camino más corto de remediación Topos y mallas efímeras de pruebas.
+
+### 5. [sqlite_vec_hybrid_retrieval.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/sqlite_vec_hybrid_retrieval.md)
+* **Título:** Búsqueda Híbrida y Memoria Semántica de Artefactos con `sqlite-vec`
+* **Propósito:** Resolución del problema de variabilidad estocástica en los prompts de los LLMs mediante la integración de la extensión vectorial nativa `sqlite-vec`.
+* **Contenido clave:**
+  * **El dilema de eficiencia:** B-Tree relacional ($<0.1\text{ ms}$, rígido) vs. similitud vectorial ($5\text{ a }15\text{ ms}$, flexible y semántico).
+  * **Patrón de Búsqueda Híbrida en 2 Pasos:** Paso 1 (Descubrimiento difuso por similitud coseno) $\to$ Paso 2 (Recuperación determinista ACID de CUE y binarios Go).
+  * **Inferencia Local en CPU:** Uso de ONNX Runtime (`all-MiniLM-L6-v2`) con cero costo de API y privacidad 100% offline.
+  * **Esquema DDL Híbrido:** Tabla relacional `artifacts` + tabla virtual `vec_artifacts USING vec0`.
