@@ -64,6 +64,10 @@ register() {
         codex mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
         codex mcp add "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1 && { ok "Codex re-registrado"; n=$((n+1)); } || warn "codex: fallo al registrar"
     fi
+    if command -v gemini >/dev/null 2>&1; then
+        gemini mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
+        gemini mcp add "$SERVER_NAME" "$LAUNCHER" >/dev/null 2>&1 && { ok "Gemini CLI re-registrado"; n=$((n+1)); } || warn "gemini: fallo al registrar"
+    fi
     ok "Auto-plug completado en $n cliente(s). (Las sesiones activas aplican al reiniciar.)"
 }
 

@@ -119,33 +119,11 @@ else
     log_warn "pueued no disponible; async_job_dispatch degradará con error estructurado (fail-soft)."
 fi
 
-# 4. Inyección no-destructiva en ~/.zshenv (Herencia universal para IA sin romper Oh My Zsh)
-log_step "Configurando herencia de shell no-bloqueante en ~/.zshenv..."
-ZSHENV="$HOME/.zshenv"
-TOUCHED_ZSHENV=false
-
-if [[ ! -f "$ZSHENV" ]] || ! grep -q "AEP_UNIVERSAL_INHERITANCE" "$ZSHENV"; then
-    cat >> "$ZSHENV" <<'EOF'
-
-# --- AEP_UNIVERSAL_INHERITANCE (Agent Execution Plane) ---
-export PATH="$HOME/.local/share/agent-os/bin:$HOME/.local/bin:$PATH"
-export PAGER="cat"
-export SYSTEMD_PAGER="cat"
-export GIT_PAGER="cat"
-export DEBIAN_FRONTEND="noninteractive"
-
-# Wrappers de ejecución estructurada y asíncrona
-jrun() { jc --pretty "$@"; }
-bg_exec() { pueue add --print-task-id -- "$@"; }
-bg_stat() { pueue status --json; }
-sys_json() { nu -c "sys host | merge (sys mem) | to json"; }
-# --- END AEP_UNIVERSAL_INHERITANCE ---
-EOF
-    TOUCHED_ZSHENV=true
-    log_success "Directivas anti-bloqueo y wrappers agregados a ~/.zshenv"
-else
-    log_success "Directivas AEP ya presentes en ~/.zshenv (sin duplicados)."
-fi
+# 4. Herencia de shell AGNÓSTICA (bash/zsh/sh nativos; no requiere Oh My Zsh)
+# Delega en el instalador que hace source del archivo único config/shell/aep-env.sh
+# desde ~/.bashrc, ~/.zshenv y ~/.profile. Idempotente.
+log_step "Configurando herencia de shell no-bloqueante (agnóstica de shell)..."
+bash "$PROJECT_ROOT/scripts/install-shell-env.sh" || log_warn "Instalación de herencia de shell falló (no crítico)."
 
 # 5. Seeding del Servidor FastMCP en múltiples agentes (Claude, agy, Codex)
 log_step "Seeding del Servidor FastMCP en los agentes..."
