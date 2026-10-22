@@ -20,6 +20,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine.privilege import capability_tier, privilege_prefix
+
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
 
 _CRASH_DDL = """
@@ -56,9 +58,11 @@ class CrashRouter:
         if not shutil.which("coredumpctl"):
             return 0
         try:
+            # Nivel FULL (root/sudo -n) ve coredumps de todo el sistema; DIMINISHED, los propios.
             # --reverse + -n limita (fix Ontos SF-2: sin esto podría volcar miles de filas).
+            prefix = privilege_prefix() or []
             r = subprocess.run(
-                ["coredumpctl", "list", "--json=short", "--reverse", "-n", str(limit)],
+                prefix + ["coredumpctl", "list", "--json=short", "--reverse", "-n", str(limit)],
                 capture_output=True, text=True,
             )
             if r.returncode != 0 or not r.stdout.strip():
@@ -112,6 +116,8 @@ class CrashRouter:
         alerts = self.pending_alerts(resolve_after_report)
         return {
             "status": "OK" if shutil.which("coredumpctl") else "DEGRADED",
+            "capability_tier": capability_tier(),
+            "scope": "system" if privilege_prefix() else "user",
             "new_since_last_check": new,
             "pending_count": len(alerts),
             "alerts": alerts,

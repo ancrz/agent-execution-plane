@@ -20,6 +20,7 @@ from engine.hydrator import TemplateHydrator
 from engine.topos_guard import ToposGuard, ToposVerdict
 from engine.crash_router import CrashRouter
 from engine import headless_display
+from engine.privilege import capability_tier, privilege_mode, privilege_prefix
 
 mcp = FastMCP("Agent-Execution-Plane")
 catalog = ArtifactCatalog()
@@ -43,28 +44,6 @@ def _get_docs_vectorizer():
 PROJECT_DIR = Path(__file__).resolve().parent
 TEMP_BIN_DIR = Path.home() / ".local" / "share" / "agent-os" / "bin"
 AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
-
-_SUDO_N_CACHE: Optional[bool] = None
-
-
-def _sudo_n_available() -> bool:
-    """¿Hay sudo sin contraseña (modalidad de escalada no-interactiva)? Cacheado."""
-    global _SUDO_N_CACHE
-    if _SUDO_N_CACHE is None:
-        try:
-            _SUDO_N_CACHE = bool(shutil.which("sudo")) and subprocess.run(
-                ["sudo", "-n", "true"], capture_output=True, timeout=5
-            ).returncode == 0
-        except Exception:
-            _SUDO_N_CACHE = False
-    return _SUDO_N_CACHE
-
-
-def _privilege_prefix() -> Optional[List[str]]:
-    """[] si ya es root; ['sudo','-n'] si se puede escalar sin password; None si no hay vía."""
-    if os.geteuid() == 0:
-        return []
-    return ["sudo", "-n"] if _sudo_n_available() else None
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -315,9 +294,13 @@ def diagnose_system_crashes(limit: int = 5) -> str:
     """
     # FAIL-SOFT: en hosts sin systemd-coredump/journald (contenedores, no-systemd) los
     # binarios pueden faltar. Devolvemos JSON tipado degradado, nunca una excepción.
+    # Nivel FULL: prefijo sudo -n para ver coredumps/errores de TODO el sistema; DIMINISHED
+    # (sin escalada) ve solo lo propio. Ambos fail-soft.
+    prefix = privilege_prefix() or []
+
     def _safe_run(cmd):
         try:
-            return subprocess.run(cmd, capture_output=True, text=True)
+            return subprocess.run(prefix + cmd, capture_output=True, text=True)
         except FileNotFoundError:
             return None
 
@@ -348,6 +331,8 @@ def diagnose_system_crashes(limit: int = 5) -> str:
     return json.dumps(
         {
             "status": "DEGRADED" if unavailable else "OK",
+            "capability_tier": capability_tier(),
+            "scope": "system" if prefix else "user",
             "recent_coredumps": recent_coredumps,
             "recent_systemd_errors": recent_errors,
             "unavailable_sources": unavailable,
@@ -470,7 +455,7 @@ def visual_inspect(
 _BPFTRACE_MODES = {
     # eBPF (rootkit/sniffer ofensivo) -> observabilidad de kernel no-invasiva.
     "syscall_count": "tracepoint:raw_syscalls:sys_enter {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
-    "file_opens": "tracepoint:syscall:sys_enter_openat {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "file_opens": "tracepoint:syscalls:sys_enter_openat {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
     "tcp_connect": "kprobe:tcp_connect {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
 }
 
@@ -488,13 +473,14 @@ def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
     if not Path("/usr/bin/bpftrace").exists() and not shutil.which("bpftrace"):
         return json.dumps({"status": "DEGRADED", "message": "bpftrace no instalado."}, indent=2)
     # bpftrace exige root. Modalidad de escalada no-interactiva: usar sudo -n si no somos root.
-    prefix = _privilege_prefix()
+    prefix = privilege_prefix()
     if prefix is None:
         return json.dumps({
             "status": "DEGRADED",
+            "capability_tier": "DIMINISHED",
             "message": "bpftrace requiere root (CAP_BPF) y no hay sudo -n disponible.",
         }, indent=2)
-    privilege_mode = "direct-root" if os.geteuid() == 0 else "sudo-n"
+    pmode = privilege_mode()
     script = _BPFTRACE_MODES[mode].format(d=max(1, min(duration_sec, 30)))
     try:
         # El script proviene de _BPFTRACE_MODES (curado, solo-lectura), nunca de entrada libre.
@@ -505,8 +491,9 @@ def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
         if res.returncode != 0:
             return json.dumps({
                 "status": "DEGRADED",
+                "capability_tier": "FULL",
+                "privilege_mode": pmode,
                 "message": "bpftrace falló pese a la escalada.",
-                "privilege_mode": privilege_mode,
                 "stderr": res.stderr.strip()[:300],
             }, indent=2)
         counts = {}
@@ -519,8 +506,9 @@ def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
                             counts.update(m)
             except Exception:
                 pass
-        return json.dumps({"status": "OK", "mode": mode, "duration_sec": duration_sec,
-                           "privilege_mode": privilege_mode, "counts": counts}, indent=2)
+        return json.dumps({"status": "OK", "capability_tier": "FULL", "mode": mode,
+                           "duration_sec": duration_sec, "privilege_mode": pmode,
+                           "counts": counts}, indent=2)
     except Exception as e:
         return json.dumps({"status": "DEGRADED", "error": str(e)}, indent=2)
 

@@ -13,10 +13,29 @@ de usuario de systemd (`systemctl --user`) para no requerir privilegios.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional
+
+
+def _sudo_prefix() -> Optional[List[str]]:
+    """[] si root; ['sudo','-n'] si escala sin password; None si no hay vía (DIMINISHED)."""
+    if os.geteuid() == 0:
+        return []
+    try:
+        if shutil.which("sudo") and subprocess.run(
+            ["sudo", "-n", "true"], capture_output=True, timeout=5
+        ).returncode == 0:
+            return ["sudo", "-n"]
+    except Exception:
+        pass
+    return None
+
+
+def _tier() -> str:
+    return "FULL" if _sudo_prefix() is not None else "DIMINISHED"
 
 SCHEMA: Dict[str, Any] = {
     "service": {"actions": ["status", "start", "stop", "restart"], "arg": "<name>", "scope": "systemd --user"},
@@ -50,17 +69,31 @@ def domain_service(action: str, name: Optional[str]) -> Any:
     if not _need("systemctl"):
         return {"status": "DEGRADED", "message": "systemctl no disponible en este host."}
     if action == "status":
-        r = _run(["systemctl", "--user", "show", name,
+        # Lectura de scope de sistema (servicios reales: redis, nginx...). No requiere sudo.
+        r = _run(["systemctl", "show", name,
                   "--property=ActiveState,SubState,LoadState,MainPID,UnitFileState"])
         props = dict(
             line.split("=", 1) for line in r.stdout.splitlines() if "=" in line
         )
-        return {"status": "OK", "service": name, "properties": props}
-    # mutaciones en scope de usuario (sin sudo)
-    r = _run(["systemctl", "--user", action, name])
+        return {"status": "OK", "service": name, "capability_tier": _tier(), "properties": props}
+
+    # Mutaciones (start/stop/restart): nivel FULL -> systemctl de sistema vía escalada;
+    # DIMINISHED -> intenta scope de usuario (servicios --user) y reporta el límite.
+    prefix = _sudo_prefix()
+    if prefix is None:
+        r = _run(["systemctl", "--user", action, name])
+        return {
+            "status": "OK" if r.returncode == 0 else "DIMINISHED",
+            "service": name, "action": action, "capability_tier": "DIMINISHED",
+            "scope": "user", "exit_code": r.returncode,
+            "stderr": r.stderr.strip() or None,
+            "note": "Sin privilegio para servicios de sistema; limitado a scope de usuario.",
+        }
+    r = _run(prefix + ["systemctl", action, name])
     return {
         "status": "OK" if r.returncode == 0 else "FAILED",
-        "service": name, "action": action, "exit_code": r.returncode,
+        "service": name, "action": action, "capability_tier": "FULL",
+        "scope": "system", "exit_code": r.returncode,
         "stderr": r.stderr.strip() or None,
     }
 
