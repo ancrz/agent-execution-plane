@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Pre-commit: valida que el server MCP compila e importa antes de permitir el commit.
+# No enchufa ni re-registra (solo --check). Instalado vía core.hooksPath=scripts/hooks.
+exec "$(git rev-parse --show-toplevel)/scripts/aep-sync.sh" --check

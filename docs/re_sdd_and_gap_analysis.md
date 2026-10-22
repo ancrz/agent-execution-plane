@@ -29,11 +29,16 @@ flowchart TD
         R3["Pico-Ansible: No usa Ansible core. Contratos CUE + SQLite."]
     end
 
-    subgraph PendingWiring["3. Pendiente de Instalación / Cableado (Deuda Técnica)"]
-        P1["Pueue daemon (pueued no instalado en el SO)"]
+    subgraph Closed["3. Brechas CERRADAS (implementadas y probadas)"]
+        C1["Pueue daemon (binario musl en ~/.local/bin, async verificado)"]
+        C2["bpftrace cableado como tool kernel_trace (nivel FULL)"]
+        C3["sqlite-vec: memoria semántica híbrida operativa"]
+        C4["Omarchy: 5 specs (aep_ctl, crash routing, skills hub, man-pages, headless)"]
+    end
+
+    subgraph PendingWiring["4. Pendiente (único gap real, no crítico)"]
         P2["Nushell (nu no instalado en el SO)"]
-        P3["jc (wrapper JSON no instalado)"]
-        P4["Sonda .bt de bpftrace en server.py"]
+        P3["jc (wrapper JSON no instalado) — aep_ctl ya cubre salida JSON del sistema"]
     end
 ```
 
@@ -43,13 +48,14 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- |
 | **Sliver C2** | Instalar servidor completo con `curl \| bash`, base de datos y mTLS. | **Descartado el framework.** Primitiva extraída. | Syscall `os.memfd_create` nativa en Python 3 + `/proc/self/fd/<fd>`. | **Ninguna.** La primitiva fue implementada en su forma más pura y eficiente sin la sobrecarga ofensiva. |
 | **Bubblewrap** | Sandbox efímero para pruebas. | **Instalado y Operativo.** | `/usr/bin/bwrap` invocado por `sandbox_run` en `server.py`. | **Ninguna.** Opera con namespaces nativos de Linux. |
-| **bpftrace (eBPF)** | Observabilidad de kernel. | **Binario Instalado.** | Binario en `/usr/bin/bpftrace`. | **Falta cablear:** Falta escribir el script `.bt` en `server.py` para exponer métricas estructuradas en el MCP. |
-| **Pico-Jenkins** | Pipeline de compilación y verificación. | **Instalado y Operativo.** | `go build` + `go vet` + inyección en RAM en < 300 ms. | **Ampliación:** Añadir `golangci-lint` en `~/.local/bin` para 40+ reglas estáticas adicionales. |
-| **Pico-Ansible** | Catálogo declarativo de gestión. | **Instalado y Operativo.** | SQLite (`artifacts.db`) + `engine/catalog.py` + `engine/hydrator.py`. | **Ninguna.** Seeded con `socket-monitor` y `fd-rescuer`. |
+| **bpftrace (eBPF)** | Observabilidad de kernel. | **Operativo (nivel FULL).** | Tool `kernel_trace` (syscall_count/file_opens/tcp_connect) con escalada `sudo -n` acotada a sondas de solo-lectura. | **Cerrada.** Degrada a `DIMINISHED` sin privilegio. |
+| **Pico-Jenkins** | Pipeline de compilación y verificación. | **Instalado y Operativo.** | `go build` + `go vet` + `golangci-lint` advisory + inyección en RAM en < 300 ms. | **Cerrada.** `golangci-lint` 2.15 en `~/.local/bin`. |
+| **Pico-Ansible** | Catálogo declarativo de gestión. | **Instalado y Operativo.** | SQLite (`artifacts.db`) + `engine/catalog.py` + memoria semántica `sqlite-vec`. | **Cerrada.** Recuperación híbrida 2-tier. |
 | **Topos Guard** | Detector de co-dependencias. | **Instalado y Operativo.** | `engine/topos_guard.py` ejecutando algoritmo DFS de detección de ciclos en grafos DAG. | **Ninguna.** Probado con aserciones unitarias. |
-| **Pueue Daemon** | Colas de tareas asíncronas. | **No instalado en el SO.** | El código de `server.py` lo invoca, pero el binario no existe. | **Gap Crítico:** Descargar binario estático de `pueued` a `~/.local/bin/`. |
-| **Nushell (`nu`)** | Tuberías tipadas de shell. | **No instalado en el SO.** | `sys_json` en `~/.zshenv` está inerte. | **Gap Medio:** Descargar binario estático de `nu` a `~/.local/bin/`. |
-| **`jc`** | Parser JSON de utilidades POSIX. | **No instalado en el SO.** | `jrun` en `~/.zshenv` está inerte. | **Gap Medio:** Instalar paquete Python con `pip install jc`. |
+| **Pueue Daemon** | Colas de tareas asíncronas. | **100% Operativo.** | Binario musl 4.0.4 en `~/.local/bin` (sin sudo); `async_job_dispatch`/`async_job_inspect` verificados. | **Cerrada.** |
+| **Memoria semántica (`sqlite-vec`)** | — | **100% Operativo.** | `vec0` + `engine/embedder.py` (bge-small-en-v1.5 ONNX, 384-dim, offline). | **Cerrada.** Umbral 0.32 calibrado empíricamente. |
+| **Omarchy (5 specs)** | Patrones Arch/Hyprland. | **100% Operativo.** | `aep_ctl`, `check_crash_alerts`, hub+Codex, `query_system_docs`, `visual_inspect`. | **Cerrada.** |
+| **Nushell (`nu`) / `jc`** | Tuberías/parsing JSON de shell. | **No instalado (único gap real).** | `sys_json`/`jrun` en `~/.zshenv` inertes. | **Gap no crítico:** `aep_ctl` ya entrega JSON tipado del sistema. |
 
 ---
 
@@ -127,15 +133,15 @@ flowchart TD
 
 ---
 
-## 4. Hoja de Ruta para el Cierre de Brechas (Technical Action Plan)
+## 4. Hoja de Ruta: Estado de Cierre de Brechas (actualizado)
 
-Para cerrar las lagunas identificadas en el inventario sincero, se ejecutarán los siguientes pasos técnicos:
+Casi toda la hoja de ruta original está **ejecutada y verificada**:
 
-1. **Descarga de Binarios Estáticos a `~/.local/bin` (Sin Sudo):**
-   * Descargar release estático de `pueue` y `pueued` (Rust) desde GitHub Releases y activar el demonio de usuario `systemctl --user enable --now pueued` o `pueued -d`.
-   * Descargar binario estático de Nushell (`nu`).
-   * Instalar el paquete Python `jc` en el entorno de usuario con `pip install --user jc` o `uv pip install jc`.
-2. **Cableado de la Sonda eBPF en `server.py`:**
-   * Integrar la herramienta `kernel_trace_syscall` ejecutando `/usr/bin/bpftrace` con un script embebido de conteo de syscalls (`bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }'`).
-3. **Validación End-to-End:**
-   * Probar el ciclo completo: Invocación de herramienta MCP desde un cliente IA $\to$ Catálogo SQLite $\to$ Compilación Go $\to$ Inyección en RAM $\to$ Retorno JSON.
+1. **Binarios estáticos en `~/.local/bin` (sin sudo):**
+   * ✅ `pueue`/`pueued` musl 4.0.4 descargados; demonio activo; `async_job_dispatch` verificado.
+   * ⏳ `nu` (Nushell) — **pendiente** (único gap, no crítico).
+   * ⏳ `jc` — **pendiente** (no crítico: `aep_ctl` ya entrega JSON tipado del sistema).
+2. **Cableado de la sonda eBPF:** ✅ tool `kernel_trace` con `tracepoint:raw_syscalls:sys_enter`, `syscalls:sys_enter_openat` y `kprobe:tcp_connect`, con escalada `sudo -n` (nivel FULL).
+3. **Validación End-to-End:** ✅ ciclo completo probado (MCP → catálogo SQLite/sqlite-vec → compilación Go → inyección en RAM → JSON tipado), más probes por cada tool nueva.
+
+**Entregado más allá de la hoja original:** memoria semántica `sqlite-vec` (recuperación híbrida), las 5 specs de Omarchy (`aep_ctl`, crash routing, man-pages vectorizer, headless display, hub+Codex), modelo de privilegio de dos niveles (FULL/DIMINISHED) con manifiesto auto-descriptivo `aep_capabilities`, y auto-plug del MCP (`aep-sync.sh` + launcher estable). Servidor MCP: **9 → 15 tools**.

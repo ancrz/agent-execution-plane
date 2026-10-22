@@ -348,10 +348,16 @@ Para preservar la máxima integridad y transparencia epistemológica, este cuadr
 | **Sliver C2** | Framework C2 completo (daemon gRPC, mTLS). | **Primitiva extraída mediante RE.** No se instaló el framework. | Usamos directamente la syscall `os.memfd_create` nativa de Linux en Python 3 para inyectar binarios Go en RAM. Se eliminó el 95% del peso muerto de ataque. |
 | **Pico-Jenkins / Pico-Ansible** | Jenkins / Ansible tradicionales. | **100% Operativo y Nativo.** | Compilación Go estática en 200 ms (`go build`), contratos CUE y catálogo SQLite en `~/.local/share/agent-os/artifacts.db`. |
 | **Bubblewrap (`bwrap`)** | Sandboxing efímero de procesos. | **100% Operativo y Verificado.** | Binario nativo `/usr/bin/bwrap` expuesto mediante `sandbox_run` en `server.py`. |
-| **bpftrace (eBPF)** | Observabilidad de kernel. | **Binario Instalado.** | `/usr/bin/bpftrace` existe físicamente; pendiente script `.bt` cableado en el servidor MCP. |
-| **Pueue (`pueued`)** | Colas asíncronas de subprocesos. | **Pendiente de binario.** | El código en `server.py` y `~/.zshenv` lo invoca, pero falta el binario estático en `~/.local/bin/pueued`. |
-| **Nushell (`nu`) / `jc`** | Parsing JSON de shell. | **Pendiente de binario / pip.** | Los wrappers en `~/.zshenv` están listos; falta instalar `jc` vía pip y el binario de `nu`. |
-| **Seeding Multi-Agente** | Registro en interfaces de IA. | **100% Operativo y Registrado.** | El servidor `agent-execution-plane` está registrado en **Claude Code**, **Antigravity (`agy`)** y **ChatGPT Codex**. |
+| **bpftrace (eBPF)** | Observabilidad de kernel. | **Operativo (nivel FULL).** | Cableado como tool `kernel_trace` (modos syscall_count/file_opens/tcp_connect). Requiere privilegio: auto-escala vía `sudo -n`; sin él degrada a `DIMINISHED`. |
+| **Pueue (`pueued`)** | Colas asíncronas de subprocesos. | **100% Operativo.** | Binario estático musl 4.0.4 en `~/.local/bin` (espacio de usuario, sin sudo). `async_job_dispatch`/`async_job_inspect` verificados end-to-end. |
+| **Memoria semántica (`sqlite-vec`)** | Catálogo por hash estricto. | **100% Operativo.** | Recuperación híbrida 2-tier (hash O(1) + KNN coseno 384-dim, `bge-small-en-v1.5` ONNX offline). Umbral 0.32 calibrado. Fail-soft a solo-hash. |
+| **Omarchy (5 specs)** | Patrones acoplados a Arch/Hyprland. | **100% Operativo.** | `aep_ctl` (OM-1), `check_crash_alerts` (OM-2), hub de skills + Codex (OM-3), `query_system_docs` (OM-4), `visual_inspect` headless (OM-5). |
+| **Modelo de privilegio** | — (no proyectado). | **100% Operativo.** | Niveles FULL/DIMINISHED (`engine/privilege.py`), escalada `sudo -n` acotada, manifiesto auto-descriptivo `aep_capabilities` (códigos estilo chmod). |
+| **Auto-plug MCP** | Registro manual. | **100% Operativo.** | Launcher estable + `aep-sync.sh` (valida y solo entonces re-registra; `--watch` por inotify). `setup.sh` delega aquí. |
+| **Nushell (`nu`) / `jc`** | Parsing JSON de shell. | **Pendiente (único gap real).** | Los wrappers en `~/.zshenv` están listos; falta instalar `jc` vía pip y el binario de `nu`. No crítico: `aep_ctl` cubre la salida JSON tipada del sistema. |
+| **Seeding Multi-Agente** | Registro en interfaces de IA. | **100% Operativo y Registrado.** | Vía `aep-sync.sh` en **Claude Code**, **Antigravity (`agy`)** y **ChatGPT Codex**, apuntando al launcher estable. |
+
+> **Nota de estado (actualizada):** el servidor MCP expone **15 tools**. Todas las primitivas descompuestas (RAM exec, sandbox, eBPF, introspección, forense, async) y las 5 specs de Omarchy están implementadas y probadas end-to-end. El único gap físico restante es `nu`/`jc` (no crítico). Las capacidades `kernel_observability` y `service_control` requieren nivel **FULL**; el resto opera en **DIMINISHED**.
 
 ---
 

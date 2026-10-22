@@ -38,6 +38,11 @@ ln -sfn "$HOME/.agents/skills" "$HOME/.gemini/skills/shared"
 ln -sfn "$HOME/.agents/skills" "$HOME/.codex/skills/shared"
 log_success "Estructura de directorios y Hub de Skills configurados."
 
+# Hook pre-commit tracked (valida el server antes de cada commit).
+git -C "$PROJECT_ROOT" config core.hooksPath scripts/hooks 2>/dev/null \
+    && chmod +x "$PROJECT_ROOT/scripts/hooks/pre-commit" 2>/dev/null \
+    && log_success "Hook pre-commit instalado (core.hooksPath=scripts/hooks)." || true
+
 # 1.5. Provisionamiento del entorno semántico (venv aislado + sqlite-vec + fastembed)
 # FAIL-SOFT: si algo falla, el catálogo opera en modo solo-hash sin romperse.
 log_step "Provisionando entorno semántico (venv + sqlite-vec + fastembed)..."
