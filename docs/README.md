@@ -2,6 +2,21 @@
 
 Este directorio alberga la especificación canónica, la justificación arquitectónica y los análisis de fuente de la verdad que rigen el proyecto **Agent Execution Plane (AEP)**.
 
+```mermaid
+flowchart TD
+    subgraph DocsMap["Mapa de Navegación Documental de AEP"]
+        D1["architecture.md<br/>(Fundación: Camino A + Camino B + Omarchy)"]
+        D2["spec_artifact_engine.md<br/>(Norma EAES-v1: Go + CUE + SQLite)"]
+        D3["re_sdd_and_gap_analysis.md<br/>(Auditoría de Verdad + Matriz de Inspiración)"]
+        D4["pico_abstractions_and_omissions.md<br/>(Tríada Pico + 6 Primitivas Ofensivas)"]
+
+        D1 -->|Formalizado por| D2
+        D1 -->|Auditado por| D3
+        D2 -->|Ampliación Conceptual| D4
+        D3 -->|Transmutación Ofensiva| D4
+    end
+```
+
 ---
 
 ## Documentos Disponibles

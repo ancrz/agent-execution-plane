@@ -80,25 +80,38 @@ Para evitar duplicar lo que Omarchy ya demostró que funciona, combinaremos **3 
 
 ### 4.1. Arquitectura del Servidor MCP a Construir
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                   AGENTE DE IA (Claude Code / OpenCode / Cursor)        │
-└───────────────┬─────────────────────────────────────────┬───────────────┘
-                │ 1. Subprocesos Nativos (Shell)          │ 2. Protocolo MCP (stdio/SSE)
-                ▼                                         ▼
-┌───────────────────────────────────────┐ ┌───────────────────────────────────────┐
-│ CAPA DE HERENCIA (~/.zshenv + Skills) │ │ SERVIDOR FASTMCP (OmniShell-C2-MCP)   │
-│ • Variables anti-bloqueo (PAGER=cat)  │ │ • Escrito en Python 3 + uv + Pydantic │
-│ • Symlink Hub de Skills (Omarchy Way) │ └───────┬───────────────┬───────────────┘
-│ • CLI unificado: `sysctl-ai`          │         │               │
-└───────────────┬───────────────────────┘         │ gRPC (mTLS)   │ JSON IPC / CLI
-                │                                 ▼               ▼
-                │                         ┌───────────────┐ ┌─────────────────────┐
-                └────────────────────────►│ CAMINO A:     │ │ CAMINO B + OMARCHY: │
-                                          │ Sliver Daemon │ │ • Pueue Daemon      │
-                                          │ + Local       │ │ • Nushell / jc      │
-                                          │   Session     │ │ • systemd-coredump  │
-                                          └───────────────┘ └─────────────────────┘
+```mermaid
+flowchart TD
+    subgraph AgentLayer["Agente de IA (Claude Code / OpenCode / Antigravity / Cursor)"]
+        A["Agente Autónomo de IA"]
+    end
+
+    subgraph Layer1["Capa de Herencia (~/.zshenv + Skills Hub)"]
+        H1["Variables anti-bloqueo (PAGER=cat)"]
+        H2["Symlink Hub de Skills (Omarchy Way)"]
+        H3["CLI unificado: sysctl-ai"]
+    end
+
+    subgraph LayerMCP["Servidor FastMCP (OmniShell-C2-MCP)"]
+        M1["FastMCP Engine (Python 3 + Pydantic + Catalog)"]
+    end
+
+    subgraph BackendA["Camino A: Inyección de Memoria y C2"]
+        S1["Sliver Daemon / memfd_create en RAM"]
+        S2["Inspección vía Protobuf / gRPC"]
+    end
+
+    subgraph BackendB["Camino B + Patrones Omarchy"]
+        B1["Pueue Daemon (Colas Asíncronas)"]
+        B2["Nushell / jc (Salidas Tipadas)"]
+        B3["systemd-coredump (Forense de Fallos)"]
+    end
+
+    A -->|1. Subprocesos Nativos (Shell)| Layer1
+    A -->|2. Protocolo MCP (stdio/SSE)| LayerMCP
+    Layer1 --> BackendA
+    LayerMCP -->|gRPC / memfd| BackendA
+    LayerMCP -->|JSON IPC / CLI| BackendB
 ```
 
 ### 4.2. Catálogo de Herramientas (Tools) del Servidor MCP

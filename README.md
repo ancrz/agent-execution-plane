@@ -220,6 +220,48 @@ flowchart TD
 
 ---
 
+## 5.1. Flujo de Ejecución: Pruebas en Memoria vs. Despacho Asíncrono
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Agent as Agente de IA
+    participant MCP as Servidor FastMCP (AEP)
+    participant Engine as Artifact Engine (SQLite + Go)
+    participant Sliver as Inyector RAM (memfd_create)
+    participant Pueue as Pueue Daemon (Async)
+    participant Kernel as Linux Kernel (Ubuntu)
+
+    Note over Agent,Kernel: Flujo 1: Resolución y Ejecución en Memoria RAM (< 300ms)
+    Agent->>MCP: artifact_query(intent="inspect_tcp_sockets")
+    MCP->>Engine: Consultar DB por intent_hash
+    alt Artefacto en Caché con SuccessRate >= 0.85
+        Engine-->>MCP: Retornar binario pre-compilado
+    else Artefacto no existe
+        Engine->>Engine: Instanciar tpl_socket_monitor.go + CUE vet
+        Engine->>Engine: Validar con go vet / golangci-lint
+        Engine->>Engine: go build estático (CGO_ENABLED=0)
+    end
+    MCP->>Sliver: Inyectar binario vía os.memfd_create
+    Sliver->>Kernel: syscall fexecve()
+    Kernel-->>Sliver: Retorno estructurado (exit_code, stdout JSON)
+    Sliver-->>MCP: Parseo JSON tipado
+    MCP->>Engine: Registrar métrica de ejecución (latencia, exit_code)
+    MCP-->>Agent: JSON Tipado {total_sockets: 55, sockets: [...]}
+
+    Note over Agent,Kernel: Flujo 2: Tarea Larga Asíncrona (Compilación / Test Suite)
+    Agent->>MCP: async_job_dispatch(command="cargo test", group="heavy")
+    MCP->>Pueue: pueue add --print-task-id
+    Pueue-->>MCP: task_id: 104
+    MCP-->>Agent: {"status": "queued", "task_id": 104}
+    Note over Agent: El agente continúa su razonamiento sin congelarse
+    Agent->>MCP: async_job_inspect(task_id=104)
+    MCP->>Pueue: pueue log 104 --json
+    Pueue-->>Agent: Salida estructurada de la prueba
+```
+
+---
+
 ## 6. Catálogo de Herramientas del Servidor FastMCP (`server.py`)
 
 El servidor FastMCP expone **9 herramientas deterministas** para control y ejecución de sistema:
@@ -311,5 +353,33 @@ Mediante **Reverse Engineering as Specification-Driven Development (RE as SDD)**
 * **`termux-linux-deployer`:** Inspiró el patrón de **seeding idempotente multi-agente** (Claude Code, agy, Codex) y el enfoque de despliegue en espacio de usuario (`~/.local/bin`) sin requerir privilegios de root.
 * **`openclaw`:** Inspiró la cultura de **especificaciones rigurosas y contratos declarativos** antes de escribir código (`AGENTS.md`, esquemas CUE).
 * **`sdk-agent-pipeline`:** Inspiró la disciplina de **Topos DAG Integrity** y el guardián de circuitos (`ToposGuard`) para auditar y prevenir co-dependencias circulares ($A \otimes B$).
+
+```mermaid
+flowchart LR
+    subgraph OffensiveTools["Técnica Ofensiva Original"]
+        O1["BOF / COFF Loaders en RAM (Cobalt Strike / Sliver)"]
+        O2["Malleable C2 Profiles (Formateo de canal)"]
+        O3["Beaconing & Sleep Jitter (Check-in periódico)"]
+        O4["Process Hollowing / Live Thread Injection"]
+        O5["BloodHound Attack Paths (Teoría de grafos)"]
+        O6["Chisel SOCKS5 Pivoting"]
+    end
+
+    subgraph AgenticTransmutation["Transmutación Agéntica en AEP"]
+        T1["Pico-BOF: Objetos .o en RAM (Latencia sub-5ms)"]
+        T2["Perfiles Maleables de Tokens (JSON vs Protobuf)"]
+        T3["Dual-Mode Execution (Interactive RPC vs Beacon Worker)"]
+        T4["Process Rescue: Rescate no-invasivo de hilos colgados"]
+        T5["Topos Shortest Remediation Path (Algoritmo de grafos)"]
+        T6["Malla Efímera de Pruebas Multi-Servicio (veth)"]
+    end
+
+    O1 --> T1
+    O2 --> T2
+    O3 --> T3
+    O4 --> T4
+    O5 --> T5
+    O6 --> T6
+```
 
 > Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md) y la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md).
