@@ -7,6 +7,7 @@ asynchronous job queues (Pueue), crash forensics, and Topos DAG auditing to AI a
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -17,14 +18,31 @@ from mcp.server.fastmcp import FastMCP
 from engine.catalog import ArtifactCatalog
 from engine.hydrator import TemplateHydrator
 from engine.topos_guard import ToposGuard, ToposVerdict
+from engine.crash_router import CrashRouter
+from engine import headless_display
 
 mcp = FastMCP("Agent-Execution-Plane")
 catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
+crash_router = CrashRouter()
+
+# docs_vectorizer se instancia perezosamente (SPEC-OM-4): no crear system_docs.db al arrancar.
+_docs_vectorizer = None
+
+
+def _get_docs_vectorizer():
+    global _docs_vectorizer
+    if _docs_vectorizer is None:
+        from engine.docs_vectorizer import ManPagesVectorizer
+
+        _docs_vectorizer = ManPagesVectorizer()
+    return _docs_vectorizer
+
 
 # Rutas base
 PROJECT_DIR = Path(__file__).resolve().parent
 TEMP_BIN_DIR = Path.home() / ".local" / "share" / "agent-os" / "bin"
+AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -45,7 +63,7 @@ def artifact_query(intent: str, category: str) -> str:
     [PICO-ANSIBLE / CATALOG] Consulta en SQLite si ya existe un artefacto validado
     para la intención solicitada. Si existe con alta tasa de éxito, lo retorna para reuso.
     """
-    hit = catalog.find_by_intent(intent, category)
+    hit = catalog.find_hybrid(intent, category)
     if hit:
         return json.dumps(
             {
@@ -56,6 +74,9 @@ def artifact_query(intent: str, category: str) -> str:
                 "version": hit["version"],
                 "success_rate": hit["success_rate"],
                 "execution_count": hit["execution_count"],
+                # Campos aditivos (no rompen consumidores previos):
+                "retrieval_mode": hit.get("retrieval_mode", "exact_hash"),
+                "semantic_distance": hit.get("semantic_distance"),
             },
             indent=2,
         )
@@ -64,6 +85,7 @@ def artifact_query(intent: str, category: str) -> str:
             "status": "CACHE_MISS",
             "message": "No se encontró artefacto en caché. Proceder a hidratar o sintetizar.",
             "available_templates": hydrator.list_available_templates(),
+            "semantic_available": catalog._vec_available,
         },
         indent=2,
     )
@@ -107,6 +129,20 @@ def artifact_lint_and_build(
                 indent=2,
             )
 
+        # 1.5. golangci-lint ADVISORY (no bloqueante). go vet sigue siendo el gate duro.
+        lint_warnings: List[str] = []
+        try:
+            gcl = subprocess.run(
+                ["golangci-lint", "run", str(src_file)],
+                capture_output=True, text=True, cwd=tmpdir, timeout=30,
+            )
+            if gcl.returncode != 0:
+                out = (gcl.stdout or gcl.stderr or "").strip()
+                if out:
+                    lint_warnings = out.splitlines()[:20]
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            lint_warnings = []  # golangci-lint ausente/fallo -> degradado a solo go vet
+
         # 2. Compilación estática pura (CGO_ENABLED=0)
         start_time = time.time()
         env = os.environ.copy()
@@ -146,6 +182,7 @@ def artifact_lint_and_build(
                 "binary_path": str(bin_file),
                 "binary_size_bytes": len(binary_bytes),
                 "compile_time_ms": compile_latency_ms,
+                "lint_warnings": lint_warnings,  # advisory golangci-lint (no bloqueó la build)
             },
             indent=2,
         )
@@ -254,36 +291,44 @@ def diagnose_system_crashes(limit: int = 5) -> str:
     [OMARCHY PATTERN] Inspecciona volcados de memoria recientes (systemd-coredump)
     y errores críticos de journald en formato JSON para auto-diagnóstico estructurado.
     """
-    coredumps_raw = subprocess.run(
-        ["coredumpctl", "list", "--json=short", "-n", str(limit)],
-        capture_output=True,
-        text=True,
-    )
-    journal_errs = subprocess.run(
-        ["journalctl", "-p", "err", "-n", str(limit), "-o", "json"],
-        capture_output=True,
-        text=True,
-    )
+    # FAIL-SOFT: en hosts sin systemd-coredump/journald (contenedores, no-systemd) los
+    # binarios pueden faltar. Devolvemos JSON tipado degradado, nunca una excepción.
+    def _safe_run(cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True)
+        except FileNotFoundError:
+            return None
 
+    unavailable = []
+
+    coredumps_raw = _safe_run(["coredumpctl", "list", "--json=short", "-n", str(limit)])
     recent_coredumps = []
-    if coredumps_raw.returncode == 0 and coredumps_raw.stdout.strip():
+    if coredumps_raw is None:
+        unavailable.append("coredumpctl")
+    elif coredumps_raw.returncode == 0 and coredumps_raw.stdout.strip():
         try:
             recent_coredumps = json.loads(coredumps_raw.stdout)
         except Exception:
             pass
 
+    journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(limit), "-o", "json"])
     recent_errors = []
-    for line in journal_errs.stdout.splitlines():
-        if line.strip():
-            try:
-                recent_errors.append(json.loads(line))
-            except Exception:
-                pass
+    if journal_errs is None:
+        unavailable.append("journalctl")
+    else:
+        for line in journal_errs.stdout.splitlines():
+            if line.strip():
+                try:
+                    recent_errors.append(json.loads(line))
+                except Exception:
+                    pass
 
     return json.dumps(
         {
+            "status": "DEGRADED" if unavailable else "OK",
             "recent_coredumps": recent_coredumps,
             "recent_systemd_errors": recent_errors,
+            "unavailable_sources": unavailable,
         },
         indent=2,
     )
@@ -323,6 +368,129 @@ def sandbox_run(command: str, share_net: bool = True) -> str:
         )
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def aep_ctl(domain: str, action: str, name: Optional[str] = None) -> str:
+    """
+    [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
+    domain: service|network|storage|package. Salida JSON tipada, no-interactiva.
+    Ej: aep_ctl("network","listeners") | aep_ctl("package","check","nginx").
+    """
+    if not AEP_CTL.exists():
+        return json.dumps({"status": "ERROR", "error": f"aep-ctl no encontrado en {AEP_CTL}"}, indent=2)
+    cmd = ["python3", str(AEP_CTL), domain, action]
+    if name:
+        cmd.append(name)
+    cmd.append("--json")
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return res.stdout.strip() or json.dumps(
+            {"status": "ERROR", "stderr": res.stderr.strip()}, indent=2
+        )
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def check_crash_alerts(resolve_after_report: bool = False) -> str:
+    """
+    [SPEC-OM-2 / PROACTIVE CRASH ROUTING] Enrutador proactivo de fallos: diffea los
+    coredumps recientes contra el catálogo y entrega los nuevos tickets estructurados
+    antes de que el agente actúe. Complementa (no reemplaza) diagnose_system_crashes.
+    """
+    try:
+        return json.dumps(crash_router.check(resolve_after_report), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def query_system_docs(query: str, limit: int = 3, ingest_command: Optional[str] = None) -> str:
+    """
+    [SPEC-OM-4 / DOCS VECTORIZER] Memoria semántica local de man-pages (sqlite-vec).
+    Devuelve la sintaxis exacta de herramientas del sistema sin alucinar ni navegar la web.
+    `ingest_command`: ingiere la man-page de un comando extra on-demand antes de consultar.
+    """
+    try:
+        dv = _get_docs_vectorizer()
+        if ingest_command:
+            dv.ingest_command(ingest_command)
+        return json.dumps(dv.query(query, limit), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def visual_inspect(
+    url: str,
+    viewport_width: int = 1280,
+    viewport_height: int = 800,
+    selector: Optional[str] = None,
+    full_page: bool = True,
+) -> str:
+    """
+    [SPEC-OM-5 / HEADLESS DISPLAY] Renderiza una URL (http(s):// o file://) en Chromium
+    headless y captura un screenshot en RAM (/dev/shm), devuelto en base64. Para validar
+    layouts/UI en servidores sin pantalla. FAIL-SOFT si no hay navegador.
+    """
+    try:
+        return json.dumps(
+            headless_display.visual_inspect(
+                url, viewport_width, viewport_height, selector, full_page
+            ),
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+_BPFTRACE_MODES = {
+    # eBPF (rootkit/sniffer ofensivo) -> observabilidad de kernel no-invasiva.
+    "syscall_count": "tracepoint:raw_syscalls:sys_enter {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "file_opens": "tracepoint:syscall:sys_enter_openat {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "tcp_connect": "kprobe:tcp_connect {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+}
+
+
+@mcp.tool()
+def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
+    """
+    [eBPF / KERNEL OBSERVABILITY] Telemetría de kernel no-invasiva vía bpftrace.
+    modes: syscall_count | file_opens | tcp_connect. Muestrea `duration_sec` y auto-sale.
+    FAIL-SOFT: sin bpftrace o sin privilegios (CAP_BPF/root) devuelve DEGRADED, no explota.
+    """
+    if mode not in _BPFTRACE_MODES:
+        return json.dumps({"status": "ERROR", "error": f"mode inválido: {mode}",
+                           "valid": list(_BPFTRACE_MODES)}, indent=2)
+    if not Path("/usr/bin/bpftrace").exists() and not shutil.which("bpftrace"):
+        return json.dumps({"status": "DEGRADED", "message": "bpftrace no instalado."}, indent=2)
+    script = _BPFTRACE_MODES[mode].format(d=max(1, min(duration_sec, 30)))
+    try:
+        res = subprocess.run(
+            ["bpftrace", "-f", "json", "-e", script],
+            capture_output=True, text=True, timeout=max(5, duration_sec + 10),
+        )
+        if res.returncode != 0:
+            return json.dumps({
+                "status": "DEGRADED",
+                "message": "bpftrace requiere privilegios (CAP_BPF/root) en este host.",
+                "stderr": res.stderr.strip()[:300],
+            }, indent=2)
+        counts = {}
+        for line in res.stdout.splitlines():
+            try:
+                obj = json.loads(line)
+                if obj.get("type") == "map":
+                    for _, m in obj.get("data", {}).items():
+                        if isinstance(m, dict):
+                            counts.update(m)
+            except Exception:
+                pass
+        return json.dumps({"status": "OK", "mode": mode, "duration_sec": duration_sec,
+                           "counts": counts}, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "DEGRADED", "error": str(e)}, indent=2)
 
 
 if __name__ == "__main__":

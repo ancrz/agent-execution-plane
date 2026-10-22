@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""
+aep-ctl — Unified System Control Plane (SPEC-OM-1)
+
+Punto de entrada CLI determinista para que un agente de IA controle el sistema sin
+"adivinar" rutas de /etc ni flags. Garantías:
+  1. Autodocumentación: `--schema` devuelve el contrato JSON de cada dominio.
+  2. Determinismo: toda salida es JSON (sin ANSI, sin paginadores).
+  3. No-interactividad: si falta un parámetro, sale con exit 1 y un JSON de remediación.
+
+Sin dependencias externas (stdlib). Lecturas sin sudo; las mutaciones usan el scope
+de usuario de systemd (`systemctl --user`) para no requerir privilegios.
+"""
+
+import json
+import shutil
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional
+
+SCHEMA: Dict[str, Any] = {
+    "service": {"actions": ["status", "start", "stop", "restart"], "arg": "<name>", "scope": "systemd --user"},
+    "network": {"actions": ["inspect", "routes", "listeners"], "arg": None},
+    "storage": {"actions": ["usage", "mounts", "disks"], "arg": None},
+    "package": {"actions": ["installed", "check", "info"], "arg": "<name>"},
+}
+
+
+def emit(obj: Any, code: int = 0) -> None:
+    print(json.dumps(obj, indent=2))
+    sys.exit(code)
+
+
+def fail(message: str, **extra: Any) -> None:
+    emit({"status": "ERROR", "exit_code": 1, "message": message, **extra}, code=1)
+
+
+def _run(cmd: List[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _need(bin_name: str) -> Optional[str]:
+    return shutil.which(bin_name)
+
+
+# ------------------------------------------------------------------ dominios
+def domain_service(action: str, name: Optional[str]) -> Any:
+    if not name:
+        fail("Falta <name> del servicio.", usage="aep-ctl service <action> <name> --json")
+    if not _need("systemctl"):
+        return {"status": "DEGRADED", "message": "systemctl no disponible en este host."}
+    if action == "status":
+        r = _run(["systemctl", "--user", "show", name,
+                  "--property=ActiveState,SubState,LoadState,MainPID,UnitFileState"])
+        props = dict(
+            line.split("=", 1) for line in r.stdout.splitlines() if "=" in line
+        )
+        return {"status": "OK", "service": name, "properties": props}
+    # mutaciones en scope de usuario (sin sudo)
+    r = _run(["systemctl", "--user", action, name])
+    return {
+        "status": "OK" if r.returncode == 0 else "FAILED",
+        "service": name, "action": action, "exit_code": r.returncode,
+        "stderr": r.stderr.strip() or None,
+    }
+
+
+def domain_network(action: str) -> Any:
+    if action == "listeners":
+        if not _need("ss"):
+            return {"status": "DEGRADED", "message": "ss no disponible."}
+        r = _run(["ss", "-tulnH"])
+        listeners = []
+        for ln in r.stdout.splitlines():
+            parts = ln.split()
+            if len(parts) >= 5:
+                listeners.append({"proto": parts[0], "state": parts[1], "local": parts[4]})
+        return {"status": "OK", "count": len(listeners), "listeners": listeners}
+    if action == "routes":
+        if not _need("ip"):
+            return {"status": "DEGRADED", "message": "ip no disponible."}
+        r = _run(["ip", "-j", "route"])
+        try:
+            return {"status": "OK", "routes": json.loads(r.stdout or "[]")}
+        except Exception:
+            return {"status": "OK", "routes_raw": r.stdout.strip()}
+    if action == "inspect":
+        if not _need("ip"):
+            return {"status": "DEGRADED", "message": "ip no disponible."}
+        r = _run(["ip", "-j", "addr"])
+        try:
+            return {"status": "OK", "interfaces": json.loads(r.stdout or "[]")}
+        except Exception:
+            return {"status": "OK", "interfaces_raw": r.stdout.strip()}
+    fail(f"Acción de network desconocida: {action}", valid=SCHEMA["network"]["actions"])
+
+
+def domain_storage(action: str) -> Any:
+    if action == "usage":
+        r = _run(["df", "-B1", "--output=source,target,size,used,avail,pcent"])
+        rows = []
+        for ln in r.stdout.splitlines()[1:]:
+            p = ln.split()
+            if len(p) >= 6:
+                rows.append({"source": p[0], "mount": p[1], "size": int(p[2]),
+                             "used": int(p[3]), "avail": int(p[4]), "use_pct": p[5]})
+        return {"status": "OK", "filesystems": rows}
+    if action == "mounts":
+        if _need("findmnt"):
+            r = _run(["findmnt", "-J"])
+            try:
+                return {"status": "OK", **json.loads(r.stdout or "{}")}
+            except Exception:
+                pass
+        return {"status": "DEGRADED", "message": "findmnt no disponible."}
+    if action == "disks":
+        if _need("lsblk"):
+            r = _run(["lsblk", "-J", "-o", "NAME,SIZE,TYPE,MOUNTPOINT"])
+            try:
+                return {"status": "OK", **json.loads(r.stdout or "{}")}
+            except Exception:
+                pass
+        return {"status": "DEGRADED", "message": "lsblk no disponible."}
+    fail(f"Acción de storage desconocida: {action}", valid=SCHEMA["storage"]["actions"])
+
+
+def domain_package(action: str, name: Optional[str]) -> Any:
+    if not _need("dpkg-query"):
+        return {"status": "DEGRADED", "message": "dpkg-query no disponible (¿no es Debian/Ubuntu?)."}
+    if action == "installed":
+        r = _run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Status}\n"])
+        pkgs = []
+        for ln in r.stdout.splitlines():
+            parts = ln.split("\t")
+            if len(parts) == 3 and parts[2].startswith("install ok"):
+                pkgs.append({"name": parts[0], "version": parts[1]})
+        return {"status": "OK", "count": len(pkgs), "packages": pkgs[:500]}
+    if not name:
+        fail("Falta <name> del paquete.", usage=f"aep-ctl package {action} <name> --json")
+    if action == "check":
+        r = _run(["dpkg-query", "-W", "-f=${Status}", name])
+        installed = r.returncode == 0 and "install ok installed" in r.stdout
+        return {"status": "OK", "package": name, "installed": installed}
+    if action == "info":
+        r = _run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Architecture}\t${Installed-Size}", name])
+        if r.returncode != 0:
+            return {"status": "OK", "package": name, "installed": False}
+        p = r.stdout.split("\t")
+        return {"status": "OK", "package": p[0], "version": p[1],
+                "arch": p[2] if len(p) > 2 else None}
+    fail(f"Acción de package desconocida: {action}", valid=SCHEMA["package"]["actions"])
+
+
+DOMAINS = {
+    "service": lambda a, n: domain_service(a, n),
+    "network": lambda a, n: domain_network(a),
+    "storage": lambda a, n: domain_storage(a),
+    "package": lambda a, n: domain_package(a, n),
+}
+
+
+def main(argv: List[str]) -> None:
+    args = [a for a in argv if a != "--json"]  # --json es el default; lo aceptamos y lo ignoramos
+    if "--schema" in args or not args:
+        emit({"status": "OK", "tool": "aep-ctl", "domains": SCHEMA})
+    domain = args[0]
+    if domain not in DOMAINS:
+        fail(f"Dominio desconocido: {domain}", valid=list(SCHEMA.keys()))
+    action = args[1] if len(args) > 1 else None
+    name = args[2] if len(args) > 2 else None
+    if not action or action not in SCHEMA[domain]["actions"]:
+        fail(f"Acción inválida para {domain}: {action}", valid=SCHEMA[domain]["actions"])
+    emit(DOMAINS[domain](action, name))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
