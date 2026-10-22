@@ -317,7 +317,8 @@ agent-execution-plane/
 │   ├── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
 │   ├── re_sdd_and_gap_analysis.md  # Auditoría sincera de la verdad, RE y matriz de inspiración
 │   ├── pico_abstractions_and_omissions.md # Deconstrucción de Pico-Claw/Ansible/Jenkins y 6 features C2
-│   └── sqlite_vec_hybrid_retrieval.md     # Búsqueda híbrida semántica en 2 pasos con sqlite-vec
+│   ├── sqlite_vec_hybrid_retrieval.md     # Búsqueda híbrida semántica en 2 pasos con sqlite-vec
+│   └── omarchy_specs_decomposition.md     # Descomposición de Omarchy en 5 specs agnósticas
 ├── engine/
 │   ├── __init__.py
 │   ├── catalog.py                  # Gestor SQLite de artefactos, intent hashing y telemetría
@@ -396,4 +397,4 @@ flowchart LR
     O6 --> T6
 ```
 
-> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md), la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md) y la arquitectura de búsqueda vectorial en [docs/sqlite_vec_hybrid_retrieval.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/sqlite_vec_hybrid_retrieval.md).
+> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md), la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md), la arquitectura de búsqueda vectorial en [docs/sqlite_vec_hybrid_retrieval.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/sqlite_vec_hybrid_retrieval.md) y la descomposición agnóstica de Omarchy en [docs/omarchy_specs_decomposition.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/omarchy_specs_decomposition.md).

@@ -10,6 +10,7 @@ flowchart TD
         D3["re_sdd_and_gap_analysis.md<br/>(Auditoría de Verdad + Matriz de Inspiración)"]
         D4["pico_abstractions_and_omissions.md<br/>(Tríada Pico + 6 Primitivas Ofensivas)"]
         D5["sqlite_vec_hybrid_retrieval.md<br/>(Búsqueda Híbrida Semántica + sqlite-vec)"]
+        D6["omarchy_specs_decomposition.md<br/>(Deconstrucción Omarchy: 5 Specs Agnósticas)"]
 
         D1 -->|Formalizado por| D2
         D1 -->|Auditado por| D3
@@ -17,6 +18,8 @@ flowchart TD
         D3 -->|Transmutación Ofensiva| D4
         D2 -->|Evolución Semántica| D5
         D4 -->|Memoria Evolutiva| D5
+        D1 -->|Deconstruido en Specs| D6
+        D6 -->|Integración Vectorial| D5
     end
 ```
 
@@ -60,3 +63,14 @@ flowchart TD
   * **Patrón de Búsqueda Híbrida en 2 Pasos:** Paso 1 (Descubrimiento difuso por similitud coseno) $\to$ Paso 2 (Recuperación determinista ACID de CUE y binarios Go).
   * **Inferencia Local en CPU:** Uso de ONNX Runtime (`all-MiniLM-L6-v2`) con cero costo de API y privacidad 100% offline.
   * **Esquema DDL Híbrido:** Tabla relacional `artifacts` + tabla virtual `vec_artifacts USING vec0`.
+
+### 6. [omarchy_specs_decomposition.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/omarchy_specs_decomposition.md)
+* **Título:** Descomposición de Mejoras de Omarchy como Especificaciones Agnósticas (Specs / SDD) para Ubuntu
+* **Propósito:** Deconstrucción modular de las innovaciones del sistema operativo para agentes de Omarchy (Arch/Hyprland) transformadas en 5 especificaciones agnósticas de distribución y hardware visual.
+* **Contenido clave:**
+  * **SPEC-OM-1:** Unified System Control Plane (`aep-ctl`) con flags `--json` y `--schema`.
+  * **SPEC-OM-2:** Active Crash Routing & Proactive Self-Healing con `systemd-coredump` y tickets automáticos.
+  * **SPEC-OM-3:** Universal Multi-Agent Skills Hub y protocolo de reconciliación simbiótica.
+  * **SPEC-OM-4:** Local System Documentation Vectorizer con `sqlite-vec` para manuales `man` de Ubuntu en < 5ms.
+  * **SPEC-OM-5:** Headless Visual & Display Actuator (Virtual Framebuffer efímero en RAM con Xvfb/cage).
+  * **Matriz de Conformidad Topos:** Clasificación ontológica demostrando cero co-dependencias ($A \otimes B$).
