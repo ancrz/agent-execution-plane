@@ -1,84 +1,179 @@
 """
 Engine: catalog.py
 Description: Gestor del Catálogo de Artefactos de AEP (SQLite + Memoria Evolutiva).
-Permite registrar contratos CUE, código fuente Go, métricas de éxito y consultar por intent_hash.
+
+Memoria híbrida en 2 tiers:
+  - Tier 1 (exacto, O(1)): hash SHA-256 de la intención -> B-Tree.
+  - Tier 2 (semántico): KNN coseno sobre sqlite-vec (vec0) con embeddings locales de 384-dim.
+
+Ambos tiers son FAIL-SOFT: si sqlite-vec o el embedder no están disponibles, el catálogo
+opera idénticamente al comportamiento previo (solo hash), sin romper ninguna llamada.
+
+Relación Topos: catalog.py -> embedder.py es dependencia unidireccional (A -> B). Sin ciclos.
 """
 
 import hashlib
-import json
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine.embedder import EMBEDDING_DIM, get_instance
+
+# Import fail-soft de sqlite-vec (extensión vectorial). Si falta, el tier semántico se desactiva.
+try:
+    import sqlite_vec
+except Exception:  # pragma: no cover
+    sqlite_vec = None
+
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
+
+# Umbral de distancia coseno calibrado empíricamente para bge-small-en-v1.5:
+# paráfrasis del mismo intent ~0.28-0.30; intents distintos >= 0.36. 0.32 deja margen.
+DEFAULT_SEMANTIC_THRESHOLD = 0.32
 
 
 class ArtifactCatalog:
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or DB_DEFAULT_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Estado de disponibilidad del tier vectorial: se fija UNA vez en _init_db y
+        # es de solo-lectura después (fix Ontos HF-2: _get_connection no lo reescribe).
+        self._vec_available = False
         self._init_db()
+
+    # ------------------------------------------------------------------ conexión
+    def _try_load_vec(self, conn: sqlite3.Connection) -> bool:
+        """Carga la extensión vec0 en ESTA conexión (las extensiones son por-conexión).
+        Silencioso y sin efectos secundarios sobre el estado de la instancia."""
+        if sqlite_vec is None:
+            return False
+        try:
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+            conn.enable_load_extension(False)
+            return True
+        except Exception:
+            return False
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # Carga por-conexión requerida para que vec_artifacts sea consultable.
+        # NO escribe self._vec_available (fix Ontos HF-2 / CF-2).
+        self._try_load_vec(conn)
         return conn
 
+    # ------------------------------------------------------------------ init/migración
     def _init_db(self):
         schema_path = Path(__file__).resolve().parent.parent / "schemas" / "database.sql"
         with self._get_connection() as conn:
             if schema_path.exists():
                 conn.executescript(schema_path.read_text())
             else:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS artifacts (
-                        id TEXT PRIMARY KEY,
-                        name TEXT NOT NULL UNIQUE,
-                        intent_hash TEXT NOT NULL,
-                        category TEXT NOT NULL,
-                        cue_contract TEXT NOT NULL,
-                        go_source TEXT NOT NULL,
-                        binary_blob BLOB,
-                        binary_hash TEXT,
-                        version INTEGER NOT NULL DEFAULT 1,
-                        success_rate REAL NOT NULL DEFAULT 1.0,
-                        execution_count INTEGER NOT NULL DEFAULT 0,
-                        avg_latency_ms REAL NOT NULL DEFAULT 0.0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS execution_metrics (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        artifact_id TEXT NOT NULL,
-                        exit_code INTEGER NOT NULL,
-                        latency_ms REAL NOT NULL,
-                        memory_peak_kb INTEGER,
-                        error_message TEXT,
-                        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-                    );
-                """)
+                conn.executescript(_FALLBACK_SCHEMA)
+            self._migrate(conn)
+            # Disponibilidad del tier vectorial: decidida UNA sola vez aquí (fix CF-2).
+            self._vec_available = self._init_vec_table(conn)
             conn.commit()
 
+    def _migrate(self, conn: sqlite3.Connection):
+        """Migración idempotente en código (evita archivos SQL frágiles bajo set -e)."""
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(artifacts)")}
+        if "intent_description" not in cols:
+            conn.execute(
+                "ALTER TABLE artifacts ADD COLUMN intent_description TEXT NOT NULL DEFAULT ''"
+            )
+
+    def _init_vec_table(self, conn: sqlite3.Connection) -> bool:
+        """Crea la tabla virtual vec0 una sola vez. Devuelve True si el tier vectorial sirve."""
+        if sqlite_vec is None:
+            return False
+        try:
+            conn.execute("SELECT vec_version()").fetchone()  # confirma extensión cargada
+            # La dimensión es parte de la DDL del tipo de vec0 y NO puede ir como parámetro
+            # ligado. `dim` se fuerza a int desde una constante interna del módulo, por lo que
+            # no existe superficie de inyección (no hay entrada de usuario en esta cadena).
+            dim = int(EMBEDDING_DIM)
+            # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS vec_artifacts USING vec0("
+                f"artifact_id TEXT PRIMARY KEY, intent_embedding float[{dim}] distance_metric=cosine)"
+            )
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------ hashing
     @staticmethod
     def compute_intent_hash(intent: str, category: str) -> str:
         payload = f"{category.strip().lower()}::{intent.strip().lower()}"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
+    # ------------------------------------------------------------------ tier 1: hash exacto
     def find_by_intent(self, intent: str, category: str) -> Optional[Dict[str, Any]]:
         intent_hash = self.compute_intent_hash(intent, category)
         with self._get_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM artifacts WHERE intent_hash = ? AND success_rate >= 0.85 ORDER BY success_rate DESC, execution_count DESC LIMIT 1",
+                "SELECT * FROM artifacts WHERE intent_hash = ? AND success_rate >= 0.85 "
+                "ORDER BY success_rate DESC, execution_count DESC LIMIT 1",
                 (intent_hash,),
             ).fetchone()
             if row:
                 return dict(row)
         return None
 
+    # ------------------------------------------------------------------ tier 2: KNN semántico
+    def find_by_semantic(
+        self, intent: str, category: str, threshold: float = DEFAULT_SEMANTIC_THRESHOLD
+    ) -> Optional[Dict[str, Any]]:
+        if not self._vec_available or sqlite_vec is None:
+            return None
+        embedder = get_instance()
+        if not embedder.is_available:
+            return None
+        vec = embedder.embed(intent)
+        if vec is None:
+            return None
+        with self._get_connection() as conn:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT a.*, v.distance AS _distance
+                    FROM vec_artifacts v
+                    JOIN artifacts a ON a.id = v.artifact_id
+                    WHERE v.intent_embedding MATCH ? AND k = 10
+                    ORDER BY v.distance
+                    """,
+                    (sqlite_vec.serialize_float32(vec),),
+                ).fetchall()
+            except Exception:
+                return None
+        # Filtro en Python: categoría + umbral + tasa de éxito (la vtable KNN no admite
+        # restricciones extra fiables junto al MATCH).
+        for row in rows:
+            d = row["_distance"]
+            if d <= threshold and row["category"] == category and row["success_rate"] >= 0.85:
+                res = dict(row)
+                res.pop("_distance", None)
+                res["retrieval_mode"] = "semantic_knn"
+                res["semantic_distance"] = round(float(d), 4)
+                return res
+        return None
+
+    # ------------------------------------------------------------------ híbrido
+    def find_hybrid(
+        self, intent: str, category: str, threshold: float = DEFAULT_SEMANTIC_THRESHOLD
+    ) -> Optional[Dict[str, Any]]:
+        """Tier 1 (hash exacto, O(1)) y, si falla, Tier 2 (KNN semántico)."""
+        exact = self.find_by_intent(intent, category)
+        if exact:
+            exact["retrieval_mode"] = "exact_hash"
+            exact["semantic_distance"] = None
+            return exact
+        return self.find_by_semantic(intent, category, threshold)
+
+    # ------------------------------------------------------------------ registro
     def register_artifact(
         self,
         name: str,
@@ -87,41 +182,64 @@ class ArtifactCatalog:
         cue_contract: str,
         go_source: str,
         binary_blob: Optional[bytes] = None,
+        intent_description: str = "",
     ) -> str:
-        artifact_id = str(uuid.uuid4())
+        new_id = str(uuid.uuid4())
         intent_hash = self.compute_intent_hash(intent, category)
-        binary_hash = (
-            hashlib.sha256(binary_blob).hexdigest() if binary_blob else None
-        )
+        binary_hash = hashlib.sha256(binary_blob).hexdigest() if binary_blob else None
+        description = intent_description.strip() or intent.strip()
 
         with self._get_connection() as conn:
-            conn.execute(
+            # RETURNING id (SQLite >= 3.35) devuelve el id REAL de la fila, tanto en
+            # INSERT nuevo como en ON CONFLICT -> evita el UUID fantasma (fix Ontos CF-1).
+            row = conn.execute(
                 """
                 INSERT INTO artifacts (
-                    id, name, intent_hash, category, cue_contract, go_source, binary_blob, binary_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, name, intent_hash, category, cue_contract, go_source,
+                    binary_blob, binary_hash, intent_description
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
+                    intent_hash = excluded.intent_hash,
+                    category = excluded.category,
                     go_source = excluded.go_source,
                     cue_contract = excluded.cue_contract,
                     binary_blob = excluded.binary_blob,
                     binary_hash = excluded.binary_hash,
+                    intent_description = excluded.intent_description,
                     version = artifacts.version + 1,
                     updated_at = CURRENT_TIMESTAMP
+                RETURNING id
                 """,
                 (
-                    artifact_id,
-                    name,
-                    intent_hash,
-                    category,
-                    cue_contract,
-                    go_source,
-                    binary_blob,
-                    binary_hash,
+                    new_id, name, intent_hash, category, cue_contract, go_source,
+                    binary_blob, binary_hash, description,
                 ),
-            )
-            conn.commit()
-        return artifact_id
+            ).fetchone()
+            real_id = row["id"] if row else new_id
 
+            # Embedding en el tier vectorial. Falla aislada: nunca rompe el registro.
+            self._upsert_embedding(conn, real_id, description)
+            conn.commit()
+        return real_id
+
+    def _upsert_embedding(self, conn: sqlite3.Connection, artifact_id: str, text: str):
+        if not self._vec_available or sqlite_vec is None:
+            return
+        embedder = get_instance()
+        if not embedder.is_available:
+            return
+        vec = embedder.embed(text)
+        if vec is None:
+            return
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO vec_artifacts (artifact_id, intent_embedding) VALUES (?, ?)",
+                (artifact_id, sqlite_vec.serialize_float32(vec)),
+            )
+        except Exception:
+            pass  # el registro del artefacto ya está confirmado; el vector es best-effort
+
+    # ------------------------------------------------------------------ métricas
     def record_execution(
         self,
         artifact_id: str,
@@ -139,11 +257,9 @@ class ArtifactCatalog:
                 """,
                 (artifact_id, exit_code, latency_ms, memory_peak_kb, error_message),
             )
-
-            # Actualizar tasa de éxito y latencia promedio
             stats = conn.execute(
                 """
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     AVG(CASE WHEN exit_code = 0 THEN 1.0 ELSE 0.0 END) as success_rate,
                     AVG(latency_ms) as avg_latency
@@ -175,11 +291,45 @@ class ArtifactCatalog:
         with self._get_connection() as conn:
             if category:
                 rows = conn.execute(
-                    "SELECT id, name, category, version, success_rate, execution_count, avg_latency_ms, created_at FROM artifacts WHERE category = ? ORDER BY execution_count DESC",
+                    "SELECT id, name, category, version, success_rate, execution_count, "
+                    "avg_latency_ms, created_at FROM artifacts WHERE category = ? "
+                    "ORDER BY execution_count DESC",
                     (category,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT id, name, category, version, success_rate, execution_count, avg_latency_ms, created_at FROM artifacts ORDER BY execution_count DESC"
+                    "SELECT id, name, category, version, success_rate, execution_count, "
+                    "avg_latency_ms, created_at FROM artifacts ORDER BY execution_count DESC"
                 ).fetchall()
             return [dict(r) for r in rows]
+
+
+_FALLBACK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    intent_hash TEXT NOT NULL,
+    category TEXT NOT NULL,
+    cue_contract TEXT NOT NULL,
+    go_source TEXT NOT NULL,
+    binary_blob BLOB,
+    binary_hash TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    success_rate REAL NOT NULL DEFAULT 1.0,
+    execution_count INTEGER NOT NULL DEFAULT 0,
+    avg_latency_ms REAL NOT NULL DEFAULT 0.0,
+    intent_description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS execution_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_id TEXT NOT NULL,
+    exit_code INTEGER NOT NULL,
+    latency_ms REAL NOT NULL,
+    memory_peak_kb INTEGER,
+    error_message TEXT,
+    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+);
+"""

@@ -14,12 +14,17 @@ CREATE TABLE IF NOT EXISTS artifacts (
     success_rate REAL NOT NULL DEFAULT 1.0,    -- Tasa histórica de éxito [0.0 - 1.0]
     execution_count INTEGER NOT NULL DEFAULT 0,-- Total de ejecuciones registradas
     avg_latency_ms REAL NOT NULL DEFAULT 0.0,  -- Latencia promedio de ejecución
+    intent_description TEXT NOT NULL DEFAULT '', -- Texto en lenguaje natural (fuente del embedding semántico)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_intent ON artifacts(intent_hash);
 CREATE INDEX IF NOT EXISTS idx_artifacts_category ON artifacts(category);
+
+-- NOTA: la tabla virtual `vec_artifacts USING vec0(...)` NO se declara aquí: requiere que
+-- la extensión sqlite-vec esté cargada en la conexión primero, por lo que la crea en código
+-- `engine/catalog.py::_init_vec_table()`. El esquema relacional sigue siendo la fuente ACID.
 
 -- Registro de Métricas y Telemetría de Ejecución
 CREATE TABLE IF NOT EXISTS execution_metrics (
@@ -34,3 +39,17 @@ CREATE TABLE IF NOT EXISTS execution_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_artifact ON execution_metrics(artifact_id);
+
+-- SPEC-OM-2: Active Crash Routing. Dueño autoritativo del DDL de crash_events.
+-- engine/crash_router.py replica este CREATE IF NOT EXISTS como red de seguridad.
+CREATE TABLE IF NOT EXISTS crash_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,          -- de-duplicación (pid+timestamp+exe)
+    pid INTEGER,
+    signal TEXT,
+    executable TEXT,
+    event_timestamp TEXT,
+    coredump_info TEXT,                         -- JSON crudo de coredumpctl
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
