@@ -1,0 +1,30 @@
+# Normalización de fin de línea: LF en el repo para todo el texto.
+* text=auto eol=lf
+
+# Scripts ejecutables — SIEMPRE LF (un CRLF rompería el shebang en Linux).
+*.sh      text eol=lf
+scripts/aep-ctl text eol=lf
+*.py      text eol=lf diff=python
+*.go      text eol=lf diff=golang
+*.sql     text eol=lf
+*.cue     text eol=lf
+*.md      text eol=lf
+
+# Binarios: nunca normalizar ni intentar diff textual.
+*.db      binary
+*.so      binary
+*.png     binary
+*.jpg     binary
+*.pdf     binary
+# Binarios Go compilados (ELF) — por si alguno se rastrea por error.
+*.exe     binary
+
+# Hints de GitHub Linguist: no contar artefactos generados/plantillas como "código fuente".
+templates/*.go linguist-generated=false
+docs/**        linguist-documentation
+
+# export-ignore: excluir del tarball de `git archive` lo que no es producto.
+_probes/             export-ignore
+docs/pipeline/       export-ignore
+.gitattributes       export-ignore
+.gitignore           export-ignore

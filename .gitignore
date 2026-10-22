@@ -4,6 +4,22 @@ __pycache__/
 *$py.class
 .venv/
 venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Basura de editor / SO
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
 
 # Go compiled binaries
 *.exe
@@ -23,3 +39,6 @@ ram_runner
 # Coredumps
 core
 core.*
+
+# Carpeta de pruebas local (Playwright, outputs) — NO commitear
+_probes/
