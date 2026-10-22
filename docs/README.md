@@ -24,3 +24,12 @@ Este directorio alberga la especificación canónica, la justificación arquitec
   * **RE as SDD:** Descarte del peso muerto de Sliver C2 y extracción de la syscall pura `memfd_create`.
   * **Matriz de inspiración:** Lecciones de `termux-linux-deployer` (seeding y aislamiento en espacio de usuario), `openclaw` (rigor de contratos y `AGENTS.md`) y `sdk-agent-pipeline` (Topos DAG integrity y prevención de co-dependencias).
   * **Hoja de ruta:** Pasos técnicos para el cierre definitivo de brechas.
+
+### 4. [pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md)
+* **Título:** Abstracciones Pico (Claw, Ansible, Jenkins) y Deconstrucción de Primitivas Ofensivas Omitidas
+* **Propósito:** Formalización de la tríada conceptual (Pico-Claw + Pico-Ansible + Pico-Jenkins) y descomposición técnica de 6 capacidades de bajo nivel de frameworks ofensivos (BOFs, Malleable C2, Beaconing, Process Hollowing, BloodHound, Chisel) transmutadas en mejoras agénticas.
+* **Contenido clave:**
+  * **Pico-Claw:** Principio de *One Owner*, arquitectura *Small Core / Capable Plugins* y el bucle sensorial-actuador.
+  * **Pico-Ansible:** Contrato de idempotencia (`changed: bool`), subsistema *Pico-Facts* y playbooks DAG.
+  * **Pico-Jenkins:** Staging efímero en RAM y rollback por métricas de éxito.
+  * **Las 6 mejoras ofensivas omitidas:** Deconstrucción de BOFs a objetos en memoria de 2 ms, perfiles maleables de tokens, telemetría tipo beacon, rescate de hilos colgados en caliente, camino más corto de remediación Topos y mallas efímeras de pruebas.

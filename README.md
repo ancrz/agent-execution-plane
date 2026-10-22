@@ -260,7 +260,8 @@ agent-execution-plane/
 │   ├── README.md                   # Índice maestro de documentación técnica
 │   ├── architecture.md             # Arquitectura híbrida base original
 │   ├── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
-│   └── re_sdd_and_gap_analysis.md  # Auditoría sincera de la verdad, RE y matriz de inspiración
+│   ├── re_sdd_and_gap_analysis.md  # Auditoría sincera de la verdad, RE y matriz de inspiración
+│   └── pico_abstractions_and_omissions.md # Deconstrucción de Pico-Claw/Ansible/Jenkins y 6 features C2
 ├── engine/
 │   ├── __init__.py
 │   ├── catalog.py                  # Gestor SQLite de artefactos, intent hashing y telemetría
@@ -311,4 +312,4 @@ Mediante **Reverse Engineering as Specification-Driven Development (RE as SDD)**
 * **`openclaw`:** Inspiró la cultura de **especificaciones rigurosas y contratos declarativos** antes de escribir código (`AGENTS.md`, esquemas CUE).
 * **`sdk-agent-pipeline`:** Inspiró la disciplina de **Topos DAG Integrity** y el guardián de circuitos (`ToposGuard`) para auditar y prevenir co-dependencias circulares ($A \otimes B$).
 
-> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md).
+> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md) y la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md).
