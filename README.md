@@ -1,406 +1,416 @@
+<a id="top"></a>
+
 # Agent Execution Plane (AEP)
-**Plano de Control de Sistema y Suite de Ejecución de Alta Resiliencia para Agentes de IA en Ubuntu**
+
+**Plano de Control de Sistema y Suite de Ejecución de Alta Resiliencia para Agentes de IA sobre Ubuntu/Linux**
 
 > [!IMPORTANT]
-> **Declaración de Premisa y Propósito (Anti-Malware / De-weaponization)**  
-> Este proyecto **NO** es un framework de ciberseguridad ofensiva ni una herramienta de *Red Teaming*.  
-> Es una **suite de ingeniería de sistemas y runtime agéntico** que aplica **Ingeniería Inversa (RE) orientada por Especificaciones (SDD)** sobre las primitivas de bajo nivel desarrolladas históricamente por frameworks C2 y herramientas de introspección de kernel, transformándolas en un plano de ejecución no-bloqueante, estructurado y asíncrono para Modelos de Lenguaje (LLMs) y agentes autónomos.
+> **Declaración de Premisa (Anti-Malware / De-weaponization)**
+> AEP **no** es un framework de ciberseguridad ofensiva ni una herramienta de *Red Teaming*.
+> Es una **suite de ingeniería de sistemas y runtime agéntico** que aplica **Ingeniería Inversa
+> orientada por Especificaciones (RE as SDD)** sobre primitivas de bajo nivel históricamente
+> atrapadas en frameworks C2 y herramientas de introspección de kernel, **transmutándolas** en un
+> plano de ejecución no-bloqueante, tipado y asíncrono para LLMs y agentes autónomos.
 
 ---
 
-## 1. Fundamentos e Inferencias Arquitectónicas
+## Índice
 
-La arquitectura de **Agent Execution Plane (AEP)** nace de resolver la brecha de impedancia entre los sistemas operativos contemporáneos (diseñados para la interacción visual humana) y los agentes de IA (que operan mediante subprocesos autónomos y ventanas de contexto finitas).
-
-```mermaid
-flowchart TD
-    subgraph HostileEnv["Entorno Hostil Tradicional (POSIX / TTY / Zsh)"]
-        A["Subprocesos Bloqueantes<br/>(Pagers, Prompts interactivos, sudo)"] -->|Congela| H1["Hanging Process en la IA"]
-        B["Salidas de Texto Plano Desalineadas<br/>(awk, sed, grep)"] -->|Desperdicia| H2["Consumo Masivo de Tokens"]
-        C["Huella en Disco y Contención I/O<br/>(Archivos temporales dispersos)"] -->|Genera| H3["Fugas de Estado y Pruebas Ruidosas"]
-    end
-
-    subgraph AEPSolution["Resolución mediante Agent Execution Plane (AEP)"]
-        D["Camino A: Primitivas en RAM<br/>(memfd_create, gRPC Protobuf)"] -->|Resuelve| S1["Aislamiento Efímero en Memoria"]
-        E["Camino B: Colas Asíncronas<br/>(Pueue daemon + task_id en 2ms)"] -->|Resuelve| S2["Cero Bloqueos de Subprocesos"]
-        F["Omarchy Patterns + FastMCP<br/>(CLI Unificado, Symlink Hub, Coredump)"] -->|Resuelve| S3["Telemetría Tipada y Diagnóstico Autónomo"]
-    end
-```
-
-### 1.1. El Isomorfismo Arquitectónico: El Operador C2 y el Agente de IA
-Los frameworks de Command & Control (C2) como *Sliver*, *Mythic* o *Beacon* no fueron concebidos para la destrucción; fueron diseñados para **operar bajo condiciones extremas de hostilidad e invisibilidad de interfaz**:
-* Cero interacción humana en la consola remota.
-* Tolerancia cero a procesos colgados (*hanging processes*).
-* Comunicación asíncrona serializada con consumo mínimo de canal.
-* Ejecución quirúrgica en memoria RAM sin dejar residuos en disco.
-
-Para un Agente de IA, la consola Unix tradicional (Zsh/Bash) representa exactamente el mismo entorno hostil. Al remover las técnicas de evasión de EDR y apropiarse del motor de ejecución y transporte, la IA recibe una arquitectura de control de sistemas que resuelve medio siglo de supuestos interactivos obsoletos.
-
-### 1.2. El Salto Cuántico en las Baterías de Pruebas y Pipelines
-La integración de este plano transforma radicalmente la autonomía de los pipelines de verificación:
-* **Pruebas en RAM Efímeras (`memfd_create`):** El agente compila binarios de prueba, los inyecta en descriptores de memoria anónimos del kernel de Linux, ejecuta la validación y destruye la prueba sin escribir un solo byte en almacenamiento físico.
-* **Aserciones Deterministas Tipadas:** Se reemplaza el frágil parsing de texto por esquemas de datos Protobuf y JSON (`connection.state == "ESTABLISHED"`).
-* **Paralelismo Seguro sin Contención:** Despacho de tareas concurrentes a través de colas dedicadas de **Pueue**, obteniendo identificadores inmediatos y desacoplando el tiempo de compilación o ejecución del ciclo de razonamiento del LLM.
-* **Depuración Post-Mortem Automática:** Si un binario o test genera un fallo de segmentación (`SIGSEGV`), la captura de `systemd-coredump` entrega el *stacktrace*, registro de CPU e instrucción exacta directamente en JSON para remediación inmediata.
-
-### 1.3. La Maleabilidad del Artefacto: *"Ya no leemos el código, solo tenemos un artefacto"*
-En el desarrollo agéntico moderno, el código intermedio es transitorio. El agente no necesita que un humano configure de antemano herramientas de observabilidad complejas: el agente puede sintetizar en segundos una sonda en Go o C, inyectarla en memoria, capturar la telemetría viva del sistema y descartar la sonda. El verdadero entregable es el artefacto funcional verificado contra el estado real del sistema.
-
-### 1.4. Romper el Nicho: De la Ciberseguridad a la Ultra-Resiliencia
-El software ofensivo avanzado ha estado históricamente adelantado a la administración de sistemas tradicional en manejo de concurrencia y manipulación de memoria. Desmilitarizar estas primitivas convierte a Ubuntu en un **Agentic OS** de alta resiliencia.
+1. [El Isomorfismo: Operador C2 ↔ Agente de IA](#1-el-isomorfismo-operador-c2--agente-de-ia)
+2. [Arquitectura Global (4 Capas)](#2-arquitectura-global-4-capas)
+3. [Descomposición Ofensiva → Capacidad Agéntica](#3-descomposición-ofensiva--capacidad-agéntica)
+4. [Catálogo de 15 Herramientas MCP](#4-catálogo-de-15-herramientas-mcp)
+5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
+6. [Mejoras de Omarchy (5 Specs Agnósticas)](#6-mejoras-de-omarchy-5-specs-agnósticas)
+7. [Modelo de Privilegio de Dos Niveles + Manifiesto](#7-modelo-de-privilegio-de-dos-niveles--manifiesto)
+8. [Auto-Plug: Autogestión Atómica del MCP](#8-auto-plug-autogestión-atómica-del-mcp)
+9. [Entorno Shell-Agnóstico](#9-entorno-shell-agnóstico)
+10. [Instalación desde Cero](#10-instalación-desde-cero)
+11. [Estructura del Repositorio](#11-estructura-del-repositorio)
+12. [Inventario Sincero de la Fuente de la Verdad](#12-inventario-sincero-de-la-fuente-de-la-verdad)
+13. [RE as SDD y Matriz de Inspiración](#13-re-as-sdd-y-matriz-de-inspiración)
 
 ---
 
-## 2. Tecnologías Faltantes Incorporadas mediante Reverse Engineering (RE as SDD)
+## 1. El Isomorfismo: Operador C2 ↔ Agente de IA
 
-Para completar el ecosistema e ir más allá de la propuesta inicial de Sliver y Pueue, identificamos cinco tecnologías y primitivas de bajo nivel catalogadas habitualmente como "superficies de ataque", que transformamos mediante **Ingeniería Inversa Orientada por Especificaciones (SDD)**:
+Los frameworks de Command & Control (Sliver, Mythic, Cobalt Strike) nunca fueron concebidos para
+destruir: fueron diseñados para **operar bajo hostilidad e invisibilidad de interfaz** — cero
+interacción humana, cero tolerancia a procesos colgados, comunicación asíncrona serializada y
+ejecución quirúrgica en RAM. Para un agente de IA, la consola Unix tradicional es **exactamente el
+mismo entorno hostil**. AEP se apropia del *motor* (no de la evasión de EDR) y se lo entrega al agente.
 
 ```mermaid
 flowchart LR
-    subgraph OffensiveNiche["Superficie / Nicho Ofensivo"]
-        T1["eBPF Rootkits y Packet Sniffers"]
-        T2["Sandbox Escapes / Namespace Tampering"]
-        T3["C2 SOCKS5 / Lateral Movement Pivots"]
-        T4["Process Memory Dumping / ptrace Injection"]
-        T5["Exploit Crash Triage / Crash Mining"]
+    subgraph Hostile["Entorno hostil (igual para el operador C2 y el agente)"]
+        H1["Subprocesos bloqueantes<br/>(pagers, prompts, sudo interactivo)"]
+        H2["Texto plano desalineado<br/>(awk/sed/grep) = tokens quemados"]
+        H3["Huella en disco<br/>(temporales dispersos)"]
     end
-
-    subgraph RE_SDD["Transmutación mediante RE as SDD"]
-        R1["blueprint.md + Contratos Estructurados"]
-        R2["Extracción Agnóstica de Primitivas"]
+    subgraph AEP["Resolución AEP (mecanismo desmilitarizado)"]
+        S1["Ejecución en RAM<br/>memfd_create + fexecve"]
+        S2["Salida tipada JSON<br/>+ memoria semántica"]
+        S3["Colas asíncronas<br/>Pueue (task_id inmediato)"]
     end
-
-    subgraph AgenticSuite["Capacidad Agéntica en AEP"]
-        A1["eBPF Telemetry: Observabilidad Kernel sin overhead"]
-        A2["Bwrap / Namespaces: Sandbox Efímero en milisegundos"]
-        A3["Chisel / Ephemeral SOCKS5: Simulación de topologías"]
-        A4["procfs / fd Introspection: Diagnóstico de hilos colgados"]
-        A5["Libunwind / GDB Batch: RCA instantáneo de fallos"]
-    end
-
-    OffensiveNiche --> RE_SDD --> AgenticSuite
+    H1 --> S3
+    H2 --> S2
+    H3 --> S1
 ```
 
-| Tecnología Original | Clasificación Tradicional | Transmutación Agéntica (AEP) | Utilidad para la IA y Pipelines |
+[↑ Volver arriba](#top)
+
+---
+
+## 2. Arquitectura Global (4 Capas)
+
+```mermaid
+flowchart TD
+    subgraph L3["Capa 3: Interfaz Agéntica"]
+        Agent["Agente de IA (Claude Code / Antigravity / Codex / Gemini)"]
+        MCP["Servidor FastMCP (server.py) — 15 tools"]
+        Agent -->|stdio / JSON-RPC| MCP
+    end
+    subgraph L2["Capa 2: Motores (engine/)"]
+        Catalog["catalog.py + embedder.py<br/>(memoria semántica sqlite-vec)"]
+        Crash["crash_router.py"]
+        Docs["docs_vectorizer.py"]
+        Headless["headless_display.py"]
+        Priv["privilege.py<br/>(FULL / DIMINISHED)"]
+        Topos["topos_guard.py"]
+        MCP --> Catalog & Crash & Docs & Headless & Priv & Topos
+    end
+    subgraph L1["Capa 1: Herencia de Shell (agnóstica)"]
+        Env["config/shell/aep-env.sh<br/>(bash / zsh / sh)"]
+        Ctl["scripts/aep-ctl"]
+        Agent -.->|subproceso| Env
+    end
+    subgraph L0["Capa 0: Kernel y Runtime Ubuntu"]
+        K1["RAM: memfd_create + fexecve"]
+        K2["bwrap / eBPF / coredumpctl"]
+        K3["Pueue daemon · venv ONNX"]
+        Catalog --> K1
+        Crash --> K2
+        Headless --> K3
+    end
+```
+
+[↑ Volver arriba](#top)
+
+---
+
+## 3. Descomposición Ofensiva → Capacidad Agéntica
+
+Cada primitiva "atrapada" en herramientas ofensivas se extrajo y re-especificó como capacidad de
+gestión agéntica gobernada por privilegio. **Todas verificadas end-to-end.**
+
+```mermaid
+flowchart LR
+    subgraph Off["Técnica ofensiva original"]
+        O1["Sliver: ejecución ELF en RAM"]
+        O2["ptrace / process injection"]
+        O3["Sandbox escape (namespaces)"]
+        O4["Exploit crash triage"]
+        O5["eBPF rootkits / sniffers"]
+        O6["BloodHound (teoría de grafos)"]
+        O7["C2 beaconing / sleep"]
+    end
+    subgraph Ag["Capacidad agéntica AEP (tool MCP)"]
+        A1["artifact_execute_in_ram"]
+        A2["fd-rescuer (rescate de hilos)"]
+        A3["sandbox_run (bwrap efímero)"]
+        A4["diagnose_system_crashes (RCA)"]
+        A5["kernel_trace (observabilidad)"]
+        A6["topos_audit_dag (anti-codependencia)"]
+        A7["async_job_dispatch (Pueue)"]
+    end
+    O1 --> A1
+    O2 --> A2
+    O3 --> A3
+    O4 --> A4
+    O5 --> A5
+    O6 --> A6
+    O7 --> A7
+```
+
+| Primitiva ofensiva | Clasificación tradicional | Transmutación agéntica | Estado |
 | :--- | :--- | :--- | :--- |
-| **eBPF (`bpftrace` / BCC)** | Rootkits en kernel, evasión de red. | **Observabilidad de Kernel No-Invasiva** | Telemetría en tiempo real de apertura de archivos, latencia de sockets y llamadas al sistema sin tocar el código fuente. |
-| **Bubblewrap (`bwrap`)** | Primitiva de aislamiento / jailbreak. | **Sandbox Efímero de Sub-Milisegundo** | Ejecución de scripts o código experimental no confiable sin la sobrecarga del demonio Docker. |
-| **Chisel / Gost** | Túneles y pivoting de redes corporativas. | **Multiplexación de Red Local Efímera** | Levantamiento de puertos, proxies e interconexión temporal de servicios para pruebas de integración de microservicios. |
-| **`ptrace` + `/proc/$PID/fd`** | Inyección de procesos, lectura de memoria. | **Introspección y Rescate de Procesos** | Inspección de descriptores de archivo de subprocesos colgados y diagnóstico de deadlocks en tiempo real. |
-| **`coredumpctl` + `libunwind`** | Desarrollo de exploits y crash triage. | **Root Cause Analysis (RCA) Autónomo** | Conversión inmediata de volcados de memoria en contexto de corrección para el agente. |
+| `memfd_create` (Sliver) | Ejecución en RAM, evasión EDR | Inyección de binarios verificados en RAM | ✅ Operativo |
+| `ptrace` + `/proc/$PID/fd` | Inyección / lectura de memoria | Introspección y rescate de procesos colgados | ✅ Operativo |
+| `bwrap` (namespaces) | Jailbreak / aislamiento | Sandbox efímero de sub-milisegundo | ✅ Operativo |
+| `coredumpctl` + libunwind | Desarrollo de exploits | Root Cause Analysis autónomo (fail-soft) | ✅ Operativo |
+| eBPF (`bpftrace`) | Rootkits / sniffers | Observabilidad de kernel no-invasiva | ✅ Operativo (FULL) |
+| Grafos (BloodHound) | Attack paths en AD | Guardián Topos anti-codependencia | ✅ Operativo |
+| Beaconing / sleep | Check-in C2 periódico | Despacho asíncrono (Pueue) | ✅ Operativo |
+
+[↑ Volver arriba](#top)
 
 ---
 
-## 3. Evolutionary Artifact Engine (El "Pico-Jenkins" + "Pico-Ansible" para IA)
-
-> [!TIP]
-> **Especificación Formal:** Consulta [spec_artifact_engine.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/spec_artifact_engine.md) para la definición canónica de **EAES-v1**.
-
-Para superar la alucinación producida por soluciones tradicionales, AEP incorpora un motor de síntesis de artefactos en **Golang estático (`CGO_ENABLED=0`)**, gobernado por contratos en **CUE** y auditado estáticamente por **`golangci-lint`** antes de su ejecución o persistencia en una mini-DB local SQLite.
+## 4. Catálogo de 15 Herramientas MCP
 
 ```mermaid
 flowchart TD
-    subgraph AgentSpace["Espacio del Agente de IA"]
-        Prompt["Caso de Uso / Necesidad de Gestión"]
-        MCPCall["Consulta MCP: artifact_query(intent)"]
+    Root["aep_capabilities()<br/>👉 PRIMERA LLAMADA: manifiesto de autonomía"]
+    Root --> G1 & G2 & G3 & G4
+    subgraph G1["Artefactos evolutivos"]
+        T1["artifact_query (semántico)"]
+        T2["artifact_hydrate"]
+        T3["artifact_lint_and_build"]
+        T4["artifact_execute_in_ram"]
     end
-
-    subgraph CatalogEngine["Motor de Artefactos (Pico-Jenkins + Pico-Ansible)"]
-        DB[(Mini-DB: SQLite ~/.local/share/agent-os/artifacts.db<br/>Hash, CUE Spec, Go Source, Métricas)]
-        Templates["Catálogo de Plantillas Atómicas (Boilerplates Go)"]
-        Hydrator["Template Hydrator (engine/hydrator.py)"]
-        Factory["Artifact Factory (Compilador + golangci-lint)"]
+    subgraph G2["Ejecución y async"]
+        T5["sandbox_run"]
+        T6["async_job_dispatch"]
+        T7["async_job_inspect"]
     end
-
-    subgraph ExecutionSpace["Plano de Ejecución en Memoria"]
-        RAMExec["Inyección en RAM via memfd_create"]
-        Output["Resultado Tipado (JSON)"]
+    subgraph G3["Observabilidad / forense"]
+        T8["diagnose_system_crashes"]
+        T9["check_crash_alerts"]
+        T10["kernel_trace (eBPF)"]
     end
-
-    Prompt --> MCPCall
-    MCPCall -->|1. ¿Existe artefacto previo validado?| DB
-    DB -->|Hit: Reutilizar binario pre-compilado| RAMExec
-    DB -->|Miss: Instanciar Plantilla Base| Templates
-    Templates --> Hydrator
-    Hydrator --> Factory
-    Factory -->|2. Validación estricta y compilación| DB
-    Factory -->|3. Inyección inmediata| RAMExec
-    RAMExec --> Output
-    Output -->|4. Retroalimentar métricas de éxito/fracaso| DB
+    subgraph G4["Gestión de sistema (Omarchy)"]
+        T11["aep_ctl"]
+        T12["query_system_docs"]
+        T13["visual_inspect"]
+        T14["topos_audit_dag"]
+    end
 ```
 
-### 3.1. ¿Por qué Golang?
-* **Compilación en sub-segundos:** Un binario mínimo se compila entre 200 y 500 ms con `go build -ldflags="-s -w"`.
-* **Cero dependencias:** No requiere entornos virtuales (`venv`), intérpretes pesados ni paquetes del sistema.
-* **Inyección directa en RAM:** Se mapea directamente con `memfd_create` sin tocar almacenamiento secundario.
+[↑ Volver arriba](#top)
 
-### 3.2. Validación Estricta y Prevención de Co-dependencias
-1. **CUE Lang (`schemas/artifact_contract.cue`):** Define los contratos declarativos, tipos y restricciones matemáticas de los parámetros de entrada y salida JSON.
-2. **`golangci-lint` (Modo JSON):** Ejecuta más de 40 linters en paralelo (`govet`, `staticcheck`, `errcheck`). Si la IA comete un error, el linter devuelve un JSON estructurado con la línea y columna exactas, permitiendo la auto-corrección en una sola iteración.
-3. **Topos Guard (`engine/topos_guard.py`):** Validador formal de grafos dirigidos acíclicos (DAG). Bloquea cualquier ejecución que introduzca co-dependencias circulares ($A \otimes B$).
+---
 
-### 3.3. Memoria Semántica con `sqlite-vec` (Búsqueda Híbrida en 2 Pasos)
-Para superar la fragilidad del hash estricto ante la variabilidad léxica de los LLMs, el catálogo incorpora la extensión nativa **`sqlite-vec`**:
+## 5. Memoria Semántica Híbrida (sqlite-vec)
+
+Resuelve la fragilidad del hash estricto ante la variabilidad léxica de los LLMs con recuperación
+en **2 tiers**: hash exacto `O(1)` y, si falla, KNN coseno sobre `sqlite-vec`.
 
 ```mermaid
 flowchart LR
-    A["Intención Variable del Agente<br/>(Lenguaje Natural)"] --> B["1. Descubrimiento Semántico<br/>sqlite-vec KNN (Distancia Coseno <= 0.15)"]
-    B --> C["2. Recuperación Determinista<br/>B-Tree ACID (CUE + Binario ELF)"]
-    C --> D["Inyección en RAM<br/>memfd_create (< 1ms)"]
+    Q["Intención del agente<br/>(lenguaje natural variable)"] --> T1{"Tier 1:<br/>hash SHA-256 exacto"}
+    T1 -->|hit| R["Artefacto + binario ELF"]
+    T1 -->|miss| T2["Tier 2: embedding local<br/>bge-small-en-v1.5 (384-dim, ONNX, offline)"]
+    T2 --> KNN{"KNN coseno<br/>distancia ≤ 0.32"}
+    KNN -->|match| R
+    KNN -->|no match| Miss["CACHE_MISS → sintetizar"]
+    R --> RAM["Inyección en RAM<br/>memfd_create"]
 ```
 
-* **Paso 1 (Descubrimiento Difuso):** Mapea intenciones heterogéneas al mismo artefacto mediante embeddings locales en CPU (`all-MiniLM-L6-v2`), evitando re-compilaciones redundantes.
-* **Paso 2 (Recuperación Exacta):** Carga el contrato CUE y el binario Go por clave primaria ($O(1)$) garantizando cero alucinaciones en la ejecución.
+- Umbral `0.32` **calibrado empíricamente** (paráfrasis del mismo intent ~0.28–0.30; intents distintos ≥0.36).
+- **Fail-soft total:** sin `sqlite-vec`/embedder, el catálogo opera idéntico al modo solo-hash.
+
+[↑ Volver arriba](#top)
 
 ---
 
-## 4. Filosofía de Despliegue: ¿Reemplazar o Aumentar la Shell?
+## 6. Mejoras de Omarchy (5 Specs Agnósticas)
 
-> [!NOTE]
-> **Estrategia de Aumento No-Destructivo:**  
-> AEP **no reemplaza ni destruye** la shell interactiva del usuario (tu configuración de **Ubuntu + Zsh + Oh My Zsh** permanece 100% intacta para el uso humano habitual).  
-> La suite actúa como una **capa de superposición inteligente** que opera en tres dimensiones:
+Las innovaciones del "Agentic OS" de Omarchy (acopladas a Arch/Hyprland) descompuestas en 5
+especificaciones **distro-agnósticas** sobre Ubuntu.
 
 ```mermaid
 flowchart TD
-    subgraph HumanDimension["1. Dimensión Humana (Consola Interactiva)"]
-        ZshUser["Zsh + Oh My Zsh (Sin Modificaciones)"]
-        Wrappers["Nuevos Comandos Estructurados: jrun, bg_exec, bg_stat, sys_json"]
-        ZshUser --> Wrappers
+    subgraph OM["Omarchy (Arch/Hyprland) → specs agnósticas"]
+        S1["OM-1 · aep_ctl<br/>Plano de control unificado (JSON)"]
+        S2["OM-2 · check_crash_alerts<br/>Crash routing proactivo (polling)"]
+        S3["OM-3 · Skills Hub<br/>symlinks Claude/agy/Codex/Gemini"]
+        S4["OM-4 · query_system_docs<br/>man-pages vectorizadas (sqlite-vec)"]
+        S5["OM-5 · visual_inspect<br/>display headless (Playwright /dev/shm)"]
     end
-
-    subgraph SubprocessDimension["2. Dimensión de Subprocesos (Herencia ~/.zshenv)"]
-        Subshell["Subprocesos lanzados por la IA (sh -c / zsh -c)"]
-        EnvFlags["Variables Anti-Bloqueo Inyectadas: PAGER=cat, DEBIAN_FRONTEND=noninteractive"]
-        Subshell --> EnvFlags
-    end
-
-    subgraph AgentDimension["3. Dimensión de Agentes (Protocolo FastMCP)"]
-        Clients["Clientes IA Conectados: Claude Code, Antigravity (agy), ChatGPT Codex, Gemini CLI"]
-        ServerMCP["Servidor FastMCP Unificado (server.py - 9 Herramientas RPC)"]
-        Clients -->|stdio / JSON-RPC| ServerMCP
-    end
+    S1 & S2 & S3 & S4 & S5 --> V["Cero co-dependencias (Topos)<br/>· fail-soft · salida JSON tipada"]
 ```
 
-1. **Para el Humano:** Disponibilidad de atajos tipados de alto rendimiento en su consola (`bg_exec` para tareas largas, `jrun` para formateo JSON instantáneo).
-2. **Para los Subprocesos de IA:** La herencia universal vía `~/.zshenv` garantiza que ningún proceso hijo lanzado por una IA se congele por paginadores (`less`), prompts interactivos (`sudo`) o buffers interactivos.
-3. **Para los Agentes y Modelos:** Un servidor **FastMCP (`server.py`)** común que se registra de forma transparente en todas las interfaces de IA disponibles en el sistema.
+[↑ Volver arriba](#top)
 
 ---
 
-## 5. Arquitectura Global del Sistema (4 Capas)
+## 7. Modelo de Privilegio de Dos Niveles + Manifiesto
+
+Las tools privilegiadas operan en dos niveles (least-privilege por defecto). `aep_capabilities()`
+devuelve un **manifiesto auto-descriptivo estilo `chmod`/777** para que la IA consumidora entienda,
+en primera vista, qué puede hacer **ahora**.
 
 ```mermaid
 flowchart TD
-    subgraph L3["Capa 3: Interfaz Agéntica y Descubrimiento"]
-        Agent["Agente de IA (Claude Code / OpenCode / Antigravity / Chat)"]
-        MCP["Servidor FastMCP: server.py"]
-        SkillsHub["Symlink Hub de Skills (~/.agents/skills & Omarchy Pattern)"]
-        Agent -->|Tools RPC| MCP
-        Agent -->|Skill Invocation| SkillsHub
-    end
-
-    subgraph L2["Capa 2: Motores de Ejecución y Despacho"]
-        CaminoA["Camino A: Sliver C2 Daemon (gRPC / mTLS)"]
-        CaminoB["Camino B: Pueue Daemon (JSON IPC)"]
-        ArtifactEng["Artifact Engine: Go + CUE + SQLite + Hydrator"]
-        ToposG["Topos Guard: Detector de Co-dependencias DAG"]
-        KernelObs["Observador eBPF / Bwrap Sandbox"]
-        MCP -->|sliver-py| CaminoA
-        MCP -->|pueue CLI / IPC| CaminoB
-        MCP -->|catalog.py & hydrator.py| ArtifactEng
-        MCP -->|topos_guard.py| ToposG
-        MCP -->|bwrap / bpftrace| KernelObs
-    end
-
-    subgraph L1["Capa 1: Herencia Universal en Subprocesos (~/.zshenv)"]
-        ShellVars["Variables Anti-Bloqueo (PAGER=cat, DEBIAN_FRONTEND=noninteractive)"]
-        JSONWrappers["Wrappers de Shell (jc, nu -c, sysctl-ai)"]
-        Agent -.->|Subproceso zsh -c| ShellVars
-        Agent -.->|Subproceso zsh -c| JSONWrappers
-    end
-
-    subgraph L0["Capa 0: Kernel y Runtime de Ubuntu"]
-        KernelMem["RAM: memfd_create + fexecve"]
-        KernelSockets["Sockets, WireGuard y Namespaces"]
-        KernelCoredump["systemd-coredump + journald"]
-        CaminoA --> KernelMem
-        CaminoA --> KernelSockets
-        CaminoB --> KernelCoredump
-        ArtifactEng --> KernelMem
-    end
+    Start["¿euid == 0?"] -->|sí| Full["FULL (direct-root)"]
+    Start -->|no| Sudo{"¿sudo -n disponible?"}
+    Sudo -->|sí| FullE["FULL (sudo-n) — escalada acotada"]
+    Sudo -->|no| Dim["DIMINISHED — alcance al usuario, fail-soft"]
+    Full & FullE --> Scope["Alcance: self → system → kernel"]
+    Dim --> ScopeD["Alcance: self (base de autonomía completa)"]
 ```
+
+**Códigos de capacidad** (tríada rwx resignificada): `r`=SENSAR, `w`=ACTUAR, `x`=EJECUTAR por caminos no-tradicionales.
+
+| octal | perm | significado |
+| :---: | :---: | :--- |
+| 7 | `rwx` | sensar + actuar + ejecutar |
+| 6 | `rw-` | sensar + actuar |
+| 5 | `r-x` | sensar + ejecutar |
+| 4 | `r--` | solo sensar |
+| 0 | `---` | sin acceso (requiere FULL) |
+
+> La autonomía base opera completa en **DIMINISHED**; el nivel **FULL** solo ensancha
+> `kernel_observability` (`0→4`) y `service_control` (`4→6`). El privilegio es **apertura, no prerequisito**.
+
+[↑ Volver arriba](#top)
 
 ---
 
-## 5.1. Flujo de Ejecución: Pruebas en Memoria vs. Despacho Asíncrono
+## 8. Auto-Plug: Autogestión Atómica del MCP
+
+Tras cualquier cambio, `aep-sync.sh` **valida** (compila + importa el server) y **solo si pasa**
+re-registra el MCP en todos los clientes, apuntando a un launcher estable que resuelve el intérprete
+por sí mismo. Un hook `pre-commit` corre la misma validación.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Agent as Agente de IA
-    participant MCP as Servidor FastMCP (AEP)
-    participant Engine as Artifact Engine (SQLite + Go)
-    participant Sliver as Inyector RAM (memfd_create)
-    participant Pueue as Pueue Daemon (Async)
-    participant Kernel as Linux Kernel (Ubuntu)
+    actor Dev as Cambio en código
+    participant Sync as aep-sync.sh
+    participant Val as Validación (--check)
+    participant Launch as aep-mcp-launch.sh
+    participant Clients as Claude / agy / Codex / Gemini
 
-    Note over Agent,Kernel: Flujo 1: Resolución y Ejecución en Memoria RAM (< 300ms)
-    Agent->>MCP: artifact_query(intent="inspect_tcp_sockets")
-    MCP->>Engine: Consultar DB por intent_hash
-    alt Artefacto en Caché con SuccessRate >= 0.85
-        Engine-->>MCP: Retornar binario pre-compilado
-    else Artefacto no existe
-        Engine->>Engine: Instanciar tpl_socket_monitor.go + CUE vet
-        Engine->>Engine: Validar con go vet / golangci-lint
-        Engine->>Engine: go build estático (CGO_ENABLED=0)
+    Dev->>Sync: ./aep-sync.sh (o --watch / pre-commit)
+    Sync->>Val: py_compile + import server
+    alt validación falla
+        Val-->>Sync: ✗ (no se enchufa un server roto)
+    else validación OK
+        Val-->>Sync: ✓
+        Sync->>Clients: re-registrar apuntando a Launch
+        Launch->>Launch: resolver venv / python3 + PATH al arranque
     end
-    MCP->>Sliver: Inyectar binario vía os.memfd_create
-    Sliver->>Kernel: syscall fexecve()
-    Kernel-->>Sliver: Retorno estructurado (exit_code, stdout JSON)
-    Sliver-->>MCP: Parseo JSON tipado
-    MCP->>Engine: Registrar métrica de ejecución (latencia, exit_code)
-    MCP-->>Agent: JSON Tipado {total_sockets: 55, sockets: [...]}
-
-    Note over Agent,Kernel: Flujo 2: Tarea Larga Asíncrona (Compilación / Test Suite)
-    Agent->>MCP: async_job_dispatch(command="cargo test", group="heavy")
-    MCP->>Pueue: pueue add --print-task-id
-    Pueue-->>MCP: task_id: 104
-    MCP-->>Agent: {"status": "queued", "task_id": 104}
-    Note over Agent: El agente continúa su razonamiento sin congelarse
-    Agent->>MCP: async_job_inspect(task_id=104)
-    MCP->>Pueue: pueue log 104 --json
-    Pueue-->>Agent: Salida estructurada de la prueba
 ```
 
----
-
-## 6. Catálogo de Herramientas del Servidor FastMCP (`server.py`)
-
-El servidor FastMCP expone **9 herramientas deterministas** para control y ejecución de sistema:
-
-| Herramienta | Parámetros | Propósito |
-| :--- | :--- | :--- |
-| `topos_audit_dag` | `tasks: list[str], dependencies: dict` | Audita un grafo de dependencias y bloquea ciclos co-dependientes ($A \otimes B$). |
-| `artifact_query` | `intent: str, category: str` | Consulta en SQLite si ya existe un binario previo probado con éxito. |
-| `artifact_hydrate` | `template_name: str, params: dict` | Inyecta parámetros en plantillas Go (`tpl_*.go`) produciendo código listo. |
-| `artifact_lint_and_build` | `name: str, intent: str, go_source: str` | Audita (`go vet`), compila estáticamente (`CGO_ENABLED=0`) y persiste en DB. |
-| `artifact_execute_in_ram` | `name: str, args: list[str]` | Inyecta y ejecuta el ELF directamente en memoria RAM vía `memfd_create`. |
-| `async_job_dispatch` | `command: str, label: str, group: str` | Despacha comandos largos al demonio asíncrono **Pueue** sin congelar al agente. |
-| `async_job_inspect` | `task_id: int, lines: int` | Inspecciona el progreso o extrae logs JSON de tareas asíncronas. |
-| `diagnose_system_crashes` | `limit: int` | Recupera trazas de `systemd-coredump` y errores de journald en formato JSON. |
-| `sandbox_run` | `command: str, share_net: bool` | Ejecuta comandos en un sandbox efímero con **Bubblewrap** (`bwrap`). |
+[↑ Volver arriba](#top)
 
 ---
 
-## 7. Instalación Rápida y Seeding de Agentes (`scripts/setup.sh`)
+## 9. Entorno Shell-Agnóstico
 
-El script de instalación es completamente idempotente, compila las sondas iniciales, configura `~/.zshenv` y registra el servidor MCP simultáneamente en **Claude Code**, **Antigravity CLI (`agy`)** y **ChatGPT Codex**:
-
-```bash
-# Clonar o situarse en el repositorio
-cd /home/ancruz/Documents/workspaces/agent-execution-plane
-
-# Ejecutar el bootstrap
-./scripts/setup.sh
-```
-
----
-
-## 8. Estructura del Repositorio
-
-```
-agent-execution-plane/
-├── docs/
-│   ├── README.md                   # Índice maestro de documentación técnica
-│   ├── architecture.md             # Arquitectura híbrida base original
-│   ├── spec_artifact_engine.md     # Especificación canónica EAES-v1 (5 Axiomas y Ciclo de Vida)
-│   ├── re_sdd_and_gap_analysis.md  # Auditoría sincera de la verdad, RE y matriz de inspiración
-│   ├── pico_abstractions_and_omissions.md # Deconstrucción de Pico-Claw/Ansible/Jenkins y 6 features C2
-│   ├── sqlite_vec_hybrid_retrieval.md     # Búsqueda híbrida semántica en 2 pasos con sqlite-vec
-│   └── omarchy_specs_decomposition.md     # Descomposición de Omarchy en 5 specs agnósticas
-├── engine/
-│   ├── __init__.py
-│   ├── catalog.py                  # Gestor SQLite de artefactos, intent hashing y telemetría
-│   ├── hydrator.py                 # Hidratador dinámico de plantillas atómicas Go
-│   └── topos_guard.py              # Guardián ontológico y detector de co-dependencias DAG
-├── schemas/
-│   ├── database.sql                # DDL para artifacts.db (Tablas artifacts y execution_metrics)
-│   └── artifact_contract.cue       # Contratos declarativos y restricciones de tipos en CUE
-├── templates/
-│   ├── tpl_socket_monitor.go       # Sonda atómica Go: sockets TCP sin invocar netstat (verificada)
-│   └── tpl_fd_rescuer.go           # Sonda atómica Go: inspección de /proc/$PID/fd (verificada)
-├── scripts/
-│   └── setup.sh                    # Instalador idempotente y seeder MCP para Claude, agy y Codex
-├── server.py                       # Servidor FastMCP ejecutable (9 herramientas RPC)
-├── .gitignore                      # Reglas de exclusión para binarios ELF, pycache y DBs
-└── README.md                       # Manifiesto integral con diagramas Mermaid
-```
-
----
-
-## 9. Inventario Sincero de la Fuente de la Verdad
-
-Para preservar la máxima integridad y transparencia epistemológica, este cuadro detalla con precisión quirúrgica el estado real de cada pieza proyectada frente a la realidad física de la máquina:
-
-| Componente | Proyección Inicial | Estado Físico Real | Detalle de Implementación |
-| :--- | :--- | :--- | :--- |
-| **Sliver C2** | Framework C2 completo (daemon gRPC, mTLS). | **Primitiva extraída mediante RE.** No se instaló el framework. | Usamos directamente la syscall `os.memfd_create` nativa de Linux en Python 3 para inyectar binarios Go en RAM. Se eliminó el 95% del peso muerto de ataque. |
-| **Pico-Jenkins / Pico-Ansible** | Jenkins / Ansible tradicionales. | **100% Operativo y Nativo.** | Compilación Go estática en 200 ms (`go build`), contratos CUE y catálogo SQLite en `~/.local/share/agent-os/artifacts.db`. |
-| **Bubblewrap (`bwrap`)** | Sandboxing efímero de procesos. | **100% Operativo y Verificado.** | Binario nativo `/usr/bin/bwrap` expuesto mediante `sandbox_run` en `server.py`. |
-| **bpftrace (eBPF)** | Observabilidad de kernel. | **Operativo (nivel FULL).** | Cableado como tool `kernel_trace` (modos syscall_count/file_opens/tcp_connect). Requiere privilegio: auto-escala vía `sudo -n`; sin él degrada a `DIMINISHED`. |
-| **Pueue (`pueued`)** | Colas asíncronas de subprocesos. | **100% Operativo.** | Binario estático musl 4.0.4 en `~/.local/bin` (espacio de usuario, sin sudo). `async_job_dispatch`/`async_job_inspect` verificados end-to-end. |
-| **Memoria semántica (`sqlite-vec`)** | Catálogo por hash estricto. | **100% Operativo.** | Recuperación híbrida 2-tier (hash O(1) + KNN coseno 384-dim, `bge-small-en-v1.5` ONNX offline). Umbral 0.32 calibrado. Fail-soft a solo-hash. |
-| **Omarchy (5 specs)** | Patrones acoplados a Arch/Hyprland. | **100% Operativo.** | `aep_ctl` (OM-1), `check_crash_alerts` (OM-2), hub de skills + Codex (OM-3), `query_system_docs` (OM-4), `visual_inspect` headless (OM-5). |
-| **Modelo de privilegio** | — (no proyectado). | **100% Operativo.** | Niveles FULL/DIMINISHED (`engine/privilege.py`), escalada `sudo -n` acotada, manifiesto auto-descriptivo `aep_capabilities` (códigos estilo chmod). |
-| **Auto-plug MCP** | Registro manual. | **100% Operativo.** | Launcher estable + `aep-sync.sh` (valida y solo entonces re-registra; `--watch` por inotify). `setup.sh` delega aquí. |
-| **Nushell (`nu`) / `jc`** | Parsing JSON de shell. | **Pendiente (único gap real).** | Los wrappers en `~/.zshenv` están listos; falta instalar `jc` vía pip y el binario de `nu`. No crítico: `aep_ctl` cubre la salida JSON tipada del sistema. |
-| **Seeding Multi-Agente** | Registro en interfaces de IA. | **100% Operativo y Registrado.** | Vía `aep-sync.sh` en **Claude Code**, **Antigravity (`agy`)** y **ChatGPT Codex**, apuntando al launcher estable. |
-
-> **Nota de estado (actualizada):** el servidor MCP expone **15 tools**. Todas las primitivas descompuestas (RAM exec, sandbox, eBPF, introspección, forense, async) y las 5 specs de Omarchy están implementadas y probadas end-to-end. El único gap físico restante es `nu`/`jc` (no crítico). Las capacidades `kernel_observability` y `service_control` requieren nivel **FULL**; el resto opera en **DIMINISHED**.
-
----
-
-## 10. Metodología RE as SDD y Matriz de Inspiración
-
-### ¿Por qué RE as SDD?
-Acoplar directamente herramientas ofensivas (como frameworks C2 comerciales o abiertos) introduce ruido, dependencias de red frágiles, certificados mTLS y firmas que violan el principio de **cero co-dependencias** del Protocolo Topos.  
-Mediante **Reverse Engineering as Specification-Driven Development (RE as SDD)**:
-1. **Aislamos la física del kernel:** Identificamos qué hace potente a la herramienta (en Sliver: `memfd_create` y ejecución de descriptores anónimos).
-2. **Escribimos la especificación formal:** Creamos contratos declarativos rígidos (**EAES-v1** en `docs/spec_artifact_engine.md`).
-3. **Construimos la implementación limpia:** Código nativo en Go y Python sin telemetría ofensiva ni intermediarios innecesarios.
-
-### Matriz de Repositorios de Referencia
-* **`termux-linux-deployer`:** Inspiró el patrón de **seeding idempotente multi-agente** (Claude Code, agy, Codex) y el enfoque de despliegue en espacio de usuario (`~/.local/bin`) sin requerir privilegios de root.
-* **`openclaw`:** Inspiró la cultura de **especificaciones rigurosas y contratos declarativos** antes de escribir código (`AGENTS.md`, esquemas CUE).
-* **`sdk-agent-pipeline`:** Inspiró la disciplina de **Topos DAG Integrity** y el guardián de circuitos (`ToposGuard`) para auditar y prevenir co-dependencias circulares ($A \otimes B$).
+La herencia de entorno **no asume Oh My Zsh**. Un archivo POSIX único se hace `source` desde los rc
+nativos. Probado en **bash, zsh y dash**.
 
 ```mermaid
 flowchart LR
-    subgraph OffensiveTools["Técnica Ofensiva Original"]
-        O1["BOF / COFF Loaders en RAM (Cobalt Strike / Sliver)"]
-        O2["Malleable C2 Profiles (Formateo de canal)"]
-        O3["Beaconing & Sleep Jitter (Check-in periódico)"]
-        O4["Process Hollowing / Live Thread Injection"]
-        O5["BloodHound Attack Paths (Teoría de grafos)"]
-        O6["Chisel SOCKS5 Pivoting"]
-    end
-
-    subgraph AgenticTransmutation["Transmutación Agéntica en AEP"]
-        T1["Pico-BOF: Objetos .o en RAM (Latencia sub-5ms)"]
-        T2["Perfiles Maleables de Tokens (JSON vs Protobuf)"]
-        T3["Dual-Mode Execution (Interactive RPC vs Beacon Worker)"]
-        T4["Process Rescue: Rescate no-invasivo de hilos colgados"]
-        T5["Topos Shortest Remediation Path (Algoritmo de grafos)"]
-        T6["Malla Efímera de Pruebas Multi-Servicio (veth)"]
-    end
-
-    O1 --> T1
-    O2 --> T2
-    O3 --> T3
-    O4 --> T4
-    O5 --> T5
-    O6 --> T6
+    Env["config/shell/aep-env.sh<br/>(POSIX: PAGER=cat, PATH, wrappers)"]
+    Install["scripts/install-shell-env.sh<br/>(idempotente, marcador)"]
+    Install --> B["~/.bashrc"]
+    Install --> Z["~/.zshenv"]
+    Install --> P["~/.profile"]
+    B & Z & P -->|source| Env
 ```
 
-> Para un análisis exhaustivo y detallado, consulta [docs/re_sdd_and_gap_analysis.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/re_sdd_and_gap_analysis.md), la formalización de la tríada conceptual en [docs/pico_abstractions_and_omissions.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pico_abstractions_and_omissions.md), la arquitectura de búsqueda vectorial en [docs/sqlite_vec_hybrid_retrieval.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/sqlite_vec_hybrid_retrieval.md) y la descomposición agnóstica de Omarchy en [docs/omarchy_specs_decomposition.md](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/omarchy_specs_decomposition.md).
+[↑ Volver arriba](#top)
+
+---
+
+## 10. Instalación desde Cero
+
+```bash
+cd /ruta/a/agent-execution-plane
+./scripts/setup.sh        # idempotente, espacio de usuario, sin sudo en el camino crítico
+```
+
+`setup.sh` provisiona el venv semántico (`sqlite-vec` + `fastembed` + Playwright), compila las sondas
+Go, descarga Pueue (musl, user-space), instala la herencia de shell agnóstica, el hook pre-commit y
+re-registra el MCP en todos los agentes vía `aep-sync.sh`.
+
+```mermaid
+flowchart TD
+    A["setup.sh"] --> B["venv + sqlite-vec/fastembed/playwright"]
+    A --> C["sondas Go (CGO_ENABLED=0)"]
+    A --> D["Pueue musl → ~/.local/bin"]
+    A --> E["install-shell-env.sh (bash/zsh/sh)"]
+    A --> F["hook pre-commit (core.hooksPath)"]
+    A --> G["aep-sync.sh → registro MCP multi-agente"]
+```
+
+[↑ Volver arriba](#top)
+
+---
+
+## 11. Estructura del Repositorio
+
+```
+agent-execution-plane/
+├── server.py                       # Servidor FastMCP (15 tools RPC)
+├── engine/
+│   ├── catalog.py                  # Catálogo + memoria semántica híbrida
+│   ├── embedder.py                 # Embedder local ONNX (fail-soft)
+│   ├── hydrator.py                 # Hidratador de plantillas Go
+│   ├── topos_guard.py              # Detector de co-dependencias DAG
+│   ├── privilege.py                # Niveles FULL/DIMINISHED + manifiesto
+│   ├── crash_router.py             # Crash routing proactivo (OM-2)
+│   ├── docs_vectorizer.py          # Man-pages vectorizadas (OM-4)
+│   └── headless_display.py         # Display headless Playwright (OM-5)
+├── schemas/
+│   ├── database.sql                # DDL (artifacts, metrics, crash_events)
+│   └── artifact_contract.cue       # Contratos declarativos CUE
+├── templates/                      # Sondas atómicas Go (socket-monitor, fd-rescuer)
+├── config/shell/aep-env.sh         # Herencia de entorno POSIX (agnóstica)
+├── scripts/
+│   ├── setup.sh                    # Instalador idempotente desde cero
+│   ├── aep-ctl                     # Plano de control unificado (OM-1)
+│   ├── aep-mcp-launch.sh           # Launcher estable (auto-plug)
+│   ├── aep-sync.sh                 # Autogestión atómica + registro MCP
+│   ├── install-shell-env.sh        # Instalador de herencia de shell
+│   └── hooks/pre-commit            # Gate de validación
+├── .gitattributes · .gitignore
+└── README.md                       # Fuente única de verdad (este archivo)
+```
+
+[↑ Volver arriba](#top)
+
+---
+
+## 12. Inventario Sincero de la Fuente de la Verdad
+
+| Componente | Estado Físico Real | Nota |
+| :--- | :--- | :--- |
+| `memfd_create` (RAM exec) | ✅ Operativo | Primitiva pura; framework C2 no instalado |
+| `bwrap` (sandbox) | ✅ Operativo | `sandbox_run` |
+| `bpftrace` (eBPF) | ✅ Operativo (FULL) | `kernel_trace`; escala vía `sudo -n`, degrada a DIMINISHED |
+| Pueue (async) | ✅ Operativo | musl 4.0.4 en `~/.local/bin`, verificado end-to-end |
+| Memoria semántica (`sqlite-vec`) | ✅ Operativo | Recuperación híbrida 2-tier, fail-soft |
+| Omarchy (5 specs) | ✅ Operativo | `aep_ctl`, crash routing, hub+Gemini, man-pages, headless |
+| Privilegio FULL/DIMINISHED | ✅ Operativo | `privilege.py` + manifiesto `aep_capabilities` |
+| Auto-plug MCP | ✅ Operativo | launcher + `aep-sync.sh` (+ `--watch`) |
+| Herencia shell agnóstica | ✅ Operativo | bash/zsh/dash; sin Oh My Zsh |
+| Nushell (`nu`) / `jc` | ⏳ Pendiente (no crítico) | `aep_ctl` ya entrega JSON tipado |
+
+[↑ Volver arriba](#top)
+
+---
+
+## 13. RE as SDD y Matriz de Inspiración
+
+Acoplar frameworks ofensivos completos introduce ruido, co-dependencias y firmas. En su lugar:
+**(1)** aislamos la primitiva del kernel, **(2)** escribimos la especificación formal, **(3)**
+construimos una implementación limpia y verificada.
+
+```mermaid
+flowchart LR
+    subgraph Ref["Repositorios de inspiración"]
+        R1["termux-linux-deployer<br/>(perfil de shell único · seeding)"]
+        R2["termux-ubuntu-bootstrap<br/>(instalador idempotente · logging)"]
+        R3["openclaw<br/>(contratos · AGENTS.md)"]
+        R4["sdk-agent-pipeline<br/>(Topos DAG integrity)"]
+    end
+    subgraph AEP["Patrones adoptados en AEP"]
+        F1["aep-env.sh sourced + multi-agente"]
+        F2["setup.sh idempotente user-space"]
+        F3["contratos CUE + EAES-v1"]
+        F4["topos_guard anti-codependencia"]
+    end
+    R1 --> F1
+    R2 --> F2
+    R3 --> F3
+    R4 --> F4
+```
+
+> Este `README.md` es la **fuente única de verdad** del proyecto: toda la especificación,
+> arquitectura y auditoría viven aquí, sin documentación dispersa.
+
+[↑ Volver arriba](#top)
