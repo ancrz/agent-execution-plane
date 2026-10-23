@@ -15,13 +15,14 @@ el ESTADO y las DECISIONES; descartar el ruido de proceso.
 4. **Invariantes:** memoria semántica auto-indexada (reindex sana); lazo de telemetría cerrado;
    promoción↔degradación bidireccional; archivado soft reversible del board (`kanban_archive`/`unarchive`);
    GC seguro protege plantillas base y respeta single-use; fail-soft en todo; stdio (sin WebSockets
-   de Go); privilegio FULL/DIMINISHED + manifiesto chmod + keywords bilingües EN/ES.
+   de Go); privilegio FULL/DIMINISHED + manifiesto chmod + keywords bilingües EN/ES; auto-plug con
+   hot-reload Connect-RPC `RefreshMcpServers` (cero reinicio de sesión).
 5. **Estado:** 32 tools MCP; rama `main`; Semgrep 0; venv + DB en `~/.local/share/agent-os/`;
-   auto-plug (`aep-sync.sh`) + hook pre-commit; las tools nuevas entran MCP-live al reiniciar sesión.
-6. **Pendientes:** feedback template→artefacto (en modo solo-diseño + validación por llamadas MCP);
-   revisar los demás pico tools.
+   auto-plug (`aep-sync.sh`) + hook pre-commit; hot-reload en vivo para Antigravity.
+6. **Pendientes:** Todos los pendings (#1 feedback template→artefacto, #2 kanban archive, #3 discover
+   bilingüe, #4 hardening pico tools) CERRADOS y verificados (Semgrep 0, MCP tests OK).
 7. **Decisiones firmes y por qué:** skill-swarm es consumidor (no se le aporta); JinjaX rechazado
-   (RE-as-SDD: se extrajeron patrones Jinja —StrictUndefined/defaults/tipos/no-eval— a `hydrator.py`).
+   (RE-as-SDD: patrones Jinja —StrictUndefined/defaults/tipos/no-eval— extraídos a `hydrator.py`).
 8. **Fuentes de verdad:** `docs/STATE.md`, este archivo, y la memoria `aep-state-and-pendings`.
 
 ## DESCARTAR (ruido de proceso)
@@ -41,9 +42,8 @@ ejecución** una vez que el veredicto quedó registrado. Ante la duda, preserva 
 /compact Conserva el estado de AEP: premisa agents-for-agents (entregar artefacto, IA expande
 eficiencia), los 2 motores compartidos (ponder.py=confianza, matcher.py=relevancia), el flujo
 discover→reutilizar/sintetizar/automatizar→ponderar, los invariantes (auto-index, lazo de
-telemetría, promoción↔degradación, archivado reversible del board, GC que protege plantillas base,
-fail-soft, stdio), 32 tools en main (Semgrep 0), y los pendientes con su porqué (modo diseño +
-validación por llamados MCP). Fuentes: docs/STATE.md, docs/COMPACT.md, memoria
-aep-state-and-pendings. Descarta salidas largas de probes/semgrep/builds, diffs y warnings de
-entorno repetidos.
+telemetría, promoción↔degradación, archivado reversible, GC seguro, fail-soft, stdio, hot-reload
+Connect-RPC RefreshMcpServers), 32 tools en main (Semgrep 0), todos los pendings (#1,#2,#3,#4)
+cerrados. Fuentes: docs/STATE.md, docs/COMPACT.md, memoria aep-state-and-pendings. Descarta
+salidas largas de probes/semgrep/builds, diffs y warnings repetidos.
 ```
