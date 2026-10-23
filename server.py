@@ -196,6 +196,23 @@ def template_select(intent: str, limit: int = 5) -> str:
 
 
 @mcp.tool()
+def artifact_prune(apply: bool = False) -> str:
+    """
+    [DESCUBRIMIENTO / GC] Poda destructiva SEGURA: elimina artefactos degradados (reusable=0 =
+    fallo demostrado), PROTEGIENDO las plantillas base (contexto semilla) y SIN tocar los
+    single-use exitosos (siguen reusable=1). apply=False (default) es DRY-RUN para que juzgues
+    los candidatos contra el ponderador; apply=True destruye (artefacto + su vector).
+    Nota: en una BD compartida, ejecuta reevaluate antes y revisa el dry-run antes de aplicar.
+    """
+    try:
+        protect = {t["name"] for t in template_registry.catalog()}
+        protect |= {"socket_monitor", "fd_rescuer"}  # variantes con guión bajo
+        return json.dumps(catalog.prune(protect=protect, apply=apply), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str:
     """
     [PICO-ANSIBLE / HYDRATOR] Instancia una plantilla atómica Go con los parámetros

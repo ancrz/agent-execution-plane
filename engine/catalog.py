@@ -394,6 +394,36 @@ class ArtifactCatalog:
                 rows = conn.execute(base + order, (lim,)).fetchall()
         return [dict(r) for r in rows]
 
+    def prune(self, protect: Optional[set] = None, apply: bool = False) -> Dict[str, Any]:
+        """Poda destructiva SEGURA de artefactos que perdieron la confianza.
+
+        Candidato = reusable=0 (ya degradado por reevaluate = fallo DEMOSTRADO) y NO protegido.
+        Los single-use exitosos quedan reusable=1 -> jamás son candidatos. Las plantillas base
+        (protect) nunca se podan: son contexto semilla. `apply=False` -> dry-run para juzgar
+        contra el ponderador antes de destruir; `apply=True` -> borra (artefacto + vector)."""
+        protect = set(protect or set())
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, success_rate, execution_count, promotion_score "
+                "FROM artifacts WHERE reusable = 0"
+            ).fetchall()
+            candidates = [dict(r) for r in rows if r["name"] not in protect]
+            if not apply:
+                return {"status": "DRY_RUN", "count": len(candidates),
+                        "candidates": candidates, "protected": sorted(protect),
+                        "note": "Revisa (tú vs el ponderador). Aplica con apply=True para destruir."}
+            removed = []
+            for c in candidates:
+                conn.execute("DELETE FROM artifacts WHERE id = ?", (c["id"],))
+                try:
+                    conn.execute("DELETE FROM vec_artifacts WHERE artifact_id = ?", (c["id"],))
+                except Exception:
+                    pass
+                removed.append(c["name"])
+            conn.commit()
+            return {"status": "PRUNED", "count": len(removed), "removed": removed,
+                    "protected": sorted(protect)}
+
     def index_coverage(self) -> Dict[str, Any]:
         """Cobertura del índice semántico: cuántos artefactos tienen embedding en vec."""
         if not self._vec_available or sqlite_vec is None:
