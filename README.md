@@ -18,10 +18,19 @@
 
 1. [El Reto de Ejecución: Consola Tradicional vs. Runtime Agéntico](#1-el-reto-de-ejecución-consola-tradicional-vs-runtime-agéntico)
 2. [Arquitectura Global (4 Capas)](#2-arquitectura-global-4-capas)
+   - [Desglose Arquitectónico de las 4 Capas](#desglose-arquitectónico-de-las-4-capas)
+   - [Especificación Detallada de Capas](#especificación-detallada-de-capas)
 3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
 4. [Catálogo de 19 Herramientas MCP](#4-catálogo-de-19-herramientas-mcp)
+   - [Tablas de Referencia Maestra de las 19 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-19-herramientas-fastmcp)
+   - [Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)](#ciclo-de-vida-y-encadenamiento-de-capacidades-skill-chaining)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
+   - [Persistencia y cómo la lee el agente](#persistencia-y-cómo-la-lee-el-agente)
+   - [Pico-Kanban: ponderación de artefactos (idioma agéntico)](#pico-kanban-ponderación-de-artefactos-idioma-agéntico)
 6. [Mejoras de Omarchy (5 Specs Agnósticas)](#6-mejoras-de-omarchy-5-specs-agnósticas)
+   - [Matriz de Especificaciones Agnósticas de Omarchy](#matriz-de-especificaciones-agnósticas-de-omarchy)
+   - [Especificaciones Técnicas Detalladas (SPEC-OM-1 a SPEC-OM-5)](#especificaciones-técnicas-detalladas-spec-om-1-a-spec-om-5)
+   - [Arquitectura y Flujo de Datos de las Mejoras Omarchy](#arquitectura-y-flujo-de-datos-de-las-mejoras-omarchy)
 7. [Modelo de Privilegio de Dos Niveles + Manifiesto](#7-modelo-de-privilegio-de-dos-niveles--manifiesto)
 8. [Auto-Plug: Autogestión Atómica del MCP](#8-auto-plug-autogestión-atómica-del-mcp)
 9. [Entorno Shell-Agnóstico](#9-entorno-shell-agnóstico)
@@ -63,12 +72,12 @@ críticas:
 
 ```mermaid
 flowchart LR
-    subgraph Hostile["Entorno hostil (igual para el operador C2 y el agente)"]
+    subgraph Hostile["Entorno de Consola Tradicional (Fricciones de Automatización)"]
         H1["Subprocesos bloqueantes<br/>(pagers, prompts, sudo interactivo)"]
         H2["Texto plano desalineado<br/>(awk/sed/grep) = tokens quemados"]
         H3["Huella en disco<br/>(temporales dispersos)"]
     end
-    subgraph AEP["Resolución AEP (mecanismo desmilitarizado)"]
+    subgraph AEP["Resolución AEP (Runtime Agéntico Determinista)"]
         S1["Ejecución en RAM<br/>memfd_create + fexecve"]
         S2["Salida tipada JSON<br/>+ memoria semántica"]
         S3["Colas asíncronas<br/>Pueue (task_id inmediato)"]
@@ -115,6 +124,43 @@ flowchart TD
     end
 ```
 
+### Desglose Arquitectónico de las 4 Capas
+
+| Capa | Nivel de Abstracción | Módulos & Componentes | Primitivas Subyacentes & Protocolos | Garantías & Rol en el Runtime |
+| :---: | :--- | :--- | :--- | :--- |
+| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 19 herramientas atómicas, tipadas y no-bloqueantes. |
+| **Capa 2** | **Motores de Ejecución y Memoria (`engine/`)** | `catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`) | Núcleo de lógica agéntica: memoria semántica híbrida, gestión de tareas Pico-Kanban con ponderación multidimensional, enrutamiento proactivo de coredumps, verificación topológica de grafos DAG y gobierno de privilegios en dos tiers (`FULL`/`DIMINISHED`). |
+| **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`). |
+| **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald` | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace` | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes y telemetría de kernel no-invasiva. |
+
+#### Especificación Detallada de Capas
+
+1. **Capa 3: Interfaz Agéntica (FastMCP RPC)**:
+   - **Protocolo y Transporte**: Opera sobre la especificación estándar Model Context Protocol (MCP) utilizando el framework **FastMCP** en `server.py`. Toda la comunicación se realiza a través de `stdio` mediante mensajes estructurados **JSON-RPC 2.0**, eliminando la necesidad de exponer puertos TCP o gestionar autenticación de red local insegura.
+   - **Autodescripción en Primera Vista**: La herramienta fundacional `aep_capabilities()` actúa como apretón de manos inicial, devolviendo un manifiesto estilo `chmod`/777 (`r`=sensar, `w`=actuar, `x`=ejecutar). Esto instruye al LLM sobre sus facultades operativas inmediatas según el nivel de privilegio detectado (`FULL` o `DIMINISHED`).
+   - **Multi-Cliente Universal**: Diseñado para ser consumido de forma idéntica por múltiples agentes autónomos (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI) mediante el launcher unificado `scripts/aep-mcp-launch.sh`.
+
+2. **Capa 2: Motores de Ejecución y Memoria (`engine/`)**:
+   - **Memoria Semántica Híbrida (`catalog.py`, `embedder.py`)**: Persiste metadatos de artefactos en `~/.local/share/agent-os/artifacts.db` con modo WAL. Implementa recuperación en dos niveles: coincidencia exacta por hash SHA-256 en tiempo O(1), y búsqueda por similitud de coseno mediante la extensión `sqlite-vec` y el modelo local `bge-small-en-v1.5` sobre ONNX Runtime.
+   - **Pico-Kanban de Ponderación (`kanban.py`)**: Mantiene un tablero de estados abstracto (`BACKLOG` → `SYNTHESIZED` → `LINTED` → `CANARY` → `PROMOTED`/`REJECTED`) para estructurar actividades complejas en tareas atómicas y ponderar artefactos con un motor de confianza multidimensional (`quality`, `reliability`, `experience`, `recency`) con veto por fallos.
+   - **Enrutamiento Proactivo de Fallos (`crash_router.py`)**: Interroga a `coredumpctl` periódicamente, deduplicando caídas mediante huellas hash compuestas (`pid:timestamp:executable`) para suministrar al agente alertas tempranas antes de que ejecute mutaciones en el sistema.
+   - **Vectorización de Documentación (`docs_vectorizer.py`)**: Ingiere y segmenta páginas de manual `man` de Ubuntu en párrafos, vectorizándolos localmente en `system_docs.db` para resolver la sintaxis exacta de utilidades de sistema en menos de 5 ms sin consultas web.
+   - **Actuador Visual Headless (`headless_display.py`)**: Orquesta instancias de Chromium sin cabeza vía Playwright, permitiendo renderizar URLs y capturar pantallas directamente en memoria RAM (`/dev/shm`) codificadas en Base64 para inspección visual automatizada.
+   - **Guardián Topológico (`topos_guard.py`)**: Aplica el Topos Integrity Protocol analizando grafos dirigidos acíclicos de tareas para certificar ausencia de ciclos o co-dependencias (A <-> B) antes de autorizar la ejecución.
+   - **Control de Privilegio (`privilege.py`)**: Detecta dinámicamente el contexto de permisos (`euid == 0` o `sudo -n true`), garantizando que las herramientas degraden elegantemente (*fail-soft*) a espacio de usuario sin lanzar excepciones no controladas.
+
+3. **Capa 1: Herencia de Shell Agnóstica**:
+   - **Sanitización de Entorno POSIX (`config/shell/aep-env.sh`)**: Archivo de entorno universal que fuerza `PAGER=cat`, `MANPAGER=cat`, `DEBIAN_FRONTEND=noninteractive` y exporta rutas críticas al `PATH`. Garantiza que cualquier subproceso hijo no se congele esperando interacción en terminales interactivas.
+   - **Instalación Idempotente Multi-Shell (`scripts/install-shell-env.sh`)**: Inyecta selectores atómicos con bloques de control en `~/.bashrc`, `~/.zshenv` y `~/.profile`, soportando indistintamente Bash, Zsh y Dash sin requerir frameworks de shell de terceros.
+   - **Plano de Control CLI Determinista (`scripts/aep-ctl`)**: Utilidad modular en Python stdlib que expone subdominios (`service`, `network`, `storage`, `package`). Toda invocación genera salida JSON estructurada y soporta introspección de contratos vía `--schema`.
+
+4. **Capa 0: Kernel Linux y Runtime de Sistema**:
+   - **Memoria Anónima Volátil (`memfd_create`)**: Primitiva nativa del kernel Linux (disponible desde glibc 2.27 / kernel 3.17) que permite alojar y ejecutar código binario ELF puramente en RAM a través de `/proc/self/fd/`, eludiendo el subsistema de archivos en disco secundario.
+   - **Aislamiento por Namespaces (`bwrap`)**: Utiliza Bubblewrap para confinar ejecuciones potencialmente peligrosas dentro de namespaces no-privilegiados de usuario, montaje, PID y red, con sistemas de archivos de solo lectura y directorios `/tmp` volátiles en memoria.
+   - **Observabilidad Dinámica (`bpftrace` / eBPF)**: Permite adjuntar sondas kprobes y tracepoints en caliente al núcleo para contabilizar llamadas al sistema, monitorizar aperturas de ficheros o rastrear conexiones TCP con scripts curados de solo-lectura y auto-terminación.
+   - **Forense Post-Mortem de Sistema**: Utilidades nativas `systemd-coredump` y `journalctl` para recuperación de volcados de memoria, extracción de trazas de pila e inspección de logs de eventos críticos a nivel de sistema.
+   - **Gestor de Colas Asíncronas (`Pueue`)**: Demonio de ejecución en segundo plano compilado estáticamente con `musl`, capaz de gestionar colas de tareas con grupos y límites de paralelismo sin bloquear el flujo conversacional del agente.
+
 [↑ Volver arriba](#top)
 
 ---
@@ -127,14 +173,14 @@ ejecución agéntica de alta resiliencia gobernadas por un modelo de privilegios
 
 ```mermaid
 flowchart LR
-    subgraph Off["Técnica ofensiva original"]
-        O1["Sliver: ejecución ELF en RAM"]
-        O2["ptrace / process injection"]
-        O3["Sandbox escape (namespaces)"]
-        O4["Exploit crash triage"]
-        O5["eBPF rootkits / sniffers"]
-        O6["BloodHound (teoría de grafos)"]
-        O7["C2 beaconing / sleep"]
+    subgraph Off["Primitiva del Kernel e Ingeniería de Sistemas"]
+        O1["Staging de ejecutables ELF en memoria anónima (memfd_create)"]
+        O2["Introspección dinámica de hilos y descriptores (/proc, ptrace)"]
+        O3["Aislamiento estricto de namespaces de Linux (bwrap)"]
+        O4["Análisis forense post-mortem de coredumps y señales"]
+        O5["Sondas dinámicas de observabilidad en kernel (eBPF / kprobes)"]
+        O6["Auditoría de grafos dirigidos acíclicos (DAG de dependencias)"]
+        O7["Despacho asíncrono no-bloqueante y control de colas"]
     end
     subgraph Ag["Capacidad agéntica AEP (tool MCP)"]
         A1["artifact_execute_in_ram"]
@@ -206,6 +252,101 @@ flowchart TD
         T12["query_system_docs"]
         T13["visual_inspect"]
         T14["topos_audit_dag"]
+    end
+```
+
+### Tablas de Referencia Maestra de las 19 Herramientas FastMCP
+
+El plano expone 19 herramientas RPC organizadas en 5 dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
+
+#### Punto de Entrada & Manifiesto de Autonomía (Root)
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `aep_capabilities` | `FULL` / `DIMINISHED` | `aep_capabilities() -> str`<br/>*(Sin parámetros)* | Evalúa `euid == 0` y disponibilidad de `sudo -n`. Genera un manifiesto en tríada octal estilo `chmod` (`r`=sensar, `w`=actuar, `x`=ejecutar) mapeando 13 capacidades agénticas con su alcance (`self`, `system`, `kernel`). | `{"what_is_this": str, "capability_tier": "FULL"|"DIMINISHED", "privilege_mode": str, "capabilities": {...}}` | Siempre retorna JSON determinista válido. Cero excepciones. |
+
+#### Dominio 1: Artefactos Evolutivos & Ciclo en Memoria (4 Herramientas)
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `artifact_query` | `DIMINISHED` | `artifact_query(intent: str, category: str) -> str` | Recuperación en 2 niveles: Tier 1 busca coincidencia exacta por hash SHA-256 en O(1); Tier 2 aplica embedding local ONNX (`bge-small-en-v1.5`) y búsqueda KNN coseno en `sqlite-vec` (umbral ≤ 0.32). | Hit: `{"status": "CACHE_HIT", "artifact_id": str, "name": str, "retrieval_mode": "exact_hash"|"semantic_cosine", ...}`<br/>Miss: `{"status": "CACHE_MISS", "available_templates": [...], ...}` | Si `sqlite-vec` o el modelo no están disponibles, degrada transparentemente a búsqueda exclusiva por hash. |
+| `artifact_hydrate` | `DIMINISHED` | `artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str` | Lee una plantilla atómica Go (`tpl_*.go`) desde `templates/`, valida parámetros requeridos e intercala variables generando código Go fuente autocontenido. | Éxito: `{"status": "SUCCESS", "go_source": str}`<br/>Error: `{"status": "ERROR", "error": str}` | Parámetros faltantes o plantillas inexistentes retornan JSON de error estructurado sin interrumpir el proceso. |
+| `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(name: str, intent: str, category: str, go_source: str, cue_contract: str = "") -> str` | Compilación estática pura (`CGO_ENABLED=0`, `-ldflags="-s -w"`). Compuerta estricta: `go vet` (bloquea si falla). Aviso consultivo: `golangci-lint`. Registra en catálogo y crea tarea en Pico-Kanban avanzando a `LINTED`. | Éxito: `{"status": "SUCCESS", "artifact_id": str, "binary_path": str, "compile_time_ms": float, "kanban_task_id": int}`<br/>Fallo: `{"status": "LINT_ERROR"|"BUILD_ERROR", "error": str}` | Errores de sintaxis o tipos retornan reporte estructurado con sugerencias. Ausencia de `golangci-lint` no bloquea la compilación. |
+| `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str` | Carga el binario ELF en un descriptor anónimo volátil vía `memfd_create` y lo ejecuta directamente en RAM mediante `/proc/self/fd/<fd>`. Mide latencia y actualiza métricas históricas de confiabilidad en SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Códigos de salida distintos de cero o errores de ejecución retornan JSON con `stderr` y alimentan la tasa histórica de fallo. |
+
+#### Dominio 2: Pico-Kanban & Ponderación Multidimensional (4 Herramientas)
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `kanban_board` | `DIMINISHED` | `kanban_board() -> str`<br/>*(Sin parámetros)* | Consulta tareas y artefactos en `artifacts.db`, clasificándolos en 6 carriles (`BACKLOG`, `SYNTHESIZED`, `LINTED`, `CANARY`, `PROMOTED`, `REJECTED`) con puntuaciones de ponderación en tiempo real. | `{"lanes": {"BACKLOG": [...], "CANARY": [...], "PROMOTED": [...]}, "total_tasks": int}` | Errores de lectura de base de datos retornan JSON con `status: "ERROR"` sin colapsar el runtime. |
+| `kanban_task_create` | `DIMINISHED` | `kanban_task_create(title: str, intent: str = "", category: str = "", artifact_name: Optional[str] = None) -> str` | Registra una nueva tarea atómica de trabajo en el carril inicial `BACKLOG`, ligándola opcionalmente al nombre de un artefacto en ciclo de construcción. | `{"status": "CREATED", "task_id": int, "title": str, "state": "BACKLOG"}` | Retorna JSON de error si fallan restricciones relacionales o la base está bloqueada. |
+| `kanban_advance` | `DIMINISHED` | `kanban_advance(task_id: int, to_state: str, lint_passed: Optional[bool] = None, canary_passed: Optional[bool] = None, note: Optional[str] = None) -> str` | Transiciona una tarea de estado y recalcula su puntuación de confianza multidimensional (`quality` 0.35, `reliability` 0.30, `experience` 0.15, `recency` 0.20 ajustado por confianza). | `{"status": "ADVANCED", "task_id": int, "previous_state": str, "current_state": str, "promotion_score": float}` | Si `task_id` no existe, retorna JSON con mensaje explicativo sin mutar el tablero. |
+| `kanban_promote` | `DIMINISHED` | `kanban_promote(task_id: int) -> str` | Evalúa si un artefacto califica para reuso: requiere `score >= 0.70`, validación canary superada y ausencia de veto por fiabilidad (`éxito < 0.70`). Marca `reusable = 1` en el catálogo o rechaza. | Promovido: `{"status": "PROMOTED", "score": float, "verdict": "TRUST", "reusable": true}`<br/>Rechazado: `{"status": "REJECTED", "missing_criteria": [...]}` | Retorna desglose de criterios faltantes sin alterar registros si la evaluación no alcanza el umbral. |
+
+#### Dominio 3: Aislamiento & Ejecución Asíncrona (3 Herramientas)
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `sandbox_run` | `DIMINISHED` | `sandbox_run(command: str, share_net: bool = True) -> str` | Ejecuta comandos arbitrarios dentro de un sandbox `bwrap` efímero con directorios raíz de solo-lectura (`/usr`, `/bin`, `/lib`), un `/tmp` en RAM tmpfs y namespaces de PID/red aislados. | `{"exit_code": int, "stdout": str, "stderr": str}`<br/>Error: `{"status": "ERROR", "error": str}` | Si `bwrap` falta o el subproceso falla, captura la salida estándar y error sin lanzar excepciones. |
+| `async_job_dispatch` | `DIMINISHED` | `async_job_dispatch(command: str, label: Optional[str] = None, group: str = "default", working_dir: Optional[str] = None) -> str` | Despacha comandos de larga duración a la cola de Pueue en segundo plano (`pueue add --print-task-id`). Retorna inmediatamente el `task_id` numérico para prevenir timeouts del agente. | `{"status": "queued", "task_id": int, "group": str, "command": str}` | Si el daemon Pueue no responde, retorna JSON de error con diagnóstico sin bloquear al llamador. |
+| `async_job_inspect` | `DIMINISHED` | `async_job_inspect(task_id: Optional[int] = None, lines: int = 50) -> str` | Consulta el estado general de las colas de Pueue (`pueue status --json`) o recupera los últimos logs estructurados de una tarea específica (`pueue log <id> --lines <n> --json`) sin bloquear. | Salida JSON nativa de Pueue con estado de cola, timestamps, código de retorno y logs de salida. | Si la tarea no existe o el log aún no está disponible, entrega JSON descriptivo de error. |
+
+#### Dominio 4: Forense de Crashes & Observabilidad de Kernel (3 Herramientas)
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `diagnose_system_crashes` | `FULL` / `DIMINISHED` | `diagnose_system_crashes(limit: int = 5) -> str` | Inspecciona volcados de memoria recientes vía `coredumpctl list --json=short` y errores del sistema en `journalctl -p err -o json`. Nivel `FULL` (`sudo -n`) examina todo el host; `DIMINISHED` acota al usuario. | `{"status": "OK"|"DEGRADED", "scope": "system"|"user", "recent_coredumps": [...], "recent_systemd_errors": [...], "unavailable_sources": [...]}` | Si faltan binarios de systemd (ej. contenedores), devuelve `status: "DEGRADED"` listando fuentes omitidas. |
+| `check_crash_alerts` | `FULL` / `DIMINISHED` | `check_crash_alerts(resolve_after_report: bool = False) -> str` | Polling proactivo: extrae coredumps recientes (`coredumpctl`), calcula huellas únicas (`pid:time:exe`) y detecta incidentes nuevos no registrados en `crash_events` antes de que el agente actúe. | `{"status": "OK", "new_crashes_synced": int, "pending_alerts_count": int, "alerts": [...]}` | En ausencia de incidentes o ante fallo de utilidades, retorna lista vacía de alertas con cero interrupciones. |
+| `kernel_trace` | `FULL` | `kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str` | Observabilidad no-invasiva en kernel vía `bpftrace` (`syscall_count`, `file_opens`, `tcp_connect`). Ejecuta scripts curados de solo-lectura con salida automática tras `duration_sec` (1 a 30 s). | `{"status": "OK", "capability_tier": "FULL", "mode": str, "duration_sec": int, "counts": {...}}` | Requiere `CAP_BPF` / `sudo -n`. Si se invoca en `DIMINISHED`, responde `status: "DEGRADED"` informando del requerimiento. |
+
+#### Dominio 5: Gestión de Sistema & Primitivas Omarchy (4 Herramientas)
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str, action: str, name: Optional[str] = None) -> str` | Enrutador determinista hacia `scripts/aep-ctl` para `service`, `network`, `storage` y `package`. Lecturas no requieren privilegios; mutaciones de servicios en `DIMINISHED` usan `systemd --user`, en `FULL` usan `sudo -n`. | JSON tipado estandarizado dependiente del dominio (`status`, `properties`, `interfaces`, `disks`, `packages`). | Parámetros omitidos devuelven JSON con `status: "ERROR"`, `exit_code: 1` y contrato de uso `--schema`. |
+| `query_system_docs` | `DIMINISHED` | `query_system_docs(query: str, limit: int = 3, ingest_command: Optional[str] = None) -> str` | Vectorizador semántico offline de páginas `man` sobre `system_docs.db` (`sqlite-vec`). Resuelve sintaxis y flags exactas en <5 ms sin navegación web. `ingest_command` ingiere comandos adicionales bajo demanda. | `{"status": "OK", "query": str, "results": [{"command": str, "section": str, "distance": float, "chunk_text": str}]}` | Carga perezosa del vectorizador. Si faltan dependencias vectoriales, entrega respuesta degradada con instrucciones. |
+| `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True) -> str` | Renderiza URLs locales (`file://`) o remotas en Chromium headless vía Playwright. Captura pantallas en memoria RAM (`/dev/shm`) y retorna el screenshot codificado en Base64 con destrucción inmediata de residuos. | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_base64": str}` | Si Playwright o Chromium no están instalados, devuelve `status: "DISPLAY_UNAVAILABLE"` con comando de resolución. |
+| `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: List[str], dependencies: Dict[str, List[str]]) -> str` | Guardián del Topos Integrity Protocol. Ejecuta ordenamiento topológico y detección de ciclos en grafos de tareas. Bloquea de inmediato planes con co-dependencias circulares (A <-> B) antes de iniciar la ejecución. | Aprobado: `{"verdict": "APPROVED", "details": [...]}`<br/>Bloqueado: `{"verdict": "BLOCKED", "details": [...], "remediation": str}` | Algoritmo determinista en memoria sin dependencias externas ni operaciones de E/S. |
+
+---
+
+### Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)
+
+El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 19 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
+
+```mermaid
+flowchart TD
+    subgraph S1["1. Descubrimiento & Autonomía"]
+        Init["Inicio de Interacción"] --> Cap["aep_capabilities()<br/>Evaluar privilegios (FULL vs DIMINISHED)"]
+        Cap --> Audit["topos_audit_dag()<br/>Auditar DAG de tareas y bloquear co-dependencias"]
+        Audit --> Task["kanban_task_create()<br/>Registrar tarea en lane BACKLOG"]
+    end
+
+    subgraph S2["2. Recuperación & Síntesis de Artefactos"]
+        Task --> Query["artifact_query(intent, category)<br/>Recuperación híbrida (Hash + sqlite-vec)"]
+        Query --> Branch{"¿Estado en Catálogo?"}
+        Branch -->|"CACHE_HIT (Validado)"| Hit["Recuperar binario existente de memoria"]
+        Branch -->|"CACHE_MISS"| Hydrate["artifact_hydrate()<br/>Instanciar plantilla Go con parámetros"]
+        Hydrate --> Synth["artifact_lint_and_build()<br/>go vet (gate) + golangci-lint (advisory)<br/>Compilación estática CGO_ENABLED=0"]
+        Synth --> LintLane["kanban_advance()<br/>Mover tarea a estado LINTED"]
+    end
+
+    subgraph S3["3. Ejecución Volátil & Validación Canary"]
+        Hit --> ExecRAM["artifact_execute_in_ram()<br/>Inyección en RAM vía memfd_create<br/>Ejecución /proc/self/fd/"]
+        LintLane --> ExecRAM
+        ExecRAM --> AdvCanary["kanban_advance()<br/>Avanzar a CANARY (canary_passed=True)"]
+        AdvCanary --> Promote["kanban_promote()<br/>Evaluar trust score multidimensional<br/>(quality, reliability, experience, recency)"]
+        Promote --> PBranch{"¿Score ≥ 0.70 & Veto OK?"}
+        PBranch -->|"Aprobado"| Promoted["PROMOTED<br/>Marcado reusable=1 en catálogo"]
+        PBranch -->|"Rechazado"| Rejected["REJECTED<br/>Permanece como artefacto efímero"]
+    end
+
+    subgraph S4["4. Vías Alternativas & Resiliencia Concurrente"]
+        Audit -.->|"Comando untrusted"| Sand["sandbox_run()<br/>Aislamiento estricto bwrap"]
+        Audit -.->|"Larga duración"| AsyncD["async_job_dispatch()<br/>Encolar en Pueue (task_id inmediato)"]
+        AsyncD --> AsyncI["async_job_inspect()<br/>Sondear status y logs no-bloqueantes"]
+        Cap -.->|"Monitoreo proactivo"| CrashCheck["check_crash_alerts()<br/>Polling de coredumps contra SQLite"]
+        CrashCheck -->|"Alertas pendientes"| CrashDiag["diagnose_system_crashes()<br/>RCA con stack trace y señales"]
     end
 ```
 
@@ -296,6 +437,103 @@ flowchart TD
         S5["OM-5 · visual_inspect<br/>display headless (Playwright /dev/shm)"]
     end
     S1 & S2 & S3 & S4 & S5 --> V["Cero co-dependencias (Topos)<br/>· fail-soft · salida JSON tipada"]
+```
+
+### Matriz de Especificaciones Agnósticas de Omarchy
+
+| Especificación | Nombre & Enfoque | Componente AEP | Mecánica Subyacente | Desacoplamiento de Omarchy (Ubuntu) | Garantía Fail-Soft |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **SPEC-OM-1** | **Unified System Control Plane** | `aep_ctl`<br/>`scripts/aep-ctl` | Enrutador CLI determinista hacia `systemctl`, `ip`, `ss`, `df`, `dpkg` con validación de esquemas JSON. | Sustituye comandos de Arch (`pacman`, scripts bash ad-hoc) por utilidades POSIX universales de Ubuntu/Debian. | Peticiones inválidas retornan JSON con `exit_code: 1` y documentación de uso (`--schema`). Binarios faltantes emiten `DEGRADED`. |
+| **SPEC-OM-2** | **Active Crash Routing & Proactive Self-Healing** | `check_crash_alerts`<br/>`diagnose_system_crashes` | Polling periódico que calcula huellas hash (`pid:time:exe`) de coredumps y persiste eventos en `crash_events`. | Elimina la dependencia de path units de systemd o servicios en segundo plano con permisos de root en Arch. | Si `coredumpctl` falta (contenedores), retorna `status: "DEGRADED"` sin interrumpir la ejecución del agente. |
+| **SPEC-OM-3** | **Universal Multi-Agent Skills Hub** | Granja de symlinks<br/>`scripts/setup.sh` | Enlace simbólico convergente desde `~/.agents/skills/` hacia los directorios de Claude, Antigravity, Codex y Gemini. | Desacopla las habilidades del entorno Hyprland/Arch, permitiendo sincronización universal multi-agente en Ubuntu. | Enlace idempotente; si un agente no está instalado en el host, la rutina continúa sin arrojar errores. |
+| **SPEC-OM-4** | **Local System Docs Vectorizer** | `query_system_docs`<br/>`engine/docs_vectorizer.py` | Base vectorial local `system_docs.db` con `sqlite-vec` y embeddings en CPU (`bge-small-en-v1.5`) sobre páginas `man`. | Reemplaza bases ChromaDB pesadas y llamadas a APIs de LLMs por inferencia ONNX offline en submilisegundos. | Carga perezosa; si el motor vectorial o el modelo faltan, entrega respuesta estructurada degradada sin excepciones. |
+| **SPEC-OM-5** | **Headless Visual & Display Actuator** | `visual_inspect`<br/>`engine/headless_display.py` | Automatización de navegador Chromium headless vía Playwright con capturas efímeras en RAM (`/dev/shm`). | Elimina la necesidad de compositor Wayland/Hyprland o servidores X11 físicos (`Xvfb`) para auditoría de interfaces. | Si Playwright o Chromium no están instalados, emite `DISPLAY_UNAVAILABLE` con la receta exacta para su resolución. |
+
+---
+
+#### Especificaciones Técnicas Detalladas (SPEC-OM-1 a SPEC-OM-5)
+
+#### 1. SPEC-OM-1: Unified System Control Plane (`aep_ctl` / `scripts/aep-ctl`)
+- **Objetivo**: Proveer un punto de entrada CLI y RPC determinista para que los modelos de lenguaje inspeccionen y muten el estado del sistema operativo sin alucinar flags ni parsear salidas de texto no estructuradas.
+- **Dominios Funcionales**:
+  - `service`: Inspecciona estado (`status`) o muta unidades (`start`, `stop`, `restart`). En modo `DIMINISHED` se acota automáticamente a `systemctl --user`; en `FULL` ejecuta `sudo -n systemctl`.
+  - `network`: Inspección general de interfaces (`inspect` vía `ip -j addr`), tabla de enrutamiento (`routes` vía `ip -j route`) y sockets en escucha (`listeners` parseando `ss -tuln` en JSON).
+  - `storage`: Uso de particiones (`usage` parseando `df -B1`), puntos de montaje activos (`mounts`) y topología de discos (`disks` vía `lsblk -J`).
+  - `package`: Paquetes instalados (`installed` vía `dpkg-query`), comprobación de presencia (`check`) e información de versión y dependencias (`info` vía `apt-cache policy`).
+- **Garantías**: Cero salida interactiva (suprime pagers), autodocumentación con `--schema` que retorna el contrato de cada dominio, y código de salida 1 con JSON de uso cuando faltan argumentos.
+
+#### 2. SPEC-OM-2: Active Crash Routing & Proactive Self-Healing (`check_crash_alerts`)
+- **Objetivo**: Transformar el análisis forense pasivo de coredumps en un lazo proactivo de alerta temprana para prevenir que el agente construya sobre un sistema inestable.
+- **Mecánica de Sincronización**:
+  1. Ejecuta `coredumpctl list --json=short --reverse -n 100` de forma no-invasiva.
+  2. Extrae para cada entrada el PID, timestamp del suceso y ruta del binario colapsado, componiendo una huella única digital `pid:timestamp:executable`.
+  3. Ejecuta una sentencia atómica `INSERT OR IGNORE` en la tabla `crash_events` de `artifacts.db`.
+  4. Retorna exclusivamente las alertas no resueltas (`resolved = 0`), permitiendo al agente invocar `diagnose_system_crashes()` para obtener el stack trace y planificar la remediación antes de seguir ejecutando tareas.
+- **Desacoplamiento**: A diferencia de Omarchy que dependía de scripts específicos para el gestor de ventanas de Arch, opera puramente en espacio de usuario sobre cualquier distribución Ubuntu/Debian con systemd.
+
+#### 3. SPEC-OM-3: Universal Multi-Agent Skills Hub
+- **Objetivo**: Consolidar las habilidades y herramientas agénticas en una única fuente de la verdad canónica (`~/.agents/skills/`), eliminando discrepancias entre los entornos de ejecución de distintos agentes.
+- **Arquitectura de Enlaces Simbólicos**:
+  - Directorio Canónico: `~/.agents/skills/` (leído de forma nativa por OpenAI Codex).
+  - Enlace Gemini CLI: `~/.gemini/skills/` -> `~/.agents/skills/`.
+  - Enlace Antigravity (`agy`): `~/.gemini/config/skills/` -> `~/.agents/skills/`.
+  - Enlace Migración Antigravity: `~/.gemini/antigravity-cli/skills/` -> `~/.agents/skills/`.
+- **Garantías de Mantenimiento**: Las modificaciones efectuadas en una habilidad por cualquier subagente se reflejan en tiempo real para todos los clientes sin necesidad de sincronizaciones manuales o copias redundantes.
+
+#### 4. SPEC-OM-4: Local System Docs Vectorizer (`query_system_docs`)
+- **Objetivo**: Resolver en tiempo real dudas sobre la sintaxis exacta, banderas y opciones de configuración de utilidades Linux estándar sin requerir conexión a internet ni incurrir en consumo excesivo de tokens de contexto.
+- **Pipeline de Ingesta y Recuperación**:
+  - **Ingesta**: Ejecuta `man <cmd>` configurando `MANPAGER=cat` y `MANWIDTH=80` para extraer texto plano limpio. Divide el manual en bloques de párrafo coherentes (máximo 50 fragmentos por comando).
+  - **Vectorización Local**: Calcula embeddings semánticos de 384 dimensiones mediante el modelo cuantizado `bge-small-en-v1.5` ejecutado sobre CPU con ONNX Runtime.
+  - **Almacenamiento**: Persiste los fragmentos y sus vectores en `~/.local/share/agent-os/system_docs.db` utilizando la tabla virtual `vec_docs` de `sqlite-vec`.
+  - **Consulta**: La función `query_system_docs(query, limit)` vectoriza la consulta del agente y ejecuta búsqueda por distancia de coseno, devolviendo los párrafos más relevantes en menos de 5 ms.
+
+#### 5. SPEC-OM-5: Headless Visual & Display Actuator (`visual_inspect`)
+- **Objetivo**: Dotar a los agentes de capacidades de inspección visual en entornos de servidor o instancias cloud privadas de monitor físico, permitiendo auditar dashboards, aplicaciones web o documentación generada localmente.
+- **Ciclo de Vida de Captura en RAM**:
+  1. Instancia el navegador Chromium sin cabeza mediante Playwright (`headless=True`, flags `--no-sandbox`).
+  2. Carga la URL indicada (`http://`, `https://` o `file://` local) configurando el viewport solicitado (por defecto 1280x800).
+  3. Espera el evento de ciclo de vida `load` de la página. Si se proporciona un selector CSS, aísla el elemento correspondiente.
+  4. Vuelca la captura gráfica directamente en memoria compartida volátil `/dev/shm/aep_shot_<uuid>.png`.
+  5. Codifica los bytes del archivo en una cadena Base64, computa la latencia y elimina inmediatamente el archivo temporal de RAM (`/dev/shm`), garantizando cero persistencia en almacenamiento secundario.
+
+---
+
+### Arquitectura y Flujo de Datos de las Mejoras Omarchy
+
+El siguiente diagrama detalla la arquitectura en tres niveles que articula las herramientas de Omarchy con los motores de AEP y las primitivas subyacentes del sistema operativo Ubuntu:
+
+```mermaid
+flowchart TD
+    subgraph Agents["Capa de Agentes & Tools MCP"]
+        T1["aep_ctl(domain, action)"]
+        T2["check_crash_alerts() / diagnose_system_crashes()"]
+        T3["Universal Skills Hub (Multi-Agent Registry)"]
+        T4["query_system_docs(query, limit)"]
+        T5["visual_inspect(url, viewport)"]
+    end
+
+    subgraph Adapters["Capa de Adaptadores & Motores AEP"]
+        A1["scripts/aep-ctl<br/>(CLI determinista con contratos --schema)"]
+        A2["engine/crash_router.py<br/>(De-duplicación por huella pid:time:exe)"]
+        A3["scripts/setup.sh & aep-sync.sh<br/>(Gestor de symlinks convergentes)"]
+        A4["engine/docs_vectorizer.py<br/>(Chunking de man + Embeddings ONNX CPU)"]
+        A5["engine/headless_display.py<br/>(Playwright Chromium headless)"]
+    end
+
+    subgraph OS["Capa de Primitivas Ubuntu / Kernel Linux"]
+        OS1["systemctl --user / sudo -n systemctl<br/>ss · ip · df · dpkg-query"]
+        OS2["systemd-coredump · journalctl -p err<br/>SQLite: crash_events (~/.local/share/agent-os/artifacts.db)"]
+        OS3["Granja de enlaces (~/.agents/skills)<br/>Claude · Antigravity · Codex · Gemini"]
+        OS4["man pages (MANPAGER=cat)<br/>SQLite: vec_docs (~/.local/share/agent-os/system_docs.db)"]
+        OS5["Buffers volátiles en RAM (/dev/shm)<br/>Capturas base64 efímeras (cero I/O en disco)"]
+    end
+
+    T1 --> A1 --> OS1
+    T2 --> A2 --> OS2
+    T3 --> A3 --> OS3
+    T4 --> A4 --> OS4
+    T5 --> A5 --> OS5
 ```
 
 [↑ Volver arriba](#top)
