@@ -1,0 +1,89 @@
+{
+  "templates": [
+    {
+      "name": "socket-monitor",
+      "source": "tpl_socket_monitor.go",
+      "category": "network",
+      "capability": "system_inspect",
+      "tags": [
+        "sockets",
+        "tcp",
+        "udp",
+        "ports",
+        "listen",
+        "listening",
+        "netstat",
+        "connections",
+        "network"
+      ],
+      "description": "Lista sockets TCP/UDP del host (LISTEN y ESTABLISHED) leyendo el kernel sin invocar netstat; salida JSON tipada.",
+      "params": []
+    },
+    {
+      "name": "fd-rescuer",
+      "source": "tpl_fd_rescuer.go",
+      "category": "process",
+      "capability": "process_introspection",
+      "tags": [
+        "file",
+        "descriptors",
+        "fd",
+        "proc",
+        "process",
+        "hung",
+        "stuck",
+        "deadlock",
+        "handles",
+        "leak"
+      ],
+      "description": "Inspecciona /proc/PID/fd de un proceso para diagnosticar hilos colgados, deadlocks o fugas de descriptores.",
+      "params": [
+        {
+          "name": "pid",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "disk-usage",
+      "source": "tpl_disk_usage.go",
+      "category": "filesystem",
+      "capability": "system_inspect",
+      "tags": [
+        "disk",
+        "storage",
+        "statfs",
+        "free",
+        "used",
+        "space",
+        "filesystem",
+        "capacity",
+        "mount"
+      ],
+      "description": "Uso de disco del sistema de archivos root vía statfs: total, libre y usado en bytes.",
+      "params": []
+    },
+    {
+      "name": "mem-stat",
+      "source": "tpl_mem_stat.go",
+      "category": "memory",
+      "capability": "system_inspect",
+      "tags": [
+        "memory",
+        "ram",
+        "meminfo",
+        "free",
+        "available",
+        "total",
+        "swap",
+        "oom",
+        "usage",
+        "used",
+        "consumption"
+      ],
+      "description": "Uso de memoria: lee /proc/meminfo y reporta RAM total, libre y disponible (usage) en bytes.",
+      "params": []
+    }
+  ]
+}

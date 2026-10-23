@@ -70,7 +70,7 @@ def capability_tier() -> str:
 _CAPABILITIES = {
     "ram_execution":        (5, 5, "self",   ["artifact_execute_in_ram"], "Inyectar y correr ELF en RAM (memfd_create)"),
     "ephemeral_sandbox":    (5, 5, "self",   ["sandbox_run"],             "Ejecutar aislado en sandbox bwrap"),
-    "artifact_synthesis":   (7, 7, "self",   ["artifact_hydrate", "artifact_lint_and_build"], "Sintetizar, lintar, compilar y persistir artefactos Go"),
+    "artifact_synthesis":   (7, 7, "self",   ["template_catalog", "template_select", "artifact_hydrate", "artifact_lint_and_build"], "Elegir plantilla (selector), sintetizar, lintar, compilar y persistir artefactos Go"),
     "semantic_memory":      (6, 6, "self",   ["artifact_query", "artifact_catalog", "artifact_reindex"], "Leer/escribir, DESCUBRIR y AUTO-INDEXAR la memoria semántica de artefactos (sqlite-vec)"),
     "async_dispatch":       (7, 7, "self",   ["async_job_dispatch", "async_job_inspect"], "Despachar/inspeccionar tareas asíncronas (Pueue)"),
     "process_introspection":(4, 4, "system", ["artifact_execute_in_ram"], "Introspección de descriptores de procesos (/proc/PID/fd)"),

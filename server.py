@@ -22,6 +22,7 @@ from engine.crash_router import CrashRouter
 from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
 from engine.kanban import KanbanBoard
 from engine.playbook import PlaybookStore
+from engine.template_registry import TemplateRegistry
 from engine.privilege import (
     capability_manifest,
     capability_tier,
@@ -46,6 +47,7 @@ hydrator = TemplateHydrator()
 crash_router = CrashRouter()
 kanban = KanbanBoard()
 playbook_store = PlaybookStore()
+template_registry = TemplateRegistry()
 
 # docs_vectorizer se instancia perezosamente (SPEC-OM-4): no crear system_docs.db al arrancar.
 _docs_vectorizer = None
@@ -158,6 +160,36 @@ def artifact_reindex(force: bool = False) -> str:
         after = catalog.index_coverage()
         return json.dumps({"status": result.get("status", "OK"), "reindex": result,
                            "coverage_before": before, "coverage_after": after},
+                          indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def template_catalog() -> str:
+    """
+    [PLANTILLAS] Tabla descriptiva de plantillas base disponibles (qué hay para sintetizar),
+    con capacidad, categoría, tags, descripción y params. Punto de partida: elige una plantilla,
+    hidrátala y constrúyela. Incluye candidatas redundantes (tags muy solapados).
+    """
+    try:
+        return json.dumps({"status": "OK", "templates": template_registry.catalog(),
+                           "redundancy": template_registry.redundancy()},
+                          indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def template_select(intent: str, limit: int = 5) -> str:
+    """
+    [PLANTILLAS] ¿Qué plantilla para mi caso de uso? Rankea las plantillas por relevancia a
+    `intent` con scoring multi-señal (exact/prefix/phrase + BM25F + jaccard de tags + fuzzy).
+    Devuelve el top con `relevance` y `why` (qué señales dispararon) para decidir con transparencia.
+    """
+    try:
+        matches = template_registry.select(intent, limit=limit)
+        return json.dumps({"status": "OK", "intent": intent, "matches": matches},
                           indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
