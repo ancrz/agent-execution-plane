@@ -80,7 +80,8 @@ CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
 CREATE TABLE IF NOT EXISTS playbooks (
     name TEXT PRIMARY KEY,
     description TEXT,
-    steps_json TEXT NOT NULL,                   -- JSON: [{id, tool, params, depends_on}]
+    steps_json TEXT NOT NULL,                   -- JSON: [{id, tool, params, depends_on}] (puede tener ${var})
+    params_contract TEXT NOT NULL DEFAULT '[]', -- JSON: [{name, type?, required?, default?}] (RE-as-SDD de Jinja)
     run_count INTEGER NOT NULL DEFAULT 0,
     success_count INTEGER NOT NULL DEFAULT 0,
     last_status TEXT,

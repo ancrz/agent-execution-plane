@@ -19,7 +19,7 @@ from mcp.server.fastmcp import FastMCP
 from engine import headless_display
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
-from engine.hydrator import TemplateHydrator
+from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
 from engine.kanban import KanbanBoard
 from engine.playbook import PlaybookStore
 from engine.privilege import (
@@ -655,14 +655,17 @@ _PLAYBOOK_FAIL = {"ERROR", "EXEC_FAILED", "BUILD_ERROR", "LINT_ERROR",
 
 
 @mcp.tool()
-def playbook_create(name: str, description: str, steps: List[Dict[str, Any]]) -> str:
+def playbook_create(name: str, description: str, steps: List[Dict[str, Any]],
+                    params_contract: Optional[List[Dict[str, Any]]] = None) -> str:
     """
-    [PICO-PLAYBOOK] Define una automatización: una secuencia/DAG de pasos, cada uno
-    {id?, tool, params?, depends_on?}, que invoca tools/artefactos ya existentes. El DAG se
-    valida con topos_guard (cero co-dependencias) antes de guardarse. Ej: un E2E que corre
-    socket-monitor y luego visual_inspect. tools encadenables: artifact_query/_catalog/
-    _execute_in_ram, sandbox_run, aep_ctl, check_crash_alerts, diagnose_system_crashes,
-    query_system_docs, visual_inspect, kernel_trace, topos_audit_dag.
+    [PICO-PLAYBOOK] Define una automatización PARAMETRIZABLE: una secuencia/DAG de pasos, cada
+    uno {id?, tool, params?, depends_on?}. Los `params` pueden llevar marcadores `${var}` que se
+    hidratan al ejecutar. `params_contract` declara las variables [{name, type?, required?,
+    default?}] (RE-as-SDD de Jinja: defaults + requeridos estrictos + tipos). El DAG se valida
+    con topos_guard (cero co-dependencias) antes de guardarse. Ej: E2E con ${url}.
+    tools encadenables: artifact_query/_catalog/_execute_in_ram, sandbox_run, aep_ctl,
+    check_crash_alerts, diagnose_system_crashes, query_system_docs, visual_inspect,
+    kernel_trace, topos_audit_dag.
     """
     try:
         # LINT del playbook: cada paso debe referenciar un tool de la whitelist encadenable
@@ -674,7 +677,9 @@ def playbook_create(name: str, description: str, steps: List[Dict[str, Any]]) ->
             return json.dumps(
                 {"status": "LINT_ERROR", "invalid_tools": bad,
                  "allowed_tools": sorted(allowed)}, indent=2, ensure_ascii=False)
-        return json.dumps(playbook_store.create(name, description, steps), indent=2, ensure_ascii=False)
+        return json.dumps(
+            playbook_store.create(name, description, steps, params_contract),
+            indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
@@ -689,16 +694,29 @@ def playbook_list() -> str:
 
 
 @mcp.tool()
-def playbook_run(name: str, stop_on_error: bool = True) -> str:
+def playbook_run(name: str, vars: Optional[Dict[str, Any]] = None,
+                 stop_on_error: bool = True) -> str:
     """
-    [PICO-PLAYBOOK] Ejecuta un playbook en orden topológico, despachando cada paso al tool
-    real y recogiendo resultados tipados. Registra la corrida (run_count/success) para que la
-    automatización también se pondere. stop_on_error corta en el primer paso fallido.
+    [PICO-PLAYBOOK] Instancia y ejecuta un playbook. `vars` hidrata los marcadores `${var}` de
+    los pasos contra el contrato del playbook (defaults + requeridos estrictos + tipos). Luego
+    ejecuta en orden topológico, despachando cada paso al tool real y recogiendo resultados
+    tipados. Registra la corrida (run_count/success) para ponderar la automatización.
+    stop_on_error corta en el primer paso fallido.
     """
     pb = playbook_store.get(name)
     if not pb:
         return json.dumps({"status": "ERROR", "error": f"playbook '{name}' no existe"}, indent=2)
-    v = PlaybookStore.validate_and_order(pb["steps"])
+
+    # Hidratación RE-as-SDD: resuelve vars contra el contrato (StrictUndefined/defaults/tipos)
+    # y sustituye estructuralmente `${var}` en los params de los pasos (sin eval).
+    try:
+        resolved = resolve_params(pb.get("params_contract") or [], vars or {})
+        steps = hydrate_struct(pb["steps"], resolved, strict=True)
+    except ValueError as e:
+        return json.dumps({"status": "PARAM_ERROR", "error": str(e),
+                           "contract": pb.get("params_contract") or []}, indent=2, ensure_ascii=False)
+
+    v = PlaybookStore.validate_and_order(steps)
     if not v.get("ok"):
         return json.dumps({"status": "BLOCKED", "verdict": v.get("verdict"), "logs": v.get("logs")}, indent=2)
 

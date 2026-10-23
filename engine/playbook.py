@@ -24,7 +24,8 @@ _PLAYBOOK_DDL = """
 CREATE TABLE IF NOT EXISTS playbooks (
     name TEXT PRIMARY KEY,
     description TEXT,
-    steps_json TEXT NOT NULL,            -- JSON: [{id, tool, params, depends_on}]
+    steps_json TEXT NOT NULL,            -- JSON: [{id, tool, params, depends_on}] (puede tener ${var})
+    params_contract TEXT NOT NULL DEFAULT '[]',  -- JSON: [{name, type?, required?, default?}]
     run_count INTEGER NOT NULL DEFAULT 0,
     success_count INTEGER NOT NULL DEFAULT 0,
     last_status TEXT,
@@ -40,6 +41,10 @@ class PlaybookStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(_PLAYBOOK_DDL)
+            # Migración idempotente: añade params_contract a DBs de playbooks previas.
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(playbooks)")}
+            if "params_contract" not in cols:
+                conn.execute("ALTER TABLE playbooks ADD COLUMN params_contract TEXT NOT NULL DEFAULT '[]'")
             conn.commit()
 
     def _conn(self) -> sqlite3.Connection:
@@ -101,23 +106,28 @@ class PlaybookStore:
                 "ordered_steps": [by_id[i] for i in order], "steps": norm}
 
     # ------------------------------------------------------------------ operaciones
-    def create(self, name: str, description: str, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def create(self, name: str, description: str, steps: List[Dict[str, Any]],
+               params_contract: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         try:
             v = self.validate_and_order(steps)
         except ValueError as e:
             return {"status": "ERROR", "error": str(e)}
         if not v["ok"]:
             return {"status": "BLOCKED", "verdict": v["verdict"], "logs": v["logs"]}
+        contract = params_contract or []
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO playbooks (name, description, steps_json) VALUES (?, ?, ?) "
+                "INSERT INTO playbooks (name, description, steps_json, params_contract) "
+                "VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(name) DO UPDATE SET description=excluded.description, "
-                "steps_json=excluded.steps_json, updated_at=CURRENT_TIMESTAMP",
-                (name, description, json.dumps(v["steps"])),
+                "steps_json=excluded.steps_json, params_contract=excluded.params_contract, "
+                "updated_at=CURRENT_TIMESTAMP",
+                (name, description, json.dumps(v["steps"]), json.dumps(contract)),
             )
             conn.commit()
         return {"status": "OK", "name": name, "verdict": v["verdict"],
-                "order": v["order"], "steps": len(v["steps"])}
+                "order": v["order"], "steps": len(v["steps"]),
+                "params": [c.get("name") for c in contract]}
 
     def get(self, name: str) -> Optional[Dict[str, Any]]:
         with self._conn() as conn:
@@ -126,6 +136,10 @@ class PlaybookStore:
             return None
         d = dict(row)
         d["steps"] = json.loads(d.pop("steps_json"))
+        try:
+            d["params_contract"] = json.loads(d.get("params_contract") or "[]")
+        except Exception:
+            d["params_contract"] = []
         return d
 
     def list(self) -> List[Dict[str, Any]]:
