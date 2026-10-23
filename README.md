@@ -21,8 +21,8 @@
    - [Desglose Arquitectónico de las 4 Capas](#desglose-arquitectónico-de-las-4-capas)
    - [Especificación Detallada de Capas](#especificación-detallada-de-capas)
 3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
-4. [Catálogo de 19 Herramientas MCP](#4-catálogo-de-19-herramientas-mcp)
-   - [Tablas de Referencia Maestra de las 19 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-19-herramientas-fastmcp)
+4. [Catálogo de 23 Herramientas MCP](#4-catálogo-de-23-herramientas-mcp)
+   - [Tablas de Referencia Maestra de las 23 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-23-herramientas-fastmcp)
    - [Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)](#ciclo-de-vida-y-encadenamiento-de-capacidades-skill-chaining)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
    - [Persistencia y cómo la lee el agente](#persistencia-y-cómo-la-lee-el-agente)
@@ -97,7 +97,7 @@ flowchart LR
 flowchart TD
     subgraph L3["Capa 3: Interfaz Agéntica"]
         Agent["Agente de IA (Claude Code / Antigravity / Codex / Gemini)"]
-        MCP["Servidor FastMCP (server.py) — 19 tools"]
+        MCP["Servidor FastMCP (server.py) — 23 tools"]
         Agent -->|stdio / JSON-RPC| MCP
     end
     subgraph L2["Capa 2: Motores (engine/)"]
@@ -128,7 +128,7 @@ flowchart TD
 
 | Capa | Nivel de Abstracción | Módulos & Componentes | Primitivas Subyacentes & Protocolos | Garantías & Rol en el Runtime |
 | :---: | :--- | :--- | :--- | :--- |
-| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 19 herramientas atómicas, tipadas y no-bloqueantes. |
+| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 23 herramientas atómicas, tipadas y no-bloqueantes. |
 | **Capa 2** | **Motores de Ejecución y Memoria (`engine/`)** | `catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`) | Núcleo de lógica agéntica: memoria semántica híbrida, gestión de tareas Pico-Kanban con ponderación multidimensional, enrutamiento proactivo de coredumps, verificación topológica de grafos DAG y gobierno de privilegios en dos tiers (`FULL`/`DIMINISHED`). |
 | **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`). |
 | **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald` | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace` | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes y telemetría de kernel no-invasiva. |
@@ -219,7 +219,7 @@ flowchart LR
 
 ---
 
-## 4. Catálogo de 19 Herramientas MCP
+## 4. Catálogo de 23 Herramientas MCP
 
 ```mermaid
 flowchart TD
@@ -255,9 +255,9 @@ flowchart TD
     end
 ```
 
-### Tablas de Referencia Maestra de las 19 Herramientas FastMCP
+### Tablas de Referencia Maestra de las 23 Herramientas FastMCP
 
-El plano expone 19 herramientas RPC organizadas en 5 dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
+El plano expone 23 herramientas RPC organizadas en 6 dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
 
 #### Punto de Entrada & Manifiesto de Autonomía (Root)
 
@@ -265,7 +265,7 @@ El plano expone 19 herramientas RPC organizadas en 5 dominios operacionales más
 | :--- | :---: | :--- | :--- | :--- | :--- |
 | `aep_capabilities` | `FULL` / `DIMINISHED` | `aep_capabilities() -> str`<br/>*(Sin parámetros)* | Evalúa `euid == 0` y disponibilidad de `sudo -n`. Genera un manifiesto en tríada octal estilo `chmod` (`r`=sensar, `w`=actuar, `x`=ejecutar) mapeando 13 capacidades agénticas con su alcance (`self`, `system`, `kernel`). | `{"what_is_this": str, "capability_tier": "FULL"|"DIMINISHED", "privilege_mode": str, "capabilities": {...}}` | Siempre retorna JSON determinista válido. Cero excepciones. |
 
-#### Dominio 1: Artefactos Evolutivos & Ciclo en Memoria (4 Herramientas)
+#### Dominio 1: Artefactos Evolutivos & Ciclo en Memoria (5 Herramientas)
 
 | Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
 | :--- | :---: | :--- | :--- | :--- | :--- |
@@ -273,6 +273,7 @@ El plano expone 19 herramientas RPC organizadas en 5 dominios operacionales más
 | `artifact_hydrate` | `DIMINISHED` | `artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str` | Lee una plantilla atómica Go (`tpl_*.go`) desde `templates/`, valida parámetros requeridos e intercala variables generando código Go fuente autocontenido. | Éxito: `{"status": "SUCCESS", "go_source": str}`<br/>Error: `{"status": "ERROR", "error": str}` | Parámetros faltantes o plantillas inexistentes retornan JSON de error estructurado sin interrumpir el proceso. |
 | `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(name: str, intent: str, category: str, go_source: str, cue_contract: str = "") -> str` | Compilación estática pura (`CGO_ENABLED=0`, `-ldflags="-s -w"`). Compuerta estricta: `go vet` (bloquea si falla). Aviso consultivo: `golangci-lint`. Registra en catálogo y crea tarea en Pico-Kanban avanzando a `LINTED`. | Éxito: `{"status": "SUCCESS", "artifact_id": str, "binary_path": str, "compile_time_ms": float, "kanban_task_id": int}`<br/>Fallo: `{"status": "LINT_ERROR"|"BUILD_ERROR", "error": str}` | Errores de sintaxis o tipos retornan reporte estructurado con sugerencias. Ausencia de `golangci-lint` no bloquea la compilación. |
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str` | Carga el binario ELF en un descriptor anónimo volátil vía `memfd_create` y lo ejecuta directamente en RAM mediante `/proc/self/fd/<fd>`. Mide latencia y actualiza métricas históricas de confiabilidad en SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Códigos de salida distintos de cero o errores de ejecución retornan JSON con `stderr` y alimentan la tasa histórica de fallo. |
+| `artifact_catalog` | `DIMINISHED` | `artifact_catalog(category: Optional[str] = None, query: Optional[str] = None, limit: int = 10) -> str` | Descubrimiento del catálogo: 'qué soluciones tengo'. Con `query`, top-K semántico (embeddings auto-indexados); sin `query`, ranking por confianza (`reusable` + `promotion_score` + éxito). Incluye `capability_tier`. | `{"status": "OK", "capability_tier": str, "count": int, "artifacts": [{"name": str, "reusable": int, "promotion_score": float, "semantic_distance"?: float}]}` | Si falta `sqlite-vec`/embedder, degrada a ranking relacional por confianza. |
 
 #### Dominio 2: Pico-Kanban & Ponderación Multidimensional (4 Herramientas)
 
@@ -308,11 +309,21 @@ El plano expone 19 herramientas RPC organizadas en 5 dominios operacionales más
 | `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True) -> str` | Renderiza URLs locales (`file://`) o remotas en Chromium headless vía Playwright. Captura pantallas en memoria RAM (`/dev/shm`) y retorna el screenshot codificado en Base64 con destrucción inmediata de residuos. | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_base64": str}` | Si Playwright o Chromium no están instalados, devuelve `status: "DISPLAY_UNAVAILABLE"` con comando de resolución. |
 | `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: List[str], dependencies: Dict[str, List[str]]) -> str` | Guardián del Topos Integrity Protocol. Ejecuta ordenamiento topológico y detección de ciclos en grafos de tareas. Bloquea de inmediato planes con co-dependencias circulares (A <-> B) antes de iniciar la ejecución. | Aprobado: `{"verdict": "APPROVED", "details": [...]}`<br/>Bloqueado: `{"verdict": "BLOCKED", "details": [...], "remediation": str}` | Algoritmo determinista en memoria sin dependencias externas ni operaciones de E/S. |
 
+#### Dominio 6: Automatización por Orquestación — Pico-Playbooks (3 Herramientas)
+
+Encadenan tools/artefactos existentes en flujos DAG (p.ej. E2E: sonda Go + `visual_inspect`). El DAG se valida con `topos_guard` (cero co-dependencias) y el ejecutor despacha a una **whitelist** de tools (acota el blast radius).
+
+| Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `playbook_create` | `DIMINISHED` | `playbook_create(name: str, description: str, steps: List[Dict]) -> str` | Define una automatización: pasos `{id?, tool, params?, depends_on?}`. Valida el DAG con `topos_guard` y hace topo-sort (Kahn) antes de persistir en `playbooks`. | `{"status": "OK", "verdict": "APPROVED", "order": [...]}`<br/>Ciclo: `{"status": "BLOCKED", "verdict": "BLOCKED", "logs": [...]}` | Pasos inválidos o DAG cíclico retornan JSON de error/bloqueo sin persistir. |
+| `playbook_run` | `DIMINISHED` | `playbook_run(name: str, stop_on_error: bool = True) -> str` | Ejecuta en orden topológico, despachando cada paso a la whitelist de tools encadenables. Registra la corrida (`run_count`/`success`) para ponderar la automatización. | `{"status": "OK"|"PARTIAL", "all_ok": bool, "steps_run": int, "results": [{"id": str, "tool": str, "status": str, "ok": bool}]}` | Un paso con tool no permitido o fallido marca `ok:false`; `stop_on_error` corta sin colapsar. |
+| `playbook_list` | `DIMINISHED` | `playbook_list() -> str` | Inventario de playbooks con su tasa de éxito y nº de pasos. | `{"status": "OK", "playbooks": [{"name": str, "run_count": int, "success_count": int, "last_status": str, "n_steps": int}]}` | Errores de lectura degradan a JSON de error sin interrumpir. |
+
 ---
 
 ### Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)
 
-El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 19 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
+El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 23 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
 
 ```mermaid
 flowchart TD
@@ -651,7 +662,7 @@ flowchart TD
 
 ```
 agent-execution-plane/
-├── server.py                       # Servidor FastMCP (19 tools RPC)
+├── server.py                       # Servidor FastMCP (23 tools RPC)
 ├── engine/
 │   ├── catalog.py                  # Catálogo + memoria semántica híbrida
 │   ├── embedder.py                 # Embedder local ONNX (fail-soft)
@@ -691,6 +702,8 @@ agent-execution-plane/
 | Pueue (async) | ✅ Operativo | musl 4.0.4 en `~/.local/bin`, verificado end-to-end |
 | Memoria semántica (`sqlite-vec`) | ✅ Operativo | Recuperación híbrida 2-tier, fail-soft |
 | Pico-Kanban (ponderación) | ✅ Operativo | Tablero abstracto en `artifacts.db`; promueve artefactos a `reusable` por score |
+| Pico-Playbooks (automatización) | ✅ Operativo | Orquesta tools/artefactos en flujos DAG validados por Topos; ejecución E2E y ponderación por éxito |
+| Descubrimiento del catálogo | ✅ Operativo | `artifact_catalog`: browse por confianza + top-K semántico |
 | Omarchy (5 specs) | ✅ Operativo | `aep_ctl`, crash routing, hub+Gemini, man-pages, headless |
 | Privilegio FULL/DIMINISHED | ✅ Operativo | `privilege.py` + manifiesto `aep_capabilities` |
 | Auto-plug MCP | ✅ Operativo | launcher + `aep-sync.sh` (+ `--watch`) |
