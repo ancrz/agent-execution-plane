@@ -21,8 +21,8 @@
    - [Desglose Arquitectónico de las 4 Capas](#desglose-arquitectónico-de-las-4-capas)
    - [Especificación Detallada de Capas](#especificación-detallada-de-capas)
 3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
-4. [Catálogo de 23 Herramientas MCP](#4-catálogo-de-23-herramientas-mcp)
-   - [Tablas de Referencia Maestra de las 23 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-23-herramientas-fastmcp)
+4. [Catálogo de 30 Herramientas MCP](#4-catálogo-de-30-herramientas-mcp)
+   - [Tablas de Referencia Maestra de las 30 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-30-herramientas-fastmcp)
    - [Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)](#ciclo-de-vida-y-encadenamiento-de-capacidades-skill-chaining)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
    - [Persistencia y cómo la lee el agente](#persistencia-y-cómo-la-lee-el-agente)
@@ -97,7 +97,7 @@ flowchart LR
 flowchart TD
     subgraph L3["Capa 3: Interfaz Agéntica"]
         Agent["Agente de IA (Claude Code / Antigravity / Codex / Gemini)"]
-        MCP["Servidor FastMCP (server.py) — 23 tools"]
+        MCP["Servidor FastMCP (server.py) — 30 tools"]
         Agent -->|stdio / JSON-RPC| MCP
     end
     subgraph L2["Capa 2: Motores (engine/)"]
@@ -128,7 +128,7 @@ flowchart TD
 
 | Capa | Nivel de Abstracción | Módulos & Componentes | Primitivas Subyacentes & Protocolos | Garantías & Rol en el Runtime |
 | :---: | :--- | :--- | :--- | :--- |
-| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 23 herramientas atómicas, tipadas y no-bloqueantes. |
+| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 30 herramientas atómicas, tipadas y no-bloqueantes. |
 | **Capa 2** | **Motores de Ejecución y Memoria (`engine/`)** | `catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`) | Núcleo de lógica agéntica: memoria semántica híbrida, gestión de tareas Pico-Kanban con ponderación multidimensional, enrutamiento proactivo de coredumps, verificación topológica de grafos DAG y gobierno de privilegios en dos tiers (`FULL`/`DIMINISHED`). |
 | **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`). |
 | **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald` | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace` | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes y telemetría de kernel no-invasiva. |
@@ -219,7 +219,7 @@ flowchart LR
 
 ---
 
-## 4. Catálogo de 23 Herramientas MCP
+## 4. Catálogo de 30 Herramientas MCP
 
 ```mermaid
 flowchart TD
@@ -255,9 +255,9 @@ flowchart TD
     end
 ```
 
-### Tablas de Referencia Maestra de las 23 Herramientas FastMCP
+### Tablas de Referencia Maestra de las 30 Herramientas FastMCP
 
-El plano expone 23 herramientas RPC organizadas en 6 dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
+El plano expone 30 herramientas RPC organizadas en dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
 
 #### Punto de Entrada & Manifiesto de Autonomía (Root)
 
@@ -321,9 +321,28 @@ Encadenan tools/artefactos existentes en flujos DAG (p.ej. E2E: sonda Go + `visu
 
 ---
 
+### Evolución reciente (orientación, descubrimiento, automatización y auto-corrección)
+
+Además de los dominios anteriores, el plano incorporó **2 motores compartidos** (una sola vara cada uno) y **herramientas de orientación / ciclo de vida**:
+
+- **`engine/ponder.py`** — vara de **CONFIANZA** (multidimensional: quality/reliability/experience/recency + confianza + veto). La usan artefactos **y** playbooks para añadir (promover) y podar (degradar).
+- **`engine/matcher.py`** — vara de **RELEVANCIA** (BM25F multi-señal, RE de skill-swarm). La usan `template_select` y `discover`.
+
+| Herramienta | Propósito |
+| :--- | :--- |
+| `discover(use_case)` | **Orientación**: caso de uso → capacidad + reutilizar(artefactos)/sintetizar(plantillas)/automatizar(playbooks), rankeado. Primera parada. |
+| `artifact_catalog(query?,category?)` | Descubrir soluciones ya construidas (ranking por confianza o top-K semántico). |
+| `artifact_reindex(force?)` | Sanar/forzar el índice semántico (cobertura de embeddings). |
+| `artifact_prune(apply?)` | GC seguro: poda artefactos degradados (dry-run por defecto; protege plantillas base; respeta single-use). |
+| `template_catalog()` / `template_select(intent)` | Tabla descriptiva de plantillas + selector por relevancia. |
+| `playbook_create/run/list` | Pico-Playbooks: orquestar tools en flujos DAG validados por Topos; parametrizables (`${var}`). |
+| `kanban_reevaluate()` / `kanban_demote(name)` | Cierran el lazo de confianza: degradan lo que ya no alcanza TRUST. |
+
+> Flujo del agente: **`discover` (orientar) → reutilizar/sintetizar/automatizar (decidir) → ponderar (añadir/podar)**. Todo con varas unificadas y transparente al usuario (agents-for-agents).
+
 ### Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)
 
-El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 23 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
+El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 30 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
 
 ```mermaid
 flowchart TD
@@ -662,7 +681,7 @@ flowchart TD
 
 ```
 agent-execution-plane/
-├── server.py                       # Servidor FastMCP (23 tools RPC)
+├── server.py                       # Servidor FastMCP (30 tools RPC)
 ├── engine/
 │   ├── catalog.py                  # Catálogo + memoria semántica híbrida
 │   ├── embedder.py                 # Embedder local ONNX (fail-soft)
