@@ -264,6 +264,13 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
         except Exception:
             pass
 
+        # Cierra el lazo de telemetría: cada ejecución alimenta success_rate/execution_count,
+        # que ponderan la reutilización del artefacto (dimensiones reliability/experience).
+        recorded = catalog.record_execution_by_name(
+            name, res.returncode, latency_ms,
+            error_message=(res.stderr.strip()[:500] if res.returncode != 0 and res.stderr else None),
+        )
+
         return json.dumps(
             {
                 "status": "SUCCESS" if res.returncode == 0 else "EXEC_FAILED",
@@ -271,6 +278,7 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
                 "latency_ms": latency_ms,
                 "output": stdout_parsed,
                 "stderr": res.stderr.strip() if res.stderr else None,
+                "metric_recorded": recorded,  # True si alimentó la ponderación del catálogo
             },
             indent=2,
         )

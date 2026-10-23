@@ -311,6 +311,23 @@ class ArtifactCatalog:
                 )
             conn.commit()
 
+    def record_execution_by_name(
+        self, name: str, exit_code: int, latency_ms: float,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        """Registra una ejecución buscando el artefacto por nombre. Cierra el lazo de
+        telemetría: alimenta success_rate/execution_count que ponderan la reutilización.
+        Best-effort: si el nombre no es un artefacto catalogado, no hace nada."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute("SELECT id FROM artifacts WHERE name = ?", (name,)).fetchone()
+            if not row:
+                return False
+            self.record_execution(row["id"], exit_code, latency_ms, error_message=error_message)
+            return True
+        except Exception:
+            return False
+
     def list_artifacts(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             if category:
