@@ -50,6 +50,10 @@ class CrashRouter:
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA busy_timeout = 5000")  # comparte artifacts.db (WAL) sin locks
+        except Exception:
+            pass
         return conn
 
     def sync_coredumps(self, limit: int = 100) -> int:

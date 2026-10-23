@@ -34,6 +34,8 @@ ram_runner
 # Local databases & logs
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.log
 
 # Coredumps

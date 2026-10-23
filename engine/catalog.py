@@ -56,9 +56,22 @@ class ArtifactCatalog:
         except Exception:
             return False
 
+    def _apply_pragmas(self, conn: sqlite3.Connection) -> None:
+        """Pragmas por-conexión para el patrón 'lee mucho, escribe poco' del agente.
+        busy_timeout evita 'database is locked' con varios módulos + MCP + aep-sync."""
+        try:
+            conn.execute("PRAGMA busy_timeout = 5000")       # 5s: concurrencia sin errores de lock
+            conn.execute("PRAGMA foreign_keys = ON")          # respeta ON DELETE CASCADE (métricas)
+            conn.execute("PRAGMA synchronous = NORMAL")       # seguro bajo WAL, mucho más rápido en escritura
+            conn.execute("PRAGMA mmap_size = 268435456")      # 256MB mmap: lecturas de embeddings sin copia
+            conn.execute("PRAGMA cache_size = -8000")         # 8MB de caché de páginas
+        except Exception:
+            pass  # pragmas son best-effort; nunca deben romper la conexión
+
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        self._apply_pragmas(conn)
         # Carga por-conexión requerida para que vec_artifacts sea consultable.
         # NO escribe self._vec_available (fix Ontos HF-2 / CF-2).
         self._try_load_vec(conn)
@@ -75,6 +88,13 @@ class ArtifactCatalog:
             self._migrate(conn)
             # Disponibilidad del tier vectorial: decidida UNA sola vez aquí (fix CF-2).
             self._vec_available = self._init_vec_table(conn)
+            # WAL: persistente a nivel-archivo (lo heredan todas las conexiones: crash_router,
+            # kanban, aep-sync). Permite lecturas concurrentes del agente mientras se escribe.
+            try:
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.execute("PRAGMA optimize")  # refresca estadísticas del planner
+            except Exception:
+                pass
             conn.commit()
 
     def _migrate(self, conn: sqlite3.Connection):
