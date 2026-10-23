@@ -665,6 +665,15 @@ def playbook_create(name: str, description: str, steps: List[Dict[str, Any]]) ->
     query_system_docs, visual_inspect, kernel_trace, topos_audit_dag.
     """
     try:
+        # LINT del playbook: cada paso debe referenciar un tool de la whitelist encadenable
+        # (además de la validación DAG/topos que hace el store). Falla en creación, no en run.
+        allowed = set(_playbook_dispatch())
+        bad = sorted({s.get("tool") for s in steps
+                      if isinstance(s, dict) and s.get("tool") not in allowed})
+        if bad:
+            return json.dumps(
+                {"status": "LINT_ERROR", "invalid_tools": bad,
+                 "allowed_tools": sorted(allowed)}, indent=2, ensure_ascii=False)
         return json.dumps(playbook_store.create(name, description, steps), indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
