@@ -349,9 +349,10 @@ class ArtifactCatalog:
         """Descubrimiento del catálogo para el agente: 'qué soluciones tengo disponibles'.
         - Con `query`: top-K semántico (embeddings auto-indexados) ordenado por cercanía.
         - Sin `query`: listado rankeado por reutilizable y ponderación (lo más confiable primero).
-        Devuelve metadatos de decisión (reusable, promotion_score, éxito), no el binario."""
-        cols = ("name, category, intent_description, reusable, promotion_score, "
-                "success_rate, execution_count")
+        Devuelve metadatos de decisión (reusable, promotion_score, éxito), no el binario.
+
+        SQL con literales estáticos y entradas (category/limit) siempre parametrizadas (?)."""
+        lim = max(1, limit)
 
         # Ruta semántica: top-K por similitud (si hay query + vec + embedder).
         if query and self._vec_available and sqlite_vec is not None:
@@ -362,10 +363,12 @@ class ArtifactCatalog:
                     with self._get_connection() as conn:
                         try:
                             rows = conn.execute(
-                                f"SELECT a.{cols.replace(', ', ', a.')}, v.distance AS _d "
+                                "SELECT a.name, a.category, a.intent_description, a.reusable, "
+                                "a.promotion_score, a.success_rate, a.execution_count, "
+                                "v.distance AS _d "
                                 "FROM vec_artifacts v JOIN artifacts a ON a.id = v.artifact_id "
                                 "WHERE v.intent_embedding MATCH ? AND k = ? ORDER BY v.distance",
-                                (sqlite_vec.serialize_float32(vec), max(1, limit)),
+                                (sqlite_vec.serialize_float32(vec), lim),
                             ).fetchall()
                         except Exception:
                             rows = []
@@ -379,17 +382,16 @@ class ArtifactCatalog:
                     return out
 
         # Ruta relacional: ranking por confianza (reusable, score, éxito, uso).
-        order = "reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC"
+        base = (
+            "SELECT name, category, intent_description, reusable, promotion_score, "
+            "success_rate, execution_count FROM artifacts"
+        )
+        order = " ORDER BY reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC LIMIT ?"
         with self._get_connection() as conn:
             if category:
-                rows = conn.execute(
-                    f"SELECT {cols} FROM artifacts WHERE category = ? ORDER BY {order} LIMIT ?",
-                    (category, max(1, limit)),
-                ).fetchall()
+                rows = conn.execute(base + " WHERE category = ?" + order, (category, lim)).fetchall()
             else:
-                rows = conn.execute(
-                    f"SELECT {cols} FROM artifacts ORDER BY {order} LIMIT ?", (max(1, limit),)
-                ).fetchall()
+                rows = conn.execute(base + order, (lim,)).fetchall()
         return [dict(r) for r in rows]
 
 
