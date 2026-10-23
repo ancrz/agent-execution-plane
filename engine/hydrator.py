@@ -126,15 +126,21 @@ class TemplateHydrator:
         (defaults + requeridos + tipos). Con `strict=True`, falla si queda algún `{{PARAM}}`
         sin resolver (StrictUndefined); default False por compatibilidad con plantillas Go
         que usen `{{ .Field }}` nativas."""
-        template_file = self.templates_dir / template_name
-        if not template_file.exists():
-            alt_file = self.templates_dir / f"tpl_{template_name}.go"
-            if alt_file.exists():
-                template_file = alt_file
-            else:
-                raise FileNotFoundError(
-                    f"Plantilla no encontrada: {template_name} en {self.templates_dir}"
-                )
+        candidates = [
+            self.templates_dir / template_name,
+            self.templates_dir / f"tpl_{template_name}.go",
+            self.templates_dir / f"tpl_{template_name.replace('-', '_')}.go",
+            self.templates_dir / template_name.replace("-", "_"),
+        ]
+        template_file = None
+        for cand in candidates:
+            if cand.exists():
+                template_file = cand
+                break
+        if not template_file:
+            raise FileNotFoundError(
+                f"Plantilla no encontrada: {template_name} en {self.templates_dir}"
+            )
 
         content = template_file.read_text(encoding="utf-8")
         resolved = resolve_params(contract, params) if contract else params

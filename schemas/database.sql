@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     intent_description TEXT NOT NULL DEFAULT '', -- Texto en lenguaje natural (fuente del embedding semántico)
     reusable INTEGER NOT NULL DEFAULT 1,       -- Pico-Kanban: ¿promovido como plantilla reutilizable?
     promotion_score REAL NOT NULL DEFAULT 0.0, -- Ponderación [0-1] (linters + canary + éxito histórico)
+    source_template TEXT NOT NULL DEFAULT '',  -- Plantilla origen (si fue sintetizado a partir de una)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

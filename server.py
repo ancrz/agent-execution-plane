@@ -145,7 +145,8 @@ def discover(use_case: str, limit: int = 3) -> str:
                     for k, v in caps.items()]
         cap = matcher.rank(use_case, cap_docs, limit=2)
         reuse = catalog.browse(query=use_case, limit=limit)
-        synth = template_registry.select(use_case, limit=limit)
+        fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
+        synth = template_registry.select(use_case, limit=limit, feedback=fb)
         pb_docs = [{"name": p["name"], "tags": [], "description": p.get("description", "")}
                    for p in playbook_store.list()]
         automate = matcher.rank(use_case, pb_docs, limit=limit)
@@ -156,7 +157,8 @@ def discover(use_case: str, limit: int = 3) -> str:
                                  "promotion_score": a.get("promotion_score"),
                                  "semantic_distance": a.get("semantic_distance")} for a in reuse],
             "synthesize_templates": [{"name": t["name"], "capability": t.get("capability"),
-                                      "relevance": t["relevance"]} for t in synth],
+                                      "relevance": t["relevance"],
+                                      "proven": t.get("proven")} for t in synth],
             "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
             "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
                     "plantilla; para un flujo multi-paso, un playbook.",
@@ -213,7 +215,8 @@ def template_catalog() -> str:
     hidrátala y constrúyela. Incluye candidatas redundantes (tags muy solapados).
     """
     try:
-        return json.dumps({"status": "OK", "templates": template_registry.catalog(),
+        fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
+        return json.dumps({"status": "OK", "templates": template_registry.catalog(feedback=fb),
                            "redundancy": template_registry.redundancy()},
                           indent=2, ensure_ascii=False)
     except Exception as e:
@@ -228,7 +231,8 @@ def template_select(intent: str, limit: int = 5) -> str:
     Devuelve el top con `relevance` y `why` (qué señales dispararon) para decidir con transparencia.
     """
     try:
-        matches = template_registry.select(intent, limit=limit)
+        fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
+        matches = template_registry.select(intent, limit=limit, feedback=fb)
         return json.dumps({"status": "OK", "intent": intent, "matches": matches},
                           indent=2, ensure_ascii=False)
     except Exception as e:
@@ -267,7 +271,8 @@ def artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str:
 
 @mcp.tool()
 def artifact_lint_and_build(
-    name: str, intent: str, category: str, go_source: str, cue_contract: str = ""
+    name: str, intent: str, category: str, go_source: str, cue_contract: str = "",
+    source_template: str = "",
 ) -> str:
     """
     [PICO-JENKINS / QUALITY GATE] Ejecuta análisis estático sobre el código Go generado
@@ -333,6 +338,7 @@ def artifact_lint_and_build(
             cue_contract=cue_contract or "package schema",
             go_source=go_source,
             binary_blob=binary_bytes,
+            source_template=source_template,
         )
 
         # Pico-Kanban: registra el ciclo del artefacto y lo pondera. go vet pasó -> lint_passed;
@@ -351,6 +357,7 @@ def artifact_lint_and_build(
                 "status": "SUCCESS",
                 "artifact_id": artifact_id,
                 "name": name,
+                "source_template": source_template or None,
                 "binary_path": str(bin_file),
                 "binary_size_bytes": len(binary_bytes),
                 "compile_time_ms": compile_latency_ms,
@@ -368,10 +375,21 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
     y lo inyecta directamente en memoria RAM vía memfd_create sin tocar almacenamiento secundario.
     """
     bin_file = TEMP_BIN_DIR / name
-    if not bin_file.exists():
-        return json.dumps({"status": "ERROR", "error": f"Binario no encontrado: {name}"})
+    elf_bytes: Optional[bytes] = None
+    if bin_file.exists():
+        elf_bytes = bin_file.read_bytes()
+    else:
+        blob = catalog.get_binary_blob(name)
+        if blob:
+            elf_bytes = blob
+            try:
+                bin_file.write_bytes(blob)
+                bin_file.chmod(0o755)
+            except Exception:
+                pass
 
-    elf_bytes = bin_file.read_bytes()
+    if not elf_bytes:
+        return json.dumps({"status": "ERROR", "error": f"Binario no encontrado: {name}"})
     cmd_args = args or []
 
     start_time = time.time()
@@ -428,6 +446,13 @@ def async_job_dispatch(
     [CAMINO B / PUEUE] Encola un comando de larga duración en Pueue de forma asíncrona.
     Devuelve inmediatamente el task_id para evitar bloqueos del subproceso del agente.
     """
+    if not shutil.which("pueue"):
+        return json.dumps({
+            "status": "DEGRADED",
+            "message": "pueue binary is not installed on host. Camino B requires pueue daemon.",
+            "command": command,
+        }, indent=2)
+
     cmd = ["pueue", "add", "--print-task-id", "--group", group]
     if label:
         cmd.extend(["--label", label])
@@ -436,7 +461,14 @@ def async_job_dispatch(
     cmd.extend(["--", command])
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0 or not res.stdout.strip():
+            return json.dumps({
+                "status": "DEGRADED",
+                "message": "Failed to dispatch async task to pueue daemon",
+                "stderr": res.stderr.strip(),
+                "exit_code": res.returncode,
+            }, indent=2)
         task_id = int(res.stdout.strip())
         return json.dumps(
             {"status": "queued", "task_id": task_id, "group": group, "command": command},
@@ -452,6 +484,12 @@ def async_job_inspect(task_id: Optional[int] = None, lines: int = 50) -> str:
     [CAMINO B / PUEUE] Consulta el estado en JSON de la cola asíncrona o extrae el log
     aislado de un task_id específico sin bloquear.
     """
+    if not shutil.which("pueue"):
+        return json.dumps({
+            "status": "DEGRADED",
+            "message": "pueue binary is not installed on host",
+        }, indent=2)
+
     try:
         if task_id is not None:
             res = subprocess.run(
@@ -459,8 +497,20 @@ def async_job_inspect(task_id: Optional[int] = None, lines: int = 50) -> str:
                 capture_output=True,
                 text=True,
             )
+            if res.returncode != 0 or not res.stdout.strip():
+                return json.dumps({
+                    "status": "DEGRADED",
+                    "message": f"Failed to retrieve log for task {task_id}",
+                    "stderr": res.stderr.strip(),
+                }, indent=2)
             return res.stdout
         res = subprocess.run(["pueue", "status", "--json"], capture_output=True, text=True)
+        if res.returncode != 0 or not res.stdout.strip():
+            return json.dumps({
+                "status": "DEGRADED",
+                "message": "Failed to connect to pueue daemon",
+                "stderr": res.stderr.strip(),
+            }, indent=2)
         return res.stdout
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)

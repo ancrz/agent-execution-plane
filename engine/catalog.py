@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine import ponder
 from engine.embedder import EMBEDDING_DIM, get_instance
 
 # Import fail-soft de sqlite-vec (extensión vectorial). Si falta, el tier semántico se desactiva.
@@ -108,6 +109,10 @@ class ArtifactCatalog:
             conn.execute("ALTER TABLE artifacts ADD COLUMN reusable INTEGER NOT NULL DEFAULT 1")
         if "promotion_score" not in cols:
             conn.execute("ALTER TABLE artifacts ADD COLUMN promotion_score REAL NOT NULL DEFAULT 0.0")
+        if "source_template" not in cols:
+            conn.execute(
+                "ALTER TABLE artifacts ADD COLUMN source_template TEXT NOT NULL DEFAULT ''"
+            )
 
     def _init_vec_table(self, conn: sqlite3.Connection) -> bool:
         """Crea la tabla virtual vec0 una sola vez. Devuelve True si el tier vectorial sirve."""
@@ -207,6 +212,7 @@ class ArtifactCatalog:
         go_source: str,
         binary_blob: Optional[bytes] = None,
         intent_description: str = "",
+        source_template: str = "",
     ) -> str:
         new_id = str(uuid.uuid4())
         intent_hash = self.compute_intent_hash(intent, category)
@@ -220,8 +226,8 @@ class ArtifactCatalog:
                 """
                 INSERT INTO artifacts (
                     id, name, intent_hash, category, cue_contract, go_source,
-                    binary_blob, binary_hash, intent_description
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    binary_blob, binary_hash, intent_description, source_template
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     intent_hash = excluded.intent_hash,
                     category = excluded.category,
@@ -230,13 +236,14 @@ class ArtifactCatalog:
                     binary_blob = excluded.binary_blob,
                     binary_hash = excluded.binary_hash,
                     intent_description = excluded.intent_description,
+                    source_template = CASE WHEN excluded.source_template != '' THEN excluded.source_template ELSE artifacts.source_template END,
                     version = artifacts.version + 1,
                     updated_at = CURRENT_TIMESTAMP
                 RETURNING id
                 """,
                 (
                     new_id, name, intent_hash, category, cue_contract, go_source,
-                    binary_blob, binary_hash, description,
+                    binary_blob, binary_hash, description, source_template,
                 ),
             ).fetchone()
             real_id = row["id"] if row else new_id
@@ -364,7 +371,7 @@ class ArtifactCatalog:
                         try:
                             rows = conn.execute(
                                 "SELECT a.name, a.category, a.intent_description, a.reusable, "
-                                "a.promotion_score, a.success_rate, a.execution_count, "
+                                "a.promotion_score, a.success_rate, a.execution_count, a.source_template, "
                                 "v.distance AS _d "
                                 "FROM vec_artifacts v JOIN artifacts a ON a.id = v.artifact_id "
                                 "WHERE v.intent_embedding MATCH ? AND k = ? ORDER BY v.distance",
@@ -382,16 +389,24 @@ class ArtifactCatalog:
                     return out
 
         # Ruta relacional: ranking por confianza (reusable, score, éxito, uso).
-        base = (
-            "SELECT name, category, intent_description, reusable, promotion_score, "
-            "success_rate, execution_count FROM artifacts"
-        )
-        order = " ORDER BY reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC LIMIT ?"
         with self._get_connection() as conn:
             if category:
-                rows = conn.execute(base + " WHERE category = ?" + order, (category, lim)).fetchall()
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+                rows = conn.execute(
+                    "SELECT name, category, intent_description, reusable, promotion_score, "
+                    "success_rate, execution_count, source_template FROM artifacts "
+                    "WHERE category = ? "
+                    "ORDER BY reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC LIMIT ?",
+                    (category, lim),
+                ).fetchall()
             else:
-                rows = conn.execute(base + order, (lim,)).fetchall()
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+                rows = conn.execute(
+                    "SELECT name, category, intent_description, reusable, promotion_score, "
+                    "success_rate, execution_count, source_template FROM artifacts "
+                    "ORDER BY reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC LIMIT ?",
+                    (lim,),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def prune(self, protect: Optional[set] = None, apply: bool = False) -> Dict[str, Any]:
@@ -479,6 +494,92 @@ class ArtifactCatalog:
                 "total": len(rows)}
 
 
+    def get_binary_blob(self, name: str) -> Optional[bytes]:
+        """Recupera el blob binario compilado de un artefacto desde SQLite por nombre."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute("SELECT binary_blob FROM artifacts WHERE name = ?", (name,)).fetchone()
+                if row and row["binary_blob"]:
+                    return bytes(row["binary_blob"])
+        except Exception:
+            pass
+        return None
+
+    def template_feedback(
+        self, template_names: Optional[List[str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """Calcula telemetría y confianza agregada (Pico-Ponder) para plantillas según
+        el comportamiento histórico de los artefactos derivados de ellas."""
+        known_names = set(template_names or [])
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT name, source_template, reusable, promotion_score, "
+                "success_rate, execution_count, updated_at FROM artifacts"
+            ).fetchall()
+
+        for r in rows:
+            d = dict(r)
+            st = (d.get("source_template") or "").strip()
+            if not st:
+                candidate = d["name"].replace("_", "-")
+                if candidate in known_names:
+                    st = candidate
+                elif candidate in {"socket-monitor", "fd-rescuer", "disk-usage", "mem-stat"}:
+                    st = candidate
+            if st:
+                groups.setdefault(st, []).append(d)
+
+        out: Dict[str, Dict[str, Any]] = {}
+        target_keys = set(template_names) if template_names is not None else set(groups.keys())
+
+        for tpl in target_keys:
+            group = groups.get(tpl, [])
+            if not group:
+                out[tpl] = {
+                    "artifacts_built": 0,
+                    "reusable_count": 0,
+                    "total_executions": 0,
+                    "effective": 0.0,
+                    "verdict": "UNPROVEN",
+                    "confidence": 0.0,
+                }
+                continue
+
+            artifacts_built = len(group)
+            reusable_count = sum(1 for a in group if a.get("reusable") == 1)
+            total_executions = sum(int(a.get("execution_count") or 0) for a in group)
+
+            dims: Dict[str, float] = {
+                "quality": reusable_count / artifacts_built,
+            }
+            veto = False
+            if total_executions > 0:
+                weighted_sr = sum(
+                    float(a.get("success_rate", 1.0)) * int(a.get("execution_count") or 0)
+                    for a in group
+                )
+                avg_sr = weighted_sr / total_executions
+                dims["reliability"] = max(0.0, min(1.0, avg_sr))
+                dims["experience"] = ponder.log_norm(total_executions, 10)
+                veto = avg_sr < 0.70
+
+            recencies = [ponder.recency_decay(ponder.days_since(a.get("updated_at"))) for a in group]
+            dims["recency"] = max(recencies) if recencies else 1.0
+
+            p = ponder.finalize(dims, reliability_veto=veto)
+            out[tpl] = {
+                "artifacts_built": artifacts_built,
+                "reusable_count": reusable_count,
+                "total_executions": total_executions,
+                "effective": p["effective"],
+                "verdict": p["verdict"],
+                "confidence": p["confidence"],
+            }
+
+        return out
+
+
 _FALLBACK_SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (
     id TEXT PRIMARY KEY,
@@ -494,6 +595,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     execution_count INTEGER NOT NULL DEFAULT 0,
     avg_latency_ms REAL NOT NULL DEFAULT 0.0,
     intent_description TEXT NOT NULL DEFAULT '',
+    source_template TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

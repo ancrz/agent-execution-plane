@@ -31,17 +31,28 @@ class TemplateRegistry:
         except Exception:
             self.templates = []
 
-    def catalog(self) -> List[Dict[str, Any]]:
+    def catalog(self, feedback: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """La tabla amplia para que el agente elija al momento."""
+        fb = feedback or {}
+        default_proven = {
+            "artifacts_built": 0, "reusable_count": 0, "total_executions": 0,
+            "effective": 0.0, "verdict": "UNPROVEN", "confidence": 0.0,
+        }
         return [
             {"name": t["name"], "category": t.get("category"), "capability": t.get("capability"),
              "tags": t.get("tags", []), "description": t.get("description", ""),
-             "params": t.get("params", []), "source": t.get("source")}
+             "params": t.get("params", []), "source": t.get("source"),
+             "proven": fb.get(t["name"], dict(default_proven))}
             for t in self.templates
         ]
 
-    def select(self, intent: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def select(self, intent: str, limit: int = 5, feedback: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Rankea plantillas por relevancia al caso de uso (vía matcher compartido)."""
+        fb = feedback or {}
+        default_proven = {
+            "artifacts_built": 0, "reusable_count": 0, "total_executions": 0,
+            "effective": 0.0, "verdict": "UNPROVEN", "confidence": 0.0,
+        }
         docs = [
             {"name": t["name"], "tags": t.get("tags", []), "description": t.get("description", ""),
              "category": t.get("category"), "capability": t.get("capability"),
@@ -52,7 +63,8 @@ class TemplateRegistry:
         return [
             {"name": r["name"], "category": r.get("category"), "capability": r.get("capability"),
              "relevance": r["relevance"], "why": r["why"], "description": r.get("description", ""),
-             "params": r.get("params", []), "source": r.get("source")}
+             "params": r.get("params", []), "source": r.get("source"),
+             "proven": fb.get(r["name"], dict(default_proven))}
             for r in ranked
         ]
 
