@@ -81,11 +81,33 @@ _CAPABILITIES = {
     "kernel_observability": (0, 4, "kernel", ["kernel_trace"],            "Telemetría de kernel eBPF: requiere FULL (CAP_BPF)"),
     "visual_actuation":     (5, 5, "self",   ["visual_inspect"],          "Renderizar y capturar UIs headless (/dev/shm)"),
     "topos_audit":          (4, 4, "self",   ["topos_audit_dag"],         "Auditar DAGs y bloquear co-dependencias"),
-    "task_management":      (6, 6, "self",   ["kanban_board", "kanban_task_create", "kanban_advance", "kanban_promote", "kanban_demote", "kanban_reevaluate"], "Pico-Kanban: tareas atómicas + ponderación con promoción Y degradación (lazo de confianza)"),
+    "task_management":      (6, 6, "self",   ["kanban_board", "kanban_task_create", "kanban_advance", "kanban_promote", "kanban_demote", "kanban_reevaluate", "kanban_archive", "kanban_unarchive"], "Pico-Kanban: tareas atómicas + ponderación con promoción/degradación y archivado reversible"),
     "automation":           (7, 7, "self",   ["playbook_create", "playbook_run", "playbook_list"], "Pico-Playbooks: orquestar tools/artefactos en flujos DAG (E2E, verificación)"),
 }
 
 _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "--x", 0: "---"}
+
+# Keywords BILINGÜES (EN/ES) por capacidad: anclas léxicas language-aligned para el enrutador
+# `discover`. Las descriptions están en español y los names/tools en inglés, así que una query EN
+# ("run binary", "memory", "trace kernel") tenía poco con qué casar. Esto cierra la colisión ES/EN:
+# el matcher las pondera como tags (x2) sumadas a los nombres de tools. Ampliar aquí es barato.
+_CAP_KEYWORDS = {
+    "ram_execution":        "run binary memfd fileless in-memory ejecutar binario memoria elf payload",
+    "ephemeral_sandbox":    "sandbox isolate bwrap jail contained run aislar aislado seguro",
+    "artifact_synthesis":   "synthesize generate build template compile go artifact create sintetizar plantilla compilar generar crear",
+    "orientation":          "discover orient what to do route start where begin orientar descubrir enrutar empezar",
+    "semantic_memory":      "memory search recall catalog index vector embeddings reuse find store memoria buscar recordar catalogo indice reutilizar guardar",
+    "async_dispatch":       "async background job queue dispatch task pueue asincrono trabajo cola despachar tarea segundo plano",
+    "process_introspection":"process inspect fd descriptor proc pid introspection proceso descriptor introspeccion",
+    "system_inspect":       "network storage packages inspect read system status red almacenamiento paquetes inspeccionar sistema estado",
+    "service_control":      "service control start stop restart systemd daemon servicio controlar arrancar detener reiniciar",
+    "crash_forensics":      "crash core dump forensic coredump diagnose fault crasheo volcado forense diagnosticar fallo",
+    "kernel_observability": "kernel trace ebpf bpf syscall observe probe kernel trazar sondear llamadas sistema",
+    "visual_actuation":     "visual screenshot render headless ui browser page visual captura renderizar pantalla navegador",
+    "topos_audit":          "audit dag graph dependency cycle codependency auditar grafo dependencia ciclo",
+    "task_management":      "task kanban board manage promote weigh track tarea tablero gestionar promover ponderar seguir",
+    "automation":           "automate playbook orchestrate workflow pipeline e2e steps automatizar orquestar flujo pasos",
+}
 
 
 def capability_manifest() -> dict:
@@ -104,6 +126,7 @@ def capability_manifest() -> dict:
             "scope": scope if bits else "none",
             "tools": tools,
             "description": desc,
+            "keywords": _CAP_KEYWORDS.get(name, ""),
         }
     return {
         "what_is_this": "AEP MCP: plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes de IA. "

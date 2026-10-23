@@ -38,11 +38,13 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     canary_passed INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     promotion_score REAL NOT NULL DEFAULT 0.0,
+    archived INTEGER NOT NULL DEFAULT 0,
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
+CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived);
 """
 
 
@@ -52,7 +54,16 @@ class KanbanBoard:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(_KANBAN_DDL)
+            self._migrate(conn)
             conn.commit()
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Migración in-code aditiva (idempotente): columnas nuevas sobre tableros ya existentes."""
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(kanban_tasks)").fetchall()}
+        if "archived" not in cols:
+            conn.execute("ALTER TABLE kanban_tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived)")
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -197,19 +208,72 @@ class KanbanBoard:
         return {"status": "OK", "reevaluated": len(demoted) + kept,
                 "kept_trusted": kept, "demoted_count": len(demoted), "demoted": demoted}
 
-    def board(self) -> Dict[str, Any]:
-        """Vista del tablero agrupada por lane/estado (idioma agéntico, JSON tipado)."""
+    def archive(self, states: Optional[List[str]] = None, max_score: Optional[float] = None,
+                protect_states: tuple = ("PROMOTED", "CANARY"), apply: bool = False) -> Dict[str, Any]:
+        """Despeja el board archivando (soft, reversible) tareas estancadas.
+
+        dry-run POR DEFECTO: el AGENTE juzga qué despejar vs el veredicto del ponderador — igual
+        filosofía que artifact_prune, pero NO destruye (archived=1, recuperable con unarchive).
+        Candidato = estado en `states` (def. LINTED+REJECTED) Y promotion_score < `max_score`
+        (def. umbral TRUST) Y no está en `protect_states`. Las PROMOTED/CANARY nunca se tocan."""
+        states = [s.upper() for s in (states or ["LINTED", "REJECTED"])]
+        thr = ponder.TRUST_BAND if max_score is None else float(max_score)
+        protect = {s.upper() for s in protect_states}
+        states = [s for s in states if s not in protect]
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, title, state, artifact_name, promotion_score, attempts "
+                "FROM kanban_tasks WHERE archived=0 ORDER BY id DESC"
+            ).fetchall()
+            candidates = [
+                {"task_id": r["id"], "title": r["title"], "state": r["state"],
+                 "artifact": r["artifact_name"], "score": r["promotion_score"], "attempts": r["attempts"]}
+                for r in rows
+                if r["state"] in states and r["state"] not in protect and r["promotion_score"] < thr
+            ]
+            if apply and candidates:
+                ids = [c["task_id"] for c in candidates]
+                conn.execute(
+                    "UPDATE kanban_tasks SET archived=1, updated_at=CURRENT_TIMESTAMP "
+                    f"WHERE id IN ({','.join('?' * len(ids))})", ids,
+                )
+                conn.commit()
+        return {"status": "ARCHIVED" if apply else "DRY_RUN",
+                "applied": apply, "threshold": thr, "states_scanned": states,
+                "protected_states": sorted(protect), "candidate_count": len(candidates),
+                "candidates": candidates,
+                "hint": None if apply else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_unarchive)."}
+
+    def unarchive(self, task_id: int) -> Dict[str, Any]:
+        """Reactiva una tarea archivada (archived=0). Inverso de archive — nada se pierde."""
+        with self._conn() as conn:
+            t = conn.execute("SELECT id, state FROM kanban_tasks WHERE id=?", (task_id,)).fetchone()
+            if not t:
+                return {"status": "ERROR", "error": f"task {task_id} no existe"}
+            conn.execute("UPDATE kanban_tasks SET archived=0, updated_at=CURRENT_TIMESTAMP WHERE id=?", (task_id,))
+            conn.commit()
+        return {"status": "OK", "task_id": task_id, "state": t["state"], "archived": False}
+
+    def board(self, include_archived: bool = False) -> Dict[str, Any]:
+        """Vista del tablero agrupada por lane/estado (idioma agéntico, JSON tipado).
+        Excluye archivadas por defecto; include_archived=True las muestra todas."""
+        where = "" if include_archived else "WHERE archived=0"
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
-                "promotion_score, attempts FROM kanban_tasks ORDER BY updated_at DESC"
+                f"promotion_score, attempts, archived FROM kanban_tasks {where} ORDER BY updated_at DESC"
             ).fetchall()
+            archived_total = conn.execute(
+                "SELECT COUNT(*) AS n FROM kanban_tasks WHERE archived=1"
+            ).fetchone()["n"]
         lanes: Dict[str, List[Dict[str, Any]]] = {s: [] for s in STATES}
         for r in rows:
             lanes[r["state"]].append({
                 "task_id": r["id"], "title": r["title"], "artifact": r["artifact_name"],
                 "lint": bool(r["lint_passed"]), "canary": bool(r["canary_passed"]),
                 "score": r["promotion_score"], "attempts": r["attempts"],
+                "archived": bool(r["archived"]),
             })
         return {"status": "OK", "threshold": PROMOTION_THRESHOLD,
-                "counts": {s: len(lanes[s]) for s in STATES}, "lanes": lanes}
+                "counts": {s: len(lanes[s]) for s in STATES},
+                "archived_total": archived_total, "lanes": lanes}

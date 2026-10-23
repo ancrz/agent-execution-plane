@@ -137,7 +137,11 @@ def discover(use_case: str, limit: int = 3) -> str:
     """
     try:
         caps = capability_manifest().get("capabilities", {})
-        cap_docs = [{"name": k, "tags": v.get("tools", []), "description": v.get("description", "")}
+        # tags = tools (EN) + keywords bilingües -> cierra la colisión ES/EN (descriptions en ES,
+        # queries a menudo en EN). El matcher pondera tags x2, dando anclaje léxico language-aligned.
+        cap_docs = [{"name": k,
+                     "tags": list(v.get("tools", [])) + v.get("keywords", "").split(),
+                     "description": v.get("description", "")}
                     for k, v in caps.items()]
         cap = matcher.rank(use_case, cap_docs, limit=2)
         reuse = catalog.browse(query=use_case, limit=limit)
@@ -690,14 +694,16 @@ def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
 
 
 @mcp.tool()
-def kanban_board() -> str:
+def kanban_board(include_archived: bool = False) -> str:
     """
     [PICO-KANBAN] Tablero de estados abstracto (idioma agéntico, transparente al usuario).
     Devuelve las lanes BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED con la ponderación
     (promotion_score) de cada tarea/artefacto. Memoria de trabajo del agente para una actividad.
+    Excluye tareas archivadas por defecto (`archived_total` reporta cuántas hay);
+    include_archived=True las muestra todas.
     """
     try:
-        return json.dumps(kanban.board(), indent=2, ensure_ascii=False)
+        return json.dumps(kanban.board(include_archived=include_archived), indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
@@ -755,6 +761,32 @@ def kanban_promote(task_id: int) -> str:
     """
     try:
         return json.dumps(kanban.promote(task_id), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_archive(states: Optional[List[str]] = None, max_score: Optional[float] = None,
+                   apply: bool = False) -> str:
+    """
+    [PICO-KANBAN] Despeja el board archivando (soft, REVERSIBLE) tareas estancadas — scaffolding
+    de corridas previas que nunca prosperó. dry-run POR DEFECTO (apply=False): el AGENTE juzga qué
+    despejar vs el veredicto del ponderador; NO destruye nada (archived=1, recuperable con
+    kanban_unarchive). Candidato = estado en `states` (def. LINTED+REJECTED) Y score < `max_score`
+    (def. umbral TRUST 0.75). PROMOTED/CANARY están SIEMPRE protegidas. Repite con apply=True.
+    """
+    try:
+        return json.dumps(kanban.archive(states=states, max_score=max_score, apply=apply),
+                          indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_unarchive(task_id: int) -> str:
+    """[PICO-KANBAN] Reactiva una tarea archivada (archived=0). Inverso de kanban_archive — reversible."""
+    try:
+        return json.dumps(kanban.unarchive(task_id), indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 

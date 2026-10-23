@@ -69,11 +69,13 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     canary_passed INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     promotion_score REAL NOT NULL DEFAULT 0.0,
+    archived INTEGER NOT NULL DEFAULT 0,
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
+CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived);
 
 -- Pico-Playbooks: automatización por orquestación de tools/artefactos (DAG validado por Topos).
 -- engine/playbook.py replica este CREATE IF NOT EXISTS como red de seguridad.
