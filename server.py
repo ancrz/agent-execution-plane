@@ -21,6 +21,7 @@ from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.hydrator import TemplateHydrator
 from engine.kanban import KanbanBoard
+from engine.playbook import PlaybookStore
 from engine.privilege import (
     capability_manifest,
     capability_tier,
@@ -44,6 +45,7 @@ catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
 crash_router = CrashRouter()
 kanban = KanbanBoard()
+playbook_store = PlaybookStore()
 
 # docs_vectorizer se instancia perezosamente (SPEC-OM-4): no crear system_docs.db al arrancar.
 _docs_vectorizer = None
@@ -629,6 +631,97 @@ def kanban_promote(task_id: int) -> str:
         return json.dumps(kanban.promote(task_id), indent=2)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+# Whitelist de tools encadenables en un playbook (solo lectura/ejecución acotada; sin
+# meta-tools ni recursión). Define el blast radius de la automatización (P1).
+def _playbook_dispatch() -> Dict[str, Any]:
+    return {
+        "artifact_query": artifact_query,
+        "artifact_catalog": artifact_catalog,
+        "artifact_execute_in_ram": artifact_execute_in_ram,
+        "sandbox_run": sandbox_run,
+        "aep_ctl": aep_ctl,
+        "check_crash_alerts": check_crash_alerts,
+        "diagnose_system_crashes": diagnose_system_crashes,
+        "query_system_docs": query_system_docs,
+        "visual_inspect": visual_inspect,
+        "kernel_trace": kernel_trace,
+        "topos_audit_dag": topos_audit_dag,
+    }
+
+_PLAYBOOK_FAIL = {"ERROR", "EXEC_FAILED", "BUILD_ERROR", "LINT_ERROR",
+                  "DISPLAY_UNAVAILABLE", "BLOCKED", "SELECTOR_NOT_FOUND"}
+
+
+@mcp.tool()
+def playbook_create(name: str, description: str, steps: List[Dict[str, Any]]) -> str:
+    """
+    [PICO-PLAYBOOK] Define una automatización: una secuencia/DAG de pasos, cada uno
+    {id?, tool, params?, depends_on?}, que invoca tools/artefactos ya existentes. El DAG se
+    valida con topos_guard (cero co-dependencias) antes de guardarse. Ej: un E2E que corre
+    socket-monitor y luego visual_inspect. tools encadenables: artifact_query/_catalog/
+    _execute_in_ram, sandbox_run, aep_ctl, check_crash_alerts, diagnose_system_crashes,
+    query_system_docs, visual_inspect, kernel_trace, topos_audit_dag.
+    """
+    try:
+        return json.dumps(playbook_store.create(name, description, steps), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def playbook_list() -> str:
+    """[PICO-PLAYBOOK] Lista los playbooks guardados con su tasa de éxito y nº de pasos."""
+    try:
+        return json.dumps({"status": "OK", "playbooks": playbook_store.list()}, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def playbook_run(name: str, stop_on_error: bool = True) -> str:
+    """
+    [PICO-PLAYBOOK] Ejecuta un playbook en orden topológico, despachando cada paso al tool
+    real y recogiendo resultados tipados. Registra la corrida (run_count/success) para que la
+    automatización también se pondere. stop_on_error corta en el primer paso fallido.
+    """
+    pb = playbook_store.get(name)
+    if not pb:
+        return json.dumps({"status": "ERROR", "error": f"playbook '{name}' no existe"}, indent=2)
+    v = PlaybookStore.validate_and_order(pb["steps"])
+    if not v.get("ok"):
+        return json.dumps({"status": "BLOCKED", "verdict": v.get("verdict"), "logs": v.get("logs")}, indent=2)
+
+    dispatch = _playbook_dispatch()
+    results: List[Dict[str, Any]] = []
+    all_ok = True
+    for step in v["ordered_steps"]:
+        tool, params = step["tool"], step.get("params", {})
+        fn = dispatch.get(tool)
+        if fn is None:
+            results.append({"id": step["id"], "tool": tool, "status": "NOT_ALLOWED", "ok": False})
+            all_ok = False
+            if stop_on_error:
+                break
+            continue
+        try:
+            raw = fn(**params)
+            out = json.loads(raw) if isinstance(raw, str) else raw
+            st = out.get("status", "OK") if isinstance(out, dict) else "OK"
+        except Exception as e:
+            st, out = "ERROR", {"error": str(e)}
+        ok = st not in _PLAYBOOK_FAIL
+        results.append({"id": step["id"], "tool": tool, "status": st, "ok": ok})
+        if not ok:
+            all_ok = False
+            if stop_on_error:
+                break
+
+    playbook_store.record_run(name, all_ok)
+    return json.dumps({"status": "OK" if all_ok else "PARTIAL", "playbook": name,
+                       "all_ok": all_ok, "steps_run": len(results), "results": results},
+                      indent=2, ensure_ascii=False)
 
 
 if __name__ == "__main__":

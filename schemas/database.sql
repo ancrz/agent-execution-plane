@@ -74,3 +74,16 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
+
+-- Pico-Playbooks: automatización por orquestación de tools/artefactos (DAG validado por Topos).
+-- engine/playbook.py replica este CREATE IF NOT EXISTS como red de seguridad.
+CREATE TABLE IF NOT EXISTS playbooks (
+    name TEXT PRIMARY KEY,
+    description TEXT,
+    steps_json TEXT NOT NULL,                   -- JSON: [{id, tool, params, depends_on}]
+    run_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    last_status TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

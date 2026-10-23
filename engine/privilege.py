@@ -81,6 +81,7 @@ _CAPABILITIES = {
     "visual_actuation":     (5, 5, "self",   ["visual_inspect"],          "Renderizar y capturar UIs headless (/dev/shm)"),
     "topos_audit":          (4, 4, "self",   ["topos_audit_dag"],         "Auditar DAGs y bloquear co-dependencias"),
     "task_management":      (6, 6, "self",   ["kanban_board", "kanban_task_create", "kanban_advance", "kanban_promote"], "Pico-Kanban: tareas atómicas y ponderación de artefactos para reutilización"),
+    "automation":           (7, 7, "self",   ["playbook_create", "playbook_run", "playbook_list"], "Pico-Playbooks: orquestar tools/artefactos en flujos DAG (E2E, verificación)"),
 }
 
 _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "--x", 0: "---"}
