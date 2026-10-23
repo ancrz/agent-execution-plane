@@ -20,6 +20,7 @@ from engine import headless_display
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.hydrator import TemplateHydrator
+from engine.kanban import KanbanBoard
 from engine.privilege import (
     capability_manifest,
     capability_tier,
@@ -42,6 +43,7 @@ mcp = FastMCP("Agent-Execution-Plane", instructions=_INSTRUCTIONS)
 catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
 crash_router = CrashRouter()
+kanban = KanbanBoard()
 
 # docs_vectorizer se instancia perezosamente (SPEC-OM-4): no crear system_docs.db al arrancar.
 _docs_vectorizer = None
@@ -202,6 +204,17 @@ def artifact_lint_and_build(
             binary_blob=binary_bytes,
         )
 
+        # Pico-Kanban: registra el ciclo del artefacto y lo pondera. go vet pasó -> lint_passed;
+        # compilación/canary en RAM se confirma al ejecutarlo (kanban_advance CANARY).
+        kanban_task_id = None
+        try:
+            kt = kanban.create_task(title=f"build:{name}", intent=intent, category=category, artifact_name=name)
+            kanban_task_id = kt["task_id"]
+            kanban.advance(kanban_task_id, "LINTED", lint_passed=True,
+                           note=f"go vet OK; {len(lint_warnings)} avisos golangci-lint")
+        except Exception:
+            pass
+
         return json.dumps(
             {
                 "status": "SUCCESS",
@@ -211,6 +224,7 @@ def artifact_lint_and_build(
                 "binary_size_bytes": len(binary_bytes),
                 "compile_time_ms": compile_latency_ms,
                 "lint_warnings": lint_warnings,  # advisory golangci-lint (no bloqueó la build)
+                "kanban_task_id": kanban_task_id,  # avanzar a CANARY tras ejecutar; promover cuando pondere
             },
             indent=2,
         )
@@ -538,6 +552,54 @@ def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
                            "counts": counts}, indent=2)
     except Exception as e:
         return json.dumps({"status": "DEGRADED", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_board() -> str:
+    """
+    [PICO-KANBAN] Tablero de estados abstracto (idioma agéntico, transparente al usuario).
+    Devuelve las lanes BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED con la ponderación
+    (promotion_score) de cada tarea/artefacto. Memoria de trabajo del agente para una actividad.
+    """
+    try:
+        return json.dumps(kanban.board(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_task_create(title: str, intent: str = "", category: str = "",
+                       artifact_name: Optional[str] = None) -> str:
+    """[PICO-KANBAN] Crea una tarea atómica en BACKLOG (opcionalmente ligada a un artefacto)."""
+    try:
+        return json.dumps(kanban.create_task(title, intent, category, artifact_name), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_advance(task_id: int, to_state: str, lint_passed: Optional[bool] = None,
+                   canary_passed: Optional[bool] = None, note: Optional[str] = None) -> str:
+    """
+    [PICO-KANBAN] Mueve una tarea de estado y recalcula su ponderación. Marca lint_passed /
+    canary_passed (p.ej. canary_passed=True tras un dry-run exitoso en RAM con artifact_execute_in_ram).
+    """
+    try:
+        return json.dumps(kanban.advance(task_id, to_state, lint_passed, canary_passed, note), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_promote(task_id: int) -> str:
+    """
+    [PICO-KANBAN] Promueve el artefacto ligado como REUTILIZABLE si su ponderación lo amerita
+    (lint + canary + éxito histórico, score >= 0.70). Si no, devuelve REJECTED con lo que falta.
+    """
+    try:
+        return json.dumps(kanban.promote(task_id), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
 if __name__ == "__main__":

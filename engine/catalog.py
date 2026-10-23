@@ -84,6 +84,10 @@ class ArtifactCatalog:
             conn.execute(
                 "ALTER TABLE artifacts ADD COLUMN intent_description TEXT NOT NULL DEFAULT ''"
             )
+        if "reusable" not in cols:
+            conn.execute("ALTER TABLE artifacts ADD COLUMN reusable INTEGER NOT NULL DEFAULT 1")
+        if "promotion_score" not in cols:
+            conn.execute("ALTER TABLE artifacts ADD COLUMN promotion_score REAL NOT NULL DEFAULT 0.0")
 
     def _init_vec_table(self, conn: sqlite3.Connection) -> bool:
         """Crea la tabla virtual vec0 una sola vez. Devuelve True si el tier vectorial sirve."""

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
     execution_count INTEGER NOT NULL DEFAULT 0,-- Total de ejecuciones registradas
     avg_latency_ms REAL NOT NULL DEFAULT 0.0,  -- Latencia promedio de ejecución
     intent_description TEXT NOT NULL DEFAULT '', -- Texto en lenguaje natural (fuente del embedding semántico)
+    reusable INTEGER NOT NULL DEFAULT 1,       -- Pico-Kanban: ¿promovido como plantilla reutilizable?
+    promotion_score REAL NOT NULL DEFAULT 0.0, -- Ponderación [0-1] (linters + canary + éxito histórico)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -53,3 +55,22 @@ CREATE TABLE IF NOT EXISTS crash_events (
     resolved INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Pico-Kanban: tablero de estados abstracto para gestión agéntica y ponderación de artefactos.
+-- engine/kanban.py replica este CREATE IF NOT EXISTS como red de seguridad.
+CREATE TABLE IF NOT EXISTS kanban_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    intent TEXT,
+    category TEXT,
+    artifact_name TEXT,
+    state TEXT NOT NULL DEFAULT 'BACKLOG',       -- BACKLOG|SYNTHESIZED|LINTED|CANARY|PROMOTED|REJECTED
+    lint_passed INTEGER NOT NULL DEFAULT 0,
+    canary_passed INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    promotion_score REAL NOT NULL DEFAULT 0.0,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
