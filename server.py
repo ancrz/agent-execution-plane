@@ -673,6 +673,28 @@ def kanban_advance(task_id: int, to_state: str, lint_passed: Optional[bool] = No
 
 
 @mcp.tool()
+def kanban_reevaluate() -> str:
+    """
+    [PICO-KANBAN] Auto-corrección del conjunto confiable: re-pondera cada artefacto reusable
+    contra sus métricas ACTUALES (telemetría acumulada) y DEGRADA (reusable=0) los que ya no
+    alcanzan TRUST. Cierra el lazo promoción<->degradación — la confianza se gana y se pierde.
+    """
+    try:
+        return json.dumps(kanban.reevaluate(), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def kanban_demote(artifact_name: str, reason: Optional[str] = None) -> str:
+    """[PICO-KANBAN] Degrada explícitamente un artefacto (reusable=0). Inverso de kanban_promote."""
+    try:
+        return json.dumps(kanban.demote(artifact_name, reason), indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def kanban_promote(task_id: int) -> str:
     """
     [PICO-KANBAN] Promueve el artefacto ligado como REUTILIZABLE si su ponderación lo amerita

@@ -80,7 +80,7 @@ _CAPABILITIES = {
     "kernel_observability": (0, 4, "kernel", ["kernel_trace"],            "Telemetría de kernel eBPF: requiere FULL (CAP_BPF)"),
     "visual_actuation":     (5, 5, "self",   ["visual_inspect"],          "Renderizar y capturar UIs headless (/dev/shm)"),
     "topos_audit":          (4, 4, "self",   ["topos_audit_dag"],         "Auditar DAGs y bloquear co-dependencias"),
-    "task_management":      (6, 6, "self",   ["kanban_board", "kanban_task_create", "kanban_advance", "kanban_promote"], "Pico-Kanban: tareas atómicas y ponderación de artefactos para reutilización"),
+    "task_management":      (6, 6, "self",   ["kanban_board", "kanban_task_create", "kanban_advance", "kanban_promote", "kanban_demote", "kanban_reevaluate"], "Pico-Kanban: tareas atómicas + ponderación con promoción Y degradación (lazo de confianza)"),
     "automation":           (7, 7, "self",   ["playbook_create", "playbook_run", "playbook_list"], "Pico-Playbooks: orquestar tools/artefactos en flujos DAG (E2E, verificación)"),
 }
 

@@ -216,6 +216,49 @@ class KanbanBoard:
                     "promotion_score": score, "confidence": p["confidence"],
                     "verdict": p["verdict"], "dimensions": p["dimensions"]}
 
+    def demote(self, artifact_name: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Degrada explícitamente un artefacto (reusable=0). Inverso de promote."""
+        with self._conn() as conn:
+            r = conn.execute(
+                "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name=?",
+                (artifact_name,),
+            ).fetchone()
+            if not r:
+                return {"status": "ERROR", "error": f"artefacto '{artifact_name}' no existe"}
+            p = self._ponder(True, True, r["success_rate"], r["execution_count"],
+                             self._days_since(r["updated_at"]))
+            conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
+                         (p["effective"], artifact_name))
+            conn.commit()
+        return {"status": "DEMOTED", "artifact_name": artifact_name,
+                "promotion_score": p["effective"], "verdict": p["verdict"], "reason": reason}
+
+    def reevaluate(self) -> Dict[str, Any]:
+        """Auto-corrección del conjunto confiable: re-pondera cada artefacto reusable=1 contra sus
+        métricas ACTUALES (telemetría) y degrada (reusable=0) los que ya no alcanzan TRUST.
+        Cierra el lazo promoción<->degradación: la confianza se gana y también se pierde."""
+        demoted: List[Dict[str, Any]] = []
+        kept = 0
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT name, success_rate, execution_count, updated_at FROM artifacts WHERE reusable=1"
+            ).fetchall()
+            for r in rows:
+                # Un artefacto reusable fue promovido (lint+canary pasaron); el cambio real
+                # viene de su éxito histórico y frescura.
+                p = self._ponder(True, True, r["success_rate"], r["execution_count"],
+                                 self._days_since(r["updated_at"]))
+                if p["verdict"] != "TRUST":
+                    conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
+                                 (p["effective"], r["name"]))
+                    demoted.append({"name": r["name"], "promotion_score": p["effective"],
+                                    "verdict": p["verdict"], "success_rate": r["success_rate"]})
+                else:
+                    kept += 1
+            conn.commit()
+        return {"status": "OK", "reevaluated": len(demoted) + kept,
+                "kept_trusted": kept, "demoted_count": len(demoted), "demoted": demoted}
+
     def board(self) -> Dict[str, Any]:
         """Vista del tablero agrupada por lane/estado (idioma agéntico, JSON tipado)."""
         with self._conn() as conn:
