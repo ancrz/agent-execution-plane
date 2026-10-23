@@ -23,6 +23,7 @@ from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
 from engine.kanban import KanbanBoard
 from engine.playbook import PlaybookStore
 from engine.template_registry import TemplateRegistry
+from engine import matcher
 from engine.privilege import (
     capability_manifest,
     capability_tier,
@@ -38,7 +39,8 @@ _INSTRUCTIONS = (
     "gobernadas por privilegio en dos niveles: FULL (root/sudo -n -> alcance de sistema/kernel) "
     "y DIMINISHED (usuario -> alcance acotado, fail-soft). PRIMERA LLAMADA RECOMENDADA: "
     "`aep_capabilities()` devuelve un manifiesto estilo chmod/777 (r=sensar, w=actuar, "
-    "x=ejecutar por caminos no-tradicionales) con lo que PUEDES hacer ahora mismo."
+    "x=ejecutar por caminos no-tradicionales) con lo que PUEDES hacer ahora mismo. Para un caso "
+    "de uso concreto, `discover(use_case)` enruta a qué reutilizar/sintetizar/automatizar."
 )
 
 mcp = FastMCP("Agent-Execution-Plane", instructions=_INSTRUCTIONS)
@@ -123,6 +125,40 @@ def artifact_query(intent: str, category: str) -> str:
         },
         indent=2,
     )
+
+
+@mcp.tool()
+def discover(use_case: str, limit: int = 3) -> str:
+    """
+    [ORIENTACIÓN] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer.
+    Enruta con un único llamado a: capacidad sugerida + artefactos REUTILIZABLES (ya construidos,
+    ponderados) + PLANTILLAS a sintetizar + PLAYBOOKS a automatizar, todo rankeado. Responde
+    "¿qué busco para gestionar esto?" sin que el agente adivine qué tool llamar.
+    """
+    try:
+        caps = capability_manifest().get("capabilities", {})
+        cap_docs = [{"name": k, "tags": v.get("tools", []), "description": v.get("description", "")}
+                    for k, v in caps.items()]
+        cap = matcher.rank(use_case, cap_docs, limit=2)
+        reuse = catalog.browse(query=use_case, limit=limit)
+        synth = template_registry.select(use_case, limit=limit)
+        pb_docs = [{"name": p["name"], "tags": [], "description": p.get("description", "")}
+                   for p in playbook_store.list()]
+        automate = matcher.rank(use_case, pb_docs, limit=limit)
+        return json.dumps({
+            "status": "OK", "use_case": use_case,
+            "suggested_capability": [{"capability": c["name"], "relevance": c["relevance"]} for c in cap],
+            "reuse_artifacts": [{"name": a.get("name"), "category": a.get("category"),
+                                 "promotion_score": a.get("promotion_score"),
+                                 "semantic_distance": a.get("semantic_distance")} for a in reuse],
+            "synthesize_templates": [{"name": t["name"], "capability": t.get("capability"),
+                                      "relevance": t["relevance"]} for t in synth],
+            "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
+            "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
+                    "plantilla; para un flujo multi-paso, un playbook.",
+        }, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
 @mcp.tool()

@@ -71,6 +71,7 @@ _CAPABILITIES = {
     "ram_execution":        (5, 5, "self",   ["artifact_execute_in_ram"], "Inyectar y correr ELF en RAM (memfd_create)"),
     "ephemeral_sandbox":    (5, 5, "self",   ["sandbox_run"],             "Ejecutar aislado en sandbox bwrap"),
     "artifact_synthesis":   (7, 7, "self",   ["template_catalog", "template_select", "artifact_hydrate", "artifact_lint_and_build"], "Elegir plantilla (selector), sintetizar, lintar, compilar y persistir artefactos Go"),
+    "orientation":          (4, 4, "self",   ["discover", "aep_capabilities"], "Traducir un caso de uso -> qué reutilizar/sintetizar/automatizar (enrutador discover)"),
     "semantic_memory":      (6, 6, "self",   ["artifact_query", "artifact_catalog", "artifact_reindex", "artifact_prune"], "Leer/escribir, DESCUBRIR, AUTO-INDEXAR y PODAR (GC seguro) la memoria semántica (sqlite-vec)"),
     "async_dispatch":       (7, 7, "self",   ["async_job_dispatch", "async_job_inspect"], "Despachar/inspeccionar tareas asíncronas (Pueue)"),
     "process_introspection":(4, 4, "system", ["artifact_execute_in_ram"], "Introspección de descriptores de procesos (/proc/PID/fd)"),
