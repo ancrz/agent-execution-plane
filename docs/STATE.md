@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-10-23 · Servidor MCP: **30 tools** · Rama: `main` · Semgrep: 0 findings
+> Fecha: 2026-10-23 · Servidor MCP: **32 tools** · Rama: `main` · Semgrep: 0 findings
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -27,15 +27,16 @@ ponderación); promoción↔degradación bidireccional; GC seguro que protege pl
 ## Hecho (arco completo)
 sqlite-vec (memoria híbrida) · 5 specs Omarchy (aep_ctl, crash routing, skills hub, man-pages,
 headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug · shell-agnóstico · Pueue ·
-bpftrace (sudo -n) · Pico-Kanban (promote/demote/reevaluate) · Pico-Playbooks (parametrizables
-vía hydrator RE-as-SDD de Jinja) · descubrimiento (catalog/reindex/prune) · registry+selector de
-plantillas · `discover` enrutador · ponderación unificada (artefactos+playbooks).
+bpftrace (sudo -n) · Pico-Kanban (promote/demote/reevaluate + archive/unarchive reversible) ·
+Pico-Playbooks (parametrizables vía hydrator RE-as-SDD de Jinja) · descubrimiento
+(catalog/reindex/prune) · registry+selector de plantillas · `discover` enrutador (con anclas
+léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks).
 
 ## Pendientes
-- Feedback template→artefacto exitoso; (vec-indexing de playbooks solo si el set crece).
-- Poda/archivado del board Kanban (~73 tareas LINTED acumuladas de otro agente).
-- `discover` suggested_capability heurístico (descripciones ES vs queries EN) — mejorable.
+- Feedback template→artefacto exitoso (`source_template` + agregación ponder + metadato `proven`
+  en el selector sin reordenar relevancia); (vec-indexing de playbooks solo si el set crece).
 - Revisar los demás pico tools.
+- Régimen de continuación: iteración solo diseño; validación mediante llamadas MCP.
 
 ## Coordinación / notas honestas
 - El **README lo co-mantiene otro agente** (blindaje semántico) concurrentemente; coordinar.
