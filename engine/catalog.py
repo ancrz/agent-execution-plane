@@ -344,6 +344,54 @@ class ArtifactCatalog:
                 ).fetchall()
             return [dict(r) for r in rows]
 
+    def browse(self, category: Optional[str] = None, query: Optional[str] = None,
+               limit: int = 10) -> List[Dict[str, Any]]:
+        """Descubrimiento del catálogo para el agente: 'qué soluciones tengo disponibles'.
+        - Con `query`: top-K semántico (embeddings auto-indexados) ordenado por cercanía.
+        - Sin `query`: listado rankeado por reutilizable y ponderación (lo más confiable primero).
+        Devuelve metadatos de decisión (reusable, promotion_score, éxito), no el binario."""
+        cols = ("name, category, intent_description, reusable, promotion_score, "
+                "success_rate, execution_count")
+
+        # Ruta semántica: top-K por similitud (si hay query + vec + embedder).
+        if query and self._vec_available and sqlite_vec is not None:
+            emb = get_instance()
+            if emb.is_available:
+                vec = emb.embed(query)
+                if vec is not None:
+                    with self._get_connection() as conn:
+                        try:
+                            rows = conn.execute(
+                                f"SELECT a.{cols.replace(', ', ', a.')}, v.distance AS _d "
+                                "FROM vec_artifacts v JOIN artifacts a ON a.id = v.artifact_id "
+                                "WHERE v.intent_embedding MATCH ? AND k = ? ORDER BY v.distance",
+                                (sqlite_vec.serialize_float32(vec), max(1, limit)),
+                            ).fetchall()
+                        except Exception:
+                            rows = []
+                    out = []
+                    for r in rows:
+                        d = dict(r)
+                        if category and d.get("category") != category:
+                            continue
+                        d["semantic_distance"] = round(float(d.pop("_d")), 4)
+                        out.append(d)
+                    return out
+
+        # Ruta relacional: ranking por confianza (reusable, score, éxito, uso).
+        order = "reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC"
+        with self._get_connection() as conn:
+            if category:
+                rows = conn.execute(
+                    f"SELECT {cols} FROM artifacts WHERE category = ? ORDER BY {order} LIMIT ?",
+                    (category, max(1, limit)),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f"SELECT {cols} FROM artifacts ORDER BY {order} LIMIT ?", (max(1, limit),)
+                ).fetchall()
+        return [dict(r) for r in rows]
+
 
 _FALLBACK_SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (

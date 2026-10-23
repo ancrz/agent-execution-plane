@@ -122,6 +122,27 @@ def artifact_query(intent: str, category: str) -> str:
 
 
 @mcp.tool()
+def artifact_catalog(category: Optional[str] = None, query: Optional[str] = None,
+                     limit: int = 10) -> str:
+    """
+    [DESCUBRIMIENTO] 'Qué soluciones tengo disponibles'. Lista/busca artefactos del catálogo
+    para que el agente descubra qué puede reutilizar antes de sintetizar algo nuevo.
+    - query: top-K semántico (embeddings auto-indexados), ordenado por cercanía.
+    - sin query: ranking por confianza (reutilizable + ponderación + éxito).
+    Incluye capability_tier (contexto de ejecución actual: FULL/DIMINISHED).
+    """
+    try:
+        items = catalog.browse(category=category, query=query, limit=limit)
+        return json.dumps(
+            {"status": "OK", "capability_tier": capability_tier(),
+             "count": len(items), "artifacts": items},
+            indent=2, ensure_ascii=False,
+        )
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str:
     """
     [PICO-ANSIBLE / HYDRATOR] Instancia una plantilla atómica Go con los parámetros
