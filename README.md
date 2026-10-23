@@ -19,7 +19,7 @@
 1. [El Isomorfismo: Operador C2 ↔ Agente de IA](#1-el-isomorfismo-operador-c2--agente-de-ia)
 2. [Arquitectura Global (4 Capas)](#2-arquitectura-global-4-capas)
 3. [Descomposición Ofensiva → Capacidad Agéntica](#3-descomposición-ofensiva--capacidad-agéntica)
-4. [Catálogo de 15 Herramientas MCP](#4-catálogo-de-15-herramientas-mcp)
+4. [Catálogo de 19 Herramientas MCP](#4-catálogo-de-19-herramientas-mcp)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
 6. [Mejoras de Omarchy (5 Specs Agnósticas)](#6-mejoras-de-omarchy-5-specs-agnósticas)
 7. [Modelo de Privilegio de Dos Niveles + Manifiesto](#7-modelo-de-privilegio-de-dos-niveles--manifiesto)
@@ -67,7 +67,7 @@ flowchart LR
 flowchart TD
     subgraph L3["Capa 3: Interfaz Agéntica"]
         Agent["Agente de IA (Claude Code / Antigravity / Codex / Gemini)"]
-        MCP["Servidor FastMCP (server.py) — 15 tools"]
+        MCP["Servidor FastMCP (server.py) — 19 tools"]
         Agent -->|stdio / JSON-RPC| MCP
     end
     subgraph L2["Capa 2: Motores (engine/)"]
@@ -146,17 +146,23 @@ flowchart LR
 
 ---
 
-## 4. Catálogo de 15 Herramientas MCP
+## 4. Catálogo de 19 Herramientas MCP
 
 ```mermaid
 flowchart TD
     Root["aep_capabilities()<br/>👉 PRIMERA LLAMADA: manifiesto de autonomía"]
-    Root --> G1 & G2 & G3 & G4
+    Root --> G1 & G2 & G3 & G4 & G5
     subgraph G1["Artefactos evolutivos"]
         T1["artifact_query (semántico)"]
         T2["artifact_hydrate"]
         T3["artifact_lint_and_build"]
         T4["artifact_execute_in_ram"]
+    end
+    subgraph G5["Pico-Kanban (ponderación)"]
+        T15["kanban_board"]
+        T16["kanban_task_create"]
+        T17["kanban_advance"]
+        T18["kanban_promote"]
     end
     subgraph G2["Ejecución y async"]
         T5["sandbox_run"]
@@ -198,6 +204,40 @@ flowchart LR
 
 - Umbral `0.32` **calibrado empíricamente** (paráfrasis del mismo intent ~0.28–0.30; intents distintos ≥0.36).
 - **Fail-soft total:** sin `sqlite-vec`/embedder, el catálogo opera idéntico al modo solo-hash.
+
+### Persistencia y cómo la lee el agente
+
+La base `~/.local/share/agent-os/artifacts.db` es la **memoria evolutiva** del sistema:
+
+- **Vive fuera del repo** (espacio de usuario, gitignored). Persiste entre sesiones, reinicios
+  del MCP (auto-plug) y reboots. Backup = copiar el archivo (un solo fichero ACID, embeddings incluidos).
+- **El LLM nunca toca SQL.** La única vía de lectura/escritura son las tools MCP tipadas
+  (`artifact_query`, `kanban_board`, …): la capa de tools ES el contrato. Esto erradica
+  inyección y alucinación de esquema, y mantiene al agente desacoplado del almacenamiento.
+- **Longitudinal:** `execution_metrics` acumula éxito/latencia por artefacto en el tiempo; los
+  embeddings permiten recuerdo semántico; el Kanban pondera qué merece reutilizarse.
+
+### Pico-Kanban: ponderación de artefactos (idioma agéntico)
+
+Tablero de estados **abstracto** en la misma DB, transparente para el usuario, que el agente usa
+como memoria de trabajo por **tareas atómicas** y para decidir **qué artefacto se promueve** como
+plantilla reutilizable. Un artefacto solo se marca `reusable=1` cuando su **ponderación** lo amerita.
+
+```mermaid
+stateDiagram-v2
+    [*] --> BACKLOG
+    BACKLOG --> SYNTHESIZED
+    SYNTHESIZED --> LINTED: go vet / golangci-lint
+    LINTED --> CANARY: dry-run en RAM (memfd)
+    CANARY --> PROMOTED: score ≥ 0.70 (reusable=1)
+    LINTED --> REJECTED: ponderación insuficiente
+    CANARY --> REJECTED
+    PROMOTED --> [*]
+```
+
+`promotion_score = 0.30·lint + 0.30·canary + 0.30·success_rate + 0.10·log(ejecuciones)`.
+Los **linters y los estados** pesan tanto como el éxito histórico: es lo que permite confiar en un
+artefacto **antes** de reutilizarlo.
 
 [↑ Volver arriba](#top)
 
@@ -335,7 +375,7 @@ flowchart TD
 
 ```
 agent-execution-plane/
-├── server.py                       # Servidor FastMCP (15 tools RPC)
+├── server.py                       # Servidor FastMCP (19 tools RPC)
 ├── engine/
 │   ├── catalog.py                  # Catálogo + memoria semántica híbrida
 │   ├── embedder.py                 # Embedder local ONNX (fail-soft)
@@ -374,6 +414,7 @@ agent-execution-plane/
 | `bpftrace` (eBPF) | ✅ Operativo (FULL) | `kernel_trace`; escala vía `sudo -n`, degrada a DIMINISHED |
 | Pueue (async) | ✅ Operativo | musl 4.0.4 en `~/.local/bin`, verificado end-to-end |
 | Memoria semántica (`sqlite-vec`) | ✅ Operativo | Recuperación híbrida 2-tier, fail-soft |
+| Pico-Kanban (ponderación) | ✅ Operativo | Tablero abstracto en `artifacts.db`; promueve artefactos a `reusable` por score |
 | Omarchy (5 specs) | ✅ Operativo | `aep_ctl`, crash routing, hub+Gemini, man-pages, headless |
 | Privilegio FULL/DIMINISHED | ✅ Operativo | `privilege.py` + manifiesto `aep_capabilities` |
 | Auto-plug MCP | ✅ Operativo | launcher + `aep-sync.sh` (+ `--watch`) |
