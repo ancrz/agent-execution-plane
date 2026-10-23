@@ -235,9 +235,20 @@ stateDiagram-v2
     PROMOTED --> [*]
 ```
 
-`promotion_score = 0.30·lint + 0.30·canary + 0.30·success_rate + 0.10·log(ejecuciones)`.
-Los **linters y los estados** pesan tanto como el éxito histórico: es lo que permite confiar en un
-artefacto **antes** de reutilizarlo.
+**Ponderación multidimensional consciente de confianza** (adaptada del *trust engine* de
+`skill-swarm-mcp` — a su vez inspirado en npms.io / OpenSSF Scorecard / SourceRank):
+
+| Dimensión | Peso | Señal |
+| :--- | :---: | :--- |
+| `quality` | 0.35 | linters (go vet/golangci) + canary (dry-run en RAM) |
+| `reliability` | 0.30 | tasa de éxito histórica |
+| `experience` | 0.15 | log-normalizado de ejecuciones (canary da base) |
+| `recency` | 0.20 | decaimiento exponencial (half-life 45 días) |
+
+`effective = Σ(dimensión·peso) × confidence`, donde `confidence = dimensiones_con_señal / 4`.
+Un artefacto **sin historial** tiene baja confianza aunque su score bruto sea alto → no se promueve a
+ciegas. Veredictos: **TRUST ≥ 0.75** (promovido), **CAUTION ≥ 0.50**, **WARNING ≥ 0.25**, **REJECT**.
+Un **veto de fiabilidad** impide TRUST si hay fallos demostrados (`éxito < 0.70` con ejecuciones).
 
 [↑ Volver arriba](#top)
 
