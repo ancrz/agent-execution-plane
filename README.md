@@ -5,20 +5,20 @@
 **Plano de Control de Sistema y Suite de Ejecución de Alta Resiliencia para Agentes de IA sobre Ubuntu/Linux**
 
 > [!IMPORTANT]
-> **Declaración de Premisa (Anti-Malware / De-weaponization)**
-> AEP **no** es un framework de ciberseguridad ofensiva ni una herramienta de *Red Teaming*.
-> Es una **suite de ingeniería de sistemas y runtime agéntico** que aplica **Ingeniería Inversa
-> orientada por Especificaciones (RE as SDD)** sobre primitivas de bajo nivel históricamente
-> atrapadas en frameworks C2 y herramientas de introspección de kernel, **transmutándolas** en un
-> plano de ejecución no-bloqueante, tipado y asíncrono para LLMs y agentes autónomos.
+> **Arquitectura de Runtime y Plano de Ejecución para Agentes**
+> AEP es una **suite de ingeniería de sistemas y runtime agéntico** orientada a
+> proveer un plano de ejecución determinista, no-bloqueante, tipado y asíncrono para
+> LLMs y agentes autónomos, fundamentado en primitivas estándar de bajo nivel del
+> kernel Linux (namespaces, memoria anónima volátil, descriptores y telemetría dinámica)
+> sobre entornos Ubuntu/Linux.
 
 ---
 
 ## Índice
 
-1. [El Isomorfismo: Operador C2 ↔ Agente de IA](#1-el-isomorfismo-operador-c2--agente-de-ia)
+1. [El Reto de Ejecución: Consola Tradicional vs. Runtime Agéntico](#1-el-reto-de-ejecución-consola-tradicional-vs-runtime-agéntico)
 2. [Arquitectura Global (4 Capas)](#2-arquitectura-global-4-capas)
-3. [Descomposición Ofensiva → Capacidad Agéntica](#3-descomposición-ofensiva--capacidad-agéntica)
+3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
 4. [Catálogo de 19 Herramientas MCP](#4-catálogo-de-19-herramientas-mcp)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
 6. [Mejoras de Omarchy (5 Specs Agnósticas)](#6-mejoras-de-omarchy-5-specs-agnósticas)
@@ -32,13 +32,34 @@
 
 ---
 
-## 1. El Isomorfismo: Operador C2 ↔ Agente de IA
+## 1. El Reto de Ejecución: Consola Tradicional vs. Runtime Agéntico
 
-Los frameworks de Command & Control (Sliver, Mythic, Cobalt Strike) nunca fueron concebidos para
-destruir: fueron diseñados para **operar bajo hostilidad e invisibilidad de interfaz** — cero
-interacción humana, cero tolerancia a procesos colgados, comunicación asíncrona serializada y
-ejecución quirúrgica en RAM. Para un agente de IA, la consola Unix tradicional es **exactamente el
-mismo entorno hostil**. AEP se apropia del *motor* (no de la evasión de EDR) y se lo entrega al agente.
+La consola Unix tradicional fue concebida para operadores humanos interactivos, un paradigma
+fundamentalmente hostil para la ejecución autónoma de modelos de lenguaje (LLMs):
+- **Procesos bloqueantes**: Pagers interactivos (`less`, `more`), prompts interactivos imprevistos
+  y bloqueos de `stdin` detienen indefinidamente los subprocesos del agente.
+- **Salida desestructurada y desalineada**: El parseo de texto plano vía pipelines ad-hoc (`grep`,
+  `awk`, `sed`) introduce fragilidad sintáctica y consume tokens en ruido de formato en lugar de
+  señal estructurada.
+- **Dispersión y contención en disco**: La creación de binarios o scripts temporales en el sistema de
+  archivos introduce latencia de sincronización de E/S, fragmentación, colisiones de nombres y
+  residuos que requieren mantenimiento secundario.
+
+AEP desacopla al agente de la terminal interactiva mediante dos mecanismos principales: **despacho
+asíncrono de colas sin bloqueo** (vía Pueue, entregando un `task_id` inmediato) y **ejecución volátil
+en memoria RAM** mediante descriptores anónimos (`memfd_create` + `/proc/self/fd/`).
+
+Esta técnica de staging en memoria anónima no es un artificio exótico, sino una **primitiva
+estándar de ingeniería de sistemas Linux de alto rendimiento** ampliamente adoptada en infraestructuras
+críticas:
+- **Compositores Wayland (Weston / wlroots)**: Transferencia zero-copy de buffers de memoria compartida
+  (`wl_shm`) entre clientes y compositor mediante paso de descriptores `memfd_create` sobre sockets de
+  dominio Unix (`AF_UNIX`).
+- **QEMU / KVM (`memory-backend-memfd`)**: Asignación de memoria anónima para RAM invitada en
+  virtualización de alto rendimiento, habilitando memoria compartida inter-VM (`ivshmem`) y
+  descriptores compartidos para `vhost-user` con DPDK.
+- **PulseAudio & PipeWire**: Transferencia de buffers de streaming de audio en tiempo real y cero copia
+  entre el servidor de medios y los clientes sin cuellos de botella de sincronización en el sistema de archivos.
 
 ```mermaid
 flowchart LR
@@ -98,10 +119,11 @@ flowchart TD
 
 ---
 
-## 3. Descomposición Ofensiva → Capacidad Agéntica
+## 3. Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes
 
-Cada primitiva "atrapada" en herramientas ofensivas se extrajo y re-especificó como capacidad de
-gestión agéntica gobernada por privilegio. **Todas verificadas end-to-end.**
+Las primitivas de bajo nivel del kernel Linux se estructuran y exponen como capacidades de
+ejecución agéntica de alta resiliencia gobernadas por un modelo de privilegios de dos niveles.
+**Todas verificadas end-to-end.**
 
 ```mermaid
 flowchart LR
@@ -132,15 +154,20 @@ flowchart LR
     O7 --> A7
 ```
 
-| Primitiva ofensiva | Clasificación tradicional | Transmutación agéntica | Estado |
+| Primitiva del Kernel / Runtime | Clasificación en Ingeniería de Sistemas | Capacidad Agéntica Resiliente (Tool MCP) | Estado |
 | :--- | :--- | :--- | :--- |
-| `memfd_create` (Sliver) | Ejecución en RAM, evasión EDR | Inyección de binarios verificados en RAM | ✅ Operativo |
-| `ptrace` + `/proc/$PID/fd` | Inyección / lectura de memoria | Introspección y rescate de procesos colgados | ✅ Operativo |
-| `bwrap` (namespaces) | Jailbreak / aislamiento | Sandbox efímero de sub-milisegundo | ✅ Operativo |
-| `coredumpctl` + libunwind | Desarrollo de exploits | Root Cause Analysis autónomo (fail-soft) | ✅ Operativo |
-| eBPF (`bpftrace`) | Rootkits / sniffers | Observabilidad de kernel no-invasiva | ✅ Operativo (FULL) |
-| Grafos (BloodHound) | Attack paths en AD | Guardián Topos anti-codependencia | ✅ Operativo |
-| Beaconing / sleep | Check-in C2 periódico | Despacho asíncrono (Pueue) | ✅ Operativo |
+| `memfd_create` (glibc 2.27+) | Staging en memoria anónima volátil (cero I/O en disco) | `artifact_execute_in_ram`: Inyección y ejecución directa en RAM | ✅ Operativo |
+| `/proc/$PID/fd` + `ptrace` | Introspección no-destructiva y recuperación de hilos | `fd-rescuer`: Rescate no-invasivo de descriptores y estado colgado | ✅ Operativo |
+| `bwrap` (Linux namespaces) | Sandbox efímero no-privilegiado (user, pid, mount, net) | `sandbox_run`: Aislamiento determinista en sub-milisegundo | ✅ Operativo |
+| `coredumpctl` + `libunwind` | Triaje post-mortem automatizado de coredumps y stack traces | `diagnose_system_crashes`: RCA autónomo y fail-soft | ✅ Operativo |
+| eBPF (`bpftrace`) | Telemetría y observabilidad dinámica de kernel no-invasiva | `kernel_trace`: Trazado seguro en tiempo de ejecución | ✅ Operativo (FULL) |
+| Teoría de Grafos (DAG) | Análisis de acoplamiento topológico y detección de ciclos | `topos_audit_dag`: Guardián Topos anti-codependencia | ✅ Operativo |
+| Cola asíncrona (`Pueue`) | Despacho de tareas basado en eventos y control sin bloqueo | `async_job_dispatch` / `async_job_inspect`: Ejecución en background | ✅ Operativo |
+
+> **Nota sobre `memfd_create(2)`**: Esta primitiva de memoria anónima es el estándar de la
+> industria para comunicación y ejecución de alto rendimiento sin sobrecarga de sistema de archivos,
+> utilizada por **Wayland** (Weston/wlroots para buffers `wl_shm`), **QEMU / KVM** (asignación de
+> RAM invitada para `ivshmem` y `vhost-user`) y **PulseAudio & PipeWire** (buffers de audio en tiempo real).
 
 [↑ Volver arriba](#top)
 
@@ -420,7 +447,7 @@ agent-execution-plane/
 
 | Componente | Estado Físico Real | Nota |
 | :--- | :--- | :--- |
-| `memfd_create` (RAM exec) | ✅ Operativo | Primitiva pura; framework C2 no instalado |
+| `memfd_create` (RAM exec) | ✅ Operativo | Primitiva estándar del kernel Linux (glibc 2.27+ / POSIX); staging en memoria anónima (cero I/O en disco) |
 | `bwrap` (sandbox) | ✅ Operativo | `sandbox_run` |
 | `bpftrace` (eBPF) | ✅ Operativo (FULL) | `kernel_trace`; escala vía `sudo -n`, degrada a DIMINISHED |
 | Pueue (async) | ✅ Operativo | musl 4.0.4 en `~/.local/bin`, verificado end-to-end |
@@ -438,9 +465,10 @@ agent-execution-plane/
 
 ## 13. RE as SDD y Matriz de Inspiración
 
-Acoplar frameworks ofensivos completos introduce ruido, co-dependencias y firmas. En su lugar:
-**(1)** aislamos la primitiva del kernel, **(2)** escribimos la especificación formal, **(3)**
-construimos una implementación limpia y verificada.
+El desarrollo de AEP aplica Ingeniería Inversa Orientada por Especificaciones (RE as SDD) para
+desacoplar primitivas del kernel de dependencias complejas o implementaciones monolíticas:
+**(1)** aislar la primitiva del kernel Linux, **(2)** formalizar su especificación agnóstica de plataforma,
+y **(3)** construir una implementación minimalista, tipada y verificada end-to-end.
 
 ```mermaid
 flowchart LR
