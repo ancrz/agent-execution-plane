@@ -58,7 +58,35 @@ register() {
     fi
     if command -v agy >/dev/null 2>&1; then
         agy mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
-        agy mcp add "$SERVER_NAME" "$LAUNCHER" >/dev/null 2>&1 && { ok "Antigravity (agy) re-registrado"; n=$((n+1)); } || warn "agy: fallo al registrar"
+        if agy mcp add "$SERVER_NAME" "$LAUNCHER" >/dev/null 2>&1; then
+            # Hot-reload en vivo para sesiones activas de Antigravity (language_server Connect-RPC):
+            # descubre el PID/CSRF token del language_server y dispara RefreshMcpServers para
+            # regenerar ~/.gemini/antigravity/mcp/agent-execution-plane/*.json sin reiniciar sesión.
+            python3 - <<'PY' >/dev/null 2>&1 || true
+import re, subprocess
+ps = subprocess.check_output(["ps", "-eo", "pid,args"], text=True)
+ss = subprocess.check_output(["ss", "-tulnp"], text=True)
+for line in ps.splitlines():
+    if "language_server" in line and "--csrf_token" in line:
+        pid = line.split()[0]
+        m = re.search(r"--csrf_token\s+(\S+)", line)
+        tok = m.group(1) if m else ""
+        for port in re.findall(r"127\.0\.0\.1:(\d+).*?pid=" + pid + r",", ss):
+            for scheme in ("https", "http"):
+                subprocess.Popen(
+                    ["curl", "-sk", "--max-time", "5", "-X", "POST",
+                     f"{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RefreshMcpServers",
+                     "-H", "Content-Type: application/json",
+                     "-H", "Connect-Protocol-Version: 1",
+                     "-H", f"x-codeium-csrf-token: {tok}", "-d", "{}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+PY
+            ok "Antigravity (agy) re-registrado + hot-reload (RefreshMcpServers)"
+            n=$((n+1))
+        else
+            warn "agy: fallo al registrar"
+        fi
     fi
     if command -v codex >/dev/null 2>&1; then
         codex mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
