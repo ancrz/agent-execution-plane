@@ -12,7 +12,6 @@ Topos: server.py -> headless_display.py (A->B). Sin acoplamiento con otros módu
 """
 
 import base64
-import os
 import time
 import uuid
 from pathlib import Path

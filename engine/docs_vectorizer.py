@@ -125,7 +125,7 @@ class ManPagesVectorizer:
             # Reemplaza chunks previos de este comando (idempotencia).
             old = [r["id"] for r in conn.execute("SELECT id FROM man_chunks WHERE command=?", (cmd,))]
             if old:
-                conn.execute(f"DELETE FROM man_chunks WHERE command=?", (cmd,))
+                conn.execute("DELETE FROM man_chunks WHERE command=?", (cmd,))
                 conn.executemany("DELETE FROM vec_docs WHERE chunk_id=?", [(i,) for i in old])
             for chunk, vec in zip(chunks, vecs):
                 if vec is None:

@@ -13,19 +13,20 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from mcp.server.fastmcp import FastMCP
 
-from engine.catalog import ArtifactCatalog
-from engine.hydrator import TemplateHydrator
-from engine.topos_guard import ToposGuard, ToposVerdict
-from engine.crash_router import CrashRouter
 from engine import headless_display
+from engine.catalog import ArtifactCatalog
+from engine.crash_router import CrashRouter
+from engine.hydrator import TemplateHydrator
 from engine.privilege import (
     capability_manifest,
     capability_tier,
     privilege_mode,
     privilege_prefix,
 )
+from engine.topos_guard import ToposGuard
 
 _INSTRUCTIONS = (
     "AEP (Agent Execution Plane): plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes "
