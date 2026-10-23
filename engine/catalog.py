@@ -394,6 +394,60 @@ class ArtifactCatalog:
                 rows = conn.execute(base + order, (lim,)).fetchall()
         return [dict(r) for r in rows]
 
+    def index_coverage(self) -> Dict[str, Any]:
+        """Cobertura del índice semántico: cuántos artefactos tienen embedding en vec."""
+        if not self._vec_available or sqlite_vec is None:
+            return {"vec_available": False, "artifacts": 0, "indexed": 0, "missing": 0}
+        with self._get_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
+            try:
+                indexed = conn.execute("SELECT COUNT(*) FROM vec_artifacts").fetchone()[0]
+            except Exception:
+                indexed = 0
+        return {"vec_available": True, "artifacts": total, "indexed": indexed,
+                "missing": max(0, total - indexed)}
+
+    def reindex(self, force: bool = False) -> Dict[str, Any]:
+        """Auto-sanado del índice semántico: embebe toda fila sin embedding (o TODAS si force).
+        Hace buscable lo que otros agentes/vías registraron sin indexar. Fail-soft. El embedder
+        solo se carga si hay trabajo pendiente (no penaliza el arranque ni el hook pre-commit)."""
+        if not self._vec_available or sqlite_vec is None:
+            return {"status": "DEGRADED", "reason": "sqlite-vec no disponible", "indexed": 0}
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, intent_description FROM artifacts"
+            ).fetchall()
+            have = set()
+            if not force:
+                try:
+                    have = {r["artifact_id"] for r in conn.execute("SELECT artifact_id FROM vec_artifacts")}
+                except Exception:
+                    have = set()
+            pending = [r for r in rows if force or r["id"] not in have]
+            if not pending:
+                return {"status": "OK", "indexed": 0, "skipped": len(rows), "total": len(rows),
+                        "note": "índice ya completo"}
+            embedder = get_instance()  # solo se carga el modelo si hay trabajo real
+            if not embedder.is_available:
+                return {"status": "DEGRADED", "reason": "embedder no disponible", "indexed": 0}
+            indexed = 0
+            for r in pending:
+                text = (r["intent_description"] or "").strip() or r["name"]
+                vec = embedder.embed(text)
+                if vec is None:
+                    continue
+                try:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO vec_artifacts (artifact_id, intent_embedding) VALUES (?, ?)",
+                        (r["id"], sqlite_vec.serialize_float32(vec)),
+                    )
+                    indexed += 1
+                except Exception:
+                    pass
+            conn.commit()
+        return {"status": "OK", "indexed": indexed, "skipped": len(rows) - len(pending),
+                "total": len(rows)}
+
 
 _FALLBACK_SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (

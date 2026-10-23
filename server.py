@@ -145,6 +145,25 @@ def artifact_catalog(category: Optional[str] = None, query: Optional[str] = None
 
 
 @mcp.tool()
+def artifact_reindex(force: bool = False) -> str:
+    """
+    [DESCUBRIMIENTO / AUTO-ÍNDICE] Sana el índice semántico: embebe en sqlite-vec todo artefacto
+    sin embedding (o TODOS si force=True). Hace buscable lo que otros agentes registraron por
+    otras vías o quedó sin indexar. Devuelve la cobertura antes/después. El embedder solo se
+    carga si hay trabajo pendiente.
+    """
+    try:
+        before = catalog.index_coverage()
+        result = catalog.reindex(force=force)
+        after = catalog.index_coverage()
+        return json.dumps({"status": result.get("status", "OK"), "reindex": result,
+                           "coverage_before": before, "coverage_after": after},
+                          indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str:
     """
     [PICO-ANSIBLE / HYDRATOR] Instancia una plantilla atómica Go con los parámetros
