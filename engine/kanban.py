@@ -15,42 +15,16 @@ Lane/estados (DAG, sin ciclos salvo re-trabajo explícito a BACKLOG):
 Topos: kanban.py -> artifacts.db (A->B). Conexión propia; no importa catalog.py.
 """
 
-import math
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine import ponder  # motor de ponderación multidimensional COMPARTIDO (artefactos + playbooks)
+
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
 
 STATES = ["BACKLOG", "SYNTHESIZED", "LINTED", "CANARY", "PROMOTED", "REJECTED"]
-
-# Modelo de ponderación multidimensional CONSCIENTE DE CONFIANZA, adaptado del trust engine
-# de skill-swarm-mcp (dimensiones ponderadas + confidence + bandas de veredicto; a su vez
-# inspirado en npms.io / OpenSSF Scorecard / SourceRank). Clave: un artefacto sin historial
-# tiene baja CONFIANZA aunque su score bruto sea alto -> no se promueve a ciegas.
-DIMENSION_WEIGHTS = {
-    "quality": 0.35,      # linters (go vet/golangci) + canary (dry-run en RAM)
-    "reliability": 0.30,  # tasa de éxito histórica
-    "experience": 0.15,   # cuán battle-tested (log de ejecuciones; canary da base)
-    "recency": 0.20,      # frescura: decae si el artefacto lleva tiempo sin validarse
-}
-TRUST_BAND = 0.75        # effective >= -> PROMOTED
-CAUTION_BAND = 0.50      # effective >= -> reutilizable con reserva
-WARNING_BAND = 0.25
-RECENCY_HALF_LIFE_DAYS = 45
-PROMOTION_THRESHOLD = TRUST_BAND  # umbral de promoción (compat)
-
-
-def _log_norm(value: int, midpoint: int) -> float:
-    """Normalización logarítmica: 0 en value=0, ~1.0 en value=midpoint (satura)."""
-    if value <= 0:
-        return 0.0
-    return min(math.log10(1 + value) / math.log10(1 + midpoint), 1.0)
-
-
-def _recency_decay(days: float) -> float:
-    """Decaimiento exponencial: 1.0 recién validado, ~0.5 a RECENCY_HALF_LIFE_DAYS."""
-    return math.exp(-math.log(2) / RECENCY_HALF_LIFE_DAYS * max(0.0, days))
+PROMOTION_THRESHOLD = ponder.TRUST_BAND  # umbral de promoción (compat)
 
 _KANBAN_DDL = """
 CREATE TABLE IF NOT EXISTS kanban_tasks (
@@ -89,57 +63,21 @@ class KanbanBoard:
             pass
         return conn
 
-    # ------------------------------------------------------------------ ponderación
+    # ------------------------------------------------------------------ ponderación (motor compartido)
     @staticmethod
     def _ponder(lint_passed: bool, canary_passed: bool, success_rate: float,
                 execution_count: int, days_since_update: float) -> Dict[str, Any]:
-        """Ponderación multidimensional con confianza. Devuelve effective + detalle.
-
-        Las dimensiones sin señal real (reliability/experience sin ninguna ejecución ni canary)
-        se OMITEN: no suman al total Y bajan la confianza (doble penalización conservadora, como
-        el trust engine de skill-swarm). effective = total_ponderado * confidence."""
+        """Dimensiones ESPECÍFICAS de artefacto -> motor compartido ponder.finalize().
+        reliability/experience solo con señal real (canary o ejecución); si no, se omiten
+        (bajan confianza). Veto de fiabilidad: éxito<0.70 con historial impide TRUST."""
         dims: Dict[str, float] = {}
-        # quality: siempre conocida (sabemos el resultado de lint y canary).
         dims["quality"] = 0.5 * (1.0 if lint_passed else 0.0) + 0.5 * (1.0 if canary_passed else 0.0)
-        # reliability/experience: solo con señal real (al menos un canary o una ejecución).
         if execution_count > 0 or canary_passed:
             dims["reliability"] = max(0.0, min(1.0, success_rate))
-            dims["experience"] = max(_log_norm(execution_count, 10), 0.5 if canary_passed else 0.0)
-        # recency: siempre conocida (sabemos cuándo se validó por última vez).
-        dims["recency"] = _recency_decay(days_since_update)
-
-        total = sum(dims[k] * DIMENSION_WEIGHTS[k] for k in dims)
-        confidence = len(dims) / len(DIMENSION_WEIGHTS)
-        effective = round(total * confidence, 4)
-        if effective >= TRUST_BAND:
-            verdict = "TRUST"
-        elif effective >= CAUTION_BAND:
-            verdict = "CAUTION"
-        elif effective >= WARNING_BAND:
-            verdict = "WARNING"
-        else:
-            verdict = "REJECT"
-        # Veto de fiabilidad (hard rule): fallos DEMOSTRADOS vetan la promoción. Un artefacto
-        # con historial y éxito < 0.70 no puede ser TRUST por mucha calidad/frescura que tenga.
-        if execution_count > 0 and success_rate < 0.70 and verdict == "TRUST":
-            verdict = "CAUTION"
-        return {
-            "effective": effective, "raw": round(total, 4), "confidence": round(confidence, 2),
-            "verdict": verdict, "dimensions": {k: round(v, 3) for k, v in dims.items()},
-        }
-
-    @staticmethod
-    def _days_since(ts: Optional[str]) -> float:
-        if not ts:
-            return 0.0
-        from datetime import datetime, timezone
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                dt = datetime.strptime(ts.split(".")[0], fmt).replace(tzinfo=timezone.utc)
-                return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
-            except Exception:
-                continue
-        return 0.0
+            dims["experience"] = max(ponder.log_norm(execution_count, 10), 0.5 if canary_passed else 0.0)
+        dims["recency"] = ponder.recency_decay(days_since_update)
+        veto = execution_count > 0 and success_rate < 0.70
+        return ponder.finalize(dims, reliability_veto=veto)
 
     def _artifact_stats(self, conn: sqlite3.Connection, name: Optional[str]) -> Dict[str, Any]:
         if not name:
@@ -150,7 +88,7 @@ class KanbanBoard:
         if not row:
             return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
         return {"success_rate": row["success_rate"], "execution_count": row["execution_count"],
-                "exists": True, "days_since": self._days_since(row["updated_at"])}
+                "exists": True, "days_since": ponder.days_since(row["updated_at"])}
 
     # ------------------------------------------------------------------ operaciones
     def create_task(self, title: str, intent: str = "", category: str = "",
@@ -205,7 +143,7 @@ class KanbanBoard:
                 conn.commit()
                 return {"status": "REJECTED", "reason": f"confianza insuficiente (verdict={p['verdict']})",
                         "promotion_score": score, "confidence": p["confidence"],
-                        "dimensions": p["dimensions"], "threshold": TRUST_BAND,
+                        "dimensions": p["dimensions"], "threshold": ponder.TRUST_BAND,
                         "hint": "Sube confianza: ejecuta el artefacto (historial de éxito) o valida un canary."}
             conn.execute("UPDATE kanban_tasks SET state='PROMOTED', promotion_score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (score, task_id))
             if stats["exists"]:
@@ -226,7 +164,7 @@ class KanbanBoard:
             if not r:
                 return {"status": "ERROR", "error": f"artefacto '{artifact_name}' no existe"}
             p = self._ponder(True, True, r["success_rate"], r["execution_count"],
-                             self._days_since(r["updated_at"]))
+                             ponder.days_since(r["updated_at"]))
             conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
                          (p["effective"], artifact_name))
             conn.commit()
@@ -247,7 +185,7 @@ class KanbanBoard:
                 # Un artefacto reusable fue promovido (lint+canary pasaron); el cambio real
                 # viene de su éxito histórico y frescura.
                 p = self._ponder(True, True, r["success_rate"], r["execution_count"],
-                                 self._days_since(r["updated_at"]))
+                                 ponder.days_since(r["updated_at"]))
                 if p["verdict"] != "TRUST":
                     conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
                                  (p["effective"], r["name"]))

@@ -16,6 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine import ponder  # motor de ponderación COMPARTIDO (misma vara que los artefactos)
 from engine.topos_guard import ToposGuard, ToposVerdict
 
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
@@ -142,13 +143,38 @@ class PlaybookStore:
             d["params_contract"] = []
         return d
 
+    @staticmethod
+    def _weighting(run_count: int, success_count: int, updated_at: Any) -> Dict[str, Any]:
+        """Ponderación de un playbook con el MISMO motor multidimensional que los artefactos.
+        quality=1.0 (validado por construcción: DAG+lint en create); reliability/experience solo
+        con historial de corridas; recency por última actualización; veto si éxito<0.70."""
+        dims: Dict[str, float] = {"quality": 1.0}
+        if run_count > 0:
+            sr = success_count / run_count
+            dims["reliability"] = max(0.0, min(1.0, sr))
+            dims["experience"] = ponder.log_norm(run_count, 10)
+        else:
+            sr = 1.0
+        dims["recency"] = ponder.recency_decay(ponder.days_since(updated_at))
+        veto = run_count > 0 and sr < 0.70
+        return ponder.finalize(dims, reliability_veto=veto)
+
     def list(self) -> List[Dict[str, Any]]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT name, description, run_count, success_count, last_status, "
+                "SELECT name, description, run_count, success_count, last_status, updated_at, "
                 "json_array_length(steps_json) AS n_steps FROM playbooks ORDER BY updated_at DESC"
             ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            w = self._weighting(r["run_count"], r["success_count"], r["updated_at"])
+            d["weighting"] = {"effective": w["effective"], "verdict": w["verdict"],
+                              "confidence": w["confidence"]}
+            out.append(d)
+        # Ordena por ponderación (mejor primero), como el catálogo de artefactos.
+        out.sort(key=lambda x: x["weighting"]["effective"], reverse=True)
+        return out
 
     def record_run(self, name: str, ok: bool) -> None:
         with self._conn() as conn:
