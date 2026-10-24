@@ -33,14 +33,15 @@ AEP solves these systemic bottlenecks through:
 4. **Tool Reach & Security Boundaries (P1)**:
    - Tool consolidation shrinks tool sprawl while maintaining 100% capability reach.
    - Two-tier privilege model (`FULL` via passwordless `sudo -n` vs. `DIMINISHED` self-scope) mapped to Unix octal permissions (`rwx`).
+   - Non-recursion security guarantee: automation tools cannot invoke themselves recursively within playbooks.
 
 ## 3. Active Roadmap: Complete Tool Consolidation (33 → 16 Tools)
 
 AEP is undergoing a structured 7-phase consolidation roadmap to achieve 1:1 parity between FastMCP tool endpoints and system capabilities:
 - **Phase 1: Semantic Memory** (`33 -> 30 tools`) — VERIFIED & COMMITTED.
-- **Phase 2: Task Management** (`30 -> 23 tools`) — ACTIVE (Graphos G1 Baseline).
-- **Phase 3: Automation** (`23 -> 20 tools`) — Queued.
-- **Phase 4: Artifact Synthesis** (`20 -> 17 tools`) — Queued.
+- **Phase 2: Task Management** (`30 -> 23 tools`) — VERIFIED & COMMITTED.
+- **Phase 3: Automation** (`23 -> 20 tools`) — VERIFIED & COMPLETED.
+- **Phase 4: Artifact Synthesis** (`20 -> 17 tools`) — NEXT TARGET.
 - **Phase 5: Async Dispatch** (`17 -> 16 tools`) — Queued.
 - **Phase 6: Crash Forensics** (`16 -> 15 tools`) — Queued.
 - **Phase 7: Orientation & Introspection Alignment** (`15 -> 16 tools`) — Queued (Target: 16 Tools / 16 Capabilities).

@@ -14,8 +14,11 @@ flowchart LR
     M7 --> M8["M8: Phase 2 Execution (Pragma) ✅"]
     M8 --> M9["M9: Phase 2 Verification 23 Tools (Dokimos) ✅"]
     M9 --> M10["M10: Phase 2 Rollup & State Sync (Graphos G2) ✅"]
-    M10 --> M11["M11: Phase 2 Release Commit (Hermon) ⏳"]
-    M11 --> M12["M12: Phase 3 Automation Planning (Archon) ⏳"]
+    M10 --> M11["M11: Phase 2 Release Commit (Hermon) ✅"]
+    M11 --> M12["M12: Phase 3 Automation Planning (Archon) ✅"]
+    M12 --> M13["M13: Phase 3 Execution & Verification 20 Tools (Pragma/Dokimos) ✅"]
+    M13 --> M14["M14: Phase 3 Rollup & Release (Graphos G2/Hermon) ⏳"]
+    M14 --> M15["M15: Phase 4 Synthesis Planning (Archon) ⏳"]
 ```
 
 ## 2. Milestone Matrix
@@ -27,9 +30,9 @@ flowchart LR
 | **Discovery** | Pico-Playbooks, discover router, bilingual EN/ES lexical matching | Archon, Pragma, Dokimos, Hermon | `server.py`, `engine/matcher.py`, `engine/playbook.py` | **COMPLETED ✅** |
 | **Hardening** | Template feedback, cold-aging immunity, Pico tools hardening, safe GC | Archon, Pragma, Dokimos, Hermon | `server.py`, `engine/kanban.py`, `engine/catalog.py` | **COMPLETED ✅** |
 | **Consolidation 1** | Unify `semantic_memory` (`artifact_query`, `catalog`, `reindex`, `prune` -> `artifact_catalog`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **VERIFIED & COMMITTED (30 Tools) ✅** |
-| **Consolidation 2** | Unify `task_management` (`kanban_*` 8 tools -> `kanban_board` polymorphic action router) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/kanban.py`, `engine/privilege.py` | **VERIFIED & COMPLETED (23 Tools) ✅** |
-| **Consolidation 3** | Unify `automation` (`playbook_*` 4 tools -> `playbook_run`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/playbook.py`, `engine/privilege.py` | **NEXT TARGET (Target: 20 Tools) ⏳** |
-| **Consolidation 4** | Unify `artifact_synthesis` (`template_*`, `artifact_hydrate`, `lint_and_build` -> `artifact_synthesize`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/hydrator.py` | **QUEUED (Target: 17 Tools)** |
+| **Consolidation 2** | Unify `task_management` (`kanban_*` 8 tools -> `kanban_board` polymorphic action router) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/kanban.py`, `engine/privilege.py` | **VERIFIED & COMMITTED (23 Tools) ✅** |
+| **Consolidation 3** | Unify `automation` (`playbook_*` 4 tools -> `playbook_run` polymorphic action router) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/playbook.py`, `engine/privilege.py` | **VERIFIED & COMPLETED (20 Tools) ✅** |
+| **Consolidation 4** | Unify `artifact_synthesis` (`template_*`, `artifact_hydrate`, `lint_and_build` -> `artifact_lint_and_build`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/hydrator.py` | **NEXT TARGET (Target: 17 Tools) ⏳** |
 | **Consolidation 5** | Unify `async_dispatch` (`async_job_dispatch`, `inspect` -> `async_job`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **QUEUED (Target: 16 Tools)** |
 | **Consolidation 6** | Unify `crash_forensics` (`diagnose_system_crashes`, `check_crash_alerts` -> `crash_forensics`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **QUEUED (Target: 15 Tools)** |
 | **Consolidation 7** | Unify `orientation` & align `process_introspection` (1:1 capability parity) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **QUEUED (Target: 16 Tools Parity)** |
