@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-10-23 · Servidor MCP: **32 tools** · Rama: `main` · Semgrep: 0 findings
+> Fecha: 2026-10-23 · Servidor MCP: **33 tools** · Rama: `main` · Semgrep: 0 findings
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -22,11 +22,12 @@ eficiencia**. Infra: venv `~/.local/share/agent-os/venv`; DB `~/.local/share/age
 `discover(use_case)` (orientar) → **reutilizar** (artifact_catalog) / **sintetizar** (template_select
 + hydrator) / **automatizar** (playbooks) → **ponderar** (promote/demote/prune). Memoria semántica
 auto-indexada en write-time (reindex sana); lazo de telemetría cerrado (ejecuciones alimentan la
-ponderación); promoción↔degradación bidireccional; GC seguro que protege plantillas base.
+ponderación); promoción↔degradación bidireccional; GC seguro que protege plantillas base y respeta
+single-use (inmune a cold-aging); poda de playbooks (`playbook_prune`).
 
 ## Hecho (arco completo)
 sqlite-vec (memoria híbrida) · 5 specs Omarchy (aep_ctl, crash routing, skills hub, man-pages,
-headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 32 tools; Claude Code desconectado por defecto en este host con opt-in `--with-claude` / `AEP_PLUG_CLAUDE=1`) · shell-agnóstico · Pueue ·
+headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 33 tools; Claude Code desconectado por defecto en este host con opt-in `--with-claude` / `AEP_PLUG_CLAUDE=1`) · shell-agnóstico · Pueue ·
 bpftrace (sudo -n) · Pico-Kanban (promote/demote/reevaluate + archive/unarchive reversible) ·
 Pico-Playbooks (parametrizables vía hydrator RE-as-SDD de Jinja) · descubrimiento
 (catalog/reindex/prune) · registry+selector de plantillas · `discover` enrutador (con anclas
@@ -34,15 +35,18 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 (#1 cerrado: `source_template` + `catalog.template_feedback()` vía `ponder.py` + bloque `proven` en
 `template_catalog`/`template_select`/`discover` sin alterar el ranking de `matcher.py`)** ·
 **Revisión y endurecimiento de Pico Tools (#4 cerrado: `hydrator` kebab↔snake, `artifact_execute_in_ram`
-fallback desde SQLite `binary_blob`, `async_job_*` fail-soft `DEGRADED`)**.
+fallback desde SQLite `binary_blob`, `async_job_*` fail-soft `DEGRADED`)** ·
+**Cierre de brecha de omisión en ciclo de poda/reevaluación (`kanban.reevaluate` inmunidad al cold-aging
+para artefactos single-use exitosos; `catalog.prune` desvincula binarios en disco; `playbook_prune` como
+tool 33 con GC seguro e inmunidad a decaimiento por recency)**.
 
 ## Pendientes
-- **Todos los pendientes iniciales (#1, #2, #3, #4) están cerrados y verificados.**
+- **Todos los pendientes iniciales (#1, #2, #3, #4) y la brecha de omisión en poda están cerrados y verificados.**
 - Mejora opcional futura: indexar playbooks en `sqlite-vec` solo si el catálogo de automatizaciones crece significativamente.
 - Régimen de mantenimiento: validación mediante llamadas MCP y Semgrep continuo.
 
 ## Coordinación / notas honestas
 - El **README lo co-mantiene otro agente** (blindaje semántico) concurrentemente; coordinar.
-- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 32 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
+- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 33 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
 - WebSockets de Go: **no requeridos** (stdio correcto; push futuro = MCP progress notifications).
 - skill-swarm: **consumidor** (no API para contribuir skills); reusamos su matcher y señal de uso.
