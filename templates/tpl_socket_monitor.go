@@ -69,6 +69,11 @@ func mapTCPState(stateHex string) string {
 }
 
 func main() {
+	stateFilter := "{{state}}"
+	if stateFilter != "" && stateFilter[0] == '{' {
+		stateFilter = ""
+	}
+
 	resp := Response{Sockets: []SocketEntry{}}
 
 	file, err := os.Open("/proc/net/tcp")
@@ -105,6 +110,9 @@ func main() {
 			RemotePort: parseHexPort(remote[1]),
 			State:      mapTCPState(fields[3]),
 			Inode:      fields[9],
+		}
+		if stateFilter != "" && !strings.EqualFold(entry.State, stateFilter) {
+			continue
 		}
 		resp.Sockets = append(resp.Sockets, entry)
 	}

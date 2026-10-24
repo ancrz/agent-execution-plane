@@ -139,6 +139,39 @@ class KanbanBoard:
                     "confidence": p["confidence"], "dimensions": p["dimensions"],
                     "eligible_for_promotion": p["verdict"] == "TRUST"}
 
+    def record_canary_by_artifact(self, artifact_name: str, passed: bool) -> Optional[Dict[str, Any]]:
+        """Registra el resultado de ejecución canary en RAM para la tarea kanban activa más reciente del artefacto."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY') "
+                "ORDER BY id DESC LIMIT 1",
+                (artifact_name,),
+            ).fetchone()
+            if not row:
+                return None
+            task_id = row["id"]
+            lp = row["lint_passed"]
+            cp = 1 if passed else 0
+            new_state = "CANARY" if passed and row["state"] in ("BACKLOG", "SYNTHESIZED", "LINTED") else row["state"]
+            stats = self._artifact_stats(conn, artifact_name)
+            p = self._ponder(bool(lp), bool(cp), stats["success_rate"],
+                             stats["execution_count"], stats["days_since"])
+            conn.execute(
+                "UPDATE kanban_tasks SET state = ?, canary_passed = ?, "
+                "promotion_score = ?, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = ?",
+                (new_state, cp, p["effective"], task_id),
+            )
+            conn.commit()
+            return {
+                "task_id": task_id,
+                "state": new_state,
+                "promotion_score": p["effective"],
+                "verdict": p["verdict"],
+                "eligible_for_promotion": p["verdict"] == "TRUST",
+            }
+
     def promote(self, task_id: int) -> Dict[str, Any]:
         """Promueve el artefacto ligado como REUTILIZABLE si su ponderación lo amerita."""
         with self._conn() as conn:

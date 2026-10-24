@@ -146,16 +146,26 @@ class TemplateHydrator:
         resolved = resolve_params(contract, params) if contract else params
 
         for key, value in resolved.items():
+            quoted_ph = f"\"{{{{{key}}}}}\""
             placeholder = f"{{{{{key}}}}}"
-            if isinstance(value, bool):
-                val_str = "true" if value else "false"
-            elif isinstance(value, (int, float)):
-                val_str = str(value)
-            elif isinstance(value, str):
-                val_str = f'"{value}"' if not (value.startswith('"') and value.endswith('"')) else value
-            else:
-                val_str = json.dumps(value)
-            content = content.replace(placeholder, val_str)
+            if quoted_ph in content:
+                if isinstance(value, str):
+                    q_val = json.dumps(value)
+                elif isinstance(value, bool):
+                    q_val = "\"true\"" if value else "\"false\""
+                else:
+                    q_val = f"\"{value}\""
+                content = content.replace(quoted_ph, q_val)
+            if placeholder in content:
+                if isinstance(value, bool):
+                    val_str = "true" if value else "false"
+                elif isinstance(value, (int, float)):
+                    val_str = str(value)
+                elif isinstance(value, str):
+                    val_str = f"\"{value}\"" if not (value.startswith("\"") and value.endswith("\"")) else value
+                else:
+                    val_str = json.dumps(value)
+                content = content.replace(placeholder, val_str)
 
         if strict:
             leftover = sorted(set(_TEXT_PLACEHOLDER.findall(content)))

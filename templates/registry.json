@@ -17,7 +17,14 @@
         "network"
       ],
       "description": "Lista sockets TCP/UDP del host (LISTEN y ESTABLISHED) leyendo el kernel sin invocar netstat; salida JSON tipada.",
-      "params": []
+      "params": [
+        {
+          "name": "state",
+          "type": "string",
+          "required": false,
+          "default": ""
+        }
+      ]
     },
     {
       "name": "fd-rescuer",
@@ -41,7 +48,8 @@
         {
           "name": "pid",
           "type": "int",
-          "required": true
+          "required": false,
+          "default": 0
         }
       ]
     },
@@ -62,7 +70,14 @@
         "mount"
       ],
       "description": "Uso de disco del sistema de archivos root vía statfs: total, libre y usado en bytes.",
-      "params": []
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "default": "/"
+        }
+      ]
     },
     {
       "name": "mem-stat",

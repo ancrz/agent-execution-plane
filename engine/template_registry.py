@@ -84,3 +84,17 @@ class TemplateRegistry:
                                 "tag_jaccard": round(jac, 3),
                                 "hint": "Alto solape: evaluar fusionar en una sola plantilla."})
         return out
+    def get_contract(self, template_name: str) -> Optional[List[Dict[str, Any]]]:
+        """Devuelve la lista de params (contrato) de una plantilla por name o source, normalizando guiones y sufijos."""
+        norm = template_name.lower().replace("-", "_").replace(".go", "")
+        if norm.startswith("tpl_"):
+            norm = norm[4:]
+        for t in self.templates:
+            t_name = t.get("name", "").lower().replace("-", "_")
+            t_src = t.get("source", "").lower().replace("-", "_").replace(".go", "")
+            if t_src.startswith("tpl_"):
+                t_src = t_src[4:]
+            if norm in (t_name, t_src):
+                return t.get("params", [])
+        return None
+

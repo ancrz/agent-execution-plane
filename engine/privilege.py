@@ -82,7 +82,8 @@ _CAPABILITIES = {
     "visual_actuation":     (5, 5, "self",   ["visual_inspect"],          "Renderizar y capturar UIs headless (/dev/shm)"),
     "topos_audit":          (4, 4, "self",   ["topos_audit_dag"],         "Auditar DAGs y bloquear co-dependencias"),
     "task_management":      (6, 6, "self",   ["kanban_board", "kanban_task_create", "kanban_advance", "kanban_promote", "kanban_demote", "kanban_reevaluate", "kanban_archive", "kanban_unarchive"], "Pico-Kanban: tareas atómicas + ponderación con promoción/degradación y archivado reversible"),
-    "automation":           (7, 7, "self",   ["playbook_create", "playbook_run", "playbook_list"], "Pico-Playbooks: orquestar tools/artefactos en flujos DAG (E2E, verificación)"),
+    "automation":           (7, 7, "self",   ["playbook_create", "playbook_run", "playbook_list", "playbook_prune"], "Pico-Playbooks: orquestar tools/artefactos en flujos DAG (E2E, verificación) y poda segura (playbook_prune)"),
+    "system_docs":          (4, 4, "self",   ["query_system_docs"], "Memoria semántica local de man-pages (sqlite-vec): sintaxis exacta sin alucinar flags"),
 }
 
 _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "--x", 0: "---"}
@@ -106,7 +107,8 @@ _CAP_KEYWORDS = {
     "visual_actuation":     "visual screenshot render headless ui browser page visual captura renderizar pantalla navegador",
     "topos_audit":          "audit dag graph dependency cycle codependency auditar grafo dependencia ciclo",
     "task_management":      "task kanban board manage promote weigh track tarea tablero gestionar promover ponderar seguir",
-    "automation":           "automate playbook orchestrate workflow pipeline e2e steps automatizar orquestar flujo pasos",
+    "automation":           "automate playbook orchestrate workflow pipeline e2e steps prune gc clean podar limpiar automatizar orquestar flujo pasos",
+    "system_docs":          "man manpage documentation syntax flags command help manual documentacion sintaxis comando manual",
 }
 
 

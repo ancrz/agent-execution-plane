@@ -45,14 +45,20 @@ func classifyTarget(target string) string {
 func main() {
 	resp := FDResponse{Entries: []FDEntry{}}
 
-	if len(os.Args) < 2 {
-		resp.Error = "Debe proporcionar un PID como argumento. Uso: ./fd_rescuer <PID>"
+	defaultPID := "{{pid}}"
+	argPID := defaultPID
+	if len(os.Args) >= 2 {
+		argPID = os.Args[1]
+	}
+
+	if argPID == "" || argPID[0] == '{' || argPID == "0" {
+		resp.Error = "Debe proporcionar un PID como argumento o hidratar {{pid}}. Uso: ./fd_rescuer <PID>"
 		out, _ := json.MarshalIndent(resp, "", "  ")
 		fmt.Println(string(out))
 		os.Exit(1)
 	}
 
-	pid, err := strconv.Atoi(os.Args[1])
+	pid, err := strconv.Atoi(argPID)
 	if err != nil {
 		resp.Error = fmt.Sprintf("PID inválido: %s", os.Args[1])
 		out, _ := json.MarshalIndent(resp, "", "  ")

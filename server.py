@@ -257,13 +257,14 @@ def artifact_prune(apply: bool = False) -> str:
 
 
 @mcp.tool()
-def artifact_hydrate(template_name: str, params: Dict[str, Any]) -> str:
+def artifact_hydrate(template_name: str, params: Optional[Dict[str, Any]] = None) -> str:
     """
     [PICO-ANSIBLE / HYDRATOR] Instancia una plantilla atómica Go con los parámetros
     especificados por el agente, generando el código fuente final.
     """
     try:
-        source_code = hydrator.hydrate(template_name, params)
+        contract = template_registry.get_contract(template_name)
+        source_code = hydrator.hydrate(template_name, params or {}, contract=contract)
         return json.dumps({"status": "SUCCESS", "go_source": source_code}, indent=2)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
@@ -419,6 +420,7 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
             name, res.returncode, latency_ms,
             error_message=(res.stderr.strip()[:500] if res.returncode != 0 and res.stderr else None),
         )
+        kanban_canary = kanban.record_canary_by_artifact(name, res.returncode == 0)
 
         return json.dumps(
             {
@@ -428,6 +430,7 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
                 "output": stdout_parsed,
                 "stderr": res.stderr.strip() if res.stderr else None,
                 "metric_recorded": recorded,  # True si alimentó la ponderación del catálogo
+                "kanban_canary": kanban_canary,
             },
             indent=2,
         )
@@ -848,6 +851,7 @@ def _playbook_dispatch() -> Dict[str, Any]:
         "artifact_query": artifact_query,
         "artifact_catalog": artifact_catalog,
         "artifact_execute_in_ram": artifact_execute_in_ram,
+        "async_job_inspect": async_job_inspect,
         "sandbox_run": sandbox_run,
         "aep_ctl": aep_ctl,
         "check_crash_alerts": check_crash_alerts,
@@ -871,7 +875,7 @@ def playbook_create(name: str, description: str, steps: List[Dict[str, Any]],
     hidratan al ejecutar. `params_contract` declara las variables [{name, type?, required?,
     default?}] (RE-as-SDD de Jinja: defaults + requeridos estrictos + tipos). El DAG se valida
     con topos_guard (cero co-dependencias) antes de guardarse. Ej: E2E con ${url}.
-    tools encadenables: artifact_query/_catalog/_execute_in_ram, sandbox_run, aep_ctl,
+    tools encadenables: artifact_query/_catalog/_execute_in_ram, async_job_inspect, sandbox_run, aep_ctl,
     check_crash_alerts, diagnose_system_crashes, query_system_docs, visual_inspect,
     kernel_trace, topos_audit_dag.
     """
@@ -947,7 +951,7 @@ def playbook_run(name: str, vars: Optional[Dict[str, Any]] = None,
         except Exception as e:
             st, out = "ERROR", {"error": str(e)}
         ok = st not in _PLAYBOOK_FAIL
-        results.append({"id": step["id"], "tool": tool, "status": st, "ok": ok})
+        results.append({"id": step["id"], "tool": tool, "status": st, "ok": ok, "output": out})
         if not ok:
             all_ok = False
             if stop_on_error:

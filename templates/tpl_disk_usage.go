@@ -8,7 +8,10 @@ import (
 )
 
 func main() {
-	path := "/"
+	path := "{{path}}"
+	if path == "" || path[0] == '{' {
+		path = "/"
+	}
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		fmt.Printf("{\"error\":%q}\n", err.Error())
