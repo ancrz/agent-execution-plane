@@ -358,7 +358,7 @@ def artifact_lint_and_build(
         )
 
         # Pico-Kanban: registra el ciclo del artefacto y lo pondera. go vet pasó -> lint_passed;
-        # compilación/canary en RAM se confirma al ejecutarlo (kanban_advance CANARY).
+        # compilación/canary en RAM se confirma al ejecutarlo (kanban_board(action='advance', to_state='CANARY') o automático en artifact_execute_in_ram).
         kanban_task_id = None
         try:
             kt = kanban.create_task(title=f"build:{name}", intent=intent, category=category, artifact_name=name)
@@ -762,99 +762,84 @@ def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
 
 
 @mcp.tool()
-def kanban_board(include_archived: bool = False) -> str:
+def kanban_board(
+    action: str = "board",
+    include_archived: bool = False,
+    task_id: Optional[int] = None,
+    title: str = "",
+    intent: str = "",
+    category: str = "",
+    artifact_name: Optional[str] = None,
+    to_state: str = "",
+    lint_passed: Optional[bool] = None,
+    canary_passed: Optional[bool] = None,
+    note: Optional[str] = None,
+    reason: Optional[str] = None,
+    states: Optional[List[str]] = None,
+    max_score: Optional[float] = None,
+    apply: bool = False,
+) -> str:
     """
-    [PICO-KANBAN] Tablero de estados abstracto (idioma agéntico, transparente al usuario).
-    Devuelve las lanes BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED con la ponderación
-    (promotion_score) de cada tarea/artefacto. Memoria de trabajo del agente para una actividad.
-    Excluye tareas archivadas por defecto (`archived_total` reporta cuántas hay);
-    include_archived=True las muestra todas.
-    """
-    try:
-        return json.dumps(kanban.board(include_archived=include_archived), indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_task_create(title: str, intent: str = "", category: str = "",
-                       artifact_name: Optional[str] = None) -> str:
-    """[PICO-KANBAN] Crea una tarea atómica en BACKLOG (opcionalmente ligada a un artefacto)."""
-    try:
-        return json.dumps(kanban.create_task(title, intent, category, artifact_name), indent=2)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_advance(task_id: int, to_state: str, lint_passed: Optional[bool] = None,
-                   canary_passed: Optional[bool] = None, note: Optional[str] = None) -> str:
-    """
-    [PICO-KANBAN] Mueve una tarea de estado y recalcula su ponderación. Marca lint_passed /
-    canary_passed (p.ej. canary_passed=True tras un dry-run exitoso en RAM con artifact_execute_in_ram).
+    [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
+    action:
+      - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED).
+      - 'create' (o 'task_create'): crea una tarea atómica en BACKLOG (requiere `title`).
+      - 'advance': mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
+      - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
+      - 'demote': degrada explícitamente un artefacto a reusable=0 (requiere `artifact_name`).
+      - 'reevaluate': re-pondera artefactos reusables y degrada solo los que tienen fallo demostrado.
+      - 'archive': archiva (soft, reversible) tareas estancadas (apply=False -> DRY_RUN).
+      - 'unarchive': reactiva una tarea archivada (requiere `task_id`).
     """
     try:
-        return json.dumps(kanban.advance(task_id, to_state, lint_passed, canary_passed, note), indent=2)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_reevaluate() -> str:
-    """
-    [PICO-KANBAN] Auto-corrección del conjunto confiable: re-pondera cada artefacto reusable
-    contra sus métricas ACTUALES (telemetría acumulada) y DEGRADA (reusable=0) los que ya no
-    alcanzan TRUST. Cierra el lazo promoción<->degradación — la confianza se gana y se pierde.
-    """
-    try:
-        return json.dumps(kanban.reevaluate(), indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_demote(artifact_name: str, reason: Optional[str] = None) -> str:
-    """[PICO-KANBAN] Degrada explícitamente un artefacto (reusable=0). Inverso de kanban_promote."""
-    try:
-        return json.dumps(kanban.demote(artifact_name, reason), indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_promote(task_id: int) -> str:
-    """
-    [PICO-KANBAN] Promueve el artefacto ligado como REUTILIZABLE si su ponderación lo amerita
-    (lint + canary + éxito histórico, score >= 0.70). Si no, devuelve REJECTED con lo que falta.
-    """
-    try:
-        return json.dumps(kanban.promote(task_id), indent=2)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_archive(states: Optional[List[str]] = None, max_score: Optional[float] = None,
-                   apply: bool = False) -> str:
-    """
-    [PICO-KANBAN] Despeja el board archivando (soft, REVERSIBLE) tareas estancadas — scaffolding
-    de corridas previas que nunca prosperó. dry-run POR DEFECTO (apply=False): el AGENTE juzga qué
-    despejar vs el veredicto del ponderador; NO destruye nada (archived=1, recuperable con
-    kanban_unarchive). Candidato = estado en `states` (def. LINTED+REJECTED) Y score < `max_score`
-    (def. umbral TRUST 0.75). PROMOTED/CANARY están SIEMPRE protegidas. Repite con apply=True.
-    """
-    try:
-        return json.dumps(kanban.archive(states=states, max_score=max_score, apply=apply),
-                          indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def kanban_unarchive(task_id: int) -> str:
-    """[PICO-KANBAN] Reactiva una tarea archivada (archived=0). Inverso de kanban_archive — reversible."""
-    try:
-        return json.dumps(kanban.unarchive(task_id), indent=2, ensure_ascii=False)
+        act = (action or "board").strip().lower()
+        if act == "board":
+            return json.dumps(kanban.board(include_archived=include_archived), indent=2, ensure_ascii=False)
+        elif act in ("create", "task_create"):
+            if not (title or "").strip():
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'create' requiere 'title'."
+                }, indent=2, ensure_ascii=False)
+            return json.dumps(kanban.create_task(title.strip(), intent, category, artifact_name), indent=2, ensure_ascii=False)
+        elif act == "advance":
+            if task_id is None or not (to_state or "").strip():
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'advance' requiere 'task_id' y 'to_state'."
+                }, indent=2, ensure_ascii=False)
+            return json.dumps(kanban.advance(task_id, to_state.strip(), lint_passed, canary_passed, note), indent=2, ensure_ascii=False)
+        elif act == "promote":
+            if task_id is None:
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'promote' requiere 'task_id'."
+                }, indent=2, ensure_ascii=False)
+            return json.dumps(kanban.promote(task_id), indent=2, ensure_ascii=False)
+        elif act == "demote":
+            if not (artifact_name or "").strip():
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'demote' requiere 'artifact_name'."
+                }, indent=2, ensure_ascii=False)
+            return json.dumps(kanban.demote(artifact_name.strip(), reason), indent=2, ensure_ascii=False)
+        elif act == "reevaluate":
+            return json.dumps(kanban.reevaluate(), indent=2, ensure_ascii=False)
+        elif act == "archive":
+            return json.dumps(kanban.archive(states=states, max_score=max_score, apply=apply), indent=2, ensure_ascii=False)
+        elif act == "unarchive":
+            if task_id is None:
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'unarchive' requiere 'task_id'."
+                }, indent=2, ensure_ascii=False)
+            return json.dumps(kanban.unarchive(task_id), indent=2, ensure_ascii=False)
+        else:
+            return json.dumps({
+                "status": "INVALID_ACTION",
+                "error": f"Acción '{action}' no reconocida. Acciones válidas: 'board', 'create', 'advance', 'promote', 'demote', 'reevaluate', 'archive', 'unarchive'.",
+                "valid_actions": ["board", "create", "advance", "promote", "demote", "reevaluate", "archive", "unarchive"],
+            }, indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 

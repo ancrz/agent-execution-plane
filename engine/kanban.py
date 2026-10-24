@@ -286,7 +286,7 @@ class KanbanBoard:
                 "applied": apply, "threshold": thr, "states_scanned": states,
                 "protected_states": sorted(protect), "candidate_count": len(candidates),
                 "candidates": candidates,
-                "hint": None if apply else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_unarchive)."}
+                "hint": None if apply else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_board(action='unarchive', task_id=...))."}
 
     def unarchive(self, task_id: int) -> Dict[str, Any]:
         """Reactiva una tarea archivada (archived=0). Inverso de archive — nada se pierde."""
