@@ -94,40 +94,6 @@ def topos_audit_dag(tasks: List[str], dependencies: Dict[str, List[str]]) -> str
 
 
 @mcp.tool()
-def artifact_query(intent: str, category: str) -> str:
-    """
-    [PICO-ANSIBLE / CATALOG] Consulta en SQLite si ya existe un artefacto validado
-    para la intención solicitada. Si existe con alta tasa de éxito, lo retorna para reuso.
-    """
-    hit = catalog.find_hybrid(intent, category)
-    if hit:
-        return json.dumps(
-            {
-                "status": "CACHE_HIT",
-                "artifact_id": hit["id"],
-                "name": hit["name"],
-                "category": hit["category"],
-                "version": hit["version"],
-                "success_rate": hit["success_rate"],
-                "execution_count": hit["execution_count"],
-                # Campos aditivos (no rompen consumidores previos):
-                "retrieval_mode": hit.get("retrieval_mode", "exact_hash"),
-                "semantic_distance": hit.get("semantic_distance"),
-            },
-            indent=2,
-        )
-    return json.dumps(
-        {
-            "status": "CACHE_MISS",
-            "message": "No se encontró artefacto en caché. Proceder a hidratar o sintetizar.",
-            "available_templates": hydrator.list_available_templates(),
-            "semantic_available": catalog._vec_available,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
 def discover(use_case: str, limit: int = 3) -> str:
     """
     [ORIENTACIÓN] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer.
@@ -161,48 +127,114 @@ def discover(use_case: str, limit: int = 3) -> str:
                                       "proven": t.get("proven")} for t in synth],
             "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
             "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
-                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_prune o playbook_prune.",
+                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_prune.",
         }, indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
 @mcp.tool()
-def artifact_catalog(category: Optional[str] = None, query: Optional[str] = None,
-                     limit: int = 10) -> str:
+def artifact_catalog(
+    action: str = "browse",
+    category: Optional[str] = None,
+    query: Optional[str] = None,
+    intent: Optional[str] = None,
+    limit: int = 10,
+    force: bool = False,
+    apply: bool = False,
+) -> str:
     """
-    [DESCUBRIMIENTO] 'Qué soluciones tengo disponibles'. Lista/busca artefactos del catálogo
-    para que el agente descubra qué puede reutilizar antes de sintetizar algo nuevo.
-    - query: top-K semántico (embeddings auto-indexados), ordenado por cercanía.
-    - sin query: ranking por confianza (reutilizable + ponderación + éxito).
-    Incluye capability_tier (contexto de ejecución actual: FULL/DIMINISHED).
-    """
-    try:
-        items = catalog.browse(category=category, query=query, limit=limit)
-        return json.dumps(
-            {"status": "OK", "capability_tier": capability_tier(),
-             "count": len(items), "artifacts": items},
-            indent=2, ensure_ascii=False,
-        )
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def artifact_reindex(force: bool = False) -> str:
-    """
-    [DESCUBRIMIENTO / AUTO-ÍNDICE] Sana el índice semántico: embebe en sqlite-vec todo artefacto
-    sin embedding (o TODOS si force=True). Hace buscable lo que otros agentes registraron por
-    otras vías o quedó sin indexar. Devuelve la cobertura antes/después. El embedder solo se
-    carga si hay trabajo pendiente.
+    [MEMORIA SEMÁNTICA UNIFICADA] Punto único para descubrir, consultar en caché,
+    auto-indexar (sqlite-vec) y podar (GC seguro) el catálogo de artefactos.
+    action:
+      - 'browse' (default): lista/busca artefactos (con `query` -> top-K semántico; sin `query` -> ranking por confianza).
+      - 'query': busca un artefacto validado para `intent` (o `query`) y `category` -> CACHE_HIT / CACHE_MISS.
+      - 'reindex': sana el índice vectorial sqlite-vec (force=True re-embebe todos) y devuelve cobertura antes/después.
+      - 'prune': poda destructiva segura de artefactos degradados (reusable=0), protegiendo plantillas base (apply=False -> DRY_RUN).
     """
     try:
-        before = catalog.index_coverage()
-        result = catalog.reindex(force=force)
-        after = catalog.index_coverage()
-        return json.dumps({"status": result.get("status", "OK"), "reindex": result,
-                           "coverage_before": before, "coverage_after": after},
-                          indent=2, ensure_ascii=False)
+        act = (action or "browse").strip().lower()
+        if act == "browse":
+            items = catalog.browse(category=category, query=query or intent, limit=limit)
+            return json.dumps(
+                {
+                    "status": "OK",
+                    "capability_tier": capability_tier(),
+                    "count": len(items),
+                    "artifacts": items,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        elif act == "query":
+            eff_intent = (intent or query or "").strip()
+            if not eff_intent or not category:
+                return json.dumps(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": "Acción 'query' requiere los parámetros 'intent' (o 'query') y 'category'.",
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            hit = catalog.find_hybrid(eff_intent, category)
+            if hit:
+                return json.dumps(
+                    {
+                        "status": "CACHE_HIT",
+                        "artifact_id": hit["id"],
+                        "name": hit["name"],
+                        "category": hit["category"],
+                        "version": hit["version"],
+                        "success_rate": hit["success_rate"],
+                        "execution_count": hit["execution_count"],
+                        # Campos aditivos (no rompen consumidores previos):
+                        "retrieval_mode": hit.get("retrieval_mode", "exact_hash"),
+                        "semantic_distance": hit.get("semantic_distance"),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            return json.dumps(
+                {
+                    "status": "CACHE_MISS",
+                    "message": "No se encontró artefacto en caché. Proceder a hidratar o sintetizar.",
+                    "available_templates": hydrator.list_available_templates(),
+                    "semantic_available": catalog._vec_available,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        elif act == "reindex":
+            before = catalog.index_coverage()
+            result = catalog.reindex(force=force)
+            after = catalog.index_coverage()
+            return json.dumps(
+                {
+                    "status": result.get("status", "OK"),
+                    "reindex": result,
+                    "coverage_before": before,
+                    "coverage_after": after,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        elif act == "prune":
+            protect = {t["name"] for t in template_registry.catalog()} | {"socket_monitor", "fd_rescuer"}
+            return json.dumps(
+                catalog.prune(protect=protect, apply=apply),
+                indent=2,
+                ensure_ascii=False,
+            )
+        else:
+            return json.dumps(
+                {
+                    "status": "INVALID_ACTION",
+                    "error": f"Acción '{action}' no reconocida. Acciones válidas: 'browse', 'query', 'reindex', 'prune'.",
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
@@ -235,23 +267,6 @@ def template_select(intent: str, limit: int = 5) -> str:
         matches = template_registry.select(intent, limit=limit, feedback=fb)
         return json.dumps({"status": "OK", "intent": intent, "matches": matches},
                           indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def artifact_prune(apply: bool = False) -> str:
-    """
-    [DESCUBRIMIENTO / GC] Poda destructiva SEGURA: elimina artefactos degradados (reusable=0 =
-    fallo demostrado), PROTEGIENDO las plantillas base (contexto semilla) y SIN tocar los
-    single-use exitosos (siguen reusable=1). apply=False (default) es DRY-RUN para que juzgues
-    los candidatos contra el ponderador; apply=True destruye (artefacto + su vector).
-    Nota: en una BD compartida, ejecuta reevaluate antes y revisa el dry-run antes de aplicar.
-    """
-    try:
-        protect = {t["name"] for t in template_registry.catalog()}
-        protect |= {"socket_monitor", "fd_rescuer"}  # variantes con guión bajo
-        return json.dumps(catalog.prune(protect=protect, apply=apply), indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
@@ -848,7 +863,7 @@ def kanban_unarchive(task_id: int) -> str:
 # meta-tools ni recursión). Define el blast radius de la automatización (P1).
 def _playbook_dispatch() -> Dict[str, Any]:
     return {
-        "artifact_query": artifact_query,
+        "artifact_query": lambda intent="", category="", **kw: artifact_catalog(action="query", intent=intent, category=category, **kw),
         "artifact_catalog": artifact_catalog,
         "artifact_execute_in_ram": artifact_execute_in_ram,
         "async_job_inspect": async_job_inspect,
