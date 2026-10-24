@@ -6,15 +6,15 @@ Guía harness-neutral para compactar la conversación sin perder el hilo.
 1. **Identidad:** AEP = runtime FastMCP (stdio) *agents-for-agents* sobre Ubuntu. Entregar artefacto,
    expandir eficiencia agéntica sin fricción de consola; transparente al usuario.
 2. **Motores:** `engine/ponder.py` (CONFIANZA, multidimensional+veto) y `engine/matcher.py` (RELEVANCIA, BM25F).
-3. **Flujo:** `discover(use_case)` → reutilizar/sintetizar/despachar/forense/automatizar → gestionar/ponderar (kanban_board).
+3. **Flujo:** `discover(use_case, action)` → process_inspect → reutilizar/sintetizar/despachar/forense/automatizar → gestionar/ponderar (kanban_board).
 4. **Invariantes:** memoria auto-indexada; telemetría cerrada; promoción↔degradación; kanban_board reversible;
    GC seguro (protect plantillas, cold-aging immunity; unlinking binarios); atajo 1-paso síntesis en RAM;
    auto-canary en RAM (`LINTED`→`CANARY`); fail-soft; stdio; hot-reload Connect/JSON-RPC (Antigravity/Codex; Claude opt-in);
    aislamiento subprocess/FD (`pass_fds=(fd,)`, `timeout=30`, daemons detached con `DEVNULL` stdio, y `_safe_run` con `close_fds=True`, `timeout=15`);
-   15 herramientas activas / 15 capacidades 100% mapeadas.
-5. **Estado:** 15 tools MCP; 15 capacidades; rama `main`; Semgrep 0; Fases 1–6 (catalog, kanban, playbook, synthesis, async, forensics) VERIFICADAS; Kanban 106 PROMOTED (0.8208 TRUST).
-6. **Pendientes:** Fase 7 (orientation & process_introspection: paridad 1:1, 15 -> 16 tools) siguiente objetivo inmediato.
-7. **Decisiones firmes:** daemons jamás por artifact_execute_in_ram; retrocompatibilidad de playbooks; no-recursión estricta en playbook_run; timeout en consultas de diagnóstico.
+   15 herramientas activas / 16 capacidades 100% mapeadas (1:1 parity).
+5. **Estado:** 15 tools MCP; 16 capacidades; rama `main`; Semgrep 0; Fases 1–7 (roadmap completo 33→15 tools) VERIFICADAS; Kanban 108 PROMOTED (0.8208 TRUST).
+6. **Pendientes:** Cero brechas abiertas. Roadmap 100% completado. Listo para Hermon Stage 6 (commit y release).
+7. **Decisiones firmes:** daemons jamás por artifact_execute_in_ram; retrocompatibilidad de playbooks; no-recursión estricta en playbook_run; timeout en consultas de diagnóstico; paridad 1:1 capacidad-herramienta.
 8. **Fuentes:** `docs/STATE.md`, este archivo, y la memoria `aep-state-and-pendings`.
 
 ## DESCARTAR (ruido de proceso)
@@ -32,11 +32,12 @@ una vez que el veredicto quedó registrado. Ante la duda, preserva el *porqué*,
 ### Foco listo para pegar en `/compact`
 ```
 /compact Conserva estado AEP: premisa agents-for-agents (entregar artefacto, IA expande
-eficiencia), 2 motores (ponder.py=confianza, matcher.py=relevancia), flujo discover→reutilizar/
-sintetizar/despachar/forense/automatizar→kanban_board→ponderar, invariantes (auto-index, telemetría, promoción↔degradación,
-kanban_board reversible, GC seguro con cold-aging immunity, auto-canary en RAM, atajo 1-paso síntesis,
-blindaje subprocess/FD pass_fds+DEVNULL daemons+timeout 15s forense, fail-soft, stdio, hot-reload Connect-RPC/JSON-RPC, Claude opt-in),
-15 tools (15 capacidades 100% mapeadas), Fases 1-6 consolidadas (catalog, kanban, playbook, synthesis, async, forensics),
-en main (Semgrep 0), Tarea 106 PROMOTED (0.8208 TRUST), Fase 7 orientation/introspection siguiente objetivo (15->16 tools paridad).
+eficiencia), 2 motores (ponder.py=confianza, matcher.py=relevancia), flujo discover→process_inspect→
+reutilizar/sintetizar/despachar/forense/automatizar→kanban_board→ponderar, invariantes (auto-index,
+telemetría, promoción↔degradación, kanban_board reversible, GC seguro con cold-aging immunity,
+auto-canary en RAM, atajo 1-paso síntesis, blindaje subprocess/FD pass_fds+DEVNULL daemons+timeout 15s,
+fail-soft, stdio, hot-reload Connect-RPC/JSON-RPC, Claude opt-in), 15 tools (16 capacidades 100% mapeadas 1:1),
+Roadmap 100% completado (Fases 1-7: catalog, kanban, playbook, synthesis, async, forensics, orientation/process_inspect),
+en main (Semgrep 0), Tarea 108 PROMOTED (0.8208 TRUST), cero brechas pendientes.
 Fuentes: docs/STATE.md, docs/COMPACT.md, memoria aep-state-and-pendings.
 ```
