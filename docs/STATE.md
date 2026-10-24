@@ -10,7 +10,7 @@ Agent Execution Plane (AEP): runtime **FastMCP (stdio)** *agents-for-agents* sob
 Transmuta primitivas de herramientas ofensivas en capacidades agénticas gobernadas por privilegio.
 Transparente al usuario; el entregable es **el artefacto** y que la IA **expanda su trabajo hacia
 eficiencia**. Infra: venv `~/.local/share/agent-os/venv`; DB `~/.local/share/agent-os/artifacts.db`
-(WAL, sqlite-vec); launcher + `aep-sync.sh` (auto-plug con hot-reload Connect-RPC) + hook pre-commit.
+(WAL, sqlite-vec); launcher + `aep-sync.sh` (auto-plug con hot-reload Connect-RPC para Antigravity y JSON-RPC para Codex; Claude Code desconectado por defecto con `--with-claude`) + hook pre-commit.
 
 ## Dos motores compartidos (una sola vara cada uno)
 - **`engine/ponder.py`** — CONFIANZA (multidimensional quality/reliability/experience/recency +
@@ -26,8 +26,7 @@ ponderación); promoción↔degradación bidireccional; GC seguro que protege pl
 
 ## Hecho (arco completo)
 sqlite-vec (memoria híbrida) · 5 specs Omarchy (aep_ctl, crash routing, skills hub, man-pages,
-headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo
-Connect-RPC `RefreshMcpServers` para Antigravity sin reiniciar sesión) · shell-agnóstico · Pueue ·
+headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 32 tools; Claude Code desconectado por defecto en este host con opt-in `--with-claude` / `AEP_PLUG_CLAUDE=1`) · shell-agnóstico · Pueue ·
 bpftrace (sudo -n) · Pico-Kanban (promote/demote/reevaluate + archive/unarchive reversible) ·
 Pico-Playbooks (parametrizables vía hydrator RE-as-SDD de Jinja) · descubrimiento
 (catalog/reindex/prune) · registry+selector de plantillas · `discover` enrutador (con anclas
@@ -44,6 +43,6 @@ fallback desde SQLite `binary_blob`, `async_job_*` fail-soft `DEGRADED`)**.
 
 ## Coordinación / notas honestas
 - El **README lo co-mantiene otro agente** (blindaje semántico) concurrentemente; coordinar.
-- `aep-sync.sh` incluye hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity (cero reinicios de sesión).
+- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 32 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
 - WebSockets de Go: **no requeridos** (stdio correcto; push futuro = MCP progress notifications).
 - skill-swarm: **consumidor** (no API para contribuir skills); reusamos su matcher y señal de uso.

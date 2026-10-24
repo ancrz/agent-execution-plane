@@ -16,9 +16,9 @@ el ESTADO y las DECISIONES; descartar el ruido de proceso.
    promoción↔degradación bidireccional; archivado soft reversible del board (`kanban_archive`/`unarchive`);
    GC seguro protege plantillas base y respeta single-use; fail-soft en todo; stdio (sin WebSockets
    de Go); privilegio FULL/DIMINISHED + manifiesto chmod + keywords bilingües EN/ES; auto-plug con
-   hot-reload Connect-RPC `RefreshMcpServers` (cero reinicio de sesión).
+   hot-reload Connect-RPC (Antigravity) y JSON-RPC (Codex); Claude desconectado por defecto (--with-claude).
 5. **Estado:** 32 tools MCP; rama `main`; Semgrep 0; venv + DB en `~/.local/share/agent-os/`;
-   auto-plug (`aep-sync.sh`) + hook pre-commit; hot-reload en vivo para Antigravity.
+   auto-plug (`aep-sync.sh`) con hot-reload en vivo Antigravity y Codex; hook pre-commit.
 6. **Pendientes:** Todos los pendings (#1 feedback template→artefacto, #2 kanban archive, #3 discover
    bilingüe, #4 hardening pico tools) CERRADOS y verificados (Semgrep 0, MCP tests OK).
 7. **Decisiones firmes y por qué:** skill-swarm es consumidor (no se le aporta); JinjaX rechazado
@@ -43,7 +43,7 @@ ejecución** una vez que el veredicto quedó registrado. Ante la duda, preserva 
 eficiencia), los 2 motores compartidos (ponder.py=confianza, matcher.py=relevancia), el flujo
 discover→reutilizar/sintetizar/automatizar→ponderar, los invariantes (auto-index, lazo de
 telemetría, promoción↔degradación, archivado reversible, GC seguro, fail-soft, stdio, hot-reload
-Connect-RPC RefreshMcpServers), 32 tools en main (Semgrep 0), todos los pendings (#1,#2,#3,#4)
-cerrados. Fuentes: docs/STATE.md, docs/COMPACT.md, memoria aep-state-and-pendings. Descarta
+Connect-RPC/JSON-RPC (Antigravity/Codex, Claude opt-in --with-claude), 32 tools en main (Semgrep 0),
+pendings (#1-#4) cerrados. Fuentes: docs/STATE.md, docs/COMPACT.md, memoria aep-state-and-pendings. Descarta
 salidas largas de probes/semgrep/builds, diffs y warnings repetidos.
 ```

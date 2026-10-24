@@ -14,7 +14,8 @@
   - `engine/template_registry.py`
   - `engine/hydrator.py`
   - `server.py`
-- **Audit Gate Status**: Dokimos `VERIFIED` (Semgrep 0 findings / 6 MCP tool calls validated)
+  - `scripts/aep-sync.sh`
+- **Audit Gate Status**: Dokimos `VERIFIED` (Semgrep 0 findings / 6 MCP tool calls validated / Codex Hot-Reload & Claude Opt-Out tested)
 
 ---
 
@@ -48,7 +49,7 @@ flowchart LR
     subgraph Evolution["Feature Evolution: Template Feedback & Hardening"]
         E0["AEP Baseline<br/>(Static templates, separate tools)"] --> E1["AEP v1.1<br/>(#1 Template Feedback via ponder.py)"]
         E1 --> E2["AEP v1.2<br/>(#4 Pico Hardening: Kebab/Snake + SQLite Blob Fallback + Pueue Fail-Soft)"]
-        E2 --> E3["AEP v1.3 VERIFIED<br/>(Connect-RPC Hot-Reload + 0 Pendings Open)"]
+        E2 --> E3["AEP v1.3 VERIFIED<br/>(Connect-RPC & JSON-RPC Hot-Reload + Claude Opt-Out + 0 Pendings Open)"]
     end
 ```
 
@@ -105,12 +106,24 @@ Dokimos executed comprehensive verification across static analysis and live MCP 
 
 ---
 
-## 5. Live Hot-Reload Verification (`aep-sync.sh`)
+## 5. Live Hot-Reload & Ecosystem Auto-Plug (`aep-sync.sh`)
 
-In addition to tool hardening, `scripts/aep-sync.sh` was enhanced with Connect-RPC hot-reload:
-- Discovers the active `language_server` PID and CSRF token.
-- Dispatches `RefreshMcpServers` to the local Connect-RPC endpoint.
-- Regenerates tool definitions in `~/.gemini/antigravity/mcp/agent-execution-plane/*.json` without requiring an IDE or session restart.
+In addition to tool hardening, `scripts/aep-sync.sh` was enhanced to support multi-client auto-plug and dynamic hot-reload without restarting IDEs or client processes:
+
+1. **Antigravity (Connect-RPC Hot-Reload)**:
+   - Discovers the active `language_server` PID and CSRF token via `ps` and `ss`.
+   - Dispatches `RefreshMcpServers` to the local Connect-RPC endpoint (`/exa.language_server_pb.LanguageServerService/RefreshMcpServers`).
+   - Regenerates tool definitions in `~/.gemini/antigravity/mcp/agent-execution-plane/*.json` live without requiring an IDE or session restart.
+
+2. **OpenAI Codex / ChatGPT (JSON-RPC Hot-Reload)**:
+   - Auto-registers the MCP server into `~/.codex/config.toml` via `codex mcp add agent-execution-plane -- <launcher>`.
+   - If `codex app-server` is running, connects to its active control socket (`${CODEX_HOME:-~/.codex}/app-server-control/app-server-control.sock`) via `codex app-server proxy --sock <socket>`.
+   - Sends JSON-RPC `initialize` and `config/mcpServer/reload` notifications to dynamically reload MCP servers in running ChatGPT / Codex sessions.
+   - Dokimos verified: live reload confirmed with 32 tools actively loaded in `codex app-server`.
+
+3. **Claude Code Host Opt-Out (`AEP_PLUG_CLAUDE=1` / `--with-claude`)**:
+   - By default on this host, `agent-execution-plane` is un-registered from Claude Code (`claude mcp remove --scope user agent-execution-plane`) to prevent host-level tool overloading.
+   - Preserves the full auto-plug registration code block inside `scripts/aep-sync.sh`: explicit opt-in is supported anytime via `./scripts/aep-sync.sh --with-claude` or `AEP_PLUG_CLAUDE=1 ./scripts/aep-sync.sh`.
 
 ---
 
@@ -119,5 +132,5 @@ In addition to tool hardening, `scripts/aep-sync.sh` was enhanced with Connect-R
 With Dokimos issuing **VERIFIED** and Graphos G2 documentation complete, the pipeline transitions to **Hermon** for atomic commit:
 - **Commit Type**: `feat`
 - **Scope**: `engine`
-- **Subject**: `implement template feedback loop and harden pico execution tools`
-- **Traceability**: Closes AEP Pendings #1 and #4. Verified by Dokimos (Semgrep 0 findings, 6/6 MCP checks passed).
+- **Subject**: `implement template feedback loop, harden pico tools, and support codex/antigravity hot-reload`
+- **Traceability**: Closes AEP Pendings #1 and #4. Verified by Dokimos (Semgrep 0 findings, 6/6 MCP checks passed, live hot-reload confirmed across Antigravity and OpenAI Codex, Claude Code opt-out configured).
