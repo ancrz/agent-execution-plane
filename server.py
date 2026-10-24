@@ -767,58 +767,90 @@ def async_job_dispatch(
 
 
 @mcp.tool()
-def diagnose_system_crashes(limit: int = 5) -> str:
+def diagnose_system_crashes(
+    action: str = "diagnose",
+    limit: int = 5,
+    resolve_after_report: bool = False,
+) -> str:
     """
-    [OMARCHY PATTERN] Inspecciona volcados de memoria recientes (systemd-coredump)
-    y errores críticos de journald en formato JSON para auto-diagnóstico estructurado.
+    [FORENSE DE CRASHES UNIFICADO] Diagnóstico estructurado de volcados de memoria
+    (systemd-coredump), errores de journald y enrutamiento proactivo de tickets.
+    action:
+      - 'diagnose' (default): inspecciona coredumps recientes y errores críticos del journal.
+      - 'alerts' (alias 'check'): enrutador proactivo de fallos; diffea coredumps contra el catálogo.
     """
-    # FAIL-SOFT: en hosts sin systemd-coredump/journald (contenedores, no-systemd) los
-    # binarios pueden faltar. Devolvemos JSON tipado degradado, nunca una excepción.
-    # Nivel FULL: prefijo sudo -n para ver coredumps/errores de TODO el sistema; DIMINISHED
-    # (sin escalada) ve solo lo propio. Ambos fail-soft.
-    prefix = privilege_prefix() or []
+    try:
+        if action == "diagnose":
+            # FAIL-SOFT: en hosts sin systemd-coredump/journald (contenedores, no-systemd) los
+            # binarios pueden faltar. Devolvemos JSON tipado degradado, nunca una excepción.
+            # Nivel FULL: prefijo sudo -n para ver coredumps/errores de TODO el sistema; DIMINISHED
+            # (sin escalada) ve solo lo propio. Ambos fail-soft.
+            prefix = privilege_prefix() or []
 
-    def _safe_run(cmd):
-        try:
-            return subprocess.run(prefix + cmd, capture_output=True, text=True)
-        except FileNotFoundError:
-            return None
-
-    unavailable = []
-
-    coredumps_raw = _safe_run(["coredumpctl", "list", "--json=short", "-n", str(limit)])
-    recent_coredumps = []
-    if coredumps_raw is None:
-        unavailable.append("coredumpctl")
-    elif coredumps_raw.returncode == 0 and coredumps_raw.stdout.strip():
-        try:
-            recent_coredumps = json.loads(coredumps_raw.stdout)
-        except Exception:
-            pass
-
-    journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(limit), "-o", "json"])
-    recent_errors = []
-    if journal_errs is None:
-        unavailable.append("journalctl")
-    else:
-        for line in journal_errs.stdout.splitlines():
-            if line.strip():
+            def _safe_run(cmd: List[str]) -> Optional[subprocess.CompletedProcess]:
                 try:
-                    recent_errors.append(json.loads(line))
+                    return subprocess.run(
+                        prefix + cmd,
+                        capture_output=True,
+                        text=True,
+                        stdin=subprocess.DEVNULL,
+                        close_fds=True,
+                        timeout=15,
+                    )
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    return None
+
+            unavailable = []
+
+            coredumps_raw = _safe_run(["coredumpctl", "list", "--json=short", "-n", str(limit)])
+            recent_coredumps = []
+            if coredumps_raw is None:
+                unavailable.append("coredumpctl")
+            elif coredumps_raw.returncode == 0 and coredumps_raw.stdout.strip():
+                try:
+                    recent_coredumps = json.loads(coredumps_raw.stdout)
                 except Exception:
                     pass
 
-    return json.dumps(
-        {
-            "status": "DEGRADED" if unavailable else "OK",
-            "capability_tier": capability_tier(),
-            "scope": "system" if prefix else "user",
-            "recent_coredumps": recent_coredumps,
-            "recent_systemd_errors": recent_errors,
-            "unavailable_sources": unavailable,
-        },
-        indent=2,
-    )
+            journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(limit), "-o", "json"])
+            recent_errors = []
+            if journal_errs is None:
+                unavailable.append("journalctl")
+            else:
+                for line in journal_errs.stdout.splitlines():
+                    if line.strip():
+                        try:
+                            recent_errors.append(json.loads(line))
+                        except Exception:
+                            pass
+
+            return json.dumps(
+                {
+                    "status": "DEGRADED" if unavailable else "OK",
+                    "capability_tier": capability_tier(),
+                    "scope": "system" if prefix else "user",
+                    "recent_coredumps": recent_coredumps,
+                    "recent_systemd_errors": recent_errors,
+                    "unavailable_sources": unavailable,
+                },
+                indent=2,
+            )
+
+        elif action in ("alerts", "check"):
+            return json.dumps(crash_router.check(resolve_after_report), indent=2)
+
+        else:
+            return json.dumps(
+                {
+                    "status": "INVALID_ACTION",
+                    "error": f"Acción desconocida '{action}'",
+                    "valid_actions": ["diagnose", "alerts", "check"],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -879,17 +911,13 @@ def aep_ctl(domain: str, action: str, name: Optional[str] = None) -> str:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
-@mcp.tool()
 def check_crash_alerts(resolve_after_report: bool = False) -> str:
     """
     [SPEC-OM-2 / PROACTIVE CRASH ROUTING] Enrutador proactivo de fallos: diffea los
     coredumps recientes contra el catálogo y entrega los nuevos tickets estructurados
-    antes de que el agente actúe. Complementa (no reemplaza) diagnose_system_crashes.
+    antes de que el agente actúe. (Des-registrado de MCP en Fase 6; unificado en diagnose_system_crashes).
     """
-    try:
-        return json.dumps(crash_router.check(resolve_after_report), indent=2)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+    return diagnose_system_crashes(action="alerts", resolve_after_report=resolve_after_report)
 
 
 @mcp.tool()
@@ -1087,7 +1115,7 @@ def _playbook_dispatch() -> Dict[str, Any]:
         "async_job_inspect": lambda task_id=None, lines=50, **kw: async_job_dispatch(action="inspect", task_id=task_id, lines=lines, **kw),
         "sandbox_run": sandbox_run,
         "aep_ctl": aep_ctl,
-        "check_crash_alerts": check_crash_alerts,
+        "check_crash_alerts": lambda resolve_after_report=False, **kw: diagnose_system_crashes(action="alerts", resolve_after_report=resolve_after_report, **kw),
         "diagnose_system_crashes": diagnose_system_crashes,
         "query_system_docs": query_system_docs,
         "visual_inspect": visual_inspect,
