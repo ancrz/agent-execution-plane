@@ -38,7 +38,7 @@ _INSTRUCTIONS = (
     "sandbox, eBPF, introspección de procesos, forense de crashes) en capacidades agénticas "
     "gobernadas por privilegio en dos niveles: FULL (root/sudo -n -> alcance de sistema/kernel) "
     "y DIMINISHED (usuario -> alcance acotado, fail-soft). PRIMERA LLAMADA RECOMENDADA: "
-    "`aep_capabilities()` devuelve un manifiesto estilo chmod/777 (r=sensar, w=actuar, "
+    "`discover(action=\"capabilities\")` devuelve un manifiesto estilo chmod/777 (r=sensar, w=actuar, "
     "x=ejecutar por caminos no-tradicionales) con lo que PUEDES hacer ahora mismo. Para un caso "
     "de uso concreto, `discover(use_case)` enruta a qué reutilizar/sintetizar/automatizar."
 )
@@ -71,15 +71,11 @@ AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@mcp.tool()
-def aep_capabilities() -> str:
+def aep_capabilities(**kw: Any) -> str:
     """
-    [AUTO-DESCRIPCIÓN] Manifiesto de autonomía en primera vista. Devuelve, en códigos estilo
-    chmod/777 (r=sensar, w=actuar, x=ejecutar por caminos no-tradicionales), qué puede hacer
-    el agente AHORA según el nivel de privilegio (FULL/DIMINISHED) y qué desbloquea FULL.
-    Llamar primero para entender que este MCP gestiona autonomía agéntica.
+    [AUTO-DESCRIPCIÓN / COMPAT] Forwarder interno hacia discover(action='capabilities').
     """
-    return json.dumps(capability_manifest(), indent=2, ensure_ascii=False)
+    return discover(action="capabilities", **kw)
 
 
 @mcp.tool()
@@ -94,43 +90,64 @@ def topos_audit_dag(tasks: List[str], dependencies: Dict[str, List[str]]) -> str
 
 
 @mcp.tool()
-def discover(use_case: str, limit: int = 3) -> str:
+def discover(
+    use_case: str = "",
+    action: str = "discover",
+    limit: int = 3,
+) -> str:
     """
-    [ORIENTACIÓN] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer.
-    Enruta con un único llamado a: capacidad sugerida + artefactos REUTILIZABLES (ya construidos,
-    ponderados) + PLANTILLAS a sintetizar + PLAYBOOKS a automatizar, todo rankeado. Responde
-    "¿qué busco para gestionar esto?" sin que el agente adivine qué tool llamar.
+    [ORIENTACIÓN Y MANIFIESTO UNIFICADO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer
+    o devuelve el manifiesto de autonomía agéntica estilo chmod/777.
+    action:
+      - 'discover' (default): enruta caso de uso -> capacidad sugerida + artefactos reutilizables + plantillas + playbooks.
+      - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar) y qué desbloquea FULL.
     """
-    try:
-        caps = capability_manifest().get("capabilities", {})
-        # tags = tools (EN) + keywords bilingües -> cierra la colisión ES/EN (descriptions en ES,
-        # queries a menudo en EN). El matcher pondera tags x2, dando anclaje léxico language-aligned.
-        cap_docs = [{"name": k,
-                     "tags": list(v.get("tools", [])) + v.get("keywords", "").split(),
-                     "description": v.get("description", "")}
-                    for k, v in caps.items()]
-        cap = matcher.rank(use_case, cap_docs, limit=2)
-        reuse = catalog.browse(query=use_case, limit=limit)
-        fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
-        synth = template_registry.select(use_case, limit=limit, feedback=fb)
-        pb_docs = [{"name": p["name"], "tags": [], "description": p.get("description", "")}
-                   for p in playbook_store.list()]
-        automate = matcher.rank(use_case, pb_docs, limit=limit)
+    act = (action or "discover").strip().lower()
+    if act == "capabilities":
+        return json.dumps(capability_manifest(), indent=2, ensure_ascii=False)
+    elif act == "discover":
+        if not use_case.strip():
+            return json.dumps({
+                "status": "PARAM_ERROR",
+                "error": "Acción 'discover' requiere el parámetro 'use_case' no vacío.",
+                "valid_actions": ["discover", "capabilities"],
+            }, indent=2, ensure_ascii=False)
+        try:
+            caps = capability_manifest().get("capabilities", {})
+            # tags = tools (EN) + keywords bilingües -> cierra la colisión ES/EN (descriptions en ES,
+            # queries a menudo en EN). El matcher pondera tags x2, dando anclaje léxico language-aligned.
+            cap_docs = [{"name": k,
+                         "tags": list(v.get("tools", [])) + v.get("keywords", "").split(),
+                         "description": v.get("description", "")}
+                        for k, v in caps.items()]
+            cap = matcher.rank(use_case, cap_docs, limit=2)
+            reuse = catalog.browse(query=use_case, limit=limit)
+            fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
+            synth = template_registry.select(use_case, limit=limit, feedback=fb)
+            pb_docs = [{"name": p["name"], "tags": [], "description": p.get("description", "")}
+                       for p in playbook_store.list()]
+            automate = matcher.rank(use_case, pb_docs, limit=limit)
+            return json.dumps({
+                "status": "OK", "use_case": use_case,
+                "suggested_capability": [{"capability": c["name"], "relevance": c["relevance"]} for c in cap],
+                "reuse_artifacts": [{"name": a.get("name"), "category": a.get("category"),
+                                     "promotion_score": a.get("promotion_score"),
+                                     "semantic_distance": a.get("semantic_distance")} for a in reuse],
+                "synthesize_templates": [{"name": t["name"], "capability": t.get("capability"),
+                                          "relevance": t["relevance"],
+                                          "proven": t.get("proven")} for t in synth],
+                "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
+                "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
+                        "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_run(action='prune').",
+            }, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2, ensure_ascii=False)
+    else:
         return json.dumps({
-            "status": "OK", "use_case": use_case,
-            "suggested_capability": [{"capability": c["name"], "relevance": c["relevance"]} for c in cap],
-            "reuse_artifacts": [{"name": a.get("name"), "category": a.get("category"),
-                                 "promotion_score": a.get("promotion_score"),
-                                 "semantic_distance": a.get("semantic_distance")} for a in reuse],
-            "synthesize_templates": [{"name": t["name"], "capability": t.get("capability"),
-                                      "relevance": t["relevance"],
-                                      "proven": t.get("proven")} for t in synth],
-            "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
-            "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
-                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_run(action='prune').",
+            "status": "INVALID_ACTION",
+            "error": f"Acción '{action}' no válida para discover.",
+            "valid_actions": ["discover", "capabilities"],
         }, indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
 @mcp.tool()
@@ -542,6 +559,146 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
                 os.close(fd)
             except Exception:
                 pass
+
+
+@mcp.tool()
+def process_inspect(pid: int = 0, limit: int = 100) -> str:
+    """
+    [INTROSPECCIÓN DE PROCESOS] Inspecciona el estado, descriptores de archivo abiertos
+    (/proc/PID/fd) y telemetría de recursos de un proceso.
+    pid: 0 para auto-inspección del propio servidor (self); >0 para un PID específico.
+    limit: número máximo de descriptores detallados en la lista (default 100).
+    Salida JSON tipada clasificando descriptores (socket, pipe, device, anon_inode, file).
+    Fail-soft: devuelve NOT_FOUND o PERMISSION_DENIED sin lanzar excepciones.
+    """
+    target_pid = os.getpid() if pid <= 0 else pid
+    proc_dir = Path(f"/proc/{target_pid}")
+
+    if not proc_dir.exists():
+        return json.dumps({
+            "status": "NOT_FOUND",
+            "pid": target_pid,
+            "error": f"Proceso {target_pid} no encontrado en /proc.",
+        }, indent=2, ensure_ascii=False)
+
+    comm_file = proc_dir / "comm"
+    status_file = proc_dir / "status"
+
+    name = "unknown"
+    if comm_file.exists():
+        try:
+            name = comm_file.read_text(encoding="utf-8", errors="replace").strip()
+        except Exception:
+            pass
+
+    state = None
+    threads = 1
+    rss_kb = 0
+
+    if status_file.exists():
+        try:
+            for line in status_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("State:"):
+                    state = line.split(":", 1)[1].strip()
+                elif line.startswith("Threads:"):
+                    try:
+                        threads = int(line.split(":", 1)[1].strip())
+                    except ValueError:
+                        pass
+                elif line.startswith("VmRSS:"):
+                    parts = line.split(":", 1)[1].strip().split()
+                    if parts:
+                        try:
+                            rss_kb = int(parts[0])
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+
+    fd_dir = proc_dir / "fd"
+    if not fd_dir.exists():
+        # Kernel threads do not expose /proc/PID/fd
+        return json.dumps({
+            "status": "OK",
+            "pid": target_pid,
+            "name": name,
+            "state": state,
+            "threads": threads,
+            "rss_kb": rss_kb,
+            "kernel_thread": True,
+            "fd_count": 0,
+            "summary_by_type": {},
+            "descriptors": [],
+        }, indent=2, ensure_ascii=False)
+
+    descriptors: List[Dict[str, Any]] = []
+    summary_by_type: Dict[str, int] = {
+        "socket": 0,
+        "pipe": 0,
+        "file": 0,
+        "device": 0,
+        "anon_inode": 0,
+    }
+
+    try:
+        raw_entries = os.listdir(fd_dir)
+    except PermissionError:
+        return json.dumps({
+            "status": "PERMISSION_DENIED",
+            "pid": target_pid,
+            "capability_tier": capability_tier(),
+            "error": f"Permiso denegado al inspeccionar descriptores en /proc/{target_pid}/fd.",
+        }, indent=2, ensure_ascii=False)
+    except (FileNotFoundError, ProcessLookupError):
+        return json.dumps({
+            "status": "NOT_FOUND",
+            "pid": target_pid,
+            "error": f"Proceso {target_pid} terminó durante la inspección.",
+        }, indent=2, ensure_ascii=False)
+
+    sorted_entries = sorted(raw_entries, key=lambda x: int(x) if x.isdigit() else x)
+
+    for entry in sorted_entries:
+        fd_num = int(entry) if entry.isdigit() else entry
+        link_path = fd_dir / entry
+        try:
+            target = os.readlink(link_path)
+        except (FileNotFoundError, ProcessLookupError, OSError):
+            target = "[closed/unreachable]"
+
+        if target.startswith("socket:"):
+            dtype = "socket"
+        elif target.startswith("pipe:"):
+            dtype = "pipe"
+        elif target.startswith("/dev/"):
+            dtype = "device"
+        elif target.startswith("anon_inode:"):
+            dtype = "anon_inode"
+        else:
+            dtype = "file"
+
+        summary_by_type[dtype] = summary_by_type.get(dtype, 0) + 1
+        descriptors.append({"fd": fd_num, "type": dtype, "target": target})
+
+    fd_count = len(descriptors)
+    truncated = fd_count > limit
+    reported_descriptors = descriptors[:limit]
+
+    res_data: Dict[str, Any] = {
+        "status": "OK",
+        "pid": target_pid,
+        "name": name,
+        "state": state,
+        "threads": threads,
+        "rss_kb": rss_kb,
+        "fd_count": fd_count,
+        "summary_by_type": summary_by_type,
+        "descriptors": reported_descriptors,
+    }
+    if truncated:
+        res_data["truncated"] = True
+
+    return json.dumps(res_data, indent=2, ensure_ascii=False)
 
 
 def _ensure_pueue_daemon() -> Optional[str]:
@@ -1108,6 +1265,9 @@ def kanban_board(
 # meta-tools ni recursión). Define el blast radius de la automatización (P1).
 def _playbook_dispatch() -> Dict[str, Any]:
     return {
+        "aep_capabilities": lambda **kw: discover(action="capabilities", **kw),
+        "discover": discover,
+        "process_inspect": process_inspect,
         "artifact_query": lambda intent="", category="", **kw: artifact_catalog(action="query", intent=intent, category=category, **kw),
         "artifact_catalog": artifact_catalog,
         "artifact_execute_in_ram": artifact_execute_in_ram,
