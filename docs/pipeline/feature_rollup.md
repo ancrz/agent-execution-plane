@@ -1,9 +1,9 @@
-# Feature Chain Rollup: Pipeline Milestone History (Documents 1–9)
+# Feature Chain Rollup: Pipeline Milestone History (Documents 1–10)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T02:44:00Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 9
-- **Current Active Document**: [`feature_20261024_015800_phase5_async_dispatch_unification.md`](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pipeline/feature_20261024_015800_phase5_async_dispatch_unification.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T03:20:00Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 10
+- **Current Active Document**: [`feature_20261024_025400_phase6_crash_forensics_unification.md`](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pipeline/feature_20261024_025400_phase6_crash_forensics_unification.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 9)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 10)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -25,8 +25,9 @@ flowchart LR
         D7["Doc 7: 010200<br/>(Phase 3 Automation Tool Unification & 20 Tools)"]
         D8["Doc 8: 013100<br/>(Phase 4 Artifact Synthesis & 17 Tools)"]
         D9["Doc 9: 015800<br/>(Phase 5 Async Dispatch & FD Hardening: 16 Tools)"]
+        D10["Doc 10: 025400<br/>(Phase 6 Crash Forensics & Hardening: 15 Tools)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10
     end
 ```
 
@@ -45,6 +46,8 @@ flowchart LR
 | **7** | `feature_20261024_010200_phase3_automation_unification.md` | Phase 3 fusion of `automation` (4 `playbook_*` tools into polymorphic `playbook_run(action=...)`); non-recursion invariant enforced; Kanban Task 101 promoted to `PROMOTED` at `0.9979 TRUST`. | 20 (VERIFIED) | Polymorphic dispatcher covering 4 actions (`run`, `create`, `list`, `prune`); parameter guards (`PARAM_ERROR`); invalid action handling (`INVALID_ACTION`); recursion attempt triggers `LINT_ERROR`; Semgrep 0 findings; 20 FastMCP schemas verified. |
 | **8** | `feature_20261024_013100_phase4_artifact_synthesis_unification.md` | Phase 4 fusion of `artifact_synthesis` (4 tools `template_catalog`, `template_select`, `artifact_hydrate`, `artifact_lint_and_build` into polymorphic `artifact_lint_and_build(action=...)`); 1-Step Template-to-Binary shortcut; Kanban Task 102 promoted to `PROMOTED` at `0.9964 TRUST`. | 17 (VERIFIED) | Polymorphic dispatcher covering 4 actions (`build`, `catalog`, `select`, `hydrate`); 1-step compilation shortcut; parameter guards (`PARAM_ERROR`, `HYDRATE_ERROR`, `INVALID_ACTION`); Semgrep 0 findings; 17 FastMCP schemas verified. |
 | **9** | `feature_20261024_015800_phase5_async_dispatch_unification.md` | Phase 5 fusion of `async_dispatch` (2 tools `async_job_dispatch`, `async_job_inspect` into polymorphic `async_job_dispatch(action=...)`); Subprocess/FD Hardening (Gaps A, B, C); Kanban Task 105 promoted to `PROMOTED` at `0.9955 TRUST`. | **16 (VERIFIED)** | Polymorphic dispatcher covering 4 actions (`dispatch`, `inspect`, `status`, `log`); fail-soft `DEGRADED`; `pass_fds=(fd,)` + `timeout=30` in `artifact_execute_in_ram`; detached auto-start in `_ensure_pueue_daemon()`; schema pruning in `aep-sync.sh`; Semgrep 0 findings; 16 FastMCP schemas verified. |
+| **10** | `feature_20261024_025400_phase6_crash_forensics_unification.md` | Phase 6 fusion of `crash_forensics` (2 tools `diagnose_system_crashes`, `check_crash_alerts` into polymorphic `diagnose_system_crashes(action="diagnose"\|"alerts")`); Subprocess/FD Hardening in `_safe_run` (`stdin=DEVNULL`, `close_fds=True`, `timeout=15`); Kanban Task 106 promoted to `PROMOTED` at `0.8208 TRUST`. | **15 (VERIFIED)** | Polymorphic dispatcher covering actions (`diagnose`, `alerts`) + alias `check`; subprocess isolation with `close_fds=True`, `stdin=DEVNULL`, `timeout=15`; backward-compatible playbook lambda alias; auto-pruning of `check_crash_alerts.json`; Semgrep 0 findings; 15 FastMCP schemas verified. |
+| **10** | `feature_20261024_025400_phase6_crash_forensics_unification.md` | Phase 6 fusion of `crash_forensics` (2 tools `diagnose_system_crashes`, `check_crash_alerts` into polymorphic `diagnose_system_crashes(action="diagnose"\|"alerts")`); Subprocess/FD Hardening in `_safe_run` (`stdin=DEVNULL`, `close_fds=True`, `timeout=15`); Kanban Task 106 promoted to `PROMOTED` at `0.8208 TRUST`. | **15 (VERIFIED)** | Polymorphic dispatcher covering actions (`diagnose`, `alerts`) + alias `check`; subprocess isolation with `close_fds=True`, `stdin=DEVNULL`, `timeout=15`; backward-compatible playbook lambda alias; auto-pruning of `check_crash_alerts.json`; Semgrep 0 findings; 15 FastMCP schemas verified. |
 
 ---
 

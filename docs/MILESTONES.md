@@ -22,8 +22,11 @@ flowchart LR
     M14 --> M15["M15: Phase 4 Rollup & Release (Graphos G2/Hermon) ✅"]
     M15 --> M16["M16: Phase 5 Async Dispatch Planning (Archon) ✅"]
     M16 --> M17["M17: Phase 5 Execution & Verification 16 Tools (Pragma/Dokimos) ✅"]
-    M17 --> M18["M18: Phase 5 Rollup & Release (Graphos G2/Hermon) ⏳"]
-    M18 --> M19["M19: Phase 6 Crash Forensics Planning (Archon) ⏳"]
+    M17 --> M18["M18: Phase 5 Rollup & Release (Graphos G2/Hermon) ✅"]
+    M18 --> M19["M19: Phase 6 Crash Forensics Planning (Archon) ✅"]
+    M19 --> M20["M20: Phase 6 Execution & Verification 15 Tools (Pragma/Dokimos) ✅"]
+    M20 --> M21["M21: Phase 6 Rollup & Release (Graphos G2/Hermon) ✅"]
+    M21 --> M22["M22: Phase 7 Orientation & Introspection Alignment 16 Tools Parity (Archon) ⏳"]
 ```
 
 ## 2. Milestone Matrix
@@ -38,6 +41,6 @@ flowchart LR
 | **Consolidation 2** | Unify `task_management` (`kanban_*` 8 tools -> `kanban_board` polymorphic action router) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/kanban.py`, `engine/privilege.py` | **VERIFIED & COMMITTED (23 Tools) ✅** |
 | **Consolidation 3** | Unify `automation` (`playbook_*` 4 tools -> `playbook_run` polymorphic action router) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/playbook.py`, `engine/privilege.py` | **VERIFIED & COMMITTED (20 Tools) ✅** |
 | **Consolidation 4** | Unify `artifact_synthesis` (`template_*`, `artifact_hydrate`, `lint_and_build` -> `artifact_lint_and_build`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **VERIFIED & COMMITTED (17 Tools) ✅** |
-| **Consolidation 5** | Unify `async_dispatch` (`async_job_dispatch`, `inspect` -> `async_job_dispatch`) + FD Hardening | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `scripts/aep-sync.sh`, `engine/privilege.py` | **VERIFIED & COMPLETED (16 Tools) ✅** |
-| **Consolidation 6** | Unify `crash_forensics` (`diagnose_system_crashes`, `check_crash_alerts` -> `diagnose_system_crashes`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **NEXT TARGET (Target: 15 Tools) ⏳** |
-| **Consolidation 7** | Unify `orientation` & align `process_introspection` (1:1 capability parity) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **QUEUED (Target: 16 Tools Parity)** |
+| **Consolidation 5** | Unify `async_dispatch` (`async_job_dispatch`, `inspect` -> `async_job_dispatch`) + FD Hardening | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `scripts/aep-sync.sh`, `engine/privilege.py` | **VERIFIED & COMMITTED (16 Tools) ✅** |
+| **Consolidation 6** | Unify `crash_forensics` (`diagnose_system_crashes`, `check_crash_alerts` -> `diagnose_system_crashes`) + Subprocess Hardening | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py`, `scripts/aep-sync.sh` | **VERIFIED & COMPLETED (15 Tools) ✅** |
+| **Consolidation 7** | Unify `orientation` & align `process_introspection` (1:1 capability parity) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **NEXT TARGET (Target: 16 Tools Parity) ⏳** |
