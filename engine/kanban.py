@@ -198,22 +198,66 @@ class KanbanBoard:
                     "promotion_score": score, "confidence": p["confidence"],
                     "verdict": p["verdict"], "dimensions": p["dimensions"]}
 
-    def demote(self, artifact_name: str, reason: Optional[str] = None) -> Dict[str, Any]:
-        """Degrada explícitamente un artefacto (reusable=0). Inverso de promote."""
+    def demote(
+        self,
+        artifact_name: Optional[str] = None,
+        reason: Optional[str] = None,
+        task_id: Optional[int] = None,
+        target_state: str = "SYNTHESIZED",
+    ) -> Dict[str, Any]:
+        """Degrada explícitamente un artefacto (reusable=0) o demociona una tarea kanban por task_id."""
         with self._conn() as conn:
-            r = conn.execute(
-                "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name=?",
-                (artifact_name,),
-            ).fetchone()
-            if not r:
-                return {"status": "ERROR", "error": f"artefacto '{artifact_name}' no existe"}
-            p = self._ponder(True, True, r["success_rate"], r["execution_count"],
-                             ponder.days_since(r["updated_at"]))
-            conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
-                         (p["effective"], artifact_name))
+            eff_artifact = artifact_name
+            task_info = None
+            if task_id is not None:
+                task_row = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
+                if not task_row:
+                    return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                conn.execute(
+                    "UPDATE kanban_tasks SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (target_state, task_id),
+                )
+                task_info = dict(task_row)
+                if not eff_artifact:
+                    eff_artifact = task_info.get("artifact_name")
+
+            if not eff_artifact and task_id is None:
+                return {"status": "ERROR", "error": "demote requiere 'artifact_name' o 'task_id'"}
+
+            score = 0.0
+            verdict = "DEMOTED"
+            if eff_artifact:
+                r = conn.execute(
+                    "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name=?",
+                    (eff_artifact,),
+                ).fetchone()
+                if r:
+                    p = self._ponder(
+                        False, False, r["success_rate"], r["execution_count"],
+                        ponder.days_since(r["updated_at"])
+                    )
+                    score = p["effective"]
+                    verdict = p["verdict"]
+                    conn.execute(
+                        "UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
+                        (score, eff_artifact),
+                    )
+                elif not task_id:
+                    return {"status": "ERROR", "error": f"artefacto '{eff_artifact}' no existe"}
+
             conn.commit()
-        return {"status": "DEMOTED", "artifact_name": artifact_name,
-                "promotion_score": p["effective"], "verdict": p["verdict"], "reason": reason}
+
+        res: Dict[str, Any] = {
+            "status": "DEMOTED",
+            "artifact_name": eff_artifact,
+            "promotion_score": score,
+            "verdict": verdict,
+            "reason": reason,
+        }
+        if task_id is not None:
+            res["task_id"] = task_id
+            res["task_state"] = target_state
+        return res
 
     def reevaluate(self) -> Dict[str, Any]:
         """Auto-corrección del conjunto confiable: re-pondera cada artefacto reusable=1 contra sus

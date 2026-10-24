@@ -5,6 +5,7 @@ Exposes deterministic system execution, in-memory Go artifact lifecycle,
 asynchronous job queues (Pueue), crash forensics, and Topos DAG auditing to AI agents.
 """
 
+import concurrent.futures
 import json
 import os
 import shutil
@@ -16,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from engine.security import mask_pueue_output, mask_secrets
 from engine import headless_display
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
@@ -43,6 +45,10 @@ _INSTRUCTIONS = (
     "de uso concreto, `discover(use_case)` enruta a qué reutilizar/sintetizar/automatizar."
 )
 
+
+_display_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="aep_display"
+)
 mcp = FastMCP("Agent-Execution-Plane", instructions=_INSTRUCTIONS)
 catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
@@ -185,16 +191,17 @@ def artifact_catalog(
             )
         elif act == "query":
             eff_intent = (intent or query or "").strip()
-            if not eff_intent or not category:
+            eff_category = category.strip() if (category and category.strip()) else None
+            if not eff_intent:
                 return json.dumps(
                     {
                         "status": "PARAM_ERROR",
-                        "error": "Acción 'query' requiere los parámetros 'intent' (o 'query') y 'category'.",
+                        "error": "Acción 'query' requiere el parámetro 'intent' (o 'query').",
                     },
                     indent=2,
                     ensure_ascii=False,
                 )
-            hit = catalog.find_hybrid(eff_intent, category)
+            hit = catalog.find_hybrid(eff_intent, category=eff_category)
             if hit:
                 return json.dumps(
                     {
@@ -887,7 +894,7 @@ def async_job_dispatch(
                         indent=2,
                         ensure_ascii=False,
                     )
-                return res.stdout
+                return mask_pueue_output(res.stdout)
             else:
                 res = subprocess.run(
                     [pueue_bin, "status", "--json"],
@@ -907,7 +914,7 @@ def async_job_dispatch(
                         indent=2,
                         ensure_ascii=False,
                     )
-                return res.stdout
+                return mask_pueue_output(res.stdout)
 
         else:
             return json.dumps(
@@ -958,28 +965,43 @@ def diagnose_system_crashes(
                     return None
 
             unavailable = []
-
-            coredumps_raw = _safe_run(["coredumpctl", "list", "--json=short", "-n", str(limit)])
             recent_coredumps = []
-            if coredumps_raw is None:
-                unavailable.append("coredumpctl")
-            elif coredumps_raw.returncode == 0 and coredumps_raw.stdout.strip():
-                try:
-                    recent_coredumps = json.loads(coredumps_raw.stdout)
-                except Exception:
-                    pass
 
-            journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(limit), "-o", "json"])
+            if not shutil.which("coredumpctl"):
+                unavailable.append("coredumpctl")
+            else:
+                coredumps_raw = _safe_run(["coredumpctl", "list", "--json=short", "-n", str(limit)])
+                if coredumps_raw is None:
+                    unavailable.append("coredumpctl")
+                elif coredumps_raw.returncode == 0:
+                    if coredumps_raw.stdout.strip():
+                        try:
+                            recent_coredumps = json.loads(coredumps_raw.stdout)
+                        except Exception:
+                            recent_coredumps = []
+                elif coredumps_raw.returncode == 1 and (
+                    "no coredumps found" in (coredumps_raw.stderr or coredumps_raw.stdout).lower()
+                    or not coredumps_raw.stdout.strip()
+                ):
+                    recent_coredumps = []
+                else:
+                    unavailable.append("coredumpctl")
+
+            journal_errs = None
             recent_errors = []
-            if journal_errs is None:
+            if not shutil.which("journalctl"):
                 unavailable.append("journalctl")
             else:
-                for line in journal_errs.stdout.splitlines():
-                    if line.strip():
-                        try:
-                            recent_errors.append(json.loads(line))
-                        except Exception:
-                            pass
+                journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(limit), "-o", "json"])
+                if journal_errs is None or journal_errs.returncode != 0:
+                    unavailable.append("journalctl")
+                else:
+                    for line in journal_errs.stdout.splitlines():
+                        if line.strip():
+                            try:
+                                recent_errors.append(json.loads(line))
+                            except Exception:
+                                pass
 
             return json.dumps(
                 {
@@ -1107,12 +1129,18 @@ def visual_inspect(
     layouts/UI en servidores sin pantalla. FAIL-SOFT si no hay navegador.
     """
     try:
-        return json.dumps(
-            headless_display.visual_inspect(
-                url, viewport_width, viewport_height, selector, full_page
-            ),
-            indent=2,
+        future = _display_executor.submit(
+            headless_display.visual_inspect,
+            url, viewport_width, viewport_height, selector, full_page
         )
+        res = future.result(timeout=25)
+        return json.dumps(res, indent=2)
+    except concurrent.futures.TimeoutError:
+        return json.dumps({
+            "status": "DISPLAY_UNAVAILABLE",
+            "message": "Playwright timeout exceeded 25s",
+            "url": url,
+        }, indent=2)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
@@ -1195,6 +1223,7 @@ def kanban_board(
     states: Optional[List[str]] = None,
     max_score: Optional[float] = None,
     apply: bool = False,
+    target_state: str = "SYNTHESIZED",
 ) -> str:
     """
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
@@ -1234,12 +1263,21 @@ def kanban_board(
                 }, indent=2, ensure_ascii=False)
             return json.dumps(kanban.promote(task_id), indent=2, ensure_ascii=False)
         elif act == "demote":
-            if not (artifact_name or "").strip():
+            if not (artifact_name or "").strip() and task_id is None:
                 return json.dumps({
                     "status": "PARAM_ERROR",
-                    "error": "Acción 'demote' requiere 'artifact_name'."
+                    "error": "Acción 'demote' requiere 'artifact_name' o 'task_id'."
                 }, indent=2, ensure_ascii=False)
-            return json.dumps(kanban.demote(artifact_name.strip(), reason), indent=2, ensure_ascii=False)
+            return json.dumps(
+                kanban.demote(
+                    artifact_name.strip() if artifact_name else None,
+                    reason,
+                    task_id=task_id,
+                    target_state=target_state,
+                ),
+                indent=2,
+                ensure_ascii=False,
+            )
         elif act == "reevaluate":
             return json.dumps(kanban.reevaluate(), indent=2, ensure_ascii=False)
         elif act == "archive":

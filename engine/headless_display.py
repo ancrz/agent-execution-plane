@@ -42,7 +42,7 @@ def visual_inspect(
     try:
         with sync_playwright() as p:
             try:
-                browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu", "--password-store=basic", "--use-mock-keychain"])
             except Exception as exc:
                 return {"status": "DISPLAY_UNAVAILABLE",
                         "message": f"No se pudo lanzar Chromium: {exc}. "

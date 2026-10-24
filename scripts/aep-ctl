@@ -14,6 +14,7 @@ de usuario de systemd (`systemctl --user`) para no requerir privilegios.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -102,12 +103,37 @@ def domain_network(action: str) -> Any:
     if action == "listeners":
         if not _need("ss"):
             return {"status": "DEGRADED", "message": "ss no disponible."}
-        r = _run(["ss", "-tulnH"])
+        prefix = _sudo_prefix() or []
+        r = _run(prefix + ["ss", "-tulnpH"])
         listeners = []
         for ln in r.stdout.splitlines():
             parts = ln.split()
             if len(parts) >= 5:
-                listeners.append({"proto": parts[0], "state": parts[1], "local": parts[4]})
+                pid = None
+                proc_name = None
+                fd = None
+                m = re.search(r'users:\(\("([^"]+)",pid=(\d+)(?:,fd=(\d+))?', ln)
+                if m:
+                    proc_name = m.group(1)
+                    try:
+                        pid = int(m.group(2))
+                    except (ValueError, TypeError):
+                        pid = None
+                    if m.group(3):
+                        try:
+                            fd = int(m.group(3))
+                        except (ValueError, TypeError):
+                            fd = None
+                entry = {
+                    "proto": parts[0],
+                    "state": parts[1],
+                    "local": parts[4],
+                    "pid": pid,
+                    "process": proc_name,
+                }
+                if fd is not None:
+                    entry["fd"] = fd
+                listeners.append(entry)
         return {"status": "OK", "count": len(listeners), "listeners": listeners}
     if action == "routes":
         if not _need("ip"):

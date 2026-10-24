@@ -154,7 +154,7 @@ class ArtifactCatalog:
 
     # ------------------------------------------------------------------ tier 2: KNN semántico
     def find_by_semantic(
-        self, intent: str, category: str, threshold: float = DEFAULT_SEMANTIC_THRESHOLD
+        self, intent: str, category: Optional[str] = None, threshold: float = DEFAULT_SEMANTIC_THRESHOLD
     ) -> Optional[Dict[str, Any]]:
         if not self._vec_available or sqlite_vec is None:
             return None
@@ -182,7 +182,7 @@ class ArtifactCatalog:
         # restricciones extra fiables junto al MATCH).
         for row in rows:
             d = row["_distance"]
-            if d <= threshold and row["category"] == category and row["success_rate"] >= 0.85:
+            if d <= threshold and (category is None or row["category"] == category) and row["success_rate"] >= 0.85:
                 res = dict(row)
                 res.pop("_distance", None)
                 res["retrieval_mode"] = "semantic_knn"
@@ -192,14 +192,15 @@ class ArtifactCatalog:
 
     # ------------------------------------------------------------------ híbrido
     def find_hybrid(
-        self, intent: str, category: str, threshold: float = DEFAULT_SEMANTIC_THRESHOLD
+        self, intent: str, category: Optional[str] = None, threshold: float = DEFAULT_SEMANTIC_THRESHOLD
     ) -> Optional[Dict[str, Any]]:
         """Tier 1 (hash exacto, O(1)) y, si falla, Tier 2 (KNN semántico)."""
-        exact = self.find_by_intent(intent, category)
-        if exact:
-            exact["retrieval_mode"] = "exact_hash"
-            exact["semantic_distance"] = None
-            return exact
+        if category is not None:
+            exact = self.find_by_intent(intent, category)
+            if exact:
+                exact["retrieval_mode"] = "exact_hash"
+                exact["semantic_distance"] = None
+                return exact
         return self.find_by_semantic(intent, category, threshold)
 
     # ------------------------------------------------------------------ registro
