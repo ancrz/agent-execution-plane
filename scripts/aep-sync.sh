@@ -72,8 +72,10 @@ register() {
             # Hot-reload en vivo para sesiones activas de Antigravity (language_server Connect-RPC):
             # descubre el PID/CSRF token del language_server y dispara RefreshMcpServers para
             # regenerar ~/.gemini/antigravity/mcp/agent-execution-plane/*.json sin reiniciar sesión.
-            python3 - <<'PY' >/dev/null 2>&1 || true
-import re, subprocess
+            python3 - "$PROJECT_ROOT" <<'PY' >/dev/null 2>&1 || true
+import re, subprocess, sys
+from pathlib import Path
+project_root = sys.argv[1] if len(sys.argv) > 1 else "."
 ps = subprocess.check_output(["ps", "-eo", "pid,args"], text=True)
 ss = subprocess.check_output(["ss", "-tulnp"], text=True)
 for line in ps.splitlines():
@@ -83,7 +85,7 @@ for line in ps.splitlines():
         tok = m.group(1) if m else ""
         for port in re.findall(r"127\.0\.0\.1:(\d+).*?pid=" + pid + r",", ss):
             for scheme in ("https", "http"):
-                subprocess.Popen(
+                subprocess.run(
                     ["curl", "-sk", "--max-time", "5", "-X", "POST",
                      f"{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RefreshMcpServers",
                      "-H", "Content-Type: application/json",
@@ -91,6 +93,17 @@ for line in ps.splitlines():
                      "-H", f"x-codeium-csrf-token: {tok}", "-d", "{}"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+try:
+    sys.path.insert(0, project_root)
+    import server
+    registered = set(server.mcp._tool_manager._tools.keys())
+    mcp_dir = Path.home() / ".gemini" / "antigravity" / "mcp" / "agent-execution-plane"
+    if mcp_dir.exists():
+        for json_file in mcp_dir.glob("*.json"):
+            if json_file.stem not in registered:
+                json_file.unlink(missing_ok=True)
+except Exception:
+    pass
 PY
             ok "Antigravity (agy) re-registrado + hot-reload (RefreshMcpServers)"
             n=$((n+1))

@@ -482,18 +482,30 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
     cmd_args = args or []
 
     start_time = time.time()
+    fd = None
     try:
         fd = os.memfd_create(f"anon_{name}", 0)
         os.write(fd, elf_bytes)
         os.lseek(fd, 0, os.SEEK_SET)
 
-        res = subprocess.run(
-            [f"/proc/self/fd/{fd}"] + cmd_args,
-            capture_output=True,
-            text=True,
-            close_fds=False,
-        )
-        os.close(fd)
+        try:
+            res = subprocess.run(
+                [f"/proc/self/fd/{fd}"] + cmd_args,
+                capture_output=True,
+                text=True,
+                pass_fds=(fd,),
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return json.dumps(
+                {
+                    "status": "TIMEOUT",
+                    "error": f"Artefacto '{name}' excedió el timeout de 30s (posible proceso daemonizado con descriptores abiertos).",
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+
         latency_ms = round((time.time() - start_time) * 1000, 2)
 
         stdout_parsed: Any = res.stdout.strip()
@@ -524,87 +536,234 @@ def artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str:
         )
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+
+
+def _ensure_pueue_daemon() -> Optional[str]:
+    """
+    Localiza el binario pueue y verifica si pueued responde.
+    Si el daemon no responde, lo inicia en segundo plano completamente desacoplado
+    (stdin/stdout/stderr=DEVNULL, close_fds=True, start_new_session=True) para evitar bloqueos
+    o herencia de descriptores de archivo en el servidor FastMCP.
+    """
+    pueue_bin = shutil.which("pueue") or (
+        str(Path.home() / ".local/bin/pueue") if (Path.home() / ".local/bin/pueue").exists() else None
+    )
+    if not pueue_bin:
+        return None
+
+    try:
+        res = subprocess.run(
+            [pueue_bin, "status", "--json"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            close_fds=True,
+            timeout=5,
+        )
+        if res.returncode == 0:
+            return pueue_bin
+    except Exception:
+        pass
+
+    # El daemon no responde o no está corriendo; intentar auto-inicio desacoplado
+    pueued_bin = shutil.which("pueued") or (
+        str(Path.home() / ".local/bin/pueued") if (Path.home() / ".local/bin/pueued").exists() else None
+    )
+    if not pueued_bin:
+        return None
+
+    try:
+        subprocess.Popen(
+            [pueued_bin, "-d"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+        # Esperar hasta 2 segundos a que el socket UNIX responda
+        for _ in range(6):
+            time.sleep(0.3)
+            try:
+                chk = subprocess.run(
+                    [pueue_bin, "status", "--json"],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    close_fds=True,
+                    timeout=2,
+                )
+                if chk.returncode == 0:
+                    return pueue_bin
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+    return pueue_bin
 
 
 @mcp.tool()
 def async_job_dispatch(
-    command: str,
+    action: str = "dispatch",
+    command: Optional[str] = None,
     label: Optional[str] = None,
     group: str = "default",
     working_dir: Optional[str] = None,
+    task_id: Optional[int] = None,
+    lines: int = 50,
 ) -> str:
     """
-    [CAMINO B / PUEUE] Encola un comando de larga duración en Pueue de forma asíncrona.
-    Devuelve inmediatamente el task_id para evitar bloqueos del subproceso del agente.
+    [CAMINO B / PUEUE] Despacho e inspección unificada de tareas asíncronas en Pueue.
+    action: 'dispatch' (default), 'inspect', 'status', 'log'.
+    - 'dispatch': Encola un comando de larga duración en segundo plano (requiere 'command').
+    - 'inspect' / 'status': Consulta el estado global de la cola o logs si se especifica 'task_id'.
+    - 'log': Extrae el log aislado del 'task_id' especificado ('lines' por defecto 50).
+    Devuelve inmediatamente JSON tipado con fail-soft sin bloquear el loop del agente.
     """
-    if not shutil.which("pueue"):
-        return json.dumps({
-            "status": "DEGRADED",
-            "message": "pueue binary is not installed on host. Camino B requires pueue daemon.",
-            "command": command,
-        }, indent=2)
-
-    cmd = ["pueue", "add", "--print-task-id", "--group", group]
-    if label:
-        cmd.extend(["--label", label])
-    if working_dir:
-        cmd.extend(["--working-directory", working_dir])
-    cmd.extend(["--", command])
+    act = (action or "dispatch").strip().lower()
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode != 0 or not res.stdout.strip():
-            return json.dumps({
-                "status": "DEGRADED",
-                "message": "Failed to dispatch async task to pueue daemon",
-                "stderr": res.stderr.strip(),
-                "exit_code": res.returncode,
-            }, indent=2)
-        task_id = int(res.stdout.strip())
-        return json.dumps(
-            {"status": "queued", "task_id": task_id, "group": group, "command": command},
-            indent=2,
-        )
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+        if act == "dispatch":
+            if not command or not command.strip():
+                return json.dumps(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": "Acción 'dispatch' requiere 'command' no vacío.",
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
 
+            pueue_bin = _ensure_pueue_daemon()
+            if not pueue_bin:
+                return json.dumps(
+                    {
+                        "status": "DEGRADED",
+                        "message": "pueue binary is not installed on host or daemon is unavailable. Camino B requires pueue daemon.",
+                        "command": command,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
 
-@mcp.tool()
-def async_job_inspect(task_id: Optional[int] = None, lines: int = 50) -> str:
-    """
-    [CAMINO B / PUEUE] Consulta el estado en JSON de la cola asíncrona o extrae el log
-    aislado de un task_id específico sin bloquear.
-    """
-    if not shutil.which("pueue"):
-        return json.dumps({
-            "status": "DEGRADED",
-            "message": "pueue binary is not installed on host",
-        }, indent=2)
+            cmd = [pueue_bin, "add", "--print-task-id", "--group", group]
+            if label:
+                cmd.extend(["--label", label])
+            if working_dir:
+                cmd.extend(["--working-directory", working_dir])
+            cmd.extend(["--", command])
 
-    try:
-        if task_id is not None:
             res = subprocess.run(
-                ["pueue", "log", str(task_id), "--lines", str(lines), "--json"],
+                cmd,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                close_fds=True,
+                timeout=10,
             )
             if res.returncode != 0 or not res.stdout.strip():
-                return json.dumps({
-                    "status": "DEGRADED",
-                    "message": f"Failed to retrieve log for task {task_id}",
-                    "stderr": res.stderr.strip(),
-                }, indent=2)
-            return res.stdout
-        res = subprocess.run(["pueue", "status", "--json"], capture_output=True, text=True)
-        if res.returncode != 0 or not res.stdout.strip():
-            return json.dumps({
-                "status": "DEGRADED",
-                "message": "Failed to connect to pueue daemon",
-                "stderr": res.stderr.strip(),
-            }, indent=2)
-        return res.stdout
+                return json.dumps(
+                    {
+                        "status": "DEGRADED",
+                        "message": "Failed to dispatch async task to pueue daemon",
+                        "stderr": res.stderr.strip(),
+                        "exit_code": res.returncode,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            try:
+                tid = int(res.stdout.strip())
+            except ValueError:
+                tid = res.stdout.strip()
+            return json.dumps(
+                {"status": "queued", "task_id": tid, "group": group, "command": command},
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        elif act in ("inspect", "status", "log"):
+            if act == "log" and task_id is None:
+                return json.dumps(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": "Acción 'log' requiere 'task_id'.",
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            pueue_bin = _ensure_pueue_daemon()
+            if not pueue_bin:
+                return json.dumps(
+                    {
+                        "status": "DEGRADED",
+                        "message": "pueue binary is not installed on host or daemon is unavailable",
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            if task_id is not None:
+                res = subprocess.run(
+                    [pueue_bin, "log", str(task_id), "--lines", str(lines), "--json"],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    close_fds=True,
+                    timeout=10,
+                )
+                if res.returncode != 0 or not res.stdout.strip():
+                    return json.dumps(
+                        {
+                            "status": "DEGRADED",
+                            "message": f"Failed to retrieve log for task {task_id}",
+                            "stderr": res.stderr.strip(),
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                return res.stdout
+            else:
+                res = subprocess.run(
+                    [pueue_bin, "status", "--json"],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    close_fds=True,
+                    timeout=10,
+                )
+                if res.returncode != 0 or not res.stdout.strip():
+                    return json.dumps(
+                        {
+                            "status": "DEGRADED",
+                            "message": "Failed to connect to pueue daemon",
+                            "stderr": res.stderr.strip(),
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                return res.stdout
+
+        else:
+            return json.dumps(
+                {
+                    "status": "INVALID_ACTION",
+                    "error": f"Acción '{action}' no válida para async_job_dispatch.",
+                    "valid_actions": ["dispatch", "inspect", "status", "log"],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
     except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -924,7 +1083,8 @@ def _playbook_dispatch() -> Dict[str, Any]:
         "artifact_query": lambda intent="", category="", **kw: artifact_catalog(action="query", intent=intent, category=category, **kw),
         "artifact_catalog": artifact_catalog,
         "artifact_execute_in_ram": artifact_execute_in_ram,
-        "async_job_inspect": async_job_inspect,
+        "async_job_dispatch": async_job_dispatch,
+        "async_job_inspect": lambda task_id=None, lines=50, **kw: async_job_dispatch(action="inspect", task_id=task_id, lines=lines, **kw),
         "sandbox_run": sandbox_run,
         "aep_ctl": aep_ctl,
         "check_crash_alerts": check_crash_alerts,
