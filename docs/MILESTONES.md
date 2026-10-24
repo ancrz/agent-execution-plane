@@ -28,7 +28,8 @@ flowchart LR
     M20 --> M21["M21: Phase 6 Rollup & Release (Graphos G2/Hermon) ✅"]
     M21 --> M22["M22: Phase 7 Orientation & Introspection Alignment 15 Tools Parity (Pragma/Dokimos/Graphos) ✅"]
     M22 --> M23["M23: Post-Consolidation Runtime Hardening & Secret Masking (Archon/Ontos/Pragma/Dokimos/Graphos) ✅"]
-    M23 --> M24["M24: Complete Hardened Release & Hermon Commit (Hermon) ⏳"]
+    M23 --> M24["M24: Complete Hardened Release & Hermon Commit (Hermon) ✅"]
+    M24 --> M25["M25: Memory-Mapped Hybrid SQLite Optimization (Archon/Ontos/Pragma/Dokimos/Graphos) 🔵"]
 ```
 
 ## 2. Milestone Matrix
@@ -47,4 +48,5 @@ flowchart LR
 | **Consolidation 6** | Unify `crash_forensics` (`diagnose_system_crashes`, `check_crash_alerts` -> `diagnose_system_crashes`) + Subprocess Hardening | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py`, `scripts/aep-sync.sh` | **VERIFIED & COMPLETED (15 Tools) ✅** |
 | **Consolidation 7** | Unify `orientation` (`discover`) & dedicated `process_introspection` (`process_inspect`) (15 tools, 16 capabilities 1:1) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/privilege.py` | **VERIFIED & DOCUMENTED (15 Tools, 16 Capabilities 1:1 Parity) ✅** |
 | **Runtime Hardening** | Post-Consolidation Runtime Hardening, Secret Masking & Full README Sync (7 gaps: GAP-SEC-01 to GAP-DOC-01) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/security.py`, `server.py`, `engine/headless_display.py`, `engine/catalog.py`, `scripts/aep-ctl`, `engine/kanban.py`, `README.md` | **VERIFIED & COMPLETED (Task 109 PROMOTED 0.9949) ✅** |
-| **Roadmap & Hardening Complete** | Complete 7-Phase Tool Consolidation & Runtime Hardening (33 → 15 Tools, 16 Capabilities) | All Pipeline Agents | Entire AEP Repository | **100% COMPLETED (Ready for Hermon Stage 6) ✅** |
+| **Roadmap & Hardening Complete** | Complete 7-Phase Tool Consolidation & Runtime Hardening (33 → 15 Tools, 16 Capabilities) | All Pipeline Agents | Entire AEP Repository | **100% COMPLETED ✅** |
+| **Memory-Mapped Hybrid SQLite (ONT-09)** | Standardize 5 SQLite touchpoints on `engine/db.py` (PRAGMA mmap_size 256MB, cache_size 64MB, WAL) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/db.py`, `engine/catalog.py`, `engine/kanban.py`, `engine/crash_router.py`, `engine/playbook.py`, `engine/docs_vectorizer.py`, `server.py` | **COMPLETED & VERIFIED (Task 110 PROMOTED) ✅** |

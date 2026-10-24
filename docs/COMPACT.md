@@ -13,10 +13,12 @@ Guía harness-neutral para compactar la conversación sin perder el hilo.
    fail-soft; stdio; hot-reload Connect/JSON-RPC (Antigravity/Codex; Claude opt-in);
    aislamiento subprocess/FD (`pass_fds=(fd,)`, `timeout=30`, daemons detached con `DEVNULL` stdio, y `_safe_run` con `close_fds=True`, `timeout=15`);
    15 herramientas activas / 16 capacidades 100% mapeadas (1:1 parity).
-5. **Estado:** 15 tools MCP; 16 capacidades; rama `main`; Semgrep 0; Fases 1–7 + Hardening (7 gaps GAP-SEC-01..GAP-DOC-01) VERIFICADAS; Kanban 109 PROMOTED (0.9949 TRUST).
-6. **Pendientes:** Cero brechas abiertas. Milestone Hardening & Secret Masking completado. Listo para Hermon Stage 6 (commit y release).
-7. **Decisiones firmes:** daemons jamás por artifact_execute_in_ram; retrocompatibilidad de playbooks; no-recursión estricta en playbook_run; timeout en consultas de diagnóstico; paridad 1:1 capacidad-herramienta; enmascaramiento de tokens en todo canal.
-8. **Fuentes:** `docs/STATE.md`, este archivo, y la memoria `aep-state-and-pendings`.
+5. **Estado Actual:** 15 tools MCP; 16 capacidades; rama `main`; Semgrep 0; Tarea 110 PROMOTED (0.9958 TRUST).
+   Milestone ONT-09 (Memory-Mapped Hybrid SQLite Optimization: PRAGMA mmap_size 256MB & 64MB Cache) VERIFICADO por Dokimos.
+   Documento Pipeline G2: `docs/pipeline/feature_20261024_115500_mmap_hybrid_sqlite_ram_persistence.md`.
+6. **Pendientes Inmediatos:** Hermon (Stage 6) Release Engine & Commits Atómicos (`perf(db)` y `docs(state)`).
+7. **Decisiones firmes:** factoría centralizada `engine/db.py`; 256MB mmap zero-copy; 64MB cache RAM; WAL mode para concurrencia multiagente; no-recursión en playbook_run; enmascaramiento de tokens en todo canal.
+8. **Fuentes:** `docs/STATE.md`, `docs/MILESTONES.md`, este archivo, y la memoria `aep-state-and-pendings`.
 
 ## DESCARTAR (ruido de proceso)
 - Salidas largas de probes/semgrep/compilaciones ya resueltas (basta el veredicto).
@@ -38,7 +40,7 @@ reutilizar/sintetizar/despachar/forense/automatizar→kanban_board→ponderar, i
 telemetría, promoción↔degradación, kanban_board reversible, GC seguro con cold-aging immunity,
 auto-canary en RAM, atajo 1-paso síntesis, blindaje subprocess/FD pass_fds+DEVNULL daemons+timeout 15s,
 enmascaramiento secretos engine/security.py, Playwright ThreadPoolExecutor, fail-soft, stdio, hot-reload,
-Claude opt-in), 15 tools (16 capacidades 1:1), 7 brechas cerradas (GAP-SEC-01 a GAP-DOC-01),
-en main (Semgrep 0), Tarea 109 PROMOTED (0.9949 TRUST), cero brechas pendientes.
-Fuentes: docs/STATE.md, docs/COMPACT.md, memoria aep-state-and-pendings.
+Claude opt-in), 15 tools (16 capacidades 1:1), en main (Semgrep 0), Tarea 110 PROMOTED (0.9958 TRUST).
+Activo: Milestone ONT-09 SQLite Hybrid mmap 256MB / 64MB Cache VERIFICADO (Dokimos Gates 1-5, Graphos G2 listo para Hermon Stage 6).
+Fuentes: docs/pipeline/feature_20261024_115500_mmap_hybrid_sqlite_ram_persistence.md, docs/STATE.md, docs/COMPACT.md.
 ```
