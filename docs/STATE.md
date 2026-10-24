@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-10-23 · Servidor MCP: **33 tools** (16 capacidades 100% mapeadas) · Rama: `main` · Semgrep: 0 findings
+> Fecha: 2026-10-24 · Servidor MCP: **30 tools** (16 capacidades 100% mapeadas) · Rama: `main` · Semgrep: 0 findings
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -19,7 +19,7 @@ eficiencia**. Infra: venv `~/.local/share/agent-os/venv`; DB `~/.local/share/age
   Buscar/elegir.
 
 ## Flujo del agente
-`discover(use_case)` (orientar) → **reutilizar** (artifact_catalog) / **sintetizar** (template_select
+`discover(use_case)` (orientar) → **reutilizar/consultar/sanar/podar** (artifact_catalog con `action="browse"|"query"|"reindex"|"prune"`) / **sintetizar** (template_select
 + hydrator con contratos tipados) / **automatizar** (playbooks con `async_job_inspect` y salida de pasos completa)
 → **ponderar** (promote/demote/prune). Memoria semántica auto-indexada en write-time (reindex sana); lazo de telemetría
 cerrado (ejecuciones alimentan la ponderación); auto-canary en RAM (`artifact_execute_in_ram` avanza de `LINTED` a `CANARY`);
@@ -28,7 +28,7 @@ poda de playbooks (`playbook_prune`).
 
 ## Hecho (arco completo)
 sqlite-vec (memoria híbrida) · 5 specs Omarchy (aep_ctl, crash routing, skills hub, man-pages,
-headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 33 tools; Claude Code desconectado por defecto en este host con opt-in `--with-claude` / `AEP_PLUG_CLAUDE=1`) · shell-agnóstico · Pueue ·
+headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 30 tools; Claude Code desconectado por defecto en este host con opt-in `--with-claude` / `AEP_PLUG_CLAUDE=1`) · shell-agnóstico · Pueue ·
 bpftrace (sudo -n) · Pico-Kanban (promote/demote/reevaluate + archive/unarchive reversible) ·
 Pico-Playbooks (parametrizables vía hydrator RE-as-SDD de Jinja) · descubrimiento
 (catalog/reindex/prune) · registry+selector de plantillas · `discover` enrutador (con anclas
@@ -44,13 +44,16 @@ tool 33 con GC seguro e inmunidad a decaimiento por recency)** ·
 #2 plantillas Go parametrizadas con contratos y des-entrecomillado seguro en hydrator/server; #3 async_job_inspect en
 _playbook_dispatch; #4 auto-canary en kanban vía artifact_execute_in_ram; #5 output completo de pasos en playbook_run)**.
 
+- **Consolidación de herramientas — Fase 1 `semantic_memory` CERRADA y VERIFICADA (33 → 30 tools MCP):** Fusión de la capacidad `semantic_memory` unificando `artifact_query`, `artifact_catalog`, `artifact_reindex` y `artifact_prune` en un único endpoint polimórfico `artifact_catalog(action="browse"|"query"|"reindex"|"prune", ...)`. Soporte de retrocompatibilidad transparente en `_playbook_dispatch` con alias lambda; validación estricta de parámetros ONT-01; enriquecimiento de anclas léxicas bilingües en `_CAP_KEYWORDS`; 0 hallazgos en Semgrep; 30 esquemas JSON confirmados; Tarea Kanban 95 PROMOTED con 0.8875 TRUST.
+
 ## Pendientes
-- **Todos los pendientes iniciales (#1, #2, #3, #4), el gap de poda y las 5 brechas de omisión del Grafo de Herramientas Topos están CERRADOS y VERIFICADOS por Dokimos.**
+- **Todos los pendientes iniciales (#1, #2, #3, #4), el gap de poda, las 5 brechas de omisión del Grafo de Herramientas Topos y la Fase 1 del Roadmap de Consolidación (33 → 30 tools) están CERRADOS y VERIFICADOS por Dokimos.**
+- **Fases 2 a 7 del Complete Tool Consolidation Roadmap (30 → 16 tools)** encoladas en backlog arquitectónico (Fase 2: `task_management` / `kanban_board` -7 tools).
 - Mejora opcional futura: indexar playbooks en `sqlite-vec` solo si el catálogo de automatizaciones crece significativamente.
 - Régimen de mantenimiento: validación mediante llamadas MCP y Semgrep continuo.
 
 ## Coordinación / notas honestas
 - El **README lo co-mantiene otro agente** (blindaje semántico) concurrentemente; coordinar.
-- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 33 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
+- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 30 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
 - WebSockets de Go: **no requeridos** (stdio correcto; push futuro = MCP progress notifications).
 - skill-swarm: **consumidor** (no API para contribuir skills); reusamos su matcher y señal de uso.
