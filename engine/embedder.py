@@ -15,7 +15,6 @@ Relación con catalog.py y docs_vectorizer.py: dependencia unidireccional (A -> 
 
 import logging
 import threading
-from typing import List, Optional
 
 log = logging.getLogger("aep.embedder")
 
@@ -23,7 +22,11 @@ log = logging.getLogger("aep.embedder")
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384
 
-_instance: "Optional[LocalEmbedder]" = None
+
+class _EmbedderHolder:
+    instance: "LocalEmbedder | None" = None
+
+
 _instance_lock = threading.Lock()
 
 
@@ -41,7 +44,7 @@ class LocalEmbedder:
             self._model = TextEmbedding(model_name=MODEL_NAME)
             self._available = True
             log.info("LocalEmbedder listo (modelo=%s, dim=%d)", MODEL_NAME, EMBEDDING_DIM)
-        except Exception as exc:  # ImportError o fallo de carga del modelo
+        except (ImportError, RuntimeError, ValueError, OSError) as exc:
             self._available = False
             log.warning("Embedder no disponible (%s): %s", type(exc).__name__, exc)
 
@@ -49,7 +52,7 @@ class LocalEmbedder:
     def is_available(self) -> bool:
         return self._available
 
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         """Devuelve el vector de 384 floats, o None si el embedder no está disponible."""
         if not self._available or not text:
             return None
@@ -57,11 +60,11 @@ class LocalEmbedder:
             with self._embed_lock:  # ONNX Runtime no garantiza reentrancia
                 vec = next(iter(self._model.embed([text])))
             return [float(x) for x in vec]
-        except Exception as exc:
+        except (RuntimeError, ValueError, OSError) as exc:
             log.warning("embed() falló (%s): %s", type(exc).__name__, exc)
             return None
 
-    def embed_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
+    def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
         """Embebe una lista de textos (usado por el vectorizador de man-pages)."""
         if not self._available or not texts:
             return [None] * len(texts)
@@ -69,16 +72,15 @@ class LocalEmbedder:
             with self._embed_lock:
                 vecs = list(self._model.embed(texts))
             return [[float(x) for x in v] for v in vecs]
-        except Exception as exc:
+        except (RuntimeError, ValueError, OSError) as exc:
             log.warning("embed_batch() falló (%s): %s", type(exc).__name__, exc)
             return [None] * len(texts)
 
 
 def get_instance() -> LocalEmbedder:
     """Factory singleton thread-safe (double-checked locking)."""
-    global _instance
-    if _instance is None:
+    if _EmbedderHolder.instance is None:
         with _instance_lock:
-            if _instance is None:
-                _instance = LocalEmbedder()
-    return _instance
+            if _EmbedderHolder.instance is None:
+                _EmbedderHolder.instance = LocalEmbedder()
+    return _EmbedderHolder.instance

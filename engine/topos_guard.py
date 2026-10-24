@@ -5,8 +5,6 @@ Audita secuencias de tareas y artefactos antes de su despacho a ejecución para 
 que el grafo de dependencias permanezca coherente y sin ciclos bloqueantes (A <-> B sin interfaz).
 """
 
-from typing import Dict, List, Set, Tuple
-
 
 class ToposVerdict:
     APPROVED = "APPROVED"
@@ -15,16 +13,14 @@ class ToposVerdict:
 
 class ToposGuard:
     @staticmethod
-    def audit_task_dag(
-        tasks: List[str], dependencies: Dict[str, List[str]]
-    ) -> Tuple[str, List[str]]:
+    def audit_task_dag(tasks: list[str], dependencies: dict[str, list[str]]) -> tuple[str, list[str]]:
         """
         Valida que el grafo de tareas sea un Grafo Dirigido Acíclico (DAG).
         Si existe un ciclo (co-dependencia), bloquea la ejecución y reporta
         el ciclo exacto para su descomposición ontológica.
         """
         # Construir adyacencia
-        adj: Dict[str, List[str]] = {t: [] for t in tasks}
+        adj: dict[str, list[str]] = {t: [] for t in tasks}
         for task, deps in dependencies.items():
             if task not in adj:
                 adj[task] = []
@@ -32,11 +28,11 @@ class ToposGuard:
                 if d in adj:
                     adj[task].append(d)
 
-        visited: Set[str] = set()
-        rec_stack: Set[str] = set()
-        cycle_nodes: List[str] = []
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+        cycle_nodes: list[str] = []
 
-        def dfs(node: str, path: List[str]) -> bool:
+        def dfs(node: str, path: list[str]) -> bool:
             visited.add(node)
             rec_stack.add(node)
             path.append(node)

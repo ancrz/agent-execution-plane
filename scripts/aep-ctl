@@ -27,7 +27,7 @@ def _sudo_prefix() -> Optional[List[str]]:
         return []
     try:
         if shutil.which("sudo") and subprocess.run(
-            ["sudo", "-n", "true"], capture_output=True, timeout=5
+            ["sudo", "-n", "true"], capture_output=True, timeout=5, check=False
         ).returncode == 0:
             return ["sudo", "-n"]
     except Exception:
@@ -55,8 +55,8 @@ def fail(message: str, **extra: Any) -> None:
     emit({"status": "ERROR", "exit_code": 1, "message": message, **extra}, code=1)
 
 
-def _run(cmd: List[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
 def _need(bin_name: str) -> Optional[str]:

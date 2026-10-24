@@ -17,10 +17,10 @@ Topos: kanban.py -> artifacts.db (A->B). Conexión propia; no importa catalog.py
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from engine import ponder  # motor de ponderación multidimensional COMPARTIDO (artefactos + playbooks)
-from engine.db import get_db_connection
+from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
 
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
 
@@ -50,13 +50,13 @@ CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived);
 
 
 class KanbanBoard:
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DB_DEFAULT_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._conn() as conn:
-            conn.executescript(_KANBAN_DDL)
-            self._migrate(conn)
-            conn.commit()
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                conn.executescript(_KANBAN_DDL)
+                self._migrate(conn)
 
     @staticmethod
     def _migrate(conn: sqlite3.Connection) -> None:
@@ -66,17 +66,24 @@ class KanbanBoard:
             conn.execute("ALTER TABLE kanban_tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived)")
 
+    def _conn_ro(self) -> sqlite3.Connection:
+        return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
+
+    def _conn_rw(self) -> sqlite3.Connection:
+        return get_rw_connection(self.db_path, row_factory=True, load_vec=False)
+
     def _conn(self) -> sqlite3.Connection:
-        return get_db_connection(self.db_path, row_factory=True, load_vec=False)
+        return self._conn_rw()
 
     # ------------------------------------------------------------------ ponderación (motor compartido)
     @staticmethod
-    def _ponder(lint_passed: bool, canary_passed: bool, success_rate: float,
-                execution_count: int, days_since_update: float) -> Dict[str, Any]:
+    def _ponder(
+        lint_passed: bool, canary_passed: bool, success_rate: float, execution_count: int, days_since_update: float
+    ) -> dict[str, Any]:
         """Dimensiones ESPECÍFICAS de artefacto -> motor compartido ponder.finalize().
         reliability/experience solo con señal real (canary o ejecución); si no, se omiten
         (bajan confianza). Veto de fiabilidad: éxito<0.70 con historial impide TRUST."""
-        dims: Dict[str, float] = {}
+        dims: dict[str, float] = {}
         dims["quality"] = 0.5 * (1.0 if lint_passed else 0.0) + 0.5 * (1.0 if canary_passed else 0.0)
         if execution_count > 0 or canary_passed:
             dims["reliability"] = max(0.0, min(1.0, success_rate))
@@ -85,7 +92,7 @@ class KanbanBoard:
         veto = execution_count > 0 and success_rate < 0.70
         return ponder.finalize(dims, reliability_veto=veto)
 
-    def _artifact_stats(self, conn: sqlite3.Connection, name: Optional[str]) -> Dict[str, Any]:
+    def _artifact_stats(self, conn: sqlite3.Connection, name: str | None) -> dict[str, Any]:
         if not name:
             return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
         row = conn.execute(
@@ -93,12 +100,17 @@ class KanbanBoard:
         ).fetchone()
         if not row:
             return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
-        return {"success_rate": row["success_rate"], "execution_count": row["execution_count"],
-                "exists": True, "days_since": ponder.days_since(row["updated_at"])}
+        return {
+            "success_rate": row["success_rate"],
+            "execution_count": row["execution_count"],
+            "exists": True,
+            "days_since": ponder.days_since(row["updated_at"]),
+        }
 
     # ------------------------------------------------------------------ operaciones
-    def create_task(self, title: str, intent: str = "", category: str = "",
-                    artifact_name: Optional[str] = None) -> Dict[str, Any]:
+    def create_task(
+        self, title: str, intent: str = "", category: str = "", artifact_name: str | None = None
+    ) -> dict[str, Any]:
         with self._conn() as conn:
             cur = conn.execute(
                 "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state) "
@@ -108,57 +120,73 @@ class KanbanBoard:
             conn.commit()
             return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG"}
 
-    def advance(self, task_id: int, to_state: str, lint_passed: Optional[bool] = None,
-                canary_passed: Optional[bool] = None, note: Optional[str] = None) -> Dict[str, Any]:
+    def advance(
+        self,
+        task_id: int,
+        to_state: str,
+        lint_passed: bool | None = None,
+        canary_passed: bool | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
         to_state = to_state.upper()
         if to_state not in STATES:
             return {"status": "ERROR", "error": f"estado inválido: {to_state}", "valid": STATES}
-        with self._conn() as conn:
-            t = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
-            if not t:
-                return {"status": "ERROR", "error": f"task {task_id} no existe"}
-            lp = t["lint_passed"] if lint_passed is None else int(lint_passed)
-            cp = t["canary_passed"] if canary_passed is None else int(canary_passed)
-            stats = self._artifact_stats(conn, t["artifact_name"])
-            p = self._ponder(bool(lp), bool(cp), stats["success_rate"],
-                             stats["execution_count"], stats["days_since"])
-            conn.execute(
-                "UPDATE kanban_tasks SET state=?, lint_passed=?, canary_passed=?, "
-                "promotion_score=?, attempts=attempts+1, note=COALESCE(?,note), "
-                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                (to_state, lp, cp, p["effective"], note, task_id),
-            )
-            conn.commit()
-            return {"status": "OK", "task_id": task_id, "state": to_state,
-                    "promotion_score": p["effective"], "verdict": p["verdict"],
-                    "confidence": p["confidence"], "dimensions": p["dimensions"],
-                    "eligible_for_promotion": p["verdict"] == "TRUST"}
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                t = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
+                if not t:
+                    return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                lp = t["lint_passed"] if lint_passed is None else int(lint_passed)
+                cp = t["canary_passed"] if canary_passed is None else int(canary_passed)
+                stats = self._artifact_stats(conn, t["artifact_name"])
+                p = self._ponder(
+                    bool(lp), bool(cp), stats["success_rate"], stats["execution_count"], stats["days_since"]
+                )
+                conn.execute(
+                    "UPDATE kanban_tasks SET state=?, lint_passed=?, canary_passed=?, "
+                    "promotion_score=?, attempts=attempts+1, note=COALESCE(?,note), "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (to_state, lp, cp, p["effective"], note, task_id),
+                )
+            return {
+                "status": "OK",
+                "task_id": task_id,
+                "state": to_state,
+                "promotion_score": p["effective"],
+                "verdict": p["verdict"],
+                "confidence": p["confidence"],
+                "dimensions": p["dimensions"],
+                "eligible_for_promotion": p["verdict"] == "TRUST",
+            }
 
-    def record_canary_by_artifact(self, artifact_name: str, passed: bool) -> Optional[Dict[str, Any]]:
+    def record_canary_by_artifact(self, artifact_name: str, passed: bool) -> dict[str, Any] | None:
         """Registra el resultado de ejecución canary en RAM para la tarea kanban activa más reciente del artefacto."""
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
-                "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY') "
-                "ORDER BY id DESC LIMIT 1",
-                (artifact_name,),
-            ).fetchone()
-            if not row:
-                return None
-            task_id = row["id"]
-            lp = row["lint_passed"]
-            cp = 1 if passed else 0
-            new_state = "CANARY" if passed and row["state"] in ("BACKLOG", "SYNTHESIZED", "LINTED") else row["state"]
-            stats = self._artifact_stats(conn, artifact_name)
-            p = self._ponder(bool(lp), bool(cp), stats["success_rate"],
-                             stats["execution_count"], stats["days_since"])
-            conn.execute(
-                "UPDATE kanban_tasks SET state = ?, canary_passed = ?, "
-                "promotion_score = ?, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP "
-                "WHERE id = ?",
-                (new_state, cp, p["effective"], task_id),
-            )
-            conn.commit()
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                row = conn.execute(
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                    "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY') "
+                    "ORDER BY id DESC LIMIT 1",
+                    (artifact_name,),
+                ).fetchone()
+                if not row:
+                    return None
+                task_id = row["id"]
+                lp = row["lint_passed"]
+                cp = 1 if passed else 0
+                new_state = (
+                    "CANARY" if passed and row["state"] in ("BACKLOG", "SYNTHESIZED", "LINTED") else row["state"]
+                )
+                stats = self._artifact_stats(conn, artifact_name)
+                p = self._ponder(
+                    bool(lp), bool(cp), stats["success_rate"], stats["execution_count"], stats["days_since"]
+                )
+                conn.execute(
+                    "UPDATE kanban_tasks SET state = ?, canary_passed = ?, "
+                    "promotion_score = ?, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ?",
+                    (new_state, cp, p["effective"], task_id),
+                )
             return {
                 "task_id": task_id,
                 "state": new_state,
@@ -167,82 +195,102 @@ class KanbanBoard:
                 "eligible_for_promotion": p["verdict"] == "TRUST",
             }
 
-    def promote(self, task_id: int) -> Dict[str, Any]:
+    def promote(self, task_id: int) -> dict[str, Any]:
         """Promueve el artefacto ligado como REUTILIZABLE si su ponderación lo amerita."""
-        with self._conn() as conn:
-            t = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
-            if not t:
-                return {"status": "ERROR", "error": f"task {task_id} no existe"}
-            stats = self._artifact_stats(conn, t["artifact_name"])
-            p = self._ponder(bool(t["lint_passed"]), bool(t["canary_passed"]),
-                             stats["success_rate"], stats["execution_count"], stats["days_since"])
-            score = p["effective"]
-            if p["verdict"] != "TRUST":
-                conn.execute("UPDATE kanban_tasks SET promotion_score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (score, task_id))
-                conn.commit()
-                return {"status": "REJECTED", "reason": f"confianza insuficiente (verdict={p['verdict']})",
-                        "promotion_score": score, "confidence": p["confidence"],
-                        "dimensions": p["dimensions"], "threshold": ponder.TRUST_BAND,
-                        "hint": "Sube confianza: ejecuta el artefacto (historial de éxito) o valida un canary."}
-            conn.execute("UPDATE kanban_tasks SET state='PROMOTED', promotion_score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (score, task_id))
-            if stats["exists"]:
-                # Marca el artefacto como reutilizable y guarda su ponderación.
-                conn.execute("UPDATE artifacts SET reusable=1, promotion_score=? WHERE name=?", (score, t["artifact_name"]))
-            conn.commit()
-            return {"status": "PROMOTED", "artifact_name": t["artifact_name"],
-                    "promotion_score": score, "confidence": p["confidence"],
-                    "verdict": p["verdict"], "dimensions": p["dimensions"]}
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                t = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
+                if not t:
+                    return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                stats = self._artifact_stats(conn, t["artifact_name"])
+                p = self._ponder(
+                    bool(t["lint_passed"]),
+                    bool(t["canary_passed"]),
+                    stats["success_rate"],
+                    stats["execution_count"],
+                    stats["days_since"],
+                )
+                score = p["effective"]
+                if p["verdict"] != "TRUST":
+                    conn.execute(
+                        "UPDATE kanban_tasks SET promotion_score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (score, task_id),
+                    )
+                    return {
+                        "status": "REJECTED",
+                        "reason": f"confianza insuficiente (verdict={p['verdict']})",
+                        "promotion_score": score,
+                        "confidence": p["confidence"],
+                        "dimensions": p["dimensions"],
+                        "threshold": ponder.TRUST_BAND,
+                        "hint": "Sube confianza: ejecuta el artefacto (historial de éxito) o valida un canary.",
+                    }
+                conn.execute(
+                    "UPDATE kanban_tasks SET state='PROMOTED', promotion_score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (score, task_id),
+                )
+                if stats["exists"]:
+                    # Marca el artefacto como reutilizable y guarda su ponderación.
+                    conn.execute(
+                        "UPDATE artifacts SET reusable=1, promotion_score=? WHERE name=?", (score, t["artifact_name"])
+                    )
+            return {
+                "status": "PROMOTED",
+                "artifact_name": t["artifact_name"],
+                "promotion_score": score,
+                "confidence": p["confidence"],
+                "verdict": p["verdict"],
+                "dimensions": p["dimensions"],
+            }
 
     def demote(
         self,
-        artifact_name: Optional[str] = None,
-        reason: Optional[str] = None,
-        task_id: Optional[int] = None,
+        artifact_name: str | None = None,
+        reason: str | None = None,
+        task_id: int | None = None,
         target_state: str = "SYNTHESIZED",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Degrada explícitamente un artefacto (reusable=0) o demociona una tarea kanban por task_id."""
-        with self._conn() as conn:
-            eff_artifact = artifact_name
-            task_info = None
-            if task_id is not None:
-                task_row = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
-                if not task_row:
-                    return {"status": "ERROR", "error": f"task {task_id} no existe"}
-                conn.execute(
-                    "UPDATE kanban_tasks SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (target_state, task_id),
-                )
-                task_info = dict(task_row)
-                if not eff_artifact:
-                    eff_artifact = task_info.get("artifact_name")
-
-            if not eff_artifact and task_id is None:
-                return {"status": "ERROR", "error": "demote requiere 'artifact_name' o 'task_id'"}
-
-            score = 0.0
-            verdict = "DEMOTED"
-            if eff_artifact:
-                r = conn.execute(
-                    "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name=?",
-                    (eff_artifact,),
-                ).fetchone()
-                if r:
-                    p = self._ponder(
-                        False, False, r["success_rate"], r["execution_count"],
-                        ponder.days_since(r["updated_at"])
-                    )
-                    score = p["effective"]
-                    verdict = p["verdict"]
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                eff_artifact = artifact_name
+                task_info = None
+                if task_id is not None:
+                    task_row = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
+                    if not task_row:
+                        return {"status": "ERROR", "error": f"task {task_id} no existe"}
                     conn.execute(
-                        "UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
-                        (score, eff_artifact),
+                        "UPDATE kanban_tasks SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (target_state, task_id),
                     )
-                elif not task_id:
-                    return {"status": "ERROR", "error": f"artefacto '{eff_artifact}' no existe"}
+                    task_info = dict(task_row)
+                    if not eff_artifact:
+                        eff_artifact = task_info.get("artifact_name")
 
-            conn.commit()
+                if not eff_artifact and task_id is None:
+                    return {"status": "ERROR", "error": "demote requiere 'artifact_name' o 'task_id'"}
 
-        res: Dict[str, Any] = {
+                score = 0.0
+                verdict = "DEMOTED"
+                if eff_artifact:
+                    r = conn.execute(
+                        "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name=?",
+                        (eff_artifact,),
+                    ).fetchone()
+                    if r:
+                        p = self._ponder(
+                            False, False, r["success_rate"], r["execution_count"], ponder.days_since(r["updated_at"])
+                        )
+                        score = p["effective"]
+                        verdict = p["verdict"]
+                        conn.execute(
+                            "UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
+                            (score, eff_artifact),
+                        )
+                    elif not task_id:
+                        return {"status": "ERROR", "error": f"artefacto '{eff_artifact}' no existe"}
+
+        res: dict[str, Any] = {
             "status": "DEMOTED",
             "artifact_name": eff_artifact,
             "promotion_score": score,
@@ -254,45 +302,63 @@ class KanbanBoard:
             res["task_state"] = target_state
         return res
 
-    def reevaluate(self) -> Dict[str, Any]:
+    def reevaluate(self) -> dict[str, Any]:
         """Auto-corrección del conjunto confiable: re-pondera cada artefacto reusable=1 contra sus
         métricas ACTUALES (telemetría) y degrada (reusable=0) solo los que tienen fallo demostrado
         (éxito < 0.70) o caen a WARNING/REJECT. Los artefactos exitosos que envejecen hacia CAUTION
         conservan reusable=1 (inmunes al decaimiento por recency).
         Cierra el lazo promoción<->degradación: la confianza se gana y también se pierde."""
-        demoted: List[Dict[str, Any]] = []
+        demoted: list[dict[str, Any]] = []
         kept = 0
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT name, success_rate, execution_count, updated_at FROM artifacts WHERE reusable=1"
-            ).fetchall()
-            for r in rows:
-                # Un artefacto reusable fue promovido (lint+canary pasaron); el cambio real
-                # viene de su éxito histórico y frescura.
-                p = self._ponder(True, True, r["success_rate"], r["execution_count"],
-                                 ponder.days_since(r["updated_at"]))
-                # Invariante: solo se degrada ante fallo DEMOSTRADO (éxito < 0.70 con historial)
-                # o degradación severa a WARNING/REJECT. Envejecer a CAUTION con éxito >= 0.70
-                # NO degrada: protege artefactos single-use exitosos del decaimiento temporal.
-                should_demote = (
-                    (r["execution_count"] > 0 and r["success_rate"] < 0.70)
-                    or p["verdict"] in ("WARNING", "REJECT")
-                )
-                if should_demote:
-                    conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
-                                 (p["effective"], r["name"]))
-                    demoted.append({"name": r["name"], "promotion_score": p["effective"],
-                                    "verdict": p["verdict"], "success_rate": r["success_rate"]})
-                else:
-                    conn.execute("UPDATE artifacts SET promotion_score=? WHERE name=?",
-                                 (p["effective"], r["name"]))
-                    kept += 1
-            conn.commit()
-        return {"status": "OK", "reevaluated": len(demoted) + kept,
-                "kept_trusted": kept, "demoted_count": len(demoted), "demoted": demoted}
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                rows = conn.execute(
+                    "SELECT name, success_rate, execution_count, updated_at FROM artifacts WHERE reusable=1"
+                ).fetchall()
+                for r in rows:
+                    # Un artefacto reusable fue promovido (lint+canary pasaron); el cambio real
+                    # viene de su éxito histórico y frescura.
+                    p = self._ponder(
+                        True, True, r["success_rate"], r["execution_count"], ponder.days_since(r["updated_at"])
+                    )
+                    # Invariante: solo se degrada ante fallo DEMOSTRADO (éxito < 0.70 con historial)
+                    # o degradación severa a WARNING/REJECT. Envejecer a CAUTION con éxito >= 0.70
+                    # NO degrada: protege artefactos single-use exitosos del decaimiento temporal.
+                    should_demote = (r["execution_count"] > 0 and r["success_rate"] < 0.70) or p["verdict"] in (
+                        "WARNING",
+                        "REJECT",
+                    )
+                    if should_demote:
+                        conn.execute(
+                            "UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
+                            (p["effective"], r["name"]),
+                        )
+                        demoted.append(
+                            {
+                                "name": r["name"],
+                                "promotion_score": p["effective"],
+                                "verdict": p["verdict"],
+                                "success_rate": r["success_rate"],
+                            }
+                        )
+                    else:
+                        conn.execute("UPDATE artifacts SET promotion_score=? WHERE name=?", (p["effective"], r["name"]))
+                        kept += 1
+        return {
+            "status": "OK",
+            "reevaluated": len(demoted) + kept,
+            "kept_trusted": kept,
+            "demoted_count": len(demoted),
+            "demoted": demoted,
+        }
 
-    def archive(self, states: Optional[List[str]] = None, max_score: Optional[float] = None,
-                protect_states: tuple = ("PROMOTED", "CANARY"), apply: bool = False) -> Dict[str, Any]:
+    def archive(
+        self,
+        states: list[str] | None = None,
+        max_score: float | None = None,
+        protect_states: tuple = ("PROMOTED", "CANARY"),
+        apply: bool = False,
+    ) -> dict[str, Any]:
         """Despeja el board archivando (soft, reversible) tareas estancadas.
 
         dry-run POR DEFECTO: el AGENTE juzga qué despejar vs el veredicto del ponderador — igual
@@ -309,54 +375,80 @@ class KanbanBoard:
                 "FROM kanban_tasks WHERE archived=0 ORDER BY id DESC"
             ).fetchall()
             candidates = [
-                {"task_id": r["id"], "title": r["title"], "state": r["state"],
-                 "artifact": r["artifact_name"], "score": r["promotion_score"], "attempts": r["attempts"]}
+                {
+                    "task_id": r["id"],
+                    "title": r["title"],
+                    "state": r["state"],
+                    "artifact": r["artifact_name"],
+                    "score": r["promotion_score"],
+                    "attempts": r["attempts"],
+                }
                 for r in rows
                 if r["state"] in states and r["state"] not in protect and r["promotion_score"] < thr
             ]
             if apply and candidates:
-                ids = [c["task_id"] for c in candidates]
-                conn.execute(
-                    "UPDATE kanban_tasks SET archived=1, updated_at=CURRENT_TIMESTAMP "
-                    f"WHERE id IN ({','.join('?' * len(ids))})", ids,
-                )
-                conn.commit()
-        return {"status": "ARCHIVED" if apply else "DRY_RUN",
-                "applied": apply, "threshold": thr, "states_scanned": states,
-                "protected_states": sorted(protect), "candidate_count": len(candidates),
-                "candidates": candidates,
-                "hint": None if apply else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_board(action='unarchive', task_id=...))."}
+                with transaction_immediate(conn):
+                    ids = [c["task_id"] for c in candidates]
+                    conn.executemany(
+                        "UPDATE kanban_tasks SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE id = ?",
+                        [(i,) for i in ids],
+                    )
+        return {
+            "status": "ARCHIVED" if apply else "DRY_RUN",
+            "applied": apply,
+            "threshold": thr,
+            "states_scanned": states,
+            "protected_states": sorted(protect),
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "hint": None
+            if apply
+            else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_board(action='unarchive', task_id=...)).",
+        }
 
-    def unarchive(self, task_id: int) -> Dict[str, Any]:
+    def unarchive(self, task_id: int) -> dict[str, Any]:
         """Reactiva una tarea archivada (archived=0). Inverso de archive — nada se pierde."""
-        with self._conn() as conn:
-            t = conn.execute("SELECT id, state FROM kanban_tasks WHERE id=?", (task_id,)).fetchone()
-            if not t:
-                return {"status": "ERROR", "error": f"task {task_id} no existe"}
-            conn.execute("UPDATE kanban_tasks SET archived=0, updated_at=CURRENT_TIMESTAMP WHERE id=?", (task_id,))
-            conn.commit()
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                t = conn.execute("SELECT id, state FROM kanban_tasks WHERE id=?", (task_id,)).fetchone()
+                if not t:
+                    return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                conn.execute("UPDATE kanban_tasks SET archived=0, updated_at=CURRENT_TIMESTAMP WHERE id=?", (task_id,))
         return {"status": "OK", "task_id": task_id, "state": t["state"], "archived": False}
 
-    def board(self, include_archived: bool = False) -> Dict[str, Any]:
+    def board(self, include_archived: bool = False) -> dict[str, Any]:
         """Vista del tablero agrupada por lane/estado (idioma agéntico, JSON tipado).
         Excluye archivadas por defecto; include_archived=True las muestra todas."""
-        where = "" if include_archived else "WHERE archived=0"
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
-                f"promotion_score, attempts, archived FROM kanban_tasks {where} ORDER BY updated_at DESC"
-            ).fetchall()
-            archived_total = conn.execute(
-                "SELECT COUNT(*) AS n FROM kanban_tasks WHERE archived=1"
-            ).fetchone()["n"]
-        lanes: Dict[str, List[Dict[str, Any]]] = {s: [] for s in STATES}
+            if include_archived:
+                rows = conn.execute(
+                    "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
+                    "promotion_score, attempts, archived FROM kanban_tasks ORDER BY updated_at DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
+                    "promotion_score, attempts, archived FROM kanban_tasks WHERE archived=0 ORDER BY updated_at DESC"
+                ).fetchall()
+            archived_total = conn.execute("SELECT COUNT(*) AS n FROM kanban_tasks WHERE archived=1").fetchone()["n"]
+        lanes: dict[str, list[dict[str, Any]]] = {s: [] for s in STATES}
         for r in rows:
-            lanes[r["state"]].append({
-                "task_id": r["id"], "title": r["title"], "artifact": r["artifact_name"],
-                "lint": bool(r["lint_passed"]), "canary": bool(r["canary_passed"]),
-                "score": r["promotion_score"], "attempts": r["attempts"],
-                "archived": bool(r["archived"]),
-            })
-        return {"status": "OK", "threshold": PROMOTION_THRESHOLD,
-                "counts": {s: len(lanes[s]) for s in STATES},
-                "archived_total": archived_total, "lanes": lanes}
+            lanes[r["state"]].append(
+                {
+                    "task_id": r["id"],
+                    "title": r["title"],
+                    "artifact": r["artifact_name"],
+                    "lint": bool(r["lint_passed"]),
+                    "canary": bool(r["canary_passed"]),
+                    "score": r["promotion_score"],
+                    "attempts": r["attempts"],
+                    "archived": bool(r["archived"]),
+                }
+            )
+        return {
+            "status": "OK",
+            "threshold": PROMOTION_THRESHOLD,
+            "counts": {s: len(lanes[s]) for s in STATES},
+            "archived_total": archived_total,
+            "lanes": lanes,
+        }

@@ -18,7 +18,7 @@ templating de texto sobre JSON se rechazan por incompatibles/frágiles):
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Marcadores: {{WORD}} para texto Go; ${word} para estructura (playbooks). Distintos a
 # propósito para no colisionar con las plantillas text/template nativas de Go ({{.Field}}).
@@ -27,7 +27,7 @@ _STRUCT_WHOLE = re.compile(r"^\$\{(\w+)\}$")
 _STRUCT_EMBED = re.compile(r"\$\{(\w+)\}")
 
 
-def _coerce(value: Any, typ: Optional[str]) -> Any:
+def _coerce(value: Any, typ: str | None) -> Any:
     """Coerción de un valor a su tipo declarado (análogo al tipado de filtros Jinja)."""
     if typ in (None, "", "string", "str", "any"):
         return value
@@ -47,8 +47,7 @@ def _coerce(value: Any, typ: Optional[str]) -> Any:
     return value
 
 
-def resolve_params(contract: Optional[List[Dict[str, Any]]],
-                   provided: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def resolve_params(contract: list[dict[str, Any]] | None, provided: dict[str, Any] | None) -> dict[str, Any]:
     """Resuelve parámetros contra un contrato: aplica defaults, exige requeridos
     (StrictUndefined) y coacciona tipos. Devuelve el dict resuelto.
 
@@ -56,7 +55,7 @@ def resolve_params(contract: Optional[List[Dict[str, Any]]],
     """
     contract = contract or []
     provided = provided or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     declared = set()
     for spec in contract:
         name = spec.get("name")
@@ -71,22 +70,23 @@ def resolve_params(contract: Optional[List[Dict[str, Any]]],
         elif spec.get("required", True):
             raise ValueError(f"parámetro requerido ausente: '{name}'")
         # opcional sin default -> se omite
-    for k, v in provided.items():   # pass-through de vars no declaradas
+    for k, v in provided.items():  # pass-through de vars no declaradas
         if k not in declared:
             out[k] = v
     return out
 
 
-def hydrate_struct(obj: Any, variables: Dict[str, Any], strict: bool = True) -> Any:
+def hydrate_struct(obj: Any, variables: dict[str, Any], strict: bool = True) -> Any:
     """Sustitución ESTRUCTURAL de `${var}` en los valores string de un dict/list.
     Si el valor es exactamente '${x}', se reemplaza por el valor TIPADO (no string);
     si está embebido ('a-${x}-b'), se interpola como texto. Sin eval — solo datos."""
+
     def sub_str(s: str) -> Any:
         whole = _STRUCT_WHOLE.match(s)
         if whole:
             name = whole.group(1)
             if name in variables:
-                return variables[name]          # preserva el tipo real
+                return variables[name]  # preserva el tipo real
             if strict:
                 raise ValueError(f"variable sin valor: ${{{name}}}")
             return s
@@ -98,6 +98,7 @@ def hydrate_struct(obj: Any, variables: Dict[str, Any], strict: bool = True) -> 
             if strict:
                 raise ValueError(f"variable sin valor: ${{{name}}}")
             return mo.group(0)
+
         return _STRUCT_EMBED.sub(repl, s)
 
     if isinstance(obj, dict):
@@ -110,18 +111,21 @@ def hydrate_struct(obj: Any, variables: Dict[str, Any], strict: bool = True) -> 
 
 
 class TemplateHydrator:
-    def __init__(self, templates_dir: Optional[Path] = None):
-        self.templates_dir = templates_dir or (
-            Path(__file__).resolve().parent.parent / "templates"
-        )
+    def __init__(self, templates_dir: Path | None = None):
+        self.templates_dir = templates_dir or (Path(__file__).resolve().parent.parent / "templates")
 
     def list_available_templates(self) -> list[str]:
         if not self.templates_dir.exists():
             return []
         return [f.name for f in self.templates_dir.glob("tpl_*.go")]
 
-    def hydrate(self, template_name: str, params: Dict[str, Any],
-                contract: Optional[List[Dict[str, Any]]] = None, strict: bool = False) -> str:
+    def hydrate(
+        self,
+        template_name: str,
+        params: dict[str, Any],
+        contract: list[dict[str, Any]] | None = None,
+        strict: bool = False,
+    ) -> str:
         """Hidrata una plantilla Go (modo TEXTO). Con `contract`, aplica resolve_params
         (defaults + requeridos + tipos). Con `strict=True`, falla si queda algún `{{PARAM}}`
         sin resolver (StrictUndefined); default False por compatibilidad con plantillas Go
@@ -138,23 +142,21 @@ class TemplateHydrator:
                 template_file = cand
                 break
         if not template_file:
-            raise FileNotFoundError(
-                f"Plantilla no encontrada: {template_name} en {self.templates_dir}"
-            )
+            raise FileNotFoundError(f"Plantilla no encontrada: {template_name} en {self.templates_dir}")
 
         content = template_file.read_text(encoding="utf-8")
         resolved = resolve_params(contract, params) if contract else params
 
         for key, value in resolved.items():
-            quoted_ph = f"\"{{{{{key}}}}}\""
+            quoted_ph = f'"{{{{{key}}}}}"'
             placeholder = f"{{{{{key}}}}}"
             if quoted_ph in content:
                 if isinstance(value, str):
                     q_val = json.dumps(value)
                 elif isinstance(value, bool):
-                    q_val = "\"true\"" if value else "\"false\""
+                    q_val = '"true"' if value else '"false"'
                 else:
-                    q_val = f"\"{value}\""
+                    q_val = f'"{value}"'
                 content = content.replace(quoted_ph, q_val)
             if placeholder in content:
                 if isinstance(value, bool):
@@ -162,7 +164,7 @@ class TemplateHydrator:
                 elif isinstance(value, (int, float)):
                     val_str = str(value)
                 elif isinstance(value, str):
-                    val_str = f"\"{value}\"" if not (value.startswith("\"") and value.endswith("\"")) else value
+                    val_str = f'"{value}"' if not (value.startswith('"') and value.endswith('"')) else value
                 else:
                     val_str = json.dumps(value)
                 content = content.replace(placeholder, val_str)

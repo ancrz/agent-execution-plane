@@ -1,0 +1,40 @@
+[project]
+name = "agent-execution-plane"
+version = "0.1.0"
+description = "Agent Execution Plane (AEP) - Unified FastMCP Server"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp",
+    "anyio>=4.0.0",
+    "pydantic>=2.0.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # Pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "S",     # flake8-bandit
+    "BLE",   # flake8-blind-except
+    "PLW",   # Pylint warnings
+    "FURB",  # refurb
+]
+ignore = [
+    "S603",  # subprocess call without shell=True
+    "S607",  # start process with partial executable path
+    "S108",  # probable insecure usage of temp file/directory
+    "E501",  # line length
+]
+
+[tool.ruff.lint.per-file-ignores]
+# FastMCP tool entrypoints require fail-soft top-level exception catching returning error JSON
+"server.py" = ["BLE001"]
+"scripts/*" = ["S101", "BLE001"]
+"tests/*" = ["S101", "BLE001"]

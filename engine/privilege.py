@@ -14,28 +14,33 @@ Diseño de seguridad: la escalada es por-tool y acotada; nunca se asume root. Un
 alto AMPLÍA la apertura (self-scope -> system-scope), no es un requisito para operar.
 """
 
+import logging
 import os
 import shutil
 import subprocess
-from typing import List, Optional
 
-_SUDO_N_CACHE: Optional[bool] = None
+logger = logging.getLogger("aep.privilege")
+
+
+class _PrivilegeCache:
+    sudo_n: bool | None = None
 
 
 def sudo_n_available() -> bool:
     """¿Hay sudo sin contraseña (escalada no-interactiva)? Resultado cacheado por proceso."""
-    global _SUDO_N_CACHE
-    if _SUDO_N_CACHE is None:
+    if _PrivilegeCache.sudo_n is None:
         try:
-            _SUDO_N_CACHE = bool(shutil.which("sudo")) and subprocess.run(
-                ["sudo", "-n", "true"], capture_output=True, timeout=5
-            ).returncode == 0
-        except Exception:
-            _SUDO_N_CACHE = False
-    return _SUDO_N_CACHE
+            _PrivilegeCache.sudo_n = (
+                bool(shutil.which("sudo"))
+                and subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=5, check=False).returncode == 0
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug("sudo -n check failed: %s", e)
+            _PrivilegeCache.sudo_n = False
+    return _PrivilegeCache.sudo_n
 
 
-def privilege_prefix() -> Optional[List[str]]:
+def privilege_prefix() -> list[str] | None:
     """[] si ya es root; ['sudo','-n'] si se puede escalar; None si no hay vía (DIMINISHED)."""
     if os.geteuid() == 0:
         return []
@@ -68,22 +73,82 @@ def capability_tier() -> str:
 
 # cap -> (bits_DIMINISHED, bits_FULL, scope_FULL, tools, descripción)
 _CAPABILITIES = {
-    "ram_execution":        (5, 5, "self",   ["artifact_execute_in_ram"], "Inyectar y correr ELF en RAM (memfd_create)"),
-    "ephemeral_sandbox":    (5, 5, "self",   ["sandbox_run"],             "Ejecutar aislado en sandbox bwrap"),
-    "artifact_synthesis":   (7, 7, "self",   ["artifact_lint_and_build"], "Sintetizar artefactos Go: inspección de plantillas, selección fuzzy, hidratación CUE y compilación/linting en RAM (artifact_lint_and_build: action='build'|'catalog'|'select'|'hydrate')"),
-    "orientation":          (4, 4, "self",   ["discover"], "Traducir un caso de uso -> qué reutilizar/sintetizar/automatizar y manifiesto de autonomía (discover: action='discover'|'capabilities')"),
-    "semantic_memory":      (6, 6, "self",   ["artifact_catalog"], "Leer/escribir, DESCUBRIR, AUTO-INDEXAR y PODAR (GC seguro) la memoria semántica (sqlite-vec)"),
-    "async_dispatch":       (7, 7, "self",   ["async_job_dispatch"], "Despachar/inspeccionar tareas asíncronas en Pueue (async_job_dispatch: action='dispatch'|'inspect')"),
-    "process_introspection":(4, 4, "system", ["process_inspect"], "Introspección de descriptores de procesos (/proc/PID/fd y estado)"),
-    "system_inspect":       (4, 4, "system", ["aep_ctl"],                 "Leer red, almacenamiento y paquetes (aep-ctl)"),
-    "service_control":      (4, 6, "system", ["aep_ctl"],                 "Controlar servicios: DIMINISHED solo scope-usuario; FULL muta sistema"),
-    "crash_forensics":      (4, 4, "system", ["diagnose_system_crashes"], "Forense de crashes y alertas proactivas: coredumps, journald y tickets (diagnose_system_crashes: action='diagnose'|'alerts')"),
-    "kernel_observability": (0, 4, "kernel", ["kernel_trace"],            "Telemetría de kernel eBPF: requiere FULL (CAP_BPF)"),
-    "visual_actuation":     (5, 5, "self",   ["visual_inspect"],          "Renderizar y capturar UIs headless (/dev/shm)"),
-    "topos_audit":          (4, 4, "self",   ["topos_audit_dag"],         "Auditar DAGs y bloquear co-dependencias"),
-    "task_management":      (6, 6, "self",   ["kanban_board"], "Pico-Kanban: tareas atómicas + ponderación con promoción/degradación y archivado reversible"),
-    "automation":           (7, 7, "self",   ["playbook_run"], "Pico-Playbooks: orquestación de flujos DAG, ejecución, listado, creación y poda segura (playbook_run: action='run'|'create'|'list'|'prune')"),
-    "system_docs":          (4, 4, "self",   ["query_system_docs"], "Memoria semántica local de man-pages (sqlite-vec): sintaxis exacta sin alucinar flags"),
+    "ram_execution": (5, 5, "self", ["artifact_execute_in_ram"], "Inyectar y correr ELF en RAM (memfd_create)"),
+    "ephemeral_sandbox": (5, 5, "self", ["sandbox_run"], "Ejecutar aislado en sandbox bwrap"),
+    "artifact_synthesis": (
+        7,
+        7,
+        "self",
+        ["artifact_lint_and_build"],
+        "Sintetizar artefactos Go: inspección de plantillas, selección fuzzy, hidratación CUE y compilación/linting en RAM (artifact_lint_and_build: action='build'|'catalog'|'select'|'hydrate')",
+    ),
+    "orientation": (
+        4,
+        4,
+        "self",
+        ["discover"],
+        "Traducir un caso de uso -> qué reutilizar/sintetizar/automatizar y manifiesto de autonomía (discover: action='discover'|'capabilities')",
+    ),
+    "semantic_memory": (
+        6,
+        6,
+        "self",
+        ["artifact_catalog"],
+        "Leer/escribir, DESCUBRIR, AUTO-INDEXAR y PODAR (GC seguro) la memoria semántica (sqlite-vec)",
+    ),
+    "async_dispatch": (
+        7,
+        7,
+        "self",
+        ["async_job_dispatch"],
+        "Despachar/inspeccionar tareas asíncronas en Pueue (async_job_dispatch: action='dispatch'|'inspect')",
+    ),
+    "process_introspection": (
+        4,
+        4,
+        "system",
+        ["process_inspect"],
+        "Introspección de descriptores de procesos (/proc/PID/fd y estado)",
+    ),
+    "system_inspect": (4, 4, "system", ["aep_ctl"], "Leer red, almacenamiento y paquetes (aep-ctl)"),
+    "service_control": (
+        4,
+        6,
+        "system",
+        ["aep_ctl"],
+        "Controlar servicios: DIMINISHED solo scope-usuario; FULL muta sistema",
+    ),
+    "crash_forensics": (
+        4,
+        4,
+        "system",
+        ["diagnose_system_crashes"],
+        "Forense de crashes y alertas proactivas: coredumps, journald y tickets (diagnose_system_crashes: action='diagnose'|'alerts')",
+    ),
+    "kernel_observability": (0, 4, "kernel", ["kernel_trace"], "Telemetría de kernel eBPF: requiere FULL (CAP_BPF)"),
+    "visual_actuation": (5, 5, "self", ["visual_inspect"], "Renderizar y capturar UIs headless (/dev/shm)"),
+    "topos_audit": (4, 4, "self", ["topos_audit_dag"], "Auditar DAGs y bloquear co-dependencias"),
+    "task_management": (
+        6,
+        6,
+        "self",
+        ["kanban_board"],
+        "Pico-Kanban: tareas atómicas + ponderación con promoción/degradación y archivado reversible",
+    ),
+    "automation": (
+        7,
+        7,
+        "self",
+        ["playbook_run"],
+        "Pico-Playbooks: orquestación de flujos DAG, ejecución, listado, creación y poda segura (playbook_run: action='run'|'create'|'list'|'prune')",
+    ),
+    "system_docs": (
+        4,
+        4,
+        "self",
+        ["query_system_docs"],
+        "Memoria semántica local de man-pages (sqlite-vec): sintaxis exacta sin alucinar flags",
+    ),
 }
 
 _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "--x", 0: "---"}
@@ -93,22 +158,22 @@ _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "-
 # ("run binary", "memory", "trace kernel") tenía poco con qué casar. Esto cierra la colisión ES/EN:
 # el matcher las pondera como tags (x2) sumadas a los nombres de tools. Ampliar aquí es barato.
 _CAP_KEYWORDS = {
-    "ram_execution":        "run binary memfd fileless in-memory ejecutar binario memoria elf payload",
-    "ephemeral_sandbox":    "sandbox isolate bwrap jail contained run aislar aislado seguro",
-    "artifact_synthesis":   "synthesize template catalog select hydrate lint build compile go binary cue generate create sintetizar plantilla catalogo seleccionar hidratar compilar construir binario generar crear",
-    "orientation":          "discover orient what to do route start where begin capabilities manifest status chmod permisos autonomy autonomia orientar descubrir enrutar empezar",
-    "semantic_memory":      "memory search recall catalog query reindex prune index vector embeddings reuse find store memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
-    "async_dispatch":       "async background queue long job pueue dispatch inspect status log cola asincrono tarea larga despachar inspeccionar estado segundo plano",
-    "process_introspection":"process inspect fd descriptor proc pid introspection open files socket pipes leak proceso descriptor introspeccion archivos abiertos fugas",
-    "system_inspect":       "network storage packages inspect read system status red almacenamiento paquetes inspeccionar sistema estado",
-    "service_control":      "service control start stop restart systemd daemon servicio controlar arrancar detener reiniciar",
-    "crash_forensics":      "crash core dump forensic coredump diagnose fault alerts router ticket new proactive crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
+    "ram_execution": "run binary memfd fileless in-memory ejecutar binario memoria elf payload",
+    "ephemeral_sandbox": "sandbox isolate bwrap jail contained run aislar aislado seguro",
+    "artifact_synthesis": "synthesize template catalog select hydrate lint build compile go binary cue generate create sintetizar plantilla catalogo seleccionar hidratar compilar construir binario generar crear",
+    "orientation": "discover orient what to do route start where begin capabilities manifest status chmod permisos autonomy autonomia orientar descubrir enrutar empezar",
+    "semantic_memory": "memory search recall catalog query reindex prune index vector embeddings reuse find store memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
+    "async_dispatch": "async background queue long job pueue dispatch inspect status log cola asincrono tarea larga despachar inspeccionar estado segundo plano",
+    "process_introspection": "process inspect fd descriptor proc pid introspection open files socket pipes leak proceso descriptor introspeccion archivos abiertos fugas",
+    "system_inspect": "network storage packages inspect read system status red almacenamiento paquetes inspeccionar sistema estado",
+    "service_control": "service control start stop restart systemd daemon servicio controlar arrancar detener reiniciar",
+    "crash_forensics": "crash core dump forensic coredump diagnose fault alerts router ticket new proactive crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
     "kernel_observability": "kernel trace ebpf bpf syscall observe probe kernel trazar sondear llamadas sistema",
-    "visual_actuation":     "visual screenshot render headless ui browser page visual captura renderizar pantalla navegador",
-    "topos_audit":          "audit dag graph dependency cycle codependency auditar grafo dependencia ciclo",
-    "task_management":      "task kanban board create advance promote demote reevaluate archive unarchive manage weigh track tarea tablero crear avanzar promover degradar reevaluar archivar desarchivar gestionar ponderar seguir",
-    "automation":           "automate playbook run create list prune workflow chain pipeline steps gc clean automatizar ejecutar crear listar podar orquestar flujo secuencia pasos limpiar",
-    "system_docs":          "man manpage documentation syntax flags command help manual documentacion sintaxis comando manual",
+    "visual_actuation": "visual screenshot render headless ui browser page visual captura renderizar pantalla navegador",
+    "topos_audit": "audit dag graph dependency cycle codependency auditar grafo dependencia ciclo",
+    "task_management": "task kanban board create advance promote demote reevaluate archive unarchive manage weigh track tarea tablero crear avanzar promover degradar reevaluar archivar desarchivar gestionar ponderar seguir",
+    "automation": "automate playbook run create list prune workflow chain pipeline steps gc clean automatizar ejecutar crear listar podar orquestar flujo secuencia pasos limpiar",
+    "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando manual",
 }
 
 
@@ -120,7 +185,7 @@ def capability_manifest() -> dict:
     for name, (dim, full, scope, tools, desc) in _CAPABILITIES.items():
         bits = (dim, full)[idx]
         caps[name] = {
-            "perm": f"{bits}{_PERM_TABLE[bits]}",      # p.ej. "4r--", "7rwx"
+            "perm": f"{bits}{_PERM_TABLE[bits]}",  # p.ej. "4r--", "7rwx"
             "octal_now": bits,
             "octal_diminished": dim,
             "octal_full": full,
@@ -132,8 +197,8 @@ def capability_manifest() -> dict:
         }
     return {
         "what_is_this": "AEP MCP: plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes de IA. "
-                        "Transmuta primitivas de herramientas ofensivas (RAM exec, sandbox, eBPF, "
-                        "introspección) en capacidades agénticas gobernadas por privilegio.",
+        "Transmuta primitivas de herramientas ofensivas (RAM exec, sandbox, eBPF, "
+        "introspección) en capacidades agénticas gobernadas por privilegio.",
         "capability_tier": tier,
         "privilege_mode": privilege_mode(),
         "legend": {
@@ -142,7 +207,7 @@ def capability_manifest() -> dict:
             "x (1)": "EJECUTAR — caminos no-tradicionales (RAM/kernel/escalada)",
             "octal_reference": _PERM_TABLE,
             "note": "Como chmod: cada capacidad es una tríada rwx. El nivel FULL ensancha "
-                    "la apertura (self -> system -> kernel); la autonomía base ya opera en DIMINISHED.",
+            "la apertura (self -> system -> kernel); la autonomía base ya opera en DIMINISHED.",
         },
         "capabilities": caps,
     }

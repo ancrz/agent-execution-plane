@@ -10,15 +10,18 @@ Cada entidad construye su propio dict de dimensiones y llama a finalize(); así 
 pero el significado de cada dimensión lo aporta el dominio (artefacto vs playbook).
 """
 
+import logging
 import math
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
+
+logger = logging.getLogger("aep.ponder")
 
 DIMENSION_WEIGHTS = {
-    "quality": 0.35,      # señales de compuerta (lint/canary para artefactos; validación DAG para playbooks)
+    "quality": 0.35,  # señales de compuerta (lint/canary para artefactos; validación DAG para playbooks)
     "reliability": 0.30,  # tasa de éxito histórica
-    "experience": 0.15,   # cuán battle-tested (log de ejecuciones/corridas)
-    "recency": 0.20,      # frescura: decae con el tiempo sin validarse/usarse
+    "experience": 0.15,  # cuán battle-tested (log de ejecuciones/corridas)
+    "recency": 0.20,  # frescura: decae con el tiempo sin validarse/usarse
 }
 TRUST_BAND = 0.75
 CAUTION_BAND = 0.50
@@ -41,14 +44,15 @@ def days_since(ts: Any) -> float:
         return 0.0
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
         try:
-            dt = datetime.strptime(str(ts).split(".")[0], fmt).replace(tzinfo=timezone.utc)
-            return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
-        except Exception:
+            dt = datetime.strptime(str(ts).split(".")[0], fmt).replace(tzinfo=UTC)
+            return max(0.0, (datetime.now(UTC) - dt).total_seconds() / 86400.0)
+        except (ValueError, TypeError) as e:
+            logger.debug("days_since parse failed for %s (%s): %s", ts, fmt, e)
             continue
     return 0.0
 
 
-def finalize(dims: Dict[str, float], reliability_veto: bool = False) -> Dict[str, Any]:
+def finalize(dims: dict[str, float], reliability_veto: bool = False) -> dict[str, Any]:
     """Combina dimensiones conocidas en el veredicto. `reliability_veto`: fallo demostrado
     (éxito<0.70 con historial) impide TRUST por mucha calidad/frescura que haya."""
     total = sum(dims[k] * DIMENSION_WEIGHTS[k] for k in dims)
@@ -65,6 +69,9 @@ def finalize(dims: Dict[str, float], reliability_veto: bool = False) -> Dict[str
     if reliability_veto and verdict == "TRUST":
         verdict = "CAUTION"
     return {
-        "effective": effective, "raw": round(total, 4), "confidence": round(confidence, 2),
-        "verdict": verdict, "dimensions": {k: round(v, 3) for k, v in dims.items()},
+        "effective": effective,
+        "raw": round(total, 4),
+        "confidence": round(confidence, 2),
+        "verdict": verdict,
+        "dimensions": {k: round(v, 3) for k, v in dims.items()},
     }

@@ -12,24 +12,29 @@ Señales: exact/prefix/phrase sobre el nombre + BM25F ponderado por campo (name�
 import math
 import re
 from difflib import SequenceMatcher
-from typing import Any, Dict, List
+from typing import Any
 
 _SIGNAL_WEIGHTS = {
-    "exact_match": 30.0, "prefix_match": 20.0, "phrase_match": 15.0,
-    "bm25f": 15.0, "jaccard_tags": 10.0, "fuzzy_name": 7.0, "fuzzy_desc": 3.0,
+    "exact_match": 30.0,
+    "prefix_match": 20.0,
+    "phrase_match": 15.0,
+    "bm25f": 15.0,
+    "jaccard_tags": 10.0,
+    "fuzzy_name": 7.0,
+    "fuzzy_desc": 3.0,
 }
 _TOTAL_WEIGHT = sum(_SIGNAL_WEIGHTS.values())
 _FIELD_BOOSTS = {"name": 3.0, "tags": 2.0, "description": 1.0}
 _BM25_K1, _BM25_B = 1.2, 0.3
 
 
-def _tok(text: str) -> List[str]:
+def _tok(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", (text or "").lower())
 
 
-def _bm25f_index(docs: List[Dict[str, Any]]):
+def _bm25f_index(docs: list[dict[str, Any]]):
     fields = {"name": [], "tags": [], "description": []}
-    df: Dict[str, int] = {}
+    df: dict[str, int] = {}
     for d in docs:
         ftok = {
             "name": _tok(d.get("name", "")),
@@ -59,8 +64,7 @@ def _bm25f_score(qtok, idx, fields, df, avgdl, n) -> float:
     return total
 
 
-def rank(query: str, docs: List[Dict[str, Any]], limit: int = 5,
-         threshold: float = 0.03) -> List[Dict[str, Any]]:
+def rank(query: str, docs: list[dict[str, Any]], limit: int = 5, threshold: float = 0.03) -> list[dict[str, Any]]:
     """Rankea `docs` por relevancia a `query`. Cada doc: {key?, name, tags?, description?, ...}.
     Devuelve los docs (tal cual) + `relevance` + `why` (señales que dispararon), ordenados."""
     q = (query or "").lower().strip()
@@ -88,8 +92,7 @@ def rank(query: str, docs: List[Dict[str, Any]], limit: int = 5,
         }
         score = sum(_SIGNAL_WEIGHTS[k] * sig[k] for k in _SIGNAL_WEIGHTS) / _TOTAL_WEIGHT
         if score >= threshold:
-            why = [k for k, _ in sorted(((k, v) for k, v in sig.items() if v > 0),
-                                        key=lambda kv: -kv[1])[:3]]
+            why = [k for k, _ in sorted(((k, v) for k, v in sig.items() if v > 0), key=lambda kv: -kv[1])[:3]]
             out.append({**d, "relevance": round(score, 4), "why": why})
     out.sort(key=lambda r: r["relevance"], reverse=True)
     return out[:limit]

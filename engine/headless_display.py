@@ -12,10 +12,13 @@ Topos: server.py -> headless_display.py (A->B). Sin acoplamiento con otros módu
 """
 
 import base64
+import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
+logger = logging.getLogger("aep.display")
 
 SHM_DIR = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path("/tmp")
 
@@ -24,29 +27,35 @@ def visual_inspect(
     url: str,
     viewport_width: int = 1280,
     viewport_height: int = 800,
-    selector: Optional[str] = None,
+    selector: str | None = None,
     full_page: bool = True,
     return_base64: bool = True,
     timeout_ms: int = 15000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Renderiza `url` en Chromium headless y captura un screenshot.
     `url` puede ser http(s):// o un file:// local. FAIL-SOFT ante ausencia de navegador."""
     try:
         from playwright.sync_api import sync_playwright
-    except Exception:
-        return {"status": "DISPLAY_UNAVAILABLE",
-                "message": "Playwright no instalado. pip install playwright && playwright install chromium"}
+    except ImportError:
+        return {
+            "status": "DISPLAY_UNAVAILABLE",
+            "message": "Playwright no instalado. pip install playwright && playwright install chromium",
+        }
 
     shot_path = SHM_DIR / f"aep_shot_{uuid.uuid4().hex}.png"
     start = time.time()
     try:
         with sync_playwright() as p:
             try:
-                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu", "--password-store=basic", "--use-mock-keychain"])
-            except Exception as exc:
-                return {"status": "DISPLAY_UNAVAILABLE",
-                        "message": f"No se pudo lanzar Chromium: {exc}. "
-                                   "Ejecuta: playwright install chromium"}
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-gpu", "--password-store=basic", "--use-mock-keychain"],
+                )
+            except (RuntimeError, OSError) as exc:
+                return {
+                    "status": "DISPLAY_UNAVAILABLE",
+                    "message": f"No se pudo lanzar Chromium: {exc}. Ejecuta: playwright install chromium",
+                }
             try:
                 page = browser.new_page(viewport={"width": viewport_width, "height": viewport_height})
                 page.goto(url, timeout=timeout_ms, wait_until="load")
@@ -63,7 +72,7 @@ def visual_inspect(
                 browser.close()
 
         data = shot_path.read_bytes()
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "status": "SUCCESS",
             "url": url,
             "title": title,
@@ -76,12 +85,12 @@ def visual_inspect(
         else:
             result["screenshot_path"] = str(shot_path)
         return result
-    except Exception as exc:
+    except (RuntimeError, OSError, TimeoutError, ValueError) as exc:
         return {"status": "ERROR", "url": url, "error": str(exc)}
     finally:
         # Cero residuos: destruir la captura de RAM salvo que se pidiera la ruta.
         if return_base64:
             try:
                 shot_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError as e:
+                logger.debug("Failed unlinking screenshot: %s", e)

@@ -8,16 +8,12 @@ Garantiza que ningún secreto se filtre en los contextos de los LLMs.
 
 import json
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 # Expresiones regulares para detección de secretos
 _BEARER_RE = re.compile(r"Bearer\s+([A-Za-z0-9_\-\.]+)", re.IGNORECASE)
-_PEM_PRIVATE_KEY_RE = re.compile(
-    r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]+PRIVATE KEY-----"
-)
-_SENSITIVE_KEY_RE = re.compile(
-    r"(TOKEN|KEY|SECRET|PASS|AUTH|CRED|PASSWORD|APIKEY)", re.IGNORECASE
-)
+_PEM_PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]+PRIVATE KEY-----")
+_SENSITIVE_KEY_RE = re.compile(r"(TOKEN|KEY|SECRET|PASS|AUTH|CRED|PASSWORD|APIKEY)", re.IGNORECASE)
 
 
 def mask_secrets(text: str) -> str:
@@ -79,5 +75,5 @@ def mask_pueue_output(raw_output: str) -> str:
         parsed = json.loads(raw_output)
         sanitized = sanitize_dict(parsed)
         return json.dumps(sanitized)
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError):
         return mask_secrets(raw_output)
