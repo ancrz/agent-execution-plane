@@ -70,7 +70,7 @@ def capability_tier() -> str:
 _CAPABILITIES = {
     "ram_execution":        (5, 5, "self",   ["artifact_execute_in_ram"], "Inyectar y correr ELF en RAM (memfd_create)"),
     "ephemeral_sandbox":    (5, 5, "self",   ["sandbox_run"],             "Ejecutar aislado en sandbox bwrap"),
-    "artifact_synthesis":   (7, 7, "self",   ["template_catalog", "template_select", "artifact_hydrate", "artifact_lint_and_build"], "Elegir plantilla (selector), sintetizar, lintar, compilar y persistir artefactos Go"),
+    "artifact_synthesis":   (7, 7, "self",   ["artifact_lint_and_build"], "Sintetizar artefactos Go: inspección de plantillas, selección fuzzy, hidratación CUE y compilación/linting en RAM (artifact_lint_and_build: action='build'|'catalog'|'select'|'hydrate')"),
     "orientation":          (4, 4, "self",   ["discover", "aep_capabilities"], "Traducir un caso de uso -> qué reutilizar/sintetizar/automatizar (enrutador discover)"),
     "semantic_memory":      (6, 6, "self",   ["artifact_catalog"], "Leer/escribir, DESCUBRIR, AUTO-INDEXAR y PODAR (GC seguro) la memoria semántica (sqlite-vec)"),
     "async_dispatch":       (7, 7, "self",   ["async_job_dispatch", "async_job_inspect"], "Despachar/inspeccionar tareas asíncronas (Pueue)"),
@@ -95,7 +95,7 @@ _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "-
 _CAP_KEYWORDS = {
     "ram_execution":        "run binary memfd fileless in-memory ejecutar binario memoria elf payload",
     "ephemeral_sandbox":    "sandbox isolate bwrap jail contained run aislar aislado seguro",
-    "artifact_synthesis":   "synthesize generate build template compile go artifact create sintetizar plantilla compilar generar crear",
+    "artifact_synthesis":   "synthesize template catalog select hydrate lint build compile go binary cue generate create sintetizar plantilla catalogo seleccionar hidratar compilar construir binario generar crear",
     "orientation":          "discover orient what to do route start where begin orientar descubrir enrutar empezar",
     "semantic_memory":      "memory search recall catalog query reindex prune index vector embeddings reuse find store memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
     "async_dispatch":       "async background job queue dispatch task pueue asincrono trabajo cola despachar tarea segundo plano",

@@ -240,148 +240,221 @@ def artifact_catalog(
 
 
 @mcp.tool()
-def template_catalog() -> str:
-    """
-    [PLANTILLAS] Tabla descriptiva de plantillas base disponibles (qué hay para sintetizar),
-    con capacidad, categoría, tags, descripción y params. Punto de partida: elige una plantilla,
-    hidrátala y constrúyela. Incluye candidatas redundantes (tags muy solapados).
-    """
-    try:
-        fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
-        return json.dumps({"status": "OK", "templates": template_registry.catalog(feedback=fb),
-                           "redundancy": template_registry.redundancy()},
-                          indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def template_select(intent: str, limit: int = 5) -> str:
-    """
-    [PLANTILLAS] ¿Qué plantilla para mi caso de uso? Rankea las plantillas por relevancia a
-    `intent` con scoring multi-señal (exact/prefix/phrase + BM25F + jaccard de tags + fuzzy).
-    Devuelve el top con `relevance` y `why` (qué señales dispararon) para decidir con transparencia.
-    """
-    try:
-        fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
-        matches = template_registry.select(intent, limit=limit, feedback=fb)
-        return json.dumps({"status": "OK", "intent": intent, "matches": matches},
-                          indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
-def artifact_hydrate(template_name: str, params: Optional[Dict[str, Any]] = None) -> str:
-    """
-    [PICO-ANSIBLE / HYDRATOR] Instancia una plantilla atómica Go con los parámetros
-    especificados por el agente, generando el código fuente final.
-    """
-    try:
-        contract = template_registry.get_contract(template_name)
-        source_code = hydrator.hydrate(template_name, params or {}, contract=contract)
-        return json.dumps({"status": "SUCCESS", "go_source": source_code}, indent=2)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
-
-
-@mcp.tool()
 def artifact_lint_and_build(
-    name: str, intent: str, category: str, go_source: str, cue_contract: str = "",
-    source_template: str = "",
+    action: str = "build",
+    name: Optional[str] = None,
+    intent: Optional[str] = None,
+    category: Optional[str] = None,
+    go_source: Optional[str] = None,
+    template_name: Optional[str] = None,
+    source_template: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    cue_contract: str = "",
+    limit: int = 5,
 ) -> str:
     """
-    [PICO-JENKINS / QUALITY GATE] Ejecuta análisis estático sobre el código Go generado
-    (go vet / golangci-lint), compila un binario estático (CGO_ENABLED=0) y lo registra en el catálogo.
+    [PICO-JENKINS / QUALITY GATE & ARTIFACT SYNTHESIS]
+    Herramienta polimórfica unificada para la síntesis, selección, hidratación y compilación de artefactos Go.
+    Acciones soportadas ('action'):
+      - 'build' (default): Compila Go estático (CGO_ENABLED=0), ejecuta análisis estático (go vet + golangci-lint)
+        y lo registra en el catálogo. Soporta ATAJO DE 1 PASO: si no se provee go_source pero sí template_name
+        (o source_template), hidrata la plantilla automáticamente antes de compilar.
+      - 'catalog': Tabla descriptiva de plantillas base disponibles con capacidades, tags y redundancias.
+      - 'select': Rankea plantillas por relevancia a 'intent' mediante scoring multi-señal (BM25F + jaccard + fuzzy).
+      - 'hydrate': Instancia una plantilla Go con 'params', generando el código fuente final.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        src_file = Path(tmpdir) / f"{name}.go"
-        src_file.write_text(go_source, encoding="utf-8")
-        bin_file = TEMP_BIN_DIR / name
+    try:
+        act = (action or "build").strip().lower()
 
-        # 1. Validación estática con go vet
-        vet_res = subprocess.run(["go", "vet", str(src_file)], capture_output=True, text=True)
-        if vet_res.returncode != 0:
+        if act == "catalog":
+            fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
             return json.dumps(
                 {
-                    "status": "LINT_ERROR",
-                    "error": vet_res.stderr.strip(),
-                    "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
+                    "status": "OK",
+                    "templates": template_registry.catalog(feedback=fb),
+                    "redundancy": template_registry.redundancy(),
                 },
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        if act == "select":
+            if not intent or not intent.strip():
+                return json.dumps(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": "El parámetro 'intent' es obligatorio para la acción 'select'.",
+                    },
+                    indent=2,
+                )
+            fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
+            matches = template_registry.select(intent.strip(), limit=limit, feedback=fb)
+            return json.dumps(
+                {"status": "OK", "intent": intent.strip(), "matches": matches},
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        if act == "hydrate":
+            tpl = (template_name or source_template or name or "").strip()
+            if not tpl:
+                return json.dumps(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": "Debe proporcionar 'template_name' (o 'source_template') para hidratar.",
+                    },
+                    indent=2,
+                )
+            contract = template_registry.get_contract(tpl)
+            source_code = hydrator.hydrate(tpl, params or {}, contract=contract)
+            return json.dumps(
+                {"status": "SUCCESS", "template_name": tpl, "go_source": source_code},
                 indent=2,
             )
 
-        # 1.5. golangci-lint ADVISORY (no bloqueante). go vet sigue siendo el gate duro.
-        lint_warnings: List[str] = []
-        try:
-            gcl = subprocess.run(
-                ["golangci-lint", "run", str(src_file)],
-                capture_output=True, text=True, cwd=tmpdir, timeout=30,
-            )
-            if gcl.returncode != 0:
-                out = (gcl.stdout or gcl.stderr or "").strip()
-                if out:
-                    lint_warnings = out.splitlines()[:20]
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            lint_warnings = []  # golangci-lint ausente/fallo -> degradado a solo go vet
+        if act == "build":
+            missing = []
+            if not name or not name.strip():
+                missing.append("name")
+            if not intent or not intent.strip():
+                missing.append("intent")
+            if not category or not category.strip():
+                missing.append("category")
+            if missing:
+                return json.dumps(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": f"Faltan parámetros obligatorios para la acción 'build': {', '.join(missing)}",
+                    },
+                    indent=2,
+                )
 
-        # 2. Compilación estática pura (CGO_ENABLED=0)
-        start_time = time.time()
-        env = os.environ.copy()
-        env["CGO_ENABLED"] = "0"
-        build_res = subprocess.run(
-            ["go", "build", "-ldflags=-s -w", "-o", str(bin_file), str(src_file)],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        compile_latency_ms = round((time.time() - start_time) * 1000, 2)
+            art_name = name.strip()
+            art_intent = intent.strip()
+            art_cat = category.strip()
+            art_src_tpl = (source_template or template_name or "").strip()
+            effective_src = (go_source or "").strip()
 
-        if build_res.returncode != 0:
-            return json.dumps(
-                {
-                    "status": "BUILD_ERROR",
-                    "error": build_res.stderr.strip(),
-                },
-                indent=2,
-            )
+            # 1-Step Template-to-Binary Compilation Shortcut
+            if not effective_src:
+                if art_src_tpl:
+                    try:
+                        contract = template_registry.get_contract(art_src_tpl)
+                        effective_src = hydrator.hydrate(art_src_tpl, params or {}, contract=contract)
+                    except Exception as he:
+                        return json.dumps(
+                            {
+                                "status": "HYDRATE_ERROR",
+                                "error": f"Error al auto-hidratar la plantilla '{art_src_tpl}': {str(he)}",
+                            },
+                            indent=2,
+                        )
+                else:
+                    return json.dumps(
+                        {
+                            "status": "PARAM_ERROR",
+                            "error": "Debe proporcionar 'go_source' o 'template_name'/'source_template' para compilar.",
+                        },
+                        indent=2,
+                    )
 
-        binary_bytes = bin_file.read_bytes()
-        artifact_id = catalog.register_artifact(
-            name=name,
-            intent=intent,
-            category=category,
-            cue_contract=cue_contract or "package schema",
-            go_source=go_source,
-            binary_blob=binary_bytes,
-            source_template=source_template,
-        )
+            with tempfile.TemporaryDirectory() as tmpdir:
+                src_file = Path(tmpdir) / f"{art_name}.go"
+                src_file.write_text(effective_src, encoding="utf-8")
+                bin_file = TEMP_BIN_DIR / art_name
 
-        # Pico-Kanban: registra el ciclo del artefacto y lo pondera. go vet pasó -> lint_passed;
-        # compilación/canary en RAM se confirma al ejecutarlo (kanban_board(action='advance', to_state='CANARY') o automático en artifact_execute_in_ram).
-        kanban_task_id = None
-        try:
-            kt = kanban.create_task(title=f"build:{name}", intent=intent, category=category, artifact_name=name)
-            kanban_task_id = kt["task_id"]
-            kanban.advance(kanban_task_id, "LINTED", lint_passed=True,
-                           note=f"go vet OK; {len(lint_warnings)} avisos golangci-lint")
-        except Exception:
-            pass
+                # 1. Validación estática con go vet
+                vet_res = subprocess.run(["go", "vet", str(src_file)], capture_output=True, text=True)
+                if vet_res.returncode != 0:
+                    return json.dumps(
+                        {
+                            "status": "LINT_ERROR",
+                            "error": vet_res.stderr.strip(),
+                            "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
+                        },
+                        indent=2,
+                    )
+
+                # 1.5. golangci-lint ADVISORY (no bloqueante). go vet sigue siendo el gate duro.
+                lint_warnings: List[str] = []
+                try:
+                    gcl = subprocess.run(
+                        ["golangci-lint", "run", str(src_file)],
+                        capture_output=True, text=True, cwd=tmpdir, timeout=30,
+                    )
+                    if gcl.returncode != 0:
+                        out = (gcl.stdout or gcl.stderr or "").strip()
+                        if out:
+                            lint_warnings = out.splitlines()[:20]
+                except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                    lint_warnings = []
+
+                # 2. Compilación estática pura (CGO_ENABLED=0)
+                start_time = time.time()
+                env = os.environ.copy()
+                env["CGO_ENABLED"] = "0"
+                build_res = subprocess.run(
+                    ["go", "build", "-ldflags=-s -w", "-o", str(bin_file), str(src_file)],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                compile_latency_ms = round((time.time() - start_time) * 1000, 2)
+
+                if build_res.returncode != 0:
+                    return json.dumps(
+                        {
+                            "status": "BUILD_ERROR",
+                            "error": build_res.stderr.strip(),
+                        },
+                        indent=2,
+                    )
+
+                binary_bytes = bin_file.read_bytes()
+                artifact_id = catalog.register_artifact(
+                    name=art_name,
+                    intent=art_intent,
+                    category=art_cat,
+                    cue_contract=cue_contract or "package schema",
+                    go_source=effective_src,
+                    binary_blob=binary_bytes,
+                    source_template=art_src_tpl,
+                )
+
+                kanban_task_id = None
+                try:
+                    kt = kanban.create_task(title=f"build:{art_name}", intent=art_intent, category=art_cat, artifact_name=art_name)
+                    kanban_task_id = kt["task_id"]
+                    kanban.advance(kanban_task_id, "LINTED", lint_passed=True,
+                                   note=f"go vet OK; {len(lint_warnings)} avisos golangci-lint")
+                except Exception:
+                    pass
+
+                return json.dumps(
+                    {
+                        "status": "SUCCESS",
+                        "artifact_id": artifact_id,
+                        "name": art_name,
+                        "source_template": art_src_tpl or None,
+                        "binary_path": str(bin_file),
+                        "binary_size_bytes": len(binary_bytes),
+                        "compile_time_ms": compile_latency_ms,
+                        "lint_warnings": lint_warnings,
+                        "kanban_task_id": kanban_task_id,
+                    },
+                    indent=2,
+                )
 
         return json.dumps(
             {
-                "status": "SUCCESS",
-                "artifact_id": artifact_id,
-                "name": name,
-                "source_template": source_template or None,
-                "binary_path": str(bin_file),
-                "binary_size_bytes": len(binary_bytes),
-                "compile_time_ms": compile_latency_ms,
-                "lint_warnings": lint_warnings,  # advisory golangci-lint (no bloqueó la build)
-                "kanban_task_id": kanban_task_id,  # avanzar a CANARY tras ejecutar; promover cuando pondere
+                "status": "INVALID_ACTION",
+                "error": f"Acción '{act}' no válida para artifact_lint_and_build.",
+                "valid_actions": ["build", "catalog", "select", "hydrate"],
             },
             indent=2,
         )
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
 @mcp.tool()
