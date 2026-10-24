@@ -415,8 +415,9 @@ class ArtifactCatalog:
         Candidato = reusable=0 (ya degradado por reevaluate = fallo DEMOSTRADO) y NO protegido.
         Los single-use exitosos quedan reusable=1 -> jamás son candidatos. Las plantillas base
         (protect) nunca se podan: son contexto semilla. `apply=False` -> dry-run para juzgar
-        contra el ponderador antes de destruir; `apply=True` -> borra (artefacto + vector)."""
+        contra el ponderador antes de destruir; `apply=True` -> borra (artefacto + vector + binario)."""
         protect = set(protect or set())
+        bin_dir = Path.home() / ".local" / "share" / "agent-os" / "bin"
         with self._get_connection() as conn:
             rows = conn.execute(
                 "SELECT id, name, success_rate, execution_count, promotion_score "
@@ -432,6 +433,10 @@ class ArtifactCatalog:
                 conn.execute("DELETE FROM artifacts WHERE id = ?", (c["id"],))
                 try:
                     conn.execute("DELETE FROM vec_artifacts WHERE artifact_id = ?", (c["id"],))
+                except Exception:
+                    pass
+                try:
+                    (bin_dir / c["name"]).unlink(missing_ok=True)
                 except Exception:
                     pass
                 removed.append(c["name"])

@@ -184,7 +184,9 @@ class KanbanBoard:
 
     def reevaluate(self) -> Dict[str, Any]:
         """Auto-corrección del conjunto confiable: re-pondera cada artefacto reusable=1 contra sus
-        métricas ACTUALES (telemetría) y degrada (reusable=0) los que ya no alcanzan TRUST.
+        métricas ACTUALES (telemetría) y degrada (reusable=0) solo los que tienen fallo demostrado
+        (éxito < 0.70) o caen a WARNING/REJECT. Los artefactos exitosos que envejecen hacia CAUTION
+        conservan reusable=1 (inmunes al decaimiento por recency).
         Cierra el lazo promoción<->degradación: la confianza se gana y también se pierde."""
         demoted: List[Dict[str, Any]] = []
         kept = 0
@@ -197,12 +199,21 @@ class KanbanBoard:
                 # viene de su éxito histórico y frescura.
                 p = self._ponder(True, True, r["success_rate"], r["execution_count"],
                                  ponder.days_since(r["updated_at"]))
-                if p["verdict"] != "TRUST":
+                # Invariante: solo se degrada ante fallo DEMOSTRADO (éxito < 0.70 con historial)
+                # o degradación severa a WARNING/REJECT. Envejecer a CAUTION con éxito >= 0.70
+                # NO degrada: protege artefactos single-use exitosos del decaimiento temporal.
+                should_demote = (
+                    (r["execution_count"] > 0 and r["success_rate"] < 0.70)
+                    or p["verdict"] in ("WARNING", "REJECT")
+                )
+                if should_demote:
                     conn.execute("UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
                                  (p["effective"], r["name"]))
                     demoted.append({"name": r["name"], "promotion_score": p["effective"],
                                     "verdict": p["verdict"], "success_rate": r["success_rate"]})
                 else:
+                    conn.execute("UPDATE artifacts SET promotion_score=? WHERE name=?",
+                                 (p["effective"], r["name"]))
                     kept += 1
             conn.commit()
         return {"status": "OK", "reevaluated": len(demoted) + kept,

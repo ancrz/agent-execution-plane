@@ -185,3 +185,47 @@ class PlaybookStore:
                 (1 if ok else 0, "SUCCESS" if ok else "FAILED", name),
             )
             conn.commit()
+
+    def prune(self, names: Optional[List[str]] = None, apply: bool = False) -> Dict[str, Any]:
+        """Poda destructiva SEGURA de playbooks con fallo demostrado o explícitamente indicados.
+
+        Candidatos = playbooks con demonstrated failure (run_count > 0 y success_rate < 0.70)
+        O explícitamente listados en `names`.
+        Playbooks con success_rate >= 0.70 (y los de run_count == 0 salvo en names) JAMÁS
+        se podan por antigüedad (inmunes al decaimiento por recency).
+        apply=False (default) -> DRY_RUN; apply=True -> borra de SQLite."""
+        target_names = set(names) if names else None
+        candidates = []
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT name, description, run_count, success_count, updated_at FROM playbooks"
+            ).fetchall()
+            for r in rows:
+                name = r["name"]
+                rc = r["run_count"]
+                sc = r["success_count"]
+                failed = rc > 0 and (sc / rc) < 0.70
+                explicit = target_names is not None and name in target_names
+                if failed or explicit:
+                    candidates.append({
+                        "name": name,
+                        "run_count": rc,
+                        "success_count": sc,
+                        "success_rate": round(sc / rc, 2) if rc > 0 else 0.0,
+                        "reason": "FAILED" if failed else "EXPLICIT_NAME",
+                    })
+
+            if not apply:
+                return {
+                    "status": "DRY_RUN",
+                    "count": len(candidates),
+                    "candidates": candidates,
+                    "note": "Revisa candidatos. Aplica con apply=True para eliminar de SQLite.",
+                }
+
+            removed = []
+            for c in candidates:
+                conn.execute("DELETE FROM playbooks WHERE name = ?", (c["name"],))
+                removed.append(c["name"])
+            conn.commit()
+            return {"status": "PRUNED", "count": len(removed), "removed": removed}

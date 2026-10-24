@@ -161,7 +161,7 @@ def discover(use_case: str, limit: int = 3) -> str:
                                       "proven": t.get("proven")} for t in synth],
             "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
             "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
-                    "plantilla; para un flujo multi-paso, un playbook.",
+                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_prune o playbook_prune.",
         }, indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
@@ -957,6 +957,23 @@ def playbook_run(name: str, vars: Optional[Dict[str, Any]] = None,
     return json.dumps({"status": "OK" if all_ok else "PARTIAL", "playbook": name,
                        "all_ok": all_ok, "steps_run": len(results), "results": results},
                       indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def playbook_prune(names: Optional[List[str]] = None, apply: bool = False) -> str:
+    """
+    [PICO-PLAYBOOK / GC] Poda destructiva SEGURA de playbooks con fallo demostrado (éxito < 0.70)
+    o indicados explícitamente en names. Los playbooks exitosos jamás se podan por antigüedad
+    (inmunes al decaimiento por recency). apply=False (default) es DRY-RUN; apply=True elimina de SQLite.
+    """
+    try:
+        return json.dumps(
+            playbook_store.prune(names=names, apply=apply),
+            indent=2,
+            ensure_ascii=False,
+        )
+    except Exception as e:
+        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
 
 if __name__ == "__main__":
