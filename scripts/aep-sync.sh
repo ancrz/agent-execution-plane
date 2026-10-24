@@ -8,9 +8,10 @@
 #      al launcher estable (aep-mcp-launch.sh). Nunca "enchufa" un server roto (atómico).
 #
 # Uso:
-#   ./scripts/aep-sync.sh           # valida + re-registra una vez
-#   ./scripts/aep-sync.sh --check   # solo valida (CI/pre-commit), no toca registros
-#   ./scripts/aep-sync.sh --watch   # vigila cambios y re-sincroniza automáticamente
+#   ./scripts/aep-sync.sh               # valida + re-registra una vez (Claude desconectado por defecto)
+#   ./scripts/aep-sync.sh --with-claude # valida + re-registra incluyendo Claude Code
+#   ./scripts/aep-sync.sh --check       # solo valida (CI/pre-commit), no toca registros
+#   ./scripts/aep-sync.sh --watch       # vigila cambios y re-sincroniza automáticamente
 # =============================================================================
 set -euo pipefail
 
@@ -30,7 +31,7 @@ resolve_py() {
     if [[ -x "$VENV_PY" ]] && "$VENV_PY" -c "import sqlite_vec" >/dev/null 2>&1; then
         echo "$VENV_PY"
     else
-        echo "$(command -v python3)"
+        command -v python3
     fi
 }
 
@@ -54,7 +55,16 @@ register() {
     local n=0
     if command -v claude >/dev/null 2>&1; then
         claude mcp remove --scope user "$SERVER_NAME" >/dev/null 2>&1 || true
-        claude mcp add --scope user "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1 && { ok "Claude Code re-registrado"; n=$((n+1)); } || warn "Claude: fallo al registrar"
+        if [[ "${AEP_PLUG_CLAUDE:-0}" == "1" ]]; then
+            if claude mcp add --scope user "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1; then
+                ok "Claude Code re-registrado"
+                n=$((n+1))
+            else
+                warn "Claude: fallo al registrar"
+            fi
+        else
+            log "Claude Code: desconectado en este host (auto-plug preservado; activa con AEP_PLUG_CLAUDE=1 o --with-claude)"
+        fi
     fi
     if command -v agy >/dev/null 2>&1; then
         agy mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
@@ -90,11 +100,48 @@ PY
     fi
     if command -v codex >/dev/null 2>&1; then
         codex mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
-        codex mcp add "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1 && { ok "Codex re-registrado"; n=$((n+1)); } || warn "codex: fallo al registrar"
+        if codex mcp add "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1; then
+            local codex_sock="${CODEX_HOME:-$HOME/.codex}/app-server-control/app-server-control.sock"
+            if [[ -S "$codex_sock" ]]; then
+                python3 - "$codex_sock" <<'PY' >/dev/null 2>&1 || true
+import json, subprocess, sys
+sock = sys.argv[1]
+proc = subprocess.Popen(
+    ["codex", "app-server", "proxy", "--sock", sock],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+)
+try:
+    for msg in (
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aep-sync", "version": "1.0.0"}}},
+        {"jsonrpc": "2.0", "method": "initialized", "params": {}},
+        {"jsonrpc": "2.0", "id": 2, "method": "config/mcpServer/reload", "params": None},
+    ):
+        proc.stdin.write(json.dumps(msg) + "\n")
+        proc.stdin.flush()
+    for _ in range(6):
+        line = proc.stdout.readline()
+        if not line or '"id":2' in line or '"id": 2' in line:
+            break
+finally:
+    proc.terminate()
+PY
+                ok "Codex (ChatGPT) re-registrado + hot-reload (config/mcpServer/reload)"
+            else
+                ok "Codex (ChatGPT) re-registrado (~/.codex/config.toml)"
+            fi
+            n=$((n+1))
+        else
+            warn "codex: fallo al registrar"
+        fi
     fi
     if command -v gemini >/dev/null 2>&1; then
         gemini mcp remove "$SERVER_NAME" >/dev/null 2>&1 || true
-        gemini mcp add "$SERVER_NAME" "$LAUNCHER" >/dev/null 2>&1 && { ok "Gemini CLI re-registrado"; n=$((n+1)); } || warn "gemini: fallo al registrar"
+        if gemini mcp add "$SERVER_NAME" "$LAUNCHER" >/dev/null 2>&1; then
+            ok "Gemini CLI re-registrado"
+            n=$((n+1))
+        else
+            warn "gemini: fallo al registrar"
+        fi
     fi
     ok "Auto-plug completado en $n cliente(s). (Las sesiones activas aplican al reiniciar.)"
 }
@@ -118,8 +165,9 @@ watch_mode() {
 }
 
 case "${1:-}" in
-    --check) validate ;;
-    --watch) watch_mode ;;
-    "")      sync_once ;;
-    *)       err "Uso: aep-sync.sh [--check|--watch]"; exit 2 ;;
+    --check)       validate ;;
+    --watch)       watch_mode ;;
+    --with-claude) AEP_PLUG_CLAUDE=1 sync_once ;;
+    "")            sync_once ;;
+    *)             err "Uso: aep-sync.sh [--check|--watch|--with-claude]"; exit 2 ;;
 esac
