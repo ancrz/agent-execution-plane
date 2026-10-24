@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine.db import get_db_connection
 from engine.privilege import capability_tier, privilege_prefix
 
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
@@ -48,13 +49,7 @@ class CrashRouter:
             conn.commit()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            conn.execute("PRAGMA busy_timeout = 5000")  # comparte artifacts.db (WAL) sin locks
-        except Exception:
-            pass
-        return conn
+        return get_db_connection(self.db_path, row_factory=True, load_vec=False)
 
     def sync_coredumps(self, limit: int = 100) -> int:
         """Lee los coredumps recientes y registra los nuevos. Devuelve cuántos nuevos.

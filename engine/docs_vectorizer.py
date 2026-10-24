@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from engine.db import get_db_connection
 from engine.embedder import EMBEDDING_DIM, get_instance
 
 try:
@@ -48,16 +49,7 @@ class ManPagesVectorizer:
             conn.commit()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        if sqlite_vec is not None:
-            try:
-                conn.enable_load_extension(True)
-                sqlite_vec.load(conn)
-                conn.enable_load_extension(False)
-            except Exception:
-                pass
-        return conn
+        return get_db_connection(self.db_path, row_factory=True, load_vec=True)
 
     def _init_vec(self, conn: sqlite3.Connection) -> bool:
         if sqlite_vec is None:

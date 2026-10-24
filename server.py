@@ -233,12 +233,15 @@ def artifact_catalog(
             before = catalog.index_coverage()
             result = catalog.reindex(force=force)
             after = catalog.index_coverage()
+            storage_tel = catalog.storage_telemetry()
             return json.dumps(
                 {
                     "status": result.get("status", "OK"),
                     "reindex": result,
                     "coverage_before": before,
                     "coverage_after": after,
+                    "storage_engine": storage_tel,
+                    "db_telemetry": storage_tel,
                 },
                 indent=2,
                 ensure_ascii=False,

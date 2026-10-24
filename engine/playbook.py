@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from engine import ponder  # motor de ponderación COMPARTIDO (misma vara que los artefactos)
+from engine.db import get_db_connection
 from engine.topos_guard import ToposGuard, ToposVerdict
 
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
@@ -49,13 +50,7 @@ class PlaybookStore:
             conn.commit()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            conn.execute("PRAGMA busy_timeout = 5000")  # comparte artifacts.db (WAL)
-        except Exception:
-            pass
-        return conn
+        return get_db_connection(self.db_path, row_factory=True, load_vec=False)
 
     # ------------------------------------------------------------------ validación DAG
     @staticmethod

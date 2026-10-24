@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from engine import ponder
+from engine.db import get_db_connection, get_db_telemetry
 from engine.embedder import EMBEDDING_DIM, get_instance
 
 # Import fail-soft de sqlite-vec (extensión vectorial). Si falta, el tier semántico se desactiva.
@@ -44,39 +45,17 @@ class ArtifactCatalog:
         self._init_db()
 
     # ------------------------------------------------------------------ conexión
-    def _try_load_vec(self, conn: sqlite3.Connection) -> bool:
-        """Carga la extensión vec0 en ESTA conexión (las extensiones son por-conexión).
-        Silencioso y sin efectos secundarios sobre el estado de la instancia."""
-        if sqlite_vec is None:
-            return False
-        try:
-            conn.enable_load_extension(True)
-            sqlite_vec.load(conn)
-            conn.enable_load_extension(False)
-            return True
-        except Exception:
-            return False
-
-    def _apply_pragmas(self, conn: sqlite3.Connection) -> None:
-        """Pragmas por-conexión para el patrón 'lee mucho, escribe poco' del agente.
-        busy_timeout evita 'database is locked' con varios módulos + MCP + aep-sync."""
-        try:
-            conn.execute("PRAGMA busy_timeout = 5000")       # 5s: concurrencia sin errores de lock
-            conn.execute("PRAGMA foreign_keys = ON")          # respeta ON DELETE CASCADE (métricas)
-            conn.execute("PRAGMA synchronous = NORMAL")       # seguro bajo WAL, mucho más rápido en escritura
-            conn.execute("PRAGMA mmap_size = 268435456")      # 256MB mmap: lecturas de embeddings sin copia
-            conn.execute("PRAGMA cache_size = -8000")         # 8MB de caché de páginas
-        except Exception:
-            pass  # pragmas son best-effort; nunca deben romper la conexión
-
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        self._apply_pragmas(conn)
-        # Carga por-conexión requerida para que vec_artifacts sea consultable.
-        # NO escribe self._vec_available (fix Ontos HF-2 / CF-2).
-        self._try_load_vec(conn)
-        return conn
+        """Obtiene conexión estandarizada con mmap de 256MB, caché de 64MB y sqlite-vec."""
+        return get_db_connection(self.db_path, row_factory=True, load_vec=True)
+
+    def storage_telemetry(self) -> Dict[str, Any]:
+        """Telemetría del motor de almacenamiento SQLite (mmap, caché, WAL)."""
+        try:
+            with self._get_connection() as conn:
+                return get_db_telemetry(conn)
+        except Exception as e:
+            return {"status": "ERROR", "error": str(e)}
 
     # ------------------------------------------------------------------ init/migración
     def _init_db(self):
@@ -477,7 +456,7 @@ class ArtifactCatalog:
             pending = [r for r in rows if force or r["id"] not in have]
             if not pending:
                 return {"status": "OK", "indexed": 0, "skipped": len(rows), "total": len(rows),
-                        "note": "índice ya completo"}
+                        "note": "índice ya completo", "db_telemetry": get_db_telemetry(conn)}
             embedder = get_instance()  # solo se carga el modelo si hay trabajo real
             if not embedder.is_available:
                 return {"status": "DEGRADED", "reason": "embedder no disponible", "indexed": 0}
@@ -497,7 +476,7 @@ class ArtifactCatalog:
                     pass
             conn.commit()
         return {"status": "OK", "indexed": indexed, "skipped": len(rows) - len(pending),
-                "total": len(rows)}
+                "total": len(rows), "db_telemetry": get_db_telemetry(conn)}
 
 
     def get_binary_blob(self, name: str) -> Optional[bytes]:
