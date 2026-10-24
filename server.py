@@ -127,7 +127,7 @@ def discover(use_case: str, limit: int = 3) -> str:
                                       "proven": t.get("proven")} for t in synth],
             "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
             "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
-                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_prune.",
+                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_run(action='prune').",
         }, indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
@@ -867,115 +867,127 @@ _PLAYBOOK_FAIL = {"ERROR", "EXEC_FAILED", "BUILD_ERROR", "LINT_ERROR",
 
 
 @mcp.tool()
-def playbook_create(name: str, description: str, steps: List[Dict[str, Any]],
-                    params_contract: Optional[List[Dict[str, Any]]] = None) -> str:
+def playbook_run(
+    action: str = "run",
+    name: Optional[str] = None,
+    vars: Optional[Dict[str, Any]] = None,
+    params: Optional[Dict[str, Any]] = None,
+    stop_on_error: bool = True,
+    description: Optional[str] = None,
+    intent_description: Optional[str] = None,
+    steps: Optional[List[Dict[str, Any]]] = None,
+    params_contract: Optional[List[Dict[str, Any]]] = None,
+    names: Optional[List[str]] = None,
+    apply: bool = False,
+) -> str:
     """
-    [PICO-PLAYBOOK] Define una automatización PARAMETRIZABLE: una secuencia/DAG de pasos, cada
-    uno {id?, tool, params?, depends_on?}. Los `params` pueden llevar marcadores `${var}` que se
-    hidratan al ejecutar. `params_contract` declara las variables [{name, type?, required?,
-    default?}] (RE-as-SDD de Jinja: defaults + requeridos estrictos + tipos). El DAG se valida
-    con topos_guard (cero co-dependencias) antes de guardarse. Ej: E2E con ${url}.
-    tools encadenables: artifact_query/_catalog/_execute_in_ram, async_job_inspect, sandbox_run, aep_ctl,
-    check_crash_alerts, diagnose_system_crashes, query_system_docs, visual_inspect,
-    kernel_trace, topos_audit_dag.
+    [PICO-PLAYBOOK UNIFICADO] Orquestación y ejecución de automatizaciones DAG parametrizables.
+    action:
+      - 'run' (default): instancia y ejecuta un playbook en orden topológico (requiere `name`; `vars` o `params` hidrata marcadores `${var}`).
+      - 'create': define una automatización parametrizable y valida su DAG (requiere `name`, `description` y `steps`).
+      - 'list': lista los playbooks guardados con su tasa de éxito, número de pasos y contratos.
+      - 'prune': poda destructiva segura de playbooks con fallo demostrado (éxito < 0.70) o explícitos en `names` (apply=False -> DRY_RUN).
     """
+    act = (action or "run").strip().lower()
+    effective_vars = vars if vars is not None else (params or {})
+    effective_desc = (description or intent_description or "").strip()
     try:
-        # LINT del playbook: cada paso debe referenciar un tool de la whitelist encadenable
-        # (además de la validación DAG/topos que hace el store). Falla en creación, no en run.
-        allowed = set(_playbook_dispatch())
-        bad = sorted({s.get("tool") for s in steps
-                      if isinstance(s, dict) and s.get("tool") not in allowed})
-        if bad:
+        if act == "run":
+            if not (name or "").strip():
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'run' requiere 'name'."
+                }, indent=2, ensure_ascii=False)
+            pb = playbook_store.get(name.strip())
+            if not pb:
+                return json.dumps({
+                    "status": "ERROR",
+                    "error": f"playbook '{name.strip()}' no existe"
+                }, indent=2, ensure_ascii=False)
+
+            try:
+                resolved = resolve_params(pb.get("params_contract") or [], effective_vars)
+                hydrated_steps = hydrate_struct(pb["steps"], resolved, strict=True)
+            except ValueError as e:
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": str(e),
+                    "contract": pb.get("params_contract") or []
+                }, indent=2, ensure_ascii=False)
+
+            v = PlaybookStore.validate_and_order(hydrated_steps)
+            if not v.get("ok"):
+                return json.dumps({
+                    "status": "BLOCKED",
+                    "verdict": v.get("verdict"),
+                    "logs": v.get("logs")
+                }, indent=2, ensure_ascii=False)
+
+            dispatch = _playbook_dispatch()
+            results: List[Dict[str, Any]] = []
+            all_ok = True
+            for step in v["ordered_steps"]:
+                tool, step_params = step["tool"], step.get("params", {})
+                fn = dispatch.get(tool)
+                if fn is None:
+                    results.append({"id": step["id"], "tool": tool, "status": "NOT_ALLOWED", "ok": False})
+                    all_ok = False
+                    if stop_on_error:
+                        break
+                    continue
+                try:
+                    raw = fn(**step_params)
+                    out = json.loads(raw) if isinstance(raw, str) else raw
+                    st = out.get("status", "OK") if isinstance(out, dict) else "OK"
+                except Exception as e:
+                    st, out = "ERROR", {"error": str(e)}
+                ok = st not in _PLAYBOOK_FAIL
+                results.append({"id": step["id"], "tool": tool, "status": st, "ok": ok, "output": out})
+                if not ok:
+                    all_ok = False
+                    if stop_on_error:
+                        break
+
+            playbook_store.record_run(name.strip(), all_ok)
+            return json.dumps({
+                "status": "OK" if all_ok else "PARTIAL",
+                "playbook": name.strip(),
+                "all_ok": all_ok,
+                "steps_run": len(results),
+                "results": results
+            }, indent=2, ensure_ascii=False)
+
+        elif act == "create":
+            if not (name or "").strip() or not effective_desc or not steps:
+                return json.dumps({
+                    "status": "PARAM_ERROR",
+                    "error": "Acción 'create' requiere 'name', 'description' y 'steps'."
+                }, indent=2, ensure_ascii=False)
+            allowed = set(_playbook_dispatch())
+            bad = sorted({s.get("tool") for s in steps if isinstance(s, dict) and s.get("tool") not in allowed})
+            if bad:
+                return json.dumps({
+                    "status": "LINT_ERROR",
+                    "invalid_tools": bad,
+                    "allowed_tools": sorted(allowed)
+                }, indent=2, ensure_ascii=False)
             return json.dumps(
-                {"status": "LINT_ERROR", "invalid_tools": bad,
-                 "allowed_tools": sorted(allowed)}, indent=2, ensure_ascii=False)
-        return json.dumps(
-            playbook_store.create(name, description, steps, params_contract),
-            indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+                playbook_store.create(name.strip(), effective_desc, steps, params_contract),
+                indent=2, ensure_ascii=False
+            )
 
+        elif act == "list":
+            return json.dumps({"status": "OK", "playbooks": playbook_store.list()}, indent=2, ensure_ascii=False)
 
-@mcp.tool()
-def playbook_list() -> str:
-    """[PICO-PLAYBOOK] Lista los playbooks guardados con su tasa de éxito y nº de pasos."""
-    try:
-        return json.dumps({"status": "OK", "playbooks": playbook_store.list()}, indent=2, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+        elif act == "prune":
+            return json.dumps(playbook_store.prune(names=names, apply=apply), indent=2, ensure_ascii=False)
 
-
-@mcp.tool()
-def playbook_run(name: str, vars: Optional[Dict[str, Any]] = None,
-                 stop_on_error: bool = True) -> str:
-    """
-    [PICO-PLAYBOOK] Instancia y ejecuta un playbook. `vars` hidrata los marcadores `${var}` de
-    los pasos contra el contrato del playbook (defaults + requeridos estrictos + tipos). Luego
-    ejecuta en orden topológico, despachando cada paso al tool real y recogiendo resultados
-    tipados. Registra la corrida (run_count/success) para ponderar la automatización.
-    stop_on_error corta en el primer paso fallido.
-    """
-    pb = playbook_store.get(name)
-    if not pb:
-        return json.dumps({"status": "ERROR", "error": f"playbook '{name}' no existe"}, indent=2)
-
-    # Hidratación RE-as-SDD: resuelve vars contra el contrato (StrictUndefined/defaults/tipos)
-    # y sustituye estructuralmente `${var}` en los params de los pasos (sin eval).
-    try:
-        resolved = resolve_params(pb.get("params_contract") or [], vars or {})
-        steps = hydrate_struct(pb["steps"], resolved, strict=True)
-    except ValueError as e:
-        return json.dumps({"status": "PARAM_ERROR", "error": str(e),
-                           "contract": pb.get("params_contract") or []}, indent=2, ensure_ascii=False)
-
-    v = PlaybookStore.validate_and_order(steps)
-    if not v.get("ok"):
-        return json.dumps({"status": "BLOCKED", "verdict": v.get("verdict"), "logs": v.get("logs")}, indent=2)
-
-    dispatch = _playbook_dispatch()
-    results: List[Dict[str, Any]] = []
-    all_ok = True
-    for step in v["ordered_steps"]:
-        tool, params = step["tool"], step.get("params", {})
-        fn = dispatch.get(tool)
-        if fn is None:
-            results.append({"id": step["id"], "tool": tool, "status": "NOT_ALLOWED", "ok": False})
-            all_ok = False
-            if stop_on_error:
-                break
-            continue
-        try:
-            raw = fn(**params)
-            out = json.loads(raw) if isinstance(raw, str) else raw
-            st = out.get("status", "OK") if isinstance(out, dict) else "OK"
-        except Exception as e:
-            st, out = "ERROR", {"error": str(e)}
-        ok = st not in _PLAYBOOK_FAIL
-        results.append({"id": step["id"], "tool": tool, "status": st, "ok": ok, "output": out})
-        if not ok:
-            all_ok = False
-            if stop_on_error:
-                break
-
-    playbook_store.record_run(name, all_ok)
-    return json.dumps({"status": "OK" if all_ok else "PARTIAL", "playbook": name,
-                       "all_ok": all_ok, "steps_run": len(results), "results": results},
-                      indent=2, ensure_ascii=False)
-
-
-@mcp.tool()
-def playbook_prune(names: Optional[List[str]] = None, apply: bool = False) -> str:
-    """
-    [PICO-PLAYBOOK / GC] Poda destructiva SEGURA de playbooks con fallo demostrado (éxito < 0.70)
-    o indicados explícitamente en names. Los playbooks exitosos jamás se podan por antigüedad
-    (inmunes al decaimiento por recency). apply=False (default) es DRY-RUN; apply=True elimina de SQLite.
-    """
-    try:
-        return json.dumps(
-            playbook_store.prune(names=names, apply=apply),
-            indent=2,
-            ensure_ascii=False,
-        )
+        else:
+            return json.dumps({
+                "status": "INVALID_ACTION",
+                "error": f"Acción '{action}' no reconocida. Acciones válidas: 'run', 'create', 'list', 'prune'.",
+                "valid_actions": ["run", "create", "list", "prune"]
+            }, indent=2, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 

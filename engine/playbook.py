@@ -220,7 +220,7 @@ class PlaybookStore:
                     "status": "DRY_RUN",
                     "count": len(candidates),
                     "candidates": candidates,
-                    "note": "Revisa candidatos. Aplica con apply=True para eliminar de SQLite.",
+                    "note": "Revisa candidatos. Aplica con playbook_run(action='prune', apply=True) para eliminar de SQLite.",
                 }
 
             removed = []
