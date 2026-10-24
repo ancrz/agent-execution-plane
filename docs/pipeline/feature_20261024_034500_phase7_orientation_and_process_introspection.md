@@ -226,19 +226,27 @@ flowchart TD
           return json.dumps(capability_manifest(), indent=2, ensure_ascii=False)
       elif act == "discover":
           if not use_case.strip():
-              return json.dumps({
-                  "status": "PARAM_ERROR",
-                  "error": "Acción 'discover' requiere el parámetro 'use_case' no vacío.",
-                  "valid_actions": ["discover", "capabilities"],
-              }, indent=2, ensure_ascii=False)
+              return json.dumps(
+                  {
+                      "status": "PARAM_ERROR",
+                      "error": "Acción 'discover' requiere el parámetro 'use_case' no vacío.",
+                      "valid_actions": ["discover", "capabilities"],
+                  },
+                  indent=2,
+                  ensure_ascii=False,
+              )
           # Execute existing discover ranking logic
           ...
       else:
-          return json.dumps({
-              "status": "INVALID_ACTION",
-              "error": f"Acción '{action}' no válida para discover.",
-              "valid_actions": ["discover", "capabilities"],
-          }, indent=2, ensure_ascii=False)
+          return json.dumps(
+              {
+                  "status": "INVALID_ACTION",
+                  "error": f"Acción '{action}' no válida para discover.",
+                  "valid_actions": ["discover", "capabilities"],
+              },
+              indent=2,
+              ensure_ascii=False,
+          )
   ```
   Update server `_INSTRUCTIONS`: reference `discover(action="capabilities")` as first recommended call.
 - **Depends On**: `["TASK-01"]`

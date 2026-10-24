@@ -135,10 +135,11 @@ Ontos completed the Topos structural integrity audit of the Phase 1 Execution Pl
   1. **Strict Parameter Validation for `query`**: Required that `action="query"` strictly validate that `intent` (or `query`) and `category` are non-empty, returning `PARAM_ERROR` instead of silent miss:
      ```python
      if not eff_intent or not category:
-         return json.dumps({
-             "status": "PARAM_ERROR",
-             "error": "Acción 'query' requiere los parámetros 'intent' (o 'query') y 'category'."
-         }, indent=2, ensure_ascii=False)
+         return json.dumps(
+             {"status": "PARAM_ERROR", "error": "Acción 'query' requiere los parámetros 'intent' (o 'query') y 'category'."},
+             indent=2,
+             ensure_ascii=False,
+         )
      ```
   2. **Bilingual Keyword Enrichment**: Augmented `_CAP_KEYWORDS["semantic_memory"]` in `engine/privilege.py` with `consultar`, `podar`, `sanar` to guarantee seamless Spanish/English discovery routing in `discover(use_case)`.
 

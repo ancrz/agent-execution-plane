@@ -1,9 +1,9 @@
-# Feature Chain Rollup: Pipeline Milestone History (Documents 1–12)
+# Feature Chain Rollup: Pipeline Milestone History (Documents 1–14)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T11:00:00Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 12 (Hardening, Secret Masking & Full README Sync Complete)
-- **Current Active Document**: [`feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md`](feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T18:31:40Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 14 (Code Modernization, Ruff SAST, AnyIO & Anti-Deadlock SQLite Complete)
+- **Current Active Document**: [`feature_20261024_171500_code_modernization_and_concurrency_optimization.md`](feature_20261024_171500_code_modernization_and_concurrency_optimization.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 12)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 14)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -28,8 +28,10 @@ flowchart LR
         D10["Doc 10: 025400<br/>(Phase 6 Crash Forensics & Hardening: 15 Tools)"]
         D11["Doc 11: 034500<br/>(Phase 7 Orientation & Introspection Alignment: 15 Tools Parity)"]
         D12["Doc 12: 102000<br/>(Runtime Hardening, Secret Masking & Full README Sync: 7 Gaps Closed)"]
+        D13["Doc 13: 115500<br/>(Memory-Mapped Hybrid SQLite Optimization: PRAGMA mmap_size 256MB)"]
+        D14["Doc 14: 171500<br/>(Code Modernization, Ruff SAST, AnyIO & Anti-Deadlock SQLite)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14
     end
 ```
 
@@ -52,6 +54,7 @@ flowchart LR
 | **11** | `feature_20261024_034500_phase7_orientation_and_process_introspection.md` | Complete Tool Consolidation Roadmap (33 → 15 Tools) — Phase 7: Orientation & Process Introspection Alignment. Unify `discover` and `aep_capabilities` into polymorphic `discover(use_case, action="discover"|"capabilities", limit=3)`. Decouple `process_introspection` from `artifact_execute_in_ram` into dedicated `process_inspect(pid=0, limit=100)`. Synchronize `_CAPABILITIES` (16 capabilities) and bilingual `_CAP_KEYWORDS`. Kanban Task 108 promoted to `PROMOTED` at `0.8208 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | 100% 1:1 capability mapping (GAP-CP-01, GAP-CP-02, GAP-CP-03 closed); fail-soft process introspection (`/proc/PID/fd` safe classification into socket/pipe/device/file); zero unhandled exceptions on PID termination or permission denials; backward compatibility in playbook dispatchers. Roadmap 100% Complete. |
 | **12** | `feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md` | Post-Consolidation Runtime Hardening, Secret Masking & Full README Sync. Remediated 7 operational gaps: GAP-SEC-01 (secret masking in logs and outputs), GAP-RT-01 (visual_inspect event loop decoupling via ThreadPoolExecutor), GAP-RT-02 (coredumpctl check harmonization across server.py and crash_router.py with exit code 1 handling), GAP-DX-01 (optional category in artifact_catalog query for cross-category kNN search), GAP-DX-02 (socket-to-PID correlation in aep_ctl network listeners), GAP-DX-03 (kanban demotion ergonomics supporting task_id), GAP-DOC-01 (full README sync to 15-tool bundle and diagram harmonization). Kanban Task 109 promoted to `PROMOTED` at `0.9949 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | Zero credential leakage in outputs and Pueue dumps; zero event loop collisions in headless Playwright; coredumpctl returns clean empty list when no dumps exist; artifact catalog supports global cross-category search; network listeners correlate to PIDs and processes; kanban demote accepts task_id or artifact_name; README.md in 100% sync with active FastMCP tools; Semgrep 0 findings across 1,198 rules. |
 | **13** | `feature_20261024_115500_mmap_hybrid_sqlite_ram_persistence.md` | Memory-Mapped Hybrid SQLite Optimization (PRAGMA mmap_size 256MB & 64MB Cache). Standardized all 5 SQLite touchpoints (`catalog.py`, `kanban.py`, `crash_router.py`, `playbook.py`, `docs_vectorizer.py`) onto centralized factory `engine/db.py`. Enforces 256MB mmap zero-copy reads, 64MB RAM page cache, WAL journal mode, 10s busy timeout, normal synchronous, memory temp_store. Exposed live `storage_engine` and `db_telemetry` in `artifact_catalog(action="reindex")`. Passed 1,000-op multithreaded WAL stress test with 0 lock errors in 0.125s. Kanban Task 110 promoted to `PROMOTED` at `0.9958 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | RAM-speed vector searches and metadata queries backed by 100% Linux kernel zero-copy memory mapping; multi-agent concurrent access without lock contention; 100% ACID persistence on disk for cross-agent reuse; Semgrep 0 findings across 1,198 rules. |
+| **14** | `feature_20261024_171500_code_modernization_and_concurrency_optimization.md` | Milestone ONT-10: Python 3.12 code modernization, strict Ruff SAST adherence (0 errors across E,W,F,I,UP,S,BLE,PLW,FURB), FastMCP stdio concurrency offloading via AnyIO worker thread pool (<2ms loop jitter), segregated RO/RW SQLite factory (`get_ro_connection` mode=ro vs `get_rw_connection` autocommit), explicit `transaction_immediate` (`BEGIN IMMEDIATE`) anti-deadlock context manager, WAL autocheckpoint tuning (1000 pages ~4MB), PLW1510 subprocess hardening with POSIX FD isolation (`pass_fds=(fd,)`, `timeout=30`, `close_fds=True`). Passed 6 Dokimos verification gates (1,000 concurrent ops in 0.14s with 0 lock errors); Task 111 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | Multi-agent concurrent FastMCP stdio requests never stall event loop; SQLite lock-upgrade deadlocks eliminated; zero silent exception swallows; zero unchecked subprocesses; Semgrep 0 findings across 1,352 rules. |
 
 
 ---
@@ -75,3 +78,11 @@ flowchart LR
    - Long-running daemons must never be launched through `artifact_execute_in_ram`.
    - Volatile RAM binary executions must explicitly pass only intended descriptors via `pass_fds=(fd,)`, enforce strict timeouts (`timeout=30`), and guarantee cleanup in `finally` blocks.
    - Background daemons (like `pueued`) must be spawned detached with `stdin=DEVNULL`, `stdout=DEVNULL`, `stderr=DEVNULL`, `close_fds=True`, and `start_new_session=True` to prevent deadlocks on inherited communication pipes.
+6. **Hot SQLite Anti-Deadlock Invariant**:
+   - Readers strictly use read-only URIs (`file:...?mode=ro`, `query_only = ON`) and never acquire write locks or contend with writer transactions.
+   - Writers configure autocommit mode (`isolation_level = None`) and execute write transactions exclusively through `transaction_immediate(conn)` which issues `BEGIN IMMEDIATE` upfront, acquiring the RESERVED lock at transaction start and eliminating lock upgrade deadlocks.
+   - `PRAGMA wal_autocheckpoint = 1000` bounds WAL files to ~4MB, preventing fsync latency spikes.
+   - Rejection of `multiprocessing` forks with open SQLite WAL file descriptors prevents POSIX lock and shared memory corruption.
+7. **FastMCP Event Loop Concurrency Invariant**:
+   - All 15 FastMCP tools in `server.py` are declared as non-blocking `async def` coroutines.
+   - Synchronous blocking calls (SQLite queries, vector similarity scans, disk I/O, subprocess execution) must be offloaded to worker threads via `await anyio.to_thread.run_sync()`, guaranteeing stdio JSON-RPC loop jitter remains <2.0ms.
