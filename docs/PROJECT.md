@@ -16,7 +16,7 @@ AEP solves these systemic bottlenecks through:
 4. **Hybrid Semantic Memory (sqlite-vec)**: Dual-signal retrieval matching capabilities and artifacts via `engine/matcher.py` (BM25F) and `engine/ponder.py` (multidimensional trust & confidence scoring).
 5. **Pico Engineering Automation Trilogies**:
    - **Pico-Ansible / Hydrator**: Go code synthesis from curated templates.
-   - **Pico-Jenkins / Quality Gate**: Static analysis (`go vet` / `golangci-lint`) and compilation.
+   - **Pico-Jenkins / Quality Gate**: Static analysis (`go vet` / `golangci-lint`) and compilation with 1-step template-to-binary shortcut.
    - **Pico-Kanban**: Autonomous task state machine (`BACKLOG` -> `SYNTHESIZED` -> `LINTED` -> `CANARY` -> `PROMOTED` / `REJECTED`).
    - **Pico-Playbooks**: Topos-validated DAG workflow orchestration with variable contracts.
 
@@ -34,14 +34,15 @@ AEP solves these systemic bottlenecks through:
    - Tool consolidation shrinks tool sprawl while maintaining 100% capability reach.
    - Two-tier privilege model (`FULL` via passwordless `sudo -n` vs. `DIMINISHED` self-scope) mapped to Unix octal permissions (`rwx`).
    - Non-recursion security guarantee: automation tools cannot invoke themselves recursively within playbooks.
+   - Ergonomic shortcuts: atomic template-to-binary compilation in RAM.
 
 ## 3. Active Roadmap: Complete Tool Consolidation (33 → 16 Tools)
 
 AEP is undergoing a structured 7-phase consolidation roadmap to achieve 1:1 parity between FastMCP tool endpoints and system capabilities:
 - **Phase 1: Semantic Memory** (`33 -> 30 tools`) — VERIFIED & COMMITTED.
 - **Phase 2: Task Management** (`30 -> 23 tools`) — VERIFIED & COMMITTED.
-- **Phase 3: Automation** (`23 -> 20 tools`) — VERIFIED & COMPLETED.
-- **Phase 4: Artifact Synthesis** (`20 -> 17 tools`) — NEXT TARGET.
-- **Phase 5: Async Dispatch** (`17 -> 16 tools`) — Queued.
+- **Phase 3: Automation** (`23 -> 20 tools`) — VERIFIED & COMMITTED.
+- **Phase 4: Artifact Synthesis** (`20 -> 17 tools`) — VERIFIED & COMPLETED.
+- **Phase 5: Async Dispatch** (`17 -> 16 tools`) — NEXT TARGET.
 - **Phase 6: Crash Forensics** (`16 -> 15 tools`) — Queued.
 - **Phase 7: Orientation & Introspection Alignment** (`15 -> 16 tools`) — Queued (Target: 16 Tools / 16 Capabilities).
