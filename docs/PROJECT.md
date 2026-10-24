@@ -35,6 +35,10 @@ AEP solves these systemic bottlenecks through:
    - Two-tier privilege model (`FULL` via passwordless `sudo -n` vs. `DIMINISHED` self-scope) mapped to Unix octal permissions (`rwx`).
    - Non-recursion security guarantee: automation tools cannot invoke themselves recursively within playbooks.
    - Ergonomic shortcuts: atomic template-to-binary compilation in RAM.
+5. **Subprocess & Descriptor Isolation**:
+   - Background daemons must never be launched through `artifact_execute_in_ram`.
+   - Volatile in-RAM binary executions explicitly isolate open file descriptors (`pass_fds=(fd,)`) and enforce strict timeouts (`timeout=30`).
+   - Daemons (`pueued`) must be spawned detached using `DEVNULL` stdio, `close_fds=True`, and `start_new_session=True` to prevent deadlocks on inherited communication pipes.
 
 ## 3. Active Roadmap: Complete Tool Consolidation (33 → 16 Tools)
 
@@ -42,7 +46,7 @@ AEP is undergoing a structured 7-phase consolidation roadmap to achieve 1:1 pari
 - **Phase 1: Semantic Memory** (`33 -> 30 tools`) — VERIFIED & COMMITTED.
 - **Phase 2: Task Management** (`30 -> 23 tools`) — VERIFIED & COMMITTED.
 - **Phase 3: Automation** (`23 -> 20 tools`) — VERIFIED & COMMITTED.
-- **Phase 4: Artifact Synthesis** (`20 -> 17 tools`) — VERIFIED & COMPLETED.
-- **Phase 5: Async Dispatch** (`17 -> 16 tools`) — NEXT TARGET.
-- **Phase 6: Crash Forensics** (`16 -> 15 tools`) — Queued.
-- **Phase 7: Orientation & Introspection Alignment** (`15 -> 16 tools`) — Queued (Target: 16 Tools / 16 Capabilities).
+- **Phase 4: Artifact Synthesis** (`20 -> 17 tools`) — VERIFIED & COMMITTED.
+- **Phase 5: Async Dispatch & Subprocess Hardening** (`17 -> 16 tools`) — VERIFIED & COMPLETED.
+- **Phase 6: Crash Forensics** (`16 -> 15 tools`) — NEXT TARGET.
+- **Phase 7: Orientation & Introspection Alignment** (`15 -> 16 tools`) — Queued (Target: 16 Tools / 16 Capabilities).\n

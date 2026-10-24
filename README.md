@@ -21,8 +21,8 @@
    - [Desglose Arquitectónico de las 4 Capas](#desglose-arquitectónico-de-las-4-capas)
    - [Especificación Detallada de Capas](#especificación-detallada-de-capas)
 3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
-4. [Catálogo de 17 Herramientas MCP](#4-catálogo-de-17-herramientas-mcp)
-   - [Tablas de Referencia Maestra de las 17 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-17-herramientas-fastmcp)
+4. [Catálogo de 16 Herramientas MCP](#4-catálogo-de-16-herramientas-mcp)
+   - [Tablas de Referencia Maestra de las 16 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-16-herramientas-fastmcp)
    - [Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)](#ciclo-de-vida-y-encadenamiento-de-capacidades-skill-chaining)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
    - [Persistencia y cómo la lee el agente](#persistencia-y-cómo-la-lee-el-agente)
@@ -128,7 +128,7 @@ flowchart TD
 
 | Capa | Nivel de Abstracción | Módulos & Componentes | Primitivas Subyacentes & Protocolos | Garantías & Rol en el Runtime |
 | :---: | :--- | :--- | :--- | :--- |
-| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 17 herramientas atómicas, tipadas y no-bloqueantes. |
+| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 16 herramientas atómicas, tipadas y no-bloqueantes. |
 | **Capa 2** | **Motores de Ejecución y Memoria (`engine/`)** | `catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`) | Núcleo de lógica agéntica: memoria semántica híbrida, gestión de tareas Pico-Kanban con ponderación multidimensional, enrutamiento proactivo de coredumps, verificación topológica de grafos DAG y gobierno de privilegios en dos tiers (`FULL`/`DIMINISHED`). |
 | **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`). |
 | **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald` | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace` | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes y telemetría de kernel no-invasiva. |
@@ -219,7 +219,7 @@ flowchart LR
 
 ---
 
-## 4. Catálogo de 17 Herramientas MCP
+## 4. Catálogo de 16 Herramientas MCP
 
 ```mermaid
 flowchart TD
@@ -255,9 +255,9 @@ flowchart TD
     end
 ```
 
-### Tablas de Referencia Maestra de las 17 Herramientas FastMCP
+### Tablas de Referencia Maestra de las 16 Herramientas FastMCP
 
-El plano expone 17 herramientas RPC organizadas en dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
+El plano expone 16 herramientas RPC organizadas en dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
 
 #### Punto de Entrada & Manifiesto de Autonomía (Root)
 
@@ -280,13 +280,12 @@ El plano expone 17 herramientas RPC organizadas en dominios operacionales más e
 | :--- | :---: | :--- | :--- | :--- | :--- |
 | `kanban_board` | `DIMINISHED` | `kanban_board(action: str = "board", include_archived: bool = False, task_id: Optional[int] = None, title: str = "", intent: str = "", category: str = "", artifact_name: Optional[str] = None, to_state: str = "", lint_passed: Optional[bool] = None, canary_passed: Optional[bool] = None, note: Optional[str] = None, reason: Optional[str] = None, states: Optional[List[str]] = None, max_score: Optional[float] = None, apply: bool = False) -> str` | Punto único para consultar tablero (`board`), crear tareas (`create`), avanzar estados (`advance`), evaluar y promover (`promote`), degradar explícitamente (`demote`), reevaluar flota (`reevaluate`) y archivar/desarchivar de forma reversible (`archive`/`unarchive`). | JSON tipado dependiente de la acción (`status`, `lanes`, `task_id`, `promotion_score`, `verdict`, `candidates`). | Respuestas estructuradas con `status: "PARAM_ERROR"` ante parámetros faltantes e `status: "INVALID_ACTION"` ante acciones no reconocidas. Cero excepciones no controladas. |
 
-#### Dominio 3: Aislamiento & Ejecución Asíncrona (3 Herramientas)
+#### Dominio 3: Aislamiento & Ejecución Asíncrona (2 Herramientas)
 
 | Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
 | :--- | :---: | :--- | :--- | :--- | :--- |
 | `sandbox_run` | `DIMINISHED` | `sandbox_run(command: str, share_net: bool = True) -> str` | Ejecuta comandos arbitrarios dentro de un sandbox `bwrap` efímero con directorios raíz de solo-lectura (`/usr`, `/bin`, `/lib`), un `/tmp` en RAM tmpfs y namespaces de PID/red aislados. | `{"exit_code": int, "stdout": str, "stderr": str}`<br/>Error: `{"status": "ERROR", "error": str}` | Si `bwrap` falta o el subproceso falla, captura la salida estándar y error sin lanzar excepciones. |
-| `async_job_dispatch` | `DIMINISHED` | `async_job_dispatch(command: str, label: Optional[str] = None, group: str = "default", working_dir: Optional[str] = None) -> str` | Despacha comandos de larga duración a la cola de Pueue en segundo plano (`pueue add --print-task-id`). Retorna inmediatamente el `task_id` numérico para prevenir timeouts del agente. | `{"status": "queued", "task_id": int, "group": str, "command": str}` | Si el daemon Pueue no responde, retorna JSON de error con diagnóstico sin bloquear al llamador. |
-| `async_job_inspect` | `DIMINISHED` | `async_job_inspect(task_id: Optional[int] = None, lines: int = 50) -> str` | Consulta el estado general de las colas de Pueue (`pueue status --json`) o recupera los últimos logs estructurados de una tarea específica (`pueue log <id> --lines <n> --json`) sin bloquear. | Salida JSON nativa de Pueue con estado de cola, timestamps, código de retorno y logs de salida. | Si la tarea no existe o el log aún no está disponible, entrega JSON descriptivo de error. |
+| `async_job_dispatch` | `DIMINISHED` | `async_job_dispatch(action: str = "dispatch", command: Optional[str] = None, label: Optional[str] = None, group: str = "default", working_dir: Optional[str] = None, task_id: Optional[int] = None, lines: int = 50) -> str` | Punto único para encolar comandos asíncronos en Pueue (`dispatch`) o consultar estado y logs estructurados (`inspect` / `status` / `log`). Incorpora auto-start desacoplado de pueued y fail-soft DEGRADED. | JSON tipado dependiente de la acción (`status`, `task_id`, `group`, `command`, cola Pueue o log de tarea). | Respuestas estructuradas con `status: "PARAM_ERROR"` ante parámetros faltantes, `status: "DEGRADED"` ante ausencia de daemon, y `status: "INVALID_ACTION"` ante acciones no reconocidas. Cero excepciones. |
 
 #### Dominio 4: Forense de Crashes & Observabilidad de Kernel (3 Herramientas)
 
@@ -334,7 +333,7 @@ Además de los dominios anteriores, el plano incorporó **2 motores compartidos*
 
 ### Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)
 
-El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 17 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
+El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 16 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
 
 ```mermaid
 flowchart TD
@@ -673,7 +672,7 @@ flowchart TD
 
 ```
 agent-execution-plane/
-├── server.py                       # Servidor FastMCP (17 tools RPC)
+├── server.py                       # Servidor FastMCP (16 tools RPC)
 ├── engine/
 │   ├── catalog.py                  # Catálogo + memoria semántica híbrida
 │   ├── embedder.py                 # Embedder local ONNX (fail-soft)
