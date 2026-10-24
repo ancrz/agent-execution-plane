@@ -15,9 +15,14 @@
   - `engine/hydrator.py`
   - `engine/kanban.py`
   - `engine/playbook.py`
+  - `engine/privilege.py`
+  - `templates/registry.json`
+  - `templates/tpl_disk_usage.go`
+  - `templates/tpl_fd_rescuer.go`
+  - `templates/tpl_socket_monitor.go`
   - `server.py`
   - `scripts/aep-sync.sh`
-- **Audit Gate Status**: Dokimos `VERIFIED` (Semgrep 0 findings / 6 MCP tool calls validated / Codex Hot-Reload & Claude Opt-Out tested / Cold-Aging Immunity & Playbook GC verified / 33 MCP tools active)
+- **Audit Gate Status**: Dokimos `VERIFIED` (Semgrep 0 findings / 6 initial MCP checks + 5 Topos Tool Graph Omission Gap checks validated / 100% of 33 MCP tools & 16 capabilities mapped / Codex & Antigravity hot-reload / Cold-aging immunity & auto-canary verified)
 
 ---
 
@@ -33,8 +38,8 @@ flowchart TD
 
     subgraph Pipeline["Short Mode Pipeline Lifecycle"]
         P1["Orchestrator Inline Plan<br/>(Pendings #1 & #4 + Pruning Omission-Gap Closure)"]
-        PR1["Pragma Execution: SUCCESS<br/>(7 code files modified / bounded blast radius / 33 MCP tools)"]
-        DK1{"Dokimos Verification Gate<br/>(Semgrep: 0 findings / Live MCP tool probes: OK / Cold-Aging Immunity: VERIFIED)"}
+        PR1["Pragma Execution: SUCCESS<br/>(9 code/template files modified / bounded blast radius / 33 MCP tools / 16 capabilities)"]
+        DK1{"Dokimos Verification Gate<br/>(Semgrep: 0 findings / Live MCP tool probes: OK / 5 Omission Gaps Closed: VERIFIED)"}
         G2["Graphos G2 State Rollup<br/>(Docs refresh, compaction guide, cross-session memory)"]
         H1["Hermon Commit Gate<br/>(Atomic Conventional Commit)"]
     end
@@ -52,7 +57,8 @@ flowchart LR
         E0["AEP Baseline<br/>(Static templates, separate tools)"] --> E1["AEP v1.1<br/>(#1 Template Feedback via ponder.py)"]
         E1 --> E2["AEP v1.2<br/>(#4 Pico Hardening: Kebab/Snake + SQLite Blob Fallback + Pueue Fail-Soft)"]
         E2 --> E3["AEP v1.3<br/>(Connect-RPC & JSON-RPC Hot-Reload + Claude Opt-Out)"]
-        E3 --> E4["AEP v1.4 VERIFIED<br/>(Pruning Omission-Gap Closed: Cold-Aging Immunity + Playbook GC + 33 MCP Tools)"]
+        E3 --> E4["AEP v1.4<br/>(Pruning Omission-Gap Closed: Cold-Aging Immunity + Playbook GC + 33 MCP Tools)"]
+        E4 --> E5["AEP v1.5 VERIFIED<br/>(Topos Tool Graph Audit: 5 Omission Gaps Closed / 16 Capabilities 100% Mapped / Auto-Canary)"]
     end
 ```
 
@@ -73,7 +79,12 @@ flowchart LR
   - `engine/hydrator.py`: Handled bidirectional kebab-case ↔ snake_case normalization for template names and parameters.
   - `engine/kanban.py`: Updated `reevaluate()` to grant cold-aging immunity: updates `promotion_score` for all `reusable=1` artifacts, but only demotes (`reusable=0`) on demonstrated failure (`execution_count > 0 and success_rate < 0.70`) or severe degradation (`WARNING`/`REJECT`).
   - `engine/playbook.py`: Added `PlaybookStore.prune(names=None, apply=False)` supporting dry-run inspection, demonstrated failure candidate selection (`run_count > 0 and success_rate < 0.70`), explicit deletion, and complete recency-decay immunity for proven playbooks.
-  - `server.py`: Wired `feedback` into `template_catalog`, `template_select`, and `discover`; wired `source_template` into `artifact_lint_and_build`; added SQLite BLOB recovery in `artifact_execute_in_ram`; hardened `async_job_*` with `DEGRADED` fail-soft responses; registered 33rd MCP tool `playbook_prune`.
+  - `server.py`: Wired `feedback` into `template_catalog`, `template_select`, and `discover`; wired `source_template` into `artifact_lint_and_build`; added SQLite BLOB recovery in `artifact_execute_in_ram`; hardened `async_job_*` with `DEGRADED` fail-soft responses; registered 33rd MCP tool `playbook_prune`; wired `template_registry.get_contract()` into `artifact_hydrate`; added `async_job_inspect` to `_playbook_dispatch()`; exposed step `output` in `playbook_run()`; invoked auto-canary progression in `artifact_execute_in_ram()`.
+  - `engine/privilege.py`: Mapped `playbook_prune` to `"automation"` and mapped `"system_docs"` (`query_system_docs`) across `_CAPABILITIES` and `_CAP_KEYWORDS`, achieving 100% mapping of all 33 MCP tools across 16 capabilities.
+  - `templates/registry.json`, `templates/tpl_disk_usage.go`, `templates/tpl_fd_rescuer.go`, `templates/tpl_socket_monitor.go`: Parameterized Go templates with compile-safe placeholders (`{{path}}`, `{{pid}}`, `{{state}}`) and registered contracts.
+  - `engine/hydrator.py`: Handled quote-aware placeholder substitution without redundant double-quoting.
+  - `engine/template_registry.py`: Exposed `get_contract()` for parameter validation and defaults.
+  - `engine/kanban.py`: Added `record_canary_by_artifact()` advancing active Kanban tasks from `LINTED` to `CANARY` upon successful RAM execution.
   - `scripts/aep-sync.sh`: Hot-reload Connect-RPC (Antigravity) and JSON-RPC (Codex) across all 33 tools.
 
 ---
@@ -98,6 +109,12 @@ Pragma completed the implementation addressing pending items #1, #4, and the pru
 2. **Binary Disk Residue Cleanup (`engine/catalog.py`)**: In `catalog.prune(apply=True)`, deletion of artifact metadata and vector embeddings now also unlinks lingering binaries from `~/.local/share/agent-os/bin/<name>`.
 3. **Playbook GC (`engine/playbook.py` & `server.py` - `playbook_prune`)**: Added `playbook_prune(names=None, apply=False)` (`DRY_RUN` default; auto-candidates require demonstrated failure `run_count > 0 and success_rate < 0.70` or explicit `names`; proven playbooks are 100% immune to age decay). Total MCP tools expanded from **32 to 33**.
 
+### 3.4 Topos Tool Graph Audit: 5 Omission Gaps Closed
+1. **Gap #1: 100% Tool-to-Capability Alignment (`engine/privilege.py`)**: Added `playbook_prune` to `"automation"` in `_CAPABILITIES` and mapped `"system_docs"` (`query_system_docs`) across `_CAPABILITIES` and bilingual `_CAP_KEYWORDS`. All 33 MCP tools are now 100% accounted for across all 16 capabilities, queryable via `aep_capabilities()` and indexed in `discover()`.
+2. **Gap #2: Parameterized Go Templates & Contracts (`templates/*`, `hydrator.py`, `template_registry.py`, `server.py`)**: Embedded compile-safe placeholders (`{{path}}` in `tpl_disk_usage.go`, `{{pid}}` in `tpl_fd_rescuer.go`, `{{state}}` in `tpl_socket_monitor.go`) alongside valid default contracts in `templates/registry.json`. Updated `hydrator.py` to prevent duplicate quoting when placeholders appear in Go string literals (`"{{path}}"`). Wired `template_registry.get_contract()` into `artifact_hydrate` so hydration validates and fills defaults.
+3. **Gap #3 & #5: Playbook Dispatch Whitelist & Output Visibility (`server.py`)**: Added `async_job_inspect` to `_playbook_dispatch()`, allowing playbooks to monitor asynchronous background jobs. Included full execution `"output": out` in each step result of `playbook_run()`, enabling complete intermediate observability.
+4. **Gap #4: Automated In-RAM Kanban Canary Progression (`engine/kanban.py`, `server.py`)**: Added `kanban.record_canary_by_artifact()` invoked automatically on successful RAM execution (`exit_code == 0`) in `artifact_execute_in_ram()`. This advances matching active tasks from `LINTED` to `CANARY` (`canary_passed=1`), enabling smooth promotion via `kanban_promote()`.
+
 ---
 
 ## 4. Dokimos Verification Ledger
@@ -116,6 +133,11 @@ Dokimos executed comprehensive verification across static analysis, live MCP too
 | **Lifecycle Gate #1** | `kanban.reevaluate` (Cold-Aging Immunity) | ✅ **PASS** | Single-use artifacts with 100% success rate aged into `CAUTION` retain `reusable=1` and are protected from pruning. |
 | **Lifecycle Gate #2** | `catalog.prune` (Binary Unlink) | ✅ **PASS** | Verified that `apply=True` removes metadata, sqlite-vec embeddings, and disk binaries in `~/.local/share/agent-os/bin/`. |
 | **Lifecycle Gate #3** | `playbook_prune` (Tool 33 / GC) | ✅ **PASS** | Verified dry-run default, demonstrated failure filtering, explicit target deletion, and immunity to age decay for successful playbooks. |
+| **Tool Graph Gap #1** | 100% Capabilities Mapped (`privilege.py`) | ✅ **PASS** | All 33 tools mapped across 16 capabilities; `playbook_prune` in `automation`; `system_docs` in `_CAPABILITIES` & `_CAP_KEYWORDS`. |
+| **Tool Graph Gap #2** | Parameterized Templates & Quote Safety | ✅ **PASS** | Verified compile-safe `{{path}}`, `{{pid}}`, `{{state}}` hydration without double quoting; contracts enforced via `artifact_hydrate`. |
+| **Tool Graph Gap #3** | Playbook Dispatch Whitelist (`async_job_inspect`) | ✅ **PASS** | Verified that `async_job_inspect` is callable within playbook steps without `NOT_ALLOWED` lint errors. |
+| **Tool Graph Gap #4** | Automated Kanban Canary Progression | ✅ **PASS** | Verified that `artifact_execute_in_ram` automatically advances active task from `LINTED` to `CANARY` (`canary_passed=1`). |
+| **Tool Graph Gap #5** | Playbook Step Output Visibility | ✅ **PASS** | Verified each step result in `playbook_run()` contains full `"output": out` payload. |
 
 **Final Dokimos Verdict**: **VERIFIED**
 
@@ -146,5 +168,5 @@ In addition to tool hardening, `scripts/aep-sync.sh` supports multi-client auto-
 With Dokimos issuing **VERIFIED** and Graphos G2 documentation complete, the pipeline transitions to **Hermon** for atomic commit:
 - **Commit Type**: `feat`
 - **Scope**: `engine`
-- **Subject**: `implement template feedback, harden pico tools, and close pruning omission gap (33 tools)`
-- **Traceability**: Closes AEP Pendings #1 & #4, closes Pruning/Reevaluation Omission Gap (cold-aging immunity, binary disk unlinking, playbook GC). Verified by Dokimos (Semgrep 0 findings, 6/6 MCP checks passed, 3/3 lifecycle gates verified, 33 tools confirmed across Antigravity and OpenAI Codex, Claude Code opt-out configured).
+- **Subject**: `implement template feedback, harden pico tools, close pruning omission gap, and seal 5 tool graph audit gaps (33 tools)`
+- **Traceability**: Closes AEP Pendings #1 & #4, closes Pruning/Reevaluation Omission Gap, and seals 5 Topos Tool Graph Omission Gaps across 9 files (`engine/privilege.py`, `templates/registry.json`, `templates/tpl_disk_usage.go`, `templates/tpl_fd_rescuer.go`, `templates/tpl_socket_monitor.go`, `engine/hydrator.py`, `engine/template_registry.py`, `engine/kanban.py`, `server.py`). Verified by Dokimos (Semgrep 0 findings, 6/6 initial checks passed, 3/3 lifecycle gates verified, 5/5 tool graph omission gaps verified, 33 tools / 16 capabilities 100% confirmed across Antigravity and OpenAI Codex, Claude Code opt-out configured).
