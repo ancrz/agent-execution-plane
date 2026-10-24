@@ -1,28 +1,29 @@
-# Feature Chain Rollup: Pipeline Milestone History (Documents 1–5)
+# Feature Chain Rollup: Pipeline Milestone History (Documents 1–6)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-23T23:59:00Z
-- **Trigger**: 5th Document in the Interwoven Knowledge Graph Sequence
-- **Current Active Document**: [`feature_20261023_235900_phase1_semantic_memory_unification.md`](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pipeline/feature_20261023_235900_phase1_semantic_memory_unification.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T00:40:00Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 6
+- **Current Active Document**: [`feature_20261024_003200_phase2_task_management_unification.md`](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pipeline/feature_20261024_003200_phase2_task_management_unification.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
 
 ## 1. Executive Summary
 
-This rollup breaks recursive token overload across historical pipeline artifacts by consolidating architectural decisions, invariants, and milestone achievements from the first five pipeline documents into a single dense summary.
+This rollup breaks recursive token overload across historical pipeline artifacts by consolidating architectural decisions, invariants, and milestone achievements from the pipeline documents into a single dense summary.
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 5)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 6)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
         D3["Doc 3: 125603<br/>(Pico-Playbooks & Discover Router)"]
         D4["Doc 4: 120700<br/>(Template Feedback, Pico Hardening & 33 Tools)"]
         D5["Doc 5: 235900<br/>(Roadmap 33 to 16 Tools & Phase 1 Semantic Memory)"]
+        D6["Doc 6: 003200<br/>(Phase 2 Task Management Unification & 23 Tools)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6
     end
 ```
 
@@ -36,7 +37,8 @@ flowchart LR
 | **2** | `feature_20261023_054100.md` | SQLite vector search with `sqlite-vec`; crash forensics (`diagnose_system_crashes`, `check_crash_alerts`); local man-page semantic store (`query_system_docs`); eBPF tracing (`kernel_trace`). | 18 | Auto-indexing at write-time; local offline man-pages prevent hallucinated CLI flags; crash dumps inspected without root panic. |
 | **3** | `feature_20261023_125603_pico_playbooks_and_discovery.md` | Pico-Playbooks execution engine (`playbook_create`, `playbook_run`, `playbook_list`); semantic orientation router (`discover`); bilingual EN/ES lexical matching in `matcher.py`. | 24 | Discover is the primary agent entrypoint; playbooks enforce DAG dispatch with strict step verification; bilingual tags prevent English query misses. |
 | **4** | `feature_20261023_120700_template_feedback_and_pico_hardening.md` | Template feedback loop (`source_template` + `proven` blocks); Pico tools hardening (kebab/snake normalization, SQLite blob in-RAM fallback, Pueue `DEGRADED` fail-soft); safe GC with cold-aging immunity; `playbook_prune` (tool 33); closed 5 tool-graph omission gaps. | 33 | 100% of tools mapped to capabilities; single-use successful artifacts immune to cold-aging; playbooks output full intermediate steps; RAM executions auto-canary Kanban tasks (`LINTED` → `CANARY`). |
-| **5** | `feature_20261023_235900_phase1_semantic_memory_unification.md` | 7-Phase Tool Consolidation Roadmap (33 → 16 tools); Phase 1 fusion of `semantic_memory` (`artifact_query`, `artifact_catalog`, `artifact_reindex`, `artifact_prune` into polymorphic `artifact_catalog(action=...)`); Kanban Task 95 promoted to `PROMOTED` at `0.8875 TRUST`. | **30 (VERIFIED)** | 1 capability fusion per phase; backward-compatible playbook dispatch aliases; zero disruption to underlying SQLite database; Semgrep 0 findings; all 4 actions + error guards validated. |
+| **5** | `feature_20261023_235900_phase1_semantic_memory_unification.md` | 7-Phase Tool Consolidation Roadmap (33 → 16 tools); Phase 1 fusion of `semantic_memory` (`artifact_query`, `artifact_catalog`, `artifact_reindex`, `artifact_prune` into polymorphic `artifact_catalog(action=...)`); Kanban Task 95 promoted to `PROMOTED` at `0.8875 TRUST`. | 30 (VERIFIED) | 1 capability fusion per phase; backward-compatible playbook dispatch aliases; zero disruption to underlying SQLite database; Semgrep 0 findings; all 4 actions + error guards validated. |
+| **6** | `feature_20261024_003200_phase2_task_management_unification.md` | Phase 2 fusion of `task_management` (8 `kanban_*` tools into polymorphic `kanban_board(action=...)`); Kanban Task 97 promoted to `PROMOTED` at `0.925 TRUST`. | **23 (VERIFIED)** | Polymorphic dispatcher covering 8 actions; strict parameter guards (`PARAM_ERROR`); invalid action handling (`INVALID_ACTION`); Semgrep 0 findings across 1,198 rules; 23 FastMCP schemas verified. |
 
 ---
 
@@ -52,4 +54,4 @@ flowchart LR
    - Safe GC: Templates and proven artifacts are protected from pruning; cold-aging never demotes artifacts with 100% success rate.
 4. **Tool Reach & Security Boundaries (P1)**:
    - Tool consolidation shrinks tool sprawl while maintaining 100% capability reach.
-   - All tools strictly operate within local authorizations (FastMCP stdio, bubblewrap, memfd_create).\n
+   - All tools strictly operate within local authorizations (FastMCP stdio, bubblewrap, memfd_create).

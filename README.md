@@ -21,8 +21,8 @@
    - [Desglose Arquitectónico de las 4 Capas](#desglose-arquitectónico-de-las-4-capas)
    - [Especificación Detallada de Capas](#especificación-detallada-de-capas)
 3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
-4. [Catálogo de 30 Herramientas MCP](#4-catálogo-de-30-herramientas-mcp)
-   - [Tablas de Referencia Maestra de las 30 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-30-herramientas-fastmcp)
+4. [Catálogo de 23 Herramientas MCP](#4-catálogo-de-23-herramientas-mcp)
+   - [Tablas de Referencia Maestra de las 23 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-23-herramientas-fastmcp)
    - [Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)](#ciclo-de-vida-y-encadenamiento-de-capacidades-skill-chaining)
 5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
    - [Persistencia y cómo la lee el agente](#persistencia-y-cómo-la-lee-el-agente)
@@ -128,7 +128,7 @@ flowchart TD
 
 | Capa | Nivel de Abstracción | Módulos & Componentes | Primitivas Subyacentes & Protocolos | Garantías & Rol en el Runtime |
 | :---: | :--- | :--- | :--- | :--- |
-| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 30 herramientas atómicas, tipadas y no-bloqueantes. |
+| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 23 herramientas atómicas, tipadas y no-bloqueantes. |
 | **Capa 2** | **Motores de Ejecución y Memoria (`engine/`)** | `catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`) | Núcleo de lógica agéntica: memoria semántica híbrida, gestión de tareas Pico-Kanban con ponderación multidimensional, enrutamiento proactivo de coredumps, verificación topológica de grafos DAG y gobierno de privilegios en dos tiers (`FULL`/`DIMINISHED`). |
 | **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`). |
 | **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald` | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace` | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes y telemetría de kernel no-invasiva. |
@@ -219,7 +219,7 @@ flowchart LR
 
 ---
 
-## 4. Catálogo de 30 Herramientas MCP
+## 4. Catálogo de 23 Herramientas MCP
 
 ```mermaid
 flowchart TD
@@ -255,9 +255,9 @@ flowchart TD
     end
 ```
 
-### Tablas de Referencia Maestra de las 30 Herramientas FastMCP
+### Tablas de Referencia Maestra de las 23 Herramientas FastMCP
 
-El plano expone 30 herramientas RPC organizadas en dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
+El plano expone 23 herramientas RPC organizadas en dominios operacionales más el punto de entrada raíz. Todas retornan cadenas JSON tipadas y deterministas, garantizando cero fallos no controlados (*fail-soft*).
 
 #### Punto de Entrada & Manifiesto de Autonomía (Root)
 
@@ -275,14 +275,11 @@ El plano expone 30 herramientas RPC organizadas en dominios operacionales más e
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, args: Optional[List[str]] = None) -> str` | Carga el binario ELF en un descriptor anónimo volátil vía `memfd_create` y lo ejecuta directamente en RAM mediante `/proc/self/fd/<fd>`. Mide latencia y actualiza métricas históricas de confiabilidad en SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Códigos de salida distintos de cero o errores de ejecución retornan JSON con `stderr` y alimentan la tasa histórica de fallo. |
 | `artifact_catalog` | `DIMINISHED` | `artifact_catalog(category: Optional[str] = None, query: Optional[str] = None, limit: int = 10) -> str` | Descubrimiento del catálogo: 'qué soluciones tengo'. Con `query`, top-K semántico (embeddings auto-indexados); sin `query`, ranking por confianza (`reusable` + `promotion_score` + éxito). Incluye `capability_tier`. | `{"status": "OK", "capability_tier": str, "count": int, "artifacts": [{"name": str, "reusable": int, "promotion_score": float, "semantic_distance"?: float}]}` | Si falta `sqlite-vec`/embedder, degrada a ranking relacional por confianza. |
 
-#### Dominio 2: Pico-Kanban & Ponderación Multidimensional (4 Herramientas)
+#### Dominio 2: Pico-Kanban & Ponderación Multidimensional (1 Herramienta Unificada)
 
 | Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `kanban_board` | `DIMINISHED` | `kanban_board() -> str`<br/>*(Sin parámetros)* | Consulta tareas y artefactos en `artifacts.db`, clasificándolos en 6 carriles (`BACKLOG`, `SYNTHESIZED`, `LINTED`, `CANARY`, `PROMOTED`, `REJECTED`) con puntuaciones de ponderación en tiempo real. | `{"lanes": {"BACKLOG": [...], "CANARY": [...], "PROMOTED": [...]}, "total_tasks": int}` | Errores de lectura de base de datos retornan JSON con `status: "ERROR"` sin colapsar el runtime. |
-| `kanban_task_create` | `DIMINISHED` | `kanban_task_create(title: str, intent: str = "", category: str = "", artifact_name: Optional[str] = None) -> str` | Registra una nueva tarea atómica de trabajo en el carril inicial `BACKLOG`, ligándola opcionalmente al nombre de un artefacto en ciclo de construcción. | `{"status": "CREATED", "task_id": int, "title": str, "state": "BACKLOG"}` | Retorna JSON de error si fallan restricciones relacionales o la base está bloqueada. |
-| `kanban_advance` | `DIMINISHED` | `kanban_advance(task_id: int, to_state: str, lint_passed: Optional[bool] = None, canary_passed: Optional[bool] = None, note: Optional[str] = None) -> str` | Transiciona una tarea de estado y recalcula su puntuación de confianza multidimensional (`quality` 0.35, `reliability` 0.30, `experience` 0.15, `recency` 0.20 ajustado por confianza). | `{"status": "ADVANCED", "task_id": int, "previous_state": str, "current_state": str, "promotion_score": float}` | Si `task_id` no existe, retorna JSON con mensaje explicativo sin mutar el tablero. |
-| `kanban_promote` | `DIMINISHED` | `kanban_promote(task_id: int) -> str` | Evalúa si un artefacto califica para reuso: requiere `score >= 0.70`, validación canary superada y ausencia de veto por fiabilidad (`éxito < 0.70`). Marca `reusable = 1` en el catálogo o rechaza. | Promovido: `{"status": "PROMOTED", "score": float, "verdict": "TRUST", "reusable": true}`<br/>Rechazado: `{"status": "REJECTED", "missing_criteria": [...]}` | Retorna desglose de criterios faltantes sin alterar registros si la evaluación no alcanza el umbral. |
+| `kanban_board` | `DIMINISHED` | `kanban_board(action: str = "board", include_archived: bool = False, task_id: Optional[int] = None, title: str = "", intent: str = "", category: str = "", artifact_name: Optional[str] = None, to_state: str = "", lint_passed: Optional[bool] = None, canary_passed: Optional[bool] = None, note: Optional[str] = None, reason: Optional[str] = None, states: Optional[List[str]] = None, max_score: Optional[float] = None, apply: bool = False) -> str` | Punto único para consultar tablero (`board`), crear tareas (`create`), avanzar estados (`advance`), evaluar y promover (`promote`), degradar explícitamente (`demote`), reevaluar flota (`reevaluate`) y archivar/desarchivar de forma reversible (`archive`/`unarchive`). | JSON tipado dependiente de la acción (`status`, `lanes`, `task_id`, `promotion_score`, `verdict`, `candidates`). | Respuestas estructuradas con `status: "PARAM_ERROR"` ante parámetros faltantes e `status: "INVALID_ACTION"` ante acciones no reconocidas. Cero excepciones no controladas. |
 
 #### Dominio 3: Aislamiento & Ejecución Asíncrona (3 Herramientas)
 
@@ -335,14 +332,13 @@ Además de los dominios anteriores, el plano incorporó **2 motores compartidos*
 | `artifact_catalog(action="browse"|"query"|"reindex"|"prune", ...)` | **Memoria semántica unificada**: `browse` (ranking de confianza o top-K semántico), `query` (búsqueda híbrida de caché), `reindex` (sanar embeddings), `prune` (GC destructivo seguro con dry-run). |
 | `template_catalog()` / `template_select(intent)` | Tabla descriptiva de plantillas + selector por relevancia. |
 | `playbook_create/run/list/prune` | Pico-Playbooks: orquestar tools en flujos DAG validados por Topos; parametrizables (`${var}`); GC seguro de automatizaciones. |
-| `kanban_reevaluate()` / `kanban_demote(name)` | Cierran el lazo de confianza: degradan lo que ya no alcanza TRUST. |
-| `kanban_archive(apply?)` / `kanban_unarchive(id)` | Archivado soft y reversible del board (dry-run por defecto; protege PROMOTED/CANARY). |
+| `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", ...)` | Pico-Kanban unificado: tablero por carriles, creación de tareas, avance de estado, promoción/degradación de confianza, reevaluación de flota y archivado reversible con dry-run. |
 
 > Flujo del agente: **`discover` (orientar) → reutilizar/sintetizar/automatizar (decidir) → ponderar (añadir/podar)**. Todo con varas unificadas y transparente al usuario (agents-for-agents).
 
 ### Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)
 
-El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 30 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
+El siguiente diagrama ilustra cómo un agente autónomo encadena de forma determinista las 23 herramientas de AEP a lo largo de un ciclo de ejecución completo, integrando auto-descubrimiento, auditoría topológica, síntesis con compuertas de calidad, ejecución volátil en RAM, paralelismo asíncrono y auto-remediación proactiva:
 
 ```mermaid
 flowchart TD
@@ -681,7 +677,7 @@ flowchart TD
 
 ```
 agent-execution-plane/
-├── server.py                       # Servidor FastMCP (30 tools RPC)
+├── server.py                       # Servidor FastMCP (23 tools RPC)
 ├── engine/
 │   ├── catalog.py                  # Catálogo + memoria semántica híbrida
 │   ├── embedder.py                 # Embedder local ONNX (fail-soft)
