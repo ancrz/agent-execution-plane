@@ -1,9 +1,9 @@
-# Feature Chain Rollup: Pipeline Milestone History (Documents 1–11)
+# Feature Chain Rollup: Pipeline Milestone History (Documents 1–12)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T04:30:00Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 11 (Roadmap 100% Complete)
-- **Current Active Document**: [`feature_20261024_034500_phase7_orientation_and_process_introspection.md`](file:///home/ancruz/Documents/workspaces/agent-execution-plane/docs/pipeline/feature_20261024_034500_phase7_orientation_and_process_introspection.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T11:00:00Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 12 (Hardening, Secret Masking & Full README Sync Complete)
+- **Current Active Document**: [`feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md`](feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 10)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 12)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -27,8 +27,9 @@ flowchart LR
         D9["Doc 9: 015800<br/>(Phase 5 Async Dispatch & FD Hardening: 16 Tools)"]
         D10["Doc 10: 025400<br/>(Phase 6 Crash Forensics & Hardening: 15 Tools)"]
         D11["Doc 11: 034500<br/>(Phase 7 Orientation & Introspection Alignment: 15 Tools Parity)"]
+        D12["Doc 12: 102000<br/>(Runtime Hardening, Secret Masking & Full README Sync: 7 Gaps Closed)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12
     end
 ```
 
@@ -48,7 +49,8 @@ flowchart LR
 | **8** | `feature_20261024_013100_phase4_artifact_synthesis_unification.md` | Phase 4 fusion of `artifact_synthesis` (4 tools `template_catalog`, `template_select`, `artifact_hydrate`, `artifact_lint_and_build` into polymorphic `artifact_lint_and_build(action=...)`); 1-Step Template-to-Binary shortcut; Kanban Task 102 promoted to `PROMOTED` at `0.9964 TRUST`. | 17 (VERIFIED) | Polymorphic dispatcher covering 4 actions (`build`, `catalog`, `select`, `hydrate`); 1-step compilation shortcut; parameter guards (`PARAM_ERROR`, `HYDRATE_ERROR`, `INVALID_ACTION`); Semgrep 0 findings; 17 FastMCP schemas verified. |
 | **9** | `feature_20261024_015800_phase5_async_dispatch_unification.md` | Phase 5 fusion of `async_dispatch` (2 tools `async_job_dispatch`, `async_job_inspect` into polymorphic `async_job_dispatch(action=...)`); Subprocess/FD Hardening (Gaps A, B, C); Kanban Task 105 promoted to `PROMOTED` at `0.9955 TRUST`. | **16 (VERIFIED)** | Polymorphic dispatcher covering 4 actions (`dispatch`, `inspect`, `status`, `log`); fail-soft `DEGRADED`; `pass_fds=(fd,)` + `timeout=30` in `artifact_execute_in_ram`; detached auto-start in `_ensure_pueue_daemon()`; schema pruning in `aep-sync.sh`; Semgrep 0 findings; 16 FastMCP schemas verified. |
 | **10** | `feature_20261024_025400_phase6_crash_forensics_unification.md` | Phase 6 fusion of `crash_forensics` (2 tools `diagnose_system_crashes`, `check_crash_alerts` into polymorphic `diagnose_system_crashes(action="diagnose"|"alerts")`); Subprocess/FD Hardening in `_safe_run` (`stdin=DEVNULL`, `close_fds=True`, `timeout=15`); Kanban Task 106 promoted to `PROMOTED` at `0.8208 TRUST`. | **15 (VERIFIED)** | Polymorphic dispatcher covering actions (`diagnose`, `alerts`) + alias `check`; subprocess isolation with `close_fds=True`, `stdin=DEVNULL`, `timeout=15`; backward-compatible playbook lambda alias; auto-pruning of `check_crash_alerts.json`; Semgrep 0 findings; 15 FastMCP schemas verified. |
-| **11** | `feature_20261024_034500_phase7_orientation_and_process_introspection.md` | Complete Tool Consolidation Roadmap (33 → 15 Tools) — Phase 7: Orientation & Process Introspection Alignment. Unify `discover` and `aep_capabilities` into polymorphic `discover(use_case, action="discover"|"capabilities", limit=3)`. Decouple `process_introspection` from `artifact_execute_in_ram` into dedicated `process_inspect(pid=0, limit=100)`. Synchronize `_CAPABILITIES` (16 capabilities) and bilingual `_CAP_KEYWORDS`. Kanban Task 108 promoted to `PROMOTED` at `0.8208 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | 100% 1:1 capability mapping (GAP-CP-01, GAP-CP-02, GAP-CP-03 closed); fail-soft process introspection (`/proc/PID/fd` safe classification into socket/pipe/device/file); zero unhandled exceptions on PID termination or permission denials; backward compatibility in playbook dispatchers. Roadmap 100% Complete. | **15 (VERIFIED)** | Polymorphic dispatcher covering actions (`diagnose`, `alerts`) + alias `check`; subprocess isolation with `close_fds=True`, `stdin=DEVNULL`, `timeout=15`; backward-compatible playbook lambda alias; auto-pruning of `check_crash_alerts.json`; Semgrep 0 findings; 15 FastMCP schemas verified. |
+| **11** | `feature_20261024_034500_phase7_orientation_and_process_introspection.md` | Complete Tool Consolidation Roadmap (33 → 15 Tools) — Phase 7: Orientation & Process Introspection Alignment. Unify `discover` and `aep_capabilities` into polymorphic `discover(use_case, action="discover"|"capabilities", limit=3)`. Decouple `process_introspection` from `artifact_execute_in_ram` into dedicated `process_inspect(pid=0, limit=100)`. Synchronize `_CAPABILITIES` (16 capabilities) and bilingual `_CAP_KEYWORDS`. Kanban Task 108 promoted to `PROMOTED` at `0.8208 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | 100% 1:1 capability mapping (GAP-CP-01, GAP-CP-02, GAP-CP-03 closed); fail-soft process introspection (`/proc/PID/fd` safe classification into socket/pipe/device/file); zero unhandled exceptions on PID termination or permission denials; backward compatibility in playbook dispatchers. Roadmap 100% Complete. |
+| **12** | `feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md` | Post-Consolidation Runtime Hardening, Secret Masking & Full README Sync. Remediated 7 operational gaps: GAP-SEC-01 (secret masking in logs and outputs), GAP-RT-01 (visual_inspect event loop decoupling via ThreadPoolExecutor), GAP-RT-02 (coredumpctl check harmonization across server.py and crash_router.py with exit code 1 handling), GAP-DX-01 (optional category in artifact_catalog query for cross-category kNN search), GAP-DX-02 (socket-to-PID correlation in aep_ctl network listeners), GAP-DX-03 (kanban demotion ergonomics supporting task_id), GAP-DOC-01 (full README sync to 15-tool bundle and diagram harmonization). Kanban Task 109 promoted to `PROMOTED` at `0.9949 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | Zero credential leakage in outputs and Pueue dumps; zero event loop collisions in headless Playwright; coredumpctl returns clean empty list when no dumps exist; artifact catalog supports global cross-category search; network listeners correlate to PIDs and processes; kanban demote accepts task_id or artifact_name; README.md in 100% sync with active FastMCP tools; Semgrep 0 findings across 1,198 rules. |
 
 ---
 
