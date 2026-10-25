@@ -4,6 +4,14 @@
 
 **Plano de Control de Sistema y Suite de Ejecución de Alta Resiliencia para Agentes de IA sobre Ubuntu/Linux**
 
+[![Python 3.14+](https://img.shields.io/badge/Python-3.14%2B_Production_LTS-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Go 1.22+](https://img.shields.io/badge/Go-1.22%2B_Static_ELF-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Shell POSIX](https://img.shields.io/badge/Shell-POSIX_Bash_%2F_Zsh_%2F_Dash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![SQLite 3 WAL](https://img.shields.io/badge/SQLite_3-WAL_%2B_mmap_%2B_vec-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org/)
+[![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
+[![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![Tests Passing](https://img.shields.io/badge/Tests-23%2F23_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+
 > [!IMPORTANT]
 > **Arquitectura de Runtime y Plano de Ejecución para Agentes**
 > AEP es una **suite de ingeniería de sistemas y runtime agéntico** orientada a
@@ -21,23 +29,30 @@
    - [Desglose Arquitectónico de las 4 Capas](#desglose-arquitectónico-de-las-4-capas)
    - [Especificación Detallada de Capas](#especificación-detallada-de-capas)
 3. [Primitivas del Kernel Linux de Alto Rendimiento → Capacidades Agénticas Resilientes](#3-primitivas-del-kernel-linux-de-alto-rendimiento--capacidades-agénticas-resilientes)
-4. [Catálogo de 15 Herramientas MCP](#4-catálogo-de-15-herramientas-mcp)
+4. [Catálogo de 15 Herramientas MCP (18 Capacidades)](#4-catálogo-de-15-herramientas-mcp-18-capacidades)
    - [Tablas de Referencia Maestra de las 15 Herramientas FastMCP](#tablas-de-referencia-maestra-de-las-15-herramientas-fastmcp)
    - [Ciclo de Vida y Encadenamiento de Capacidades (Skill Chaining)](#ciclo-de-vida-y-encadenamiento-de-capacidades-skill-chaining)
-5. [Memoria Semántica Híbrida (sqlite-vec)](#5-memoria-semántica-híbrida-sqlite-vec)
+5. [Memoria Semántica Híbrida (sqlite-vec) y Concurrencia Hot SQLite](#5-memoria-semántica-híbrida-sqlite-vec-y-concurrencia-hot-sqlite)
    - [Persistencia y cómo la lee el agente](#persistencia-y-cómo-la-lee-el-agente)
    - [Pico-Kanban: ponderación de artefactos (idioma agéntico)](#pico-kanban-ponderación-de-artefactos-idioma-agéntico)
-6. [Mejoras de Omarchy (5 Specs Agnósticas)](#6-mejoras-de-omarchy-5-specs-agnósticas)
+   - [Arquitectura Anti-Deadlock y Concurrencia WAL](#arquitectura-anti-deadlock-y-concurrencia-wal)
+6. [Resiliencia de Base de Datos: Backup en Caliente y Auto-Recuperación (5 Slots)](#6-resiliencia-de-base-de-datos-backup-en-caliente-y-auto-recuperación-5-slots)
+   - [Mecánica del Motor de Backup Hot Streaming](#mecánica-del-motor-de-backup-hot-streaming)
+   - [Topología del Pool FIFO y Auto-Sanación](#topología-del-pool-fifo-y-auto-sanación)
+7. [Contramedidas de Seguridad, Aislamiento y Auditoría Criptográfica](#7-contramedidas-de-seguridad-aislamiento-y-auditoría-criptográfica)
+   - [CapabilityGuard y Blacklist de Rutas Críticas](#capabilityguard-y-blacklist-de-rutas-críticas)
+   - [Cadena de Auditoría Tamper-Evident SHA-256](#cadena-de-auditoría-tamper-evident-sha-256)
+8. [Mejoras de Omarchy (5 Specs Agnósticas)](#8-mejoras-de-omarchy-5-specs-agnósticas)
    - [Matriz de Especificaciones Agnósticas de Omarchy](#matriz-de-especificaciones-agnósticas-de-omarchy)
    - [Especificaciones Técnicas Detalladas (SPEC-OM-1 a SPEC-OM-5)](#especificaciones-técnicas-detalladas-spec-om-1-a-spec-om-5)
    - [Arquitectura y Flujo de Datos de las Mejoras Omarchy](#arquitectura-y-flujo-de-datos-de-las-mejoras-omarchy)
-7. [Modelo de Privilegio de Dos Niveles + Manifiesto](#7-modelo-de-privilegio-de-dos-niveles--manifiesto)
-8. [Auto-Plug: Autogestión Atómica del MCP](#8-auto-plug-autogestión-atómica-del-mcp)
-9. [Entorno Shell-Agnóstico](#9-entorno-shell-agnóstico)
-10. [Instalación desde Cero](#10-instalación-desde-cero)
-11. [Estructura del Repositorio](#11-estructura-del-repositorio)
-12. [Inventario Sincero de la Fuente de la Verdad](#12-inventario-sincero-de-la-fuente-de-la-verdad)
-13. [RE as SDD y Matriz de Inspiración](#13-re-as-sdd-y-matriz-de-inspiración)
+9. [Modelo de Privilegio de Dos Niveles + Manifiesto](#9-modelo-de-privilegio-de-dos-niveles--manifiesto)
+10. [Auto-Plug: Autogestión Atómica del MCP](#10-auto-plug-autogestión-atómica-del-mcp)
+11. [Entorno Shell-Agnóstico](#11-entorno-shell-agnóstico)
+12. [Instalación desde Cero, Auditoría y Actualizador Autónomo](#12-instalación-desde-cero-auditoría-y-actualizador-autónomo)
+13. [Estructura del Repositorio](#13-estructura-del-repositorio)
+14. [Inventario Sincero de la Fuente de la Verdad](#14-inventario-sincero-de-la-fuente-de-la-verdad)
+15. [RE as SDD y Matriz de Inspiración](#15-re-as-sdd-y-matriz-de-inspiración)
 
 ---
 
@@ -97,30 +112,35 @@ flowchart LR
 flowchart TD
     subgraph L3["Capa 3: Interfaz Agéntica"]
         Agent["Agente de IA (Claude Code / Antigravity / Codex / Gemini)"]
-        MCP["Servidor FastMCP (server.py) — 15 tools (16 capacidades)"]
+        MCP["Servidor FastMCP (server.py) — 15 tools (18 capacidades)"]
         Agent -->|stdio / JSON-RPC| MCP
     end
-    subgraph L2["Capa 2: Motores (engine/)"]
+    subgraph L2["Capa 2: Motores de Ejecución, Persistencia y Seguridad (engine/)"]
         Catalog["catalog.py + embedder.py<br/>(memoria semántica sqlite-vec)"]
-        Crash["crash_router.py"]
-        Docs["docs_vectorizer.py"]
-        Headless["headless_display.py"]
-        Priv["privilege.py<br/>(FULL / DIMINISHED)"]
-        Topos["topos_guard.py"]
-        MCP --> Catalog & Crash & Docs & Headless & Priv & Topos
+        DB["db.py (WAL hot concurrency<br/>anti-deadlock & mmap)"]
+        Backup["backup.py (5-slot rotation<br/>streaming hot backup & auto-recovery)"]
+        Security["security.py (audit ledger SHA-256<br/>& secret masking)"]
+        Priv["privilege.py (CapabilityGuard<br/>FULL/DIMINISHED & CBAC)"]
+        Kanban["kanban.py + ponder.py + matcher.py<br/>(Pico-Kanban & BM25F ranking)"]
+        Crash["crash_router.py (coredump RCA)"]
+        Docs["docs_vectorizer.py (man pages)"]
+        Headless["headless_display.py (Playwright)"]
+        Topos["topos_guard.py (anti-co-dep DAG)"]
+        MCP --> Catalog & DB & Backup & Security & Priv & Kanban & Crash & Docs & Headless & Topos
     end
     subgraph L1["Capa 1: Herencia de Shell (agnóstica)"]
         Env["config/shell/aep-env.sh<br/>(bash / zsh / sh)"]
-        Ctl["scripts/aep-ctl"]
+        Ctl["scripts/aep-ctl (service, network,<br/>storage, package, backup, audit)"]
         Agent -.->|subproceso| Env
     end
-    subgraph L0["Capa 0: Kernel y Runtime Ubuntu"]
+    subgraph L0["Capa 0: Kernel Linux y Runtime Ubuntu"]
         K1["RAM: memfd_create + fexecve"]
         K2["bwrap / eBPF / coredumpctl"]
-        K3["Pueue daemon · venv ONNX"]
+        K3["Pueue daemon · venv Python 3.14"]
         Catalog --> K1
         Crash --> K2
         Headless --> K3
+        Backup --> DB
     end
 ```
 
@@ -128,10 +148,10 @@ flowchart TD
 
 | Capa | Nivel de Abstracción | Módulos & Componentes | Primitivas Subyacentes & Protocolos | Garantías & Rol en el Runtime |
 | :---: | :--- | :--- | :--- | :--- |
-| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 15 herramientas atómicas, tipadas y no-bloqueantes (16 capacidades, paridad 1:1). |
-| **Capa 2** | **Motores de Ejecución y Memoria (`engine/`)** | `catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`) | Núcleo de lógica agéntica: memoria semántica híbrida, gestión de tareas Pico-Kanban con ponderación multidimensional, enrutamiento proactivo de coredumps, verificación topológica de grafos DAG y gobierno de privilegios en dos tiers (`FULL`/`DIMINISHED`). |
-| **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`). |
-| **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald` | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace` | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes y telemetría de kernel no-invasiva. |
+| **Capa 3** | **Interfaz Agéntica (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 sobre `stdio`<br/>FastMCP SDK | Punto de entrada unificado para LLMs y agentes (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Expone 15 herramientas atómicas, tipadas y no-bloqueantes (18 capacidades, paridad 1:1). |
+| **Capa 2** | **Motores de Ejecución, Persistencia y Seguridad (`engine/`)** | `db.py`<br/>`backup.py`<br/>`security.py`<br/>`catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`ponder.py`<br/>`matcher.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode, mmap 256MB)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`)<br/>`fcntl.flock` + `conn.backup()`<br/>SHA-256 Chained Hash Ledger | Núcleo de lógica agéntica: memoria semántica híbrida, concurrencia hot SQLite anti-deadlock (`BEGIN IMMEDIATE`), rotación hot backup en 5 slots con auto-sanación ante corrupción, contramedidas ofensivas con `CapabilityGuard` (blacklist `/etc/shadow`, `/root`, `~/.ssh`), libro de auditoría criptográfica SHA-256, Pico-Kanban multidimensional y gobierno en dos tiers (`FULL`/`DIMINISHED`). |
+| **Capa 1** | **Herencia de Shell Agnóstica** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX Shell estándar (`sh`, `bash`, `zsh`, `dash`)<br/>Variables de entorno (`PAGER=cat`) | Sanitiza el entorno de ejecución de subprocesos contra bloqueos (`stdin`, pagers interactivos). CLI determinista `aep-ctl` para control del sistema mediante contratos JSON tipados con autodocumentación (`--schema`) sobre dominios `service`, `network`, `storage`, `package`, `backup` y `audit`. |
+| **Capa 0** | **Kernel Linux & Runtime Ubuntu** | Primitivas del Kernel Linux<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald`<br/>Toolchain Go estático | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace`<br/>Python 3.14 Hermético (`uv`) | Cimientos de alto rendimiento y bajo nivel: staging de binarios ELF volátiles en RAM sin residuo en disco, aislamiento en submilisegundos mediante namespaces no-privilegiados, colas asíncronas no-bloqueantes, telemetría de kernel no-invasiva y ejecución en espacio de usuario sin requerir root. |
 
 #### Especificación Detallada de Capas
 
@@ -140,9 +160,12 @@ flowchart TD
    - **Autodescripción en Primera Vista**: El punto de entrada `discover(action="capabilities")` (junto al wrapper de compatibilidad `aep_capabilities()`) actúa como apretón de manos inicial, devolviendo un manifiesto estilo `chmod/777` (`r`=sensar, `w`=actuar, `x`=ejecutar). Esto instruye al LLM sobre sus facultades operativas inmediatas según el nivel de privilegio detectado (`FULL` o `DIMINISHED`).
    - **Multi-Cliente Universal**: Diseñado para ser consumido de forma idéntica por múltiples agentes autónomos (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI) mediante el launcher unificado `scripts/aep-mcp-launch.sh`.
 
-2. **Capa 2: Motores de Ejecución y Memoria (`engine/`)**:
+2. **Capa 2: Motores de Ejecución, Persistencia y Seguridad (`engine/`)**:
+   - **Concurrencia Hot SQLite Anti-Deadlock (`db.py`)**: Conexiones de solo lectura (`mode=ro`) sin bloqueos en WAL, conexiones de lectura-escritura con `PRAGMA wal_autocheckpoint=1000` y transacciones inmediatas (`transaction_immediate` con `BEGIN IMMEDIATE`) para eliminar por diseño los deadlocks (`database is locked`) bajo enjambres multi-agente concurrentes.
+   - **Resiliencia y Backup en Caliente (`backup.py`)**: Copias de seguridad online no destructivas vía `conn.backup()`, rotación en pool FIFO de 5 slots (`artifacts.db.bak.1..5`), checksums SHA-256 por snapshot y auto-recuperación ante corrupción de cabecera.
+   - **Contramedidas de Seguridad y Auditoría (`security.py`, `privilege.py`)**: Gobernanza de acceso basada en capacidades (CBAC) con `CapabilityGuard` (bloqueo estricto de `/etc/shadow`, `/root`, `~/.ssh`), sanitización centralizada de secretos y libro mayor inmutable encadenado por SHA-256 (`security_audit_log`).
    - **Memoria Semántica Híbrida (`catalog.py`, `embedder.py`)**: Persiste metadatos de artefactos en `~/.local/share/agent-os/artifacts.db` con modo WAL. Implementa recuperación en dos niveles: coincidencia exacta por hash SHA-256 en tiempo O(1), y búsqueda por similitud de coseno mediante la extensión `sqlite-vec` y el modelo local `bge-small-en-v1.5` sobre ONNX Runtime.
-   - **Pico-Kanban de Ponderación (`kanban.py`)**: Mantiene un tablero de estados abstracto (`BACKLOG` → `SYNTHESIZED` → `LINTED` → `CANARY` → `PROMOTED`/`REJECTED`) para estructurar actividades complejas en tareas atómicas y ponderar artefactos con un motor de confianza multidimensional (`quality`, `reliability`, `experience`, `recency`) con veto por fallos.
+   - **Pico-Kanban de Ponderación (`kanban.py`, `ponder.py`, `matcher.py`)**: Mantiene un tablero de estados abstracto (`BACKLOG` → `SYNTHESIZED` → `LINTED` → `CANARY` → `PROMOTED`/`REJECTED`) para estructurar actividades complejas en tareas atómicas y ponderar artefactos con un motor de confianza multidimensional (`quality`, `reliability`, `experience`, `recency`) con veto por fallos.
    - **Enrutamiento Proactivo de Fallos (`crash_router.py`)**: Interroga a `coredumpctl` periódicamente, deduplicando caídas mediante huellas hash compuestas (`pid:timestamp:executable`) para suministrar al agente alertas tempranas antes de que ejecute mutaciones en el sistema.
    - **Vectorización de Documentación (`docs_vectorizer.py`)**: Ingiere y segmenta páginas de manual `man` de Ubuntu en párrafos, vectorizándolos localmente en `system_docs.db` para resolver la sintaxis exacta de utilidades de sistema en menos de 5 ms sin consultas web.
    - **Actuador Visual Headless (`headless_display.py`)**: Orquesta instancias de Chromium sin cabeza vía Playwright, permitiendo renderizar URLs y capturar pantallas directamente en memoria RAM (`/dev/shm`) codificadas en Base64 para inspección visual automatizada.
@@ -152,7 +175,7 @@ flowchart TD
 3. **Capa 1: Herencia de Shell Agnóstica**:
    - **Sanitización de Entorno POSIX (`config/shell/aep-env.sh`)**: Archivo de entorno universal que fuerza `PAGER=cat`, `MANPAGER=cat`, `DEBIAN_FRONTEND=noninteractive` y exporta rutas críticas al `PATH`. Garantiza que cualquier subproceso hijo no se congele esperando interacción en terminales interactivas.
    - **Instalación Idempotente Multi-Shell (`scripts/install-shell-env.sh`)**: Inyecta selectores atómicos con bloques de control en `~/.bashrc`, `~/.zshenv` y `~/.profile`, soportando indistintamente Bash, Zsh y Dash sin requerir frameworks de shell de terceros.
-   - **Plano de Control CLI Determinista (`scripts/aep-ctl`)**: Utilidad modular en Python stdlib que expone subdominios (`service`, `network`, `storage`, `package`). Toda invocación genera salida JSON estructurada y soporta introspección de contratos vía `--schema`.
+   - **Plano de Control CLI Determinista (`scripts/aep-ctl`)**: Utilidad modular en Python stdlib que expone subdominios (`service`, `network`, `storage`, `package`, `backup`, `audit`). Toda invocación genera salida JSON estructurada y soporta introspección de contratos vía `--schema`.
 
 4. **Capa 0: Kernel Linux y Runtime de Sistema**:
    - **Memoria Anónima Volátil (`memfd_create`)**: Primitiva nativa del kernel Linux (disponible desde glibc 2.27 / kernel 3.17) que permite alojar y ejecutar código binario ELF puramente en RAM a través de `/proc/self/fd/`, eludiendo el subsistema de archivos en disco secundario.
@@ -219,7 +242,7 @@ flowchart LR
 
 ---
 
-## 4. Catálogo de 15 Herramientas MCP
+## 4. Catálogo de 15 Herramientas MCP (18 Capacidades)
 
 ```mermaid
 flowchart TD
@@ -262,7 +285,7 @@ El plano expone 15 herramientas RPC organizadas en dominios operacionales más e
 
 | Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `discover` (`action="capabilities"`) | `FULL` / `DIMINISHED` | `discover(action="capabilities") -> str`<br/>*(wrapper compat: `aep_capabilities()`)* | Evalúa `euid == 0` y disponibilidad de `sudo -n`. Genera un manifiesto en tríada octal estilo `chmod/777` (`r`=sensar, `w`=actuar, `x`=ejecutar) mapeando las 16 capacidades agénticas con su alcance (`self`, `system`, `kernel`). | `{"status": "OK", "capability_tier": "FULL"|"DIMINISHED", "privilege_mode": str, "capabilities": {...}}` | Siempre retorna JSON determinista válido. Cero excepciones no controladas. |
+| `discover` (`action="capabilities"`) | `FULL` / `DIMINISHED` | `discover(action="capabilities") -> str`<br/>*(wrapper compat: `aep_capabilities()`)* | Evalúa `euid == 0` y disponibilidad de `sudo -n`. Genera un manifiesto en tríada octal estilo `chmod/777` (`r`=sensar, `w`=actuar, `x`=ejecutar) mapeando las 18 capacidades agénticas con su alcance (`self`, `system`, `kernel`). | `{"status": "OK", "capability_tier": "FULL"|"DIMINISHED", "privilege_mode": str, "capabilities": {...}}` | Siempre retorna JSON determinista válido. Cero excepciones no controladas. |
 
 #### Dominio 1: Artefactos Evolutivos & Ciclo en Memoria (4 Herramientas)
 
@@ -298,7 +321,7 @@ El plano expone 15 herramientas RPC organizadas en dominios operacionales más e
 
 | Herramienta | Privilegio | Firma & Parámetros | Mecánica & Propósito Operativo | Contrato de Salida JSON | Garantía Fail-Soft |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str, action: str, name: Optional[str] = None) -> str` | Enrutador determinista hacia `scripts/aep-ctl` para `service`, `network` (listeners correlacionados con PID/proceso), `storage` y `package`. Lecturas no requieren privilegios; mutaciones de servicios en `DIMINISHED` usan `systemd --user`, en `FULL` usan `sudo -n`. | JSON tipado estandarizado dependiente del dominio (`status`, `properties`, `interfaces`, `listeners` con `pid`/`process`, `disks`, `packages`). | Parámetros omitidos devuelven JSON con `status: "ERROR"`, `exit_code: 1` y contrato de uso `--schema`. |
+| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str, action: str, name: Optional[str] = None) -> str` | Enrutador determinista hacia `scripts/aep-ctl` para `service`, `network` (listeners correlacionados con PID/proceso), `storage`, `package`, `backup` (con subcomandos `status`, `backup`, `restore`) y `audit` (con subcomando `verify`). Lecturas no requieren privilegios; mutaciones de servicios en `DIMINISHED` usan `systemd --user`, en `FULL` usan `sudo -n`. | JSON tipado estandarizado dependiente del dominio (`status`, `properties`, `interfaces`, `listeners` con `pid`/`process`, `disks`, `packages`, `backups`, `audit`). | Parámetros omitidos devuelven JSON con `status: "ERROR"`, `exit_code: 1` y contrato de uso `--schema`. |
 | `query_system_docs` | `DIMINISHED` | `query_system_docs(query: str, limit: int = 3, ingest_command: Optional[str] = None) -> str` | Vectorizador semántico offline de páginas `man` sobre `system_docs.db` (`sqlite-vec`). Resuelve sintaxis y flags exactas en <5 ms sin navegación web. `ingest_command` ingiere comandos adicionales bajo demanda. | `{"status": "OK", "query": str, "results": [{"command": str, "section": str, "distance": float, "chunk_text": str}]}` | Carga perezosa del vectorizador. Si faltan dependencias vectoriales, entrega respuesta degradada con instrucciones. |
 | `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True) -> str` | Renderiza URLs locales (`file://`) o remotas en Chromium headless vía Playwright offloadeado a thread worker (`ThreadPoolExecutor`) desacoplado del loop asyncio. Captura pantallas en RAM (`/dev/shm`) y retorna Base64. | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_base64": str}` | Si Playwright o Chromium no están instalados o timeout de 25s, devuelve `status: "DISPLAY_UNAVAILABLE"` con comando de resolución. |
 | `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: List[str], dependencies: Dict[str, List[str]]) -> str` | Guardián del Topos Integrity Protocol. Ejecuta ordenamiento topológico y detección de ciclos en grafos de tareas. Bloquea de inmediato planes con co-dependencias circulares (A <-> B) antes de iniciar la ejecución. | Aprobado: `{"verdict": "APPROVED", "details": [...]}`<br/>Bloqueado: `{"verdict": "BLOCKED", "details": [...], "remediation": str}` | Algoritmo determinista en memoria sin dependencias externas ni operaciones de E/S. |
@@ -374,7 +397,7 @@ flowchart TD
 
 ---
 
-## 5. Memoria Semántica Híbrida (sqlite-vec)
+## 5. Memoria Semántica Híbrida (sqlite-vec) y Concurrencia Hot SQLite
 
 Resuelve la fragilidad del hash estricto ante la variabilidad léxica de los LLMs con recuperación
 en **2 tiers**: hash exacto `O(1)` y, si falla, KNN coseno sobre `sqlite-vec`.
@@ -438,11 +461,156 @@ Un artefacto **sin historial** tiene baja confianza aunque su score bruto sea al
 ciegas. Veredictos: **TRUST ≥ 0.75** (promovido), **CAUTION ≥ 0.50**, **WARNING ≥ 0.25**, **REJECT**.
 Un **veto de fiabilidad** impide TRUST si hay fallos demostrados (`éxito < 0.70` con ejecuciones).
 
+### Arquitectura Anti-Deadlock y Concurrencia Hot SQLite
+
+Bajo enjambres de ejecución multi-agente donde múltiples clientes FastMCP interactúan con la base de datos de forma concurrente, una base de datos SQLite en memoria o disco puede sufrir contención y excepciones de bloqueo (`sqlite3.OperationalError: database is locked`). AEP implementa un modelo de aislamiento y despacho concurrente en `engine/db.py`:
+
+- **Desacoplamiento de Bucle de Eventos (Async Offloading)**: Todas las operaciones de base de datos se ejecutan en subprocesos de trabajo dedicados mediante `anyio.to_thread.run_sync()`, garantizando una latencia de bucle de eventos inferior a 1 ms sin bloquear el servidor FastMCP.
+- **Conexiones de Solo Lectura Aisladas (`get_ro_connection`)**: Abren la base de datos con flag `mode=ro`. En modo WAL (Write-Ahead Logging), los lectores nunca bloquean a los escritores ni son bloqueados por ellos.
+- **Conexiones de Escritura con Autocommit (`get_rw_connection`)**: Operan con `isolation_level=None` para evitar que Python mantenga transacciones diferidas implícitas que causen bloqueos al intentar escalarlas.
+- **Transacciones Inmediatas Anti-Deadlock (`transaction_immediate`)**: Utilizan el gestor de contexto `with transaction_immediate(conn):` que emite explícitamente `BEGIN IMMEDIATE`. Esto adquiere el bloqueo de escritura desde el primer milisegundo, serializando las escrituras en memoria y erradicando los deadlocks por carrera entre transacciones concurrentes.
+- **Afinación de Rendimiento (PRAGMAs)**: `PRAGMA wal_autocheckpoint=1000`, `PRAGMA busy_timeout=10000` (10 segundos de espera fail-soft antes de error), `PRAGMA mmap_size=268435456` (256 MB mapeados en RAM), `PRAGMA cache_size=-64000` (64 MB de caché caliente) y `PRAGMA synchronous=NORMAL`.
+
+```mermaid
+flowchart TD
+    subgraph MultiAgent["Enjambre de Agentes Concurrentes"]
+        A1["Agente 1 (Claude Code)"]
+        A2["Agente 2 (Antigravity agy)"]
+        A3["Agente 3 (Codex)"]
+    end
+
+    subgraph FastMCP["FastMCP Async Event Loop (server.py)"]
+        Offload["anyio.to_thread.run_sync()"]
+    end
+
+    subgraph ConnModel["Modelo de Concurrencia Hot SQLite (engine/db.py)"]
+        RO["get_ro_connection()<br/>URI: file:...mode=ro<br/>• Lectores concurrentes infinitos<br/>• Cero bloqueos sobre WAL"]
+        RW["get_rw_connection()<br/>isolation_level=None<br/>• PRAGMA wal_autocheckpoint=1000<br/>• PRAGMA busy_timeout=10000"]
+        TX["transaction_immediate()<br/>BEGIN IMMEDIATE<br/>• Serialización de lock en t=0<br/>• Cero deadlocks (database is locked)"]
+    end
+
+    subgraph Storage["Almacenamiento ACID"]
+        DBFile["artifacts.db (WAL Mode + mmap 256MB)"]
+        WAL["artifacts.db-wal"]
+        SHM["artifacts.db-shm"]
+    end
+
+    A1 & A2 & A3 --> FastMCP --> Offload
+    Offload -->|"Consultas (browse/query)"| RO --> DBFile & WAL
+    Offload -->|"Mutaciones (kanban/build)"| RW --> TX --> DBFile & WAL & SHM
+```
+
 [↑ Volver arriba](#top)
 
 ---
 
-## 6. Mejoras de Omarchy (5 Specs Agnósticas)
+## 6. Resiliencia de Base de Datos: Backup en Caliente y Auto-Recuperación (5 Slots)
+
+Para prevenir la pérdida de memoria evolutiva ante caídas abruptas de energía, fallos de kernel o corrupción de base de datos, AEP incorpora en `engine/backup.py` un motor autónomo de copias de seguridad en caliente con rotación en pool FIFO de 5 slots y protocolo de auto-sanación.
+
+```mermaid
+flowchart TD
+    subgraph Normal["1. Flujo Normal: Streaming en Caliente & Rotación FIFO (5 Slots)"]
+        LiveDB["artifacts.db (Hot SQLite)"]
+        Stream["conn.backup() (Online Streaming)<br/>• Sin lock exclusivo de lectura<br/>• Advisory lock: fcntl.flock"]
+        LiveDB --> Stream
+        Stream --> Slot1["artifacts.db.bak.1<br/>(Snapshot más reciente)"]
+        Slot1 --> Shift["Rotación FIFO en Cascada<br/>bak.1 ➔ bak.2 ➔ bak.3 ➔ bak.4 ➔ bak.5"]
+        Shift --> Trunc["bak.5 anterior eliminado (Pool capped at 5)"]
+        Slot1 -.-> SHA["Cálculo y persistencia de Checksum SHA-256"]
+    end
+
+    subgraph Recovery["2. Flujo de Resiliencia: Detección de Corrupción y Auto-Sanación"]
+        Corrupt{"PRAGMA integrity_check<br/>o cabecera corrupta"}
+        Corrupt -->|"Fallo detectado"| Scan["verify_and_auto_recover()<br/>Escanear pool de slots (1 a 5)"]
+        Scan --> CheckSlot{"Verificar SHA-256 e integridad SQLite"}
+        CheckSlot -->|"Slot válido encontrado"| Restore["Restauración Atómica<br/>• Reemplazar artifacts.db<br/>• Purga estricta de -wal y -shm"]
+        Restore --> Healthy["Base de Datos Restaurada e Íntegra ✅"]
+    end
+```
+
+### Mecánica del Motor de Backup Hot Streaming
+- **Online Hot Streaming (`conn.backup()`)**: Realiza copias de seguridad consistentes bloque a bloque en caliente sin detener el servidor FastMCP ni bloquear las operaciones de lectura o escritura de los agentes.
+- **Bloqueo Consultivo Anticolisión (`fcntl.flock`)**: Un candado a nivel de sistema operativo (`.backup.lock`) serializa las solicitudes de backup impidiendo colisiones entre múltiples subprocesos o agentes.
+- **Pool de Rotación FIFO de 5 Slots**: Mantiene exactamente 5 copias históricas numeradas del 1 al 5 en `~/.local/share/agent-os/backups/`. El slot 1 siempre contiene el snapshot más reciente; los slots existentes se desplazan hacia abajo (`1->2->3->4->5`), y el slot 5 saliente es purgado limpiamente.
+- **Integridad Criptográfica por Hash SHA-256**: Cada copia de seguridad se sella con su suma de verificación SHA-256 en un manifiesto persistente `backup_manifest.json` y se valida con `PRAGMA integrity_check`.
+- **Restauración Atómica con Purga de Sidecars**: Al restaurar un slot, el motor purga de inmediato los archivos `-wal` y `-shm` existentes. Esto evita divergencias de estado en el log de transacciones y garantiza una base de datos consistente.
+- **Auto-Sanación Transparente (`verify_and_auto_recover`)**: Si el servidor detecta una base de datos corrupta o ilegible al iniciar o durante la ejecución, inspecciona secuencialmente los slots del 1 al 5, valida su integridad y auto-restaura el snapshot válido más reciente sin requerir intervención del operador.
+
+### Comandos de Control CLI (`scripts/aep-ctl backup`)
+```bash
+# Consultar el estado y slots del pool de copias de seguridad
+./scripts/aep-ctl backup status
+
+# Generar un nuevo snapshot en caliente (rotación FIFO automática)
+./scripts/aep-ctl backup backup
+
+# Restaurar la base de datos desde un slot específico (por ejemplo, slot 1)
+./scripts/aep-ctl backup restore --slot 1
+```
+
+[↑ Volver arriba](#top)
+
+---
+
+## 7. Contramedidas de Seguridad, Aislamiento y Auditoría Criptográfica
+
+AEP transmuta primitivas que tradicionalmente pertenecen a la ingeniería de sistemas y auditoría en capacidades agénticas de alta resiliencia. Para asegurar que el propio agente o actores externos no utilicen estas herramientas como vector de compromiso, el sistema implementa una arquitectura de contramedidas de defensa en profundidad en `engine/privilege.py` y `engine/security.py`:
+
+```mermaid
+flowchart TD
+    subgraph MultiAgentSwarm["Enjambre Multi-Agente"]
+        AgentA["Agente A (agent_id='claude')"]
+        AgentB["Agente B (agent_id='antigravity')"]
+        AgentC["Agente C (agent_id='untrusted')"]
+    end
+
+    subgraph DefenseLayer["Capa de Contramedidas y Blast Radius Guard"]
+        Guard["CapabilityGuard.verify_action()<br/>• Control de Acceso por Capacidades (CBAC)"]
+        Blacklist{"Rutas en Blacklist?<br/>• /etc/shadow, /etc/sudoers<br/>• /root, ~/.ssh, ~/.gnupg<br/>• Path traversal (../) escape"}
+        Sandbox["Aislamiento Sandbox bwrap<br/>• --unshare-all, --cap-drop ALL<br/>• /tmp en RAM tmpfs, root de solo lectura"]
+    end
+
+    subgraph AuditLedger["Libro Mayor de Auditoría Inmutable (security.py)"]
+        Mask["Sanitización de Secretos (mask_secrets)<br/>Tokens API, passwords, llaves privadas ➔ [MASKED]"]
+        HashChain["Encadenamiento Criptográfico SHA-256<br/>entry_hash = SHA256(prev_hash | ts | agent | action | status | details)"]
+        AuditDB["Tabla: security_audit_log (artifacts.db)<br/>Genesis Block: 00000000...0000"]
+        Verify["verify_audit_chain()<br/>Detección instantánea de manipulación o ruptura de enlace"]
+    end
+
+    AgentA & AgentB & AgentC --> Guard
+    Guard --> Blacklist
+    Blacklist -->|"Acceso no autorizado"| Denied["PermissionDenied (Acceso Bloqueado) ⛔"]
+    Blacklist -->|"Ruta autorizada"| Sandbox
+    Guard -.->|"Registro de evento"| Mask --> HashChain --> AuditDB
+    AuditDB --> Verify
+```
+
+### CapabilityGuard y Blacklist de Rutas Críticas
+- **Lista Negra Estricta**: Bloquea de forma categórica cualquier intento de lectura, mutación o ejecución sobre rutas sensibles del sistema:
+  - `/etc/shadow`, `/etc/gshadow`, `/etc/sudoers`, `/etc/security`
+  - `/root` y subdirectorios de superusuario
+  - `~/.ssh` (claves privadas `id_rsa`, `id_ed25519`, `authorized_keys`)
+  - `~/.gnupg` (claves de cifrado y firmado PGP)
+  - `/proc/kcore`, `/dev/mem`, `/dev/kmem`
+- **Inmunidad contra Path Traversal**: Normaliza y resuelve rutas canónicas (`resolve()`), abortando intentos de escape vía `../../` hacia rutas protegidas.
+- **Contexto Multi-Agente Segregado**: Cada invocación de herramienta FastMCP recibe el identificador `agent_id` del agente solicitante (`agent_id: str = "default"`), permitiendo auditar y aislar acciones en enjambres concurrentes sin interferencia cruzada.
+
+### Cadena de Auditoría Tamper-Evident SHA-256
+- **Libro Mayor Criptográficamente Encadenado**: La tabla `security_audit_log` almacena cada acción sensible ejecutada en el sistema enlazada al hash del bloque previo (`prev_hash`), comenzando desde un bloque génesis de ceros (`GENESIS_HASH`).
+- **Sanitización Automática de Secretos (`mask_secrets`)**: Tokens de autorización Bearer, credenciales, contraseñas y llaves de API son ofuscados (`[MASKED]`) antes de persistir los detalles o calcular el hash criptográfico.
+- **Verificación de Cero Confianza (`verify_audit_chain`)**: Algoritmo determinista que recalcula secuencialmente los hashes de la cadena. Si un atacante o proceso manipula una sola fila de la base de datos SQLite, la verificación reporta de inmediato la discrepancia y el identificador de fila afectado.
+
+```bash
+# Auditar y certificar la integridad criptográfica de la cadena de seguridad
+./scripts/aep-ctl audit verify
+```
+
+[↑ Volver arriba](#top)
+
+---
+
+## 8. Mejoras de Omarchy (5 Specs Agnósticas)
 
 Las innovaciones del "Agentic OS" de Omarchy (acopladas a Arch/Hyprland) descompuestas en 5
 especificaciones **distro-agnósticas** sobre Ubuntu.
@@ -560,7 +728,7 @@ flowchart TD
 
 ---
 
-## 7. Modelo de Privilegio de Dos Niveles + Manifiesto
+## 9. Modelo de Privilegio de Dos Niveles + Manifiesto
 
 Las tools privilegiadas operan en dos niveles (least-privilege por defecto). `aep_capabilities()`
 devuelve un **manifiesto auto-descriptivo estilo `chmod`/777** para que la IA consumidora entienda,
@@ -593,7 +761,7 @@ flowchart TD
 
 ---
 
-## 8. Auto-Plug: Autogestión Atómica del MCP
+## 10. Auto-Plug: Autogestión Atómica del MCP
 
 Tras cualquier cambio, `aep-sync.sh` **valida** (compila + importa el server) y **solo si pasa**
 re-registra el MCP en todos los clientes, apuntando a un launcher estable que resuelve el intérprete
@@ -623,7 +791,7 @@ sequenceDiagram
 
 ---
 
-## 9. Entorno Shell-Agnóstico
+## 11. Entorno Shell-Agnóstico
 
 La herencia de entorno **no asume Oh My Zsh**. Un archivo POSIX único se hace `source` desde los rc
 nativos. Probado en **bash, zsh y dash**.
@@ -642,7 +810,7 @@ flowchart LR
 
 ---
 
-## 10. Instalación desde Cero, Auditoría y Actualizador Autónomo
+## 12. Instalación desde Cero, Auditoría y Actualizador Autónomo
 
 AEP incorpora un motor de ciclo de vida unificado en `scripts/setup.sh` que opera como bootstrapper
 cero-dependencias, actualizador continuo y auditor de salud no destructivo.
@@ -682,42 +850,55 @@ flowchart TD
     PROV --> S3["aep-sync.sh Auto-Plug & Hot Reload<br/>(FastMCP 15 tools, Connect-RPC RefreshMcpServers)"]
 ```
 
-### 10.3 Baseline Python 3.14 Production LTS
+### 12.3 Baseline Python 3.14 Production LTS
 - **Aislamiento Hermético**: Gestionado mediante `uv` (`uv python install 3.14`), desacoplado completamente del Python del sistema operativo host (PEP 668 compliant, estrictamente sin `--system-site-packages`).
 - **Primitivas Modernas**: Evaluación diferida de anotaciones de tipo (PEP 649), especialización JIT del intérprete y soporte nativo para arquitecturas concurrentes.
-- **Suite de Pruebas Automatizada**: `tests/test_setup_idempotency.sh` valida la idempotencia de ejecuciones consecutivas, la integridad del entorno Python 3.14 y la salida estructurada JSON de las sondas Go.
+- **Suite de Pruebas Automatizada**: `tests/test_setup_idempotency.sh` y `tests/test_engine_suite.py` validan la idempotencia de ejecuciones consecutivas, la integridad del entorno Python 3.14, las sondas Go y el motor de resiliencia.
 
 [↑ Volver arriba](#top)
 
 ---
 
-## 11. Estructura del Repositorio
+## 13. Estructura del Repositorio
 
 ```
 agent-execution-plane/
-├── server.py                       # Servidor FastMCP (15 tools RPC)
+├── server.py                       # Servidor FastMCP (15 tools RPC, 18 capacidades)
 ├── engine/
-│   ├── catalog.py                  # Catálogo + memoria semántica híbrida
-│   ├── embedder.py                 # Embedder local ONNX (fail-soft)
-│   ├── hydrator.py                 # Hidratador de plantillas Go
-│   ├── topos_guard.py              # Detector de co-dependencias DAG
-│   ├── privilege.py                # Niveles FULL/DIMINISHED + manifiesto
-│   ├── crash_router.py             # Crash routing proactivo (OM-2)
-│   ├── docs_vectorizer.py          # Man-pages vectorizadas (OM-4)
-│   └── headless_display.py         # Display headless Playwright (OM-5)
+│   ├── db.py                       # Conexiones SQLite WAL, BEGIN IMMEDIATE, anti-deadlock
+│   ├── backup.py                   # Motor de backup hot streaming, 5 slots FIFO, auto-recuperación
+│   ├── security.py                 # Libro mayor criptográfico SHA-256 (security_audit_log) & secret masking
+│   ├── privilege.py                # CapabilityGuard, CBAC, blacklist de rutas, FULL/DIMINISHED
+│   ├── catalog.py                  # Catálogo de artefactos + memoria semántica híbrida (sqlite-vec)
+│   ├── embedder.py                 # Embedder local ONNX CPU (bge-small-en-v1.5)
+│   ├── kanban.py                   # Tablero Pico-Kanban multidimensional con vetos
+│   ├── ponder.py                   # Motor de confianza y ponderación multidimensional
+│   ├── matcher.py                  # Motor de relevancia léxica BM25F multi-señal
+│   ├── hydrator.py                 # Hidratador de plantillas Go con parámetros
+│   ├── topos_guard.py              # Guardián Topos anti-codependencia (DAG)
+│   ├── crash_router.py             # Enrutamiento proactivo de coredumps (OM-2)
+│   ├── docs_vectorizer.py          # Vectorizador de páginas man de Ubuntu (OM-4)
+│   └── headless_display.py         # Captura visual headless Playwright en RAM (OM-5)
+├── diagnostic/go/
+│   ├── socket-monitor/main.go      # Sonda estática ELF en Go para /proc/net/tcp
+│   └── fd-rescuer/main.go          # Sonda estática ELF en Go para /proc/PID/fd
+├── tests/
+│   ├── test_setup_idempotency.sh   # Suite de pruebas automatizada de aprovisionamiento
+│   └── test_engine_suite.py        # Suite de pruebas unitarias/integración (pytest)
 ├── schemas/
-│   ├── database.sql                # DDL (artifacts, metrics, crash_events)
+│   ├── database.sql                # DDL (artifacts, metrics, crash_events, audit)
 │   └── artifact_contract.cue       # Contratos declarativos CUE
-├── templates/                      # Sondas atómicas Go (socket-monitor, fd-rescuer)
-├── config/shell/aep-env.sh         # Herencia de entorno POSIX (agnóstica)
+├── templates/                      # Sondas atómicas Go de catálogo
+├── config/shell/aep-env.sh         # Herencia de entorno POSIX agnóstica (bash/zsh/dash)
 ├── scripts/
-│   ├── setup.sh                    # Instalador idempotente desde cero
-│   ├── aep-ctl                     # Plano de control unificado (OM-1)
-│   ├── aep-mcp-launch.sh           # Launcher estable (auto-plug)
-│   ├── aep-sync.sh                 # Autogestión atómica + registro MCP
+│   ├── setup.sh                    # Bootstrapper, updater y health auditor (--check)
+│   ├── aep-ctl                     # CLI determinista (service, network, storage, package, backup, audit)
+│   ├── aep-mcp-launch.sh           # Launcher estable con resolución hermética de venv
+│   ├── aep-sync.sh                 # Sincronización atómica MCP multi-agente
 │   ├── install-shell-env.sh        # Instalador de herencia de shell
-│   └── hooks/pre-commit            # Gate de validación
+│   └── hooks/pre-commit            # Hook de validación pre-commit
 ├── .gitattributes · .gitignore
+├── pyproject.toml                  # Configuración Python 3.14, ruff py314, dependencias
 └── README.md                       # Fuente única de verdad (este archivo)
 ```
 
@@ -725,21 +906,26 @@ agent-execution-plane/
 
 ---
 
-## 12. Inventario Sincero de la Fuente de la Verdad
+## 14. Inventario Sincero de la Fuente de la Verdad
 
 | Componente | Estado Físico Real | Nota |
 | :--- | :--- | :--- |
 | `memfd_create` (RAM exec) | ✅ Operativo | Primitiva estándar del kernel Linux (glibc 2.27+ / POSIX); staging en memoria anónima (cero I/O en disco) |
-| `bwrap` (sandbox) | ✅ Operativo | `sandbox_run` |
+| `bwrap` (sandbox) | ✅ Operativo | `sandbox_run`: aislamiento en namespaces con `--unshare-all` y `--cap-drop ALL` |
 | `bpftrace` (eBPF) | ✅ Operativo (FULL) | `kernel_trace`; escala vía `sudo -n`, degrada a DIMINISHED |
 | Pueue (async) | ✅ Operativo | musl 4.0.4 en `~/.local/bin`, verificado end-to-end |
-| Memoria semántica (`sqlite-vec`) | ✅ Operativo | Recuperación híbrida 2-tier, fail-soft |
+| Memoria semántica (`sqlite-vec`) | ✅ Operativo | Recuperación híbrida 2-tier (hash + kNN coseno), fail-soft |
+| Concurrencia Hot SQLite Anti-Deadlock | ✅ Operativo | `engine/db.py`: `get_ro_connection` (`mode=ro`), `get_rw_connection`, `transaction_immediate` (`BEGIN IMMEDIATE`) |
+| Resiliencia de BD (backup 5 slots) | ✅ Operativo | `engine/backup.py`: streaming hot backup `conn.backup()`, rotación 5 slots FIFO, SHA-256 y auto-sanación ante corrupción |
+| Contramedidas & Auditoría Criptográfica | ✅ Operativo | `engine/security.py`, `privilege.py`: `CapabilityGuard`, blacklist sensible, libro mayor inmutable encadenado por SHA-256 |
+| Python 3.14 Production LTS | ✅ Operativo | Venv hermético sin `--system-site-packages` vía `uv`, target `py314` en Ruff |
+| Sondas Go Estáticas ELF | ✅ Operativo | Binarios estáticos `socket-monitor` y `fd-rescuer` compilados con `CGO_ENABLED=0` ejecutables en RAM vía `memfd` |
 | Pico-Kanban (ponderación) | ✅ Operativo | Tablero abstracto en `artifacts.db`; promueve artefactos a `reusable` por score |
 | Pico-Playbooks (automatización) | ✅ Operativo | Orquesta tools/artefactos en flujos DAG validados por Topos; ejecución E2E y ponderación por éxito |
 | Descubrimiento del catálogo | ✅ Operativo | `artifact_catalog`: browse por confianza + top-K semántico |
-| Omarchy (5 specs) | ✅ Operativo | `aep_ctl`, crash routing, hub+Gemini, man-pages, headless |
-| Privilegio FULL/DIMINISHED | ✅ Operativo | `privilege.py` + manifiesto `aep_capabilities` |
-| Auto-plug MCP | ✅ Operativo | launcher + `aep-sync.sh` (+ `--watch`) |
+| Omarchy (5 specs) | ✅ Operativo | `aep_ctl` (6 dominios), crash routing, hub+Gemini, man-pages, headless |
+| Privilegio FULL/DIMINISHED | ✅ Operativo | `privilege.py` + manifiesto `aep_capabilities` (18 capacidades) |
+| Auto-plug MCP | ✅ Operativo | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Herencia shell agnóstica | ✅ Operativo | bash/zsh/dash; sin Oh My Zsh |
 | Nushell (`nu`) / `jc` | ⏳ Pendiente (no crítico) | `aep_ctl` ya entrega JSON tipado |
 
@@ -747,7 +933,7 @@ agent-execution-plane/
 
 ---
 
-## 13. RE as SDD y Matriz de Inspiración
+## 15. RE as SDD y Matriz de Inspiración
 
 El desarrollo de AEP aplica Ingeniería Inversa Orientada por Especificaciones (RE as SDD) para
 desacoplar primitivas del kernel de dependencias complejas o implementaciones monolíticas:
