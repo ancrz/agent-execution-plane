@@ -102,7 +102,7 @@ def apply_engine_pragmas(
 
 
 @contextmanager
-def transaction_immediate(conn: sqlite3.Connection) -> Generator[sqlite3.Connection, None, None]:
+def transaction_immediate(conn: sqlite3.Connection) -> Generator[sqlite3.Connection]:
     """Execute a transaction starting with BEGIN IMMEDIATE to prevent lock upgrade deadlocks."""
     conn.execute("BEGIN IMMEDIATE")
     try:

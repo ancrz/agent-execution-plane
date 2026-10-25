@@ -1,17 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "agent-execution-plane"
 version = "0.1.0"
 description = "Agent Execution Plane (AEP) - Unified FastMCP Server"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "mcp",
+    "mcp<2",
     "anyio>=4.0.0",
     "pydantic>=2.0.0",
+    "sqlite-vec",
+    "fastembed",
+    "playwright",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["engine*"]
+
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]

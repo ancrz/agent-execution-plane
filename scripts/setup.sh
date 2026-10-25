@@ -1,30 +1,218 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup.sh — AEP Installer & Multi-Agent MCP Seeder
-# Configura el plano de ejecución no-bloqueante para Ubuntu (Zsh/Oh My Zsh)
-# y registra el servidor FastMCP en Claude Code, Antigravity (agy) y Codex.
+# setup.sh — AEP Autonomous Zero-Dependency Setup & Tooling Provisioner
+# Dual-mode bootstrapper, updater, and read-only health auditor.
+# Supports: Ubuntu / Linux (POSIX sh / bash / zsh)
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Colores y logs
+# -----------------------------------------------------------------------------
+# Color Codes & Terminal Logging
+# -----------------------------------------------------------------------------
 GREEN="\033[0;32m"
 BLUE="\033[0;34m"
 YELLOW="\033[1;33m"
+RED="\033[0;31m"
 NC="\033[0m"
 
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_err() { echo -e "${RED}[ERR]${NC} $1"; }
+
+show_help() {
+    cat << 'HELP'
+Usage: ./scripts/setup.sh [OPTIONS]
+
+Options:
+  --check               Execute 100% read-only health audit of all components
+                        (NO file modifications, exits 0 if healthy, 1 if degraded).
+  --update, --upgrade   Update self-provisioned toolchains, venv dependencies,
+                        and recompile probes.
+  --help, -h            Show this help message.
+
+Default (no flags):
+  Full idempotent provisioning of uv, Python 3.14 hermetic venv, Go toolchain,
+  static probes, Pueue daemon, Playwright, Omarchy skill hubs, and MCP seeding.
+HELP
+}
+
+# -----------------------------------------------------------------------------
+# DIR-ONT-01: Flag Short-Circuit for --check (100% Read-Only)
+# -----------------------------------------------------------------------------
+MODE="setup"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --check)
+            MODE="check"
+            shift
+            ;;
+        --update|--upgrade)
+            MODE="update"
+            shift
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown flag: $1" >&2
+            show_help
+            exit 2
+            ;;
+    esac
+done
+
+run_check() {
+    local DEGRADED=0
+    echo "=========================================================="
+    echo "  AEP System Health & Read-Only Audit (--check)"
+    echo "=========================================================="
+
+    # 1. uv package manager
+    local UV_BIN
+    UV_BIN="$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")"
+    if [[ -x "$UV_BIN" ]]; then
+        local UV_VER
+        UV_VER="$("$UV_BIN" --version 2>/dev/null || echo "present")"
+        echo -e "[PASS] Astral uv: $UV_VER ($UV_BIN)"
+    else
+        echo -e "[FAIL] Astral uv: MISSING"
+        DEGRADED=1
+    fi
+
+    # 2. Python 3.14 hermetic virtual environment
+    local VENV_PY=""
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+        VENV_PY="$PROJECT_ROOT/.venv/bin/python"
+    elif [[ -x "$HOME/.local/share/agent-os/venv/bin/python" ]]; then
+        VENV_PY="$HOME/.local/share/agent-os/venv/bin/python"
+    fi
+
+    if [[ -n "$VENV_PY" ]]; then
+        local PY_VER
+        PY_VER="$("$VENV_PY" --version 2>/dev/null || echo "")"
+        if [[ "$PY_VER" =~ ^Python\ 3\.14 ]]; then
+            echo -e "[PASS] Python Runtime: $PY_VER ($VENV_PY)"
+            if "$VENV_PY" -c "import mcp, anyio, pydantic, sqlite_vec, fastembed" 2>/dev/null; then
+                echo -e "[PASS] Python Venv Packages: mcp, anyio, pydantic, sqlite_vec, fastembed verified"
+            else
+                echo -e "[FAIL] Python Venv Packages: required dependencies missing in $VENV_PY"
+                DEGRADED=1
+            fi
+        else
+            echo -e "[FAIL] Python Runtime: $PY_VER (Requires Python 3.14.*)"
+            DEGRADED=1
+        fi
+    else
+        echo -e "[FAIL] Python Venv: MISSING hermetic virtual environment"
+        DEGRADED=1
+    fi
+
+    # 3. Golang Toolchain
+    local GO_BIN
+    GO_BIN="$(command -v go 2>/dev/null || echo "$HOME/.local/bin/go")"
+    if [[ -x "$GO_BIN" ]]; then
+        local GO_VER
+        GO_VER="$("$GO_BIN" version 2>/dev/null || echo "present")"
+        echo -e "[PASS] Golang: $GO_VER ($GO_BIN)"
+    else
+        echo -e "[FAIL] Golang: MISSING"
+        DEGRADED=1
+    fi
+
+    # 4. Go Static Diagnostic Probes
+    local PROBE_DIR="$HOME/.local/share/agent-os/bin"
+    if [[ -x "$PROBE_DIR/socket-monitor" ]] && [[ -x "$PROBE_DIR/fd-rescuer" ]]; then
+        echo -e "[PASS] Static Go Probes: socket-monitor and fd-rescuer present in $PROBE_DIR"
+    else
+        echo -e "[FAIL] Static Go Probes: missing or not executable in $PROBE_DIR"
+        DEGRADED=1
+    fi
+
+    # 5. Bubblewrap Sandboxing (fail-soft)
+    if command -v bwrap &>/dev/null; then
+        local BWRAP_VER
+        BWRAP_VER="$(bwrap --version 2>/dev/null || echo "present")"
+        echo -e "[PASS] Bubblewrap: $BWRAP_VER"
+    else
+        echo -e "[WARN] Bubblewrap: not installed (fail-soft mode active)"
+    fi
+
+    # 6. Pueue Asynchronous Queue Daemon
+    local PUEUE_BIN
+    PUEUE_BIN="$(command -v pueue 2>/dev/null || echo "$HOME/.local/bin/pueue")"
+    if [[ -x "$PUEUE_BIN" ]]; then
+        if "$PUEUE_BIN" status &>/dev/null; then
+            echo -e "[PASS] Pueue Daemon: ACTIVE and responsive ($PUEUE_BIN)"
+        else
+            echo -e "[FAIL] Pueue Daemon: binary present but daemon NOT responding"
+            DEGRADED=1
+        fi
+    else
+        echo -e "[FAIL] Pueue: MISSING pueue binary"
+        DEGRADED=1
+    fi
+
+    # 7. Omarchy Skills Hub & Git Hooks
+    local SKILLS_OK=1
+    for client in claude gemini codex; do
+        if [[ ! -L "$HOME/.$client/skills/shared" ]]; then
+            SKILLS_OK=0
+        fi
+    done
+    if [[ $SKILLS_OK -eq 1 ]]; then
+        echo -e "[PASS] Omarchy Skills Hub: shared symlinks verified for claude, gemini, codex"
+    else
+        echo -e "[WARN] Omarchy Skills Hub: shared skills symlinks partial or missing"
+    fi
+
+    local HOOKS_PATH
+    HOOKS_PATH="$(git -C "$PROJECT_ROOT" config core.hooksPath 2>/dev/null || echo "")"
+    if [[ "$HOOKS_PATH" == "scripts/hooks" ]]; then
+        echo -e "[PASS] Git Pre-commit Hook: tracked (core.hooksPath=scripts/hooks)"
+    else
+        echo -e "[WARN] Git Pre-commit Hook: not tracked (current: '$HOOKS_PATH')"
+    fi
+
+    echo "=========================================================="
+    if [[ $DEGRADED -eq 0 ]]; then
+        echo -e "${GREEN}[RESULT] System Health Status: HEALTHY (Exit 0)${NC}"
+        return 0
+    else
+        echo -e "${RED}[RESULT] System Health Status: DEGRADED (Exit 1)${NC}"
+        return 1
+    fi
+}
+
+if [[ "$MODE" == "check" ]]; then
+    run_check
+    exit $?
+fi
+
+# -----------------------------------------------------------------------------
+# DIR-ONT-02: Atomic Download Trap & Temporary Staging
+# -----------------------------------------------------------------------------
+TMP_DIR="$(mktemp -d -t aep_setup_XXXXXX)"
+trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+
+# -----------------------------------------------------------------------------
+# DIR-ONT-03: Subshell PATH Injection
+# -----------------------------------------------------------------------------
+export PATH="$HOME/.local/bin:$HOME/.local/share/go/bin:$HOME/.local/share/agent-os/bin:$PATH"
 
 echo "=========================================================="
-echo "  Agent Execution Plane (AEP) — Setup & MCP Seeding"
+echo "  Agent Execution Plane (AEP) — Setup & Tooling Provisioner"
+echo "  Mode: $MODE"
 echo "=========================================================="
 
-# 1. Directorios base
-log_step "Preparando directorios locales..."
+# -----------------------------------------------------------------------------
+# 1. Base Directories & Omarchy Skills Hub
+# -----------------------------------------------------------------------------
+log_step "Preparando directorios base y enlaces de agentes..."
 mkdir -p "$HOME/.local/bin"
 mkdir -p "$HOME/.local/share/agent-os/bin"
 mkdir -p "$HOME/.agents/skills"
@@ -32,121 +220,193 @@ mkdir -p "$HOME/.claude/skills"
 mkdir -p "$HOME/.gemini/skills"
 mkdir -p "$HOME/.codex/skills"
 
-# Symlinks Omarchy pattern (SPEC-OM-3: Universal Multi-Agent Skills Hub)
+# Idempotent Omarchy Hub Symlinks (SPEC-OM-3)
 ln -sfn "$HOME/.agents/skills" "$HOME/.claude/skills/shared"
 ln -sfn "$HOME/.agents/skills" "$HOME/.gemini/skills/shared"
 ln -sfn "$HOME/.agents/skills" "$HOME/.codex/skills/shared"
-log_success "Estructura de directorios y Hub de Skills configurados."
+log_success "Hub de Skills multi-agente configurado."
 
-# Hook pre-commit tracked (valida el server antes de cada commit).
-git -C "$PROJECT_ROOT" config core.hooksPath scripts/hooks 2>/dev/null \
-    && chmod +x "$PROJECT_ROOT/scripts/hooks/pre-commit" 2>/dev/null \
-    && log_success "Hook pre-commit instalado (core.hooksPath=scripts/hooks)." || true
+# Pre-commit hook tracked
+git -C "$PROJECT_ROOT" config core.hooksPath scripts/hooks 2>/dev/null     && chmod +x "$PROJECT_ROOT/scripts/hooks/pre-commit" 2>/dev/null     && log_success "Hook pre-commit instalado (core.hooksPath=scripts/hooks)." || true
 
-# 1.5. Provisionamiento del entorno semántico (venv aislado + sqlite-vec + fastembed)
-# FAIL-SOFT: si algo falla, el catálogo opera en modo solo-hash sin romperse.
-log_step "Provisionando entorno semántico (venv + sqlite-vec + fastembed)..."
-VENV_DIR="$HOME/.local/share/agent-os/venv"
-AEP_PYTHON="python3"  # fallback: python del sistema (catálogo en modo solo-hash)
-if command -v uv &> /dev/null; then
-    if uv venv --system-site-packages --python "$(command -v python3)" "$VENV_DIR" &> /dev/null; then
-        if VIRTUAL_ENV="$VENV_DIR" uv pip install -q sqlite-vec fastembed playwright &> /dev/null; then
-            AEP_PYTHON="$VENV_DIR/bin/python"
-            if "$AEP_PYTHON" -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')" &> /dev/null; then
-                log_success "Entorno semántico listo (modelo bge-small-en-v1.5 cacheado, 384-dim)."
-            else
-                log_warn "Paquetes instalados pero el modelo se descargará en el primer uso (requiere internet)."
-            fi
-            # Chromium headless para SPEC-OM-5 visual_inspect (opcional; no bloquea).
-            "$AEP_PYTHON" -m playwright install chromium &> /dev/null \
-                && log_success "Chromium headless provisionado (visual_inspect)." \
-                || log_warn "Chromium no se pudo provisionar; visual_inspect degrada a DISPLAY_UNAVAILABLE."
-        else
-            log_warn "sqlite-vec/fastembed no se pudieron instalar; catálogo en modo solo-hash."
-        fi
-    else
-        log_warn "No se pudo crear el venv; catálogo en modo solo-hash."
-    fi
-else
-    log_warn "uv no está instalado (https://astral.sh/uv). Catálogo en modo solo-hash."
+# -----------------------------------------------------------------------------
+# 2. Astral uv Toolchain Provisioning
+# -----------------------------------------------------------------------------
+log_step "Verificando gestor Astral uv..."
+if ! command -v uv &>/dev/null && [[ ! -x "$HOME/.local/bin/uv" ]]; then
+    log_step "uv ausente; descargando instalador oficial de Astral..."
+    curl -LsSf https://astral.sh/uv/install.sh | env CARGO_DIST_FORCE_INSTALL_DIR="$HOME/.local/bin" sh
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# 2. Inicialización de base de datos y pre-compilación de plantillas
-log_step "Inicializando catálogo de artefactos (SQLite) y pre-compilando sondas Go..."
-cd "$PROJECT_ROOT"
-PYTHONPATH="$PROJECT_ROOT" "$AEP_PYTHON" -c "
+if [[ "$MODE" == "update" ]]; then
+    log_step "Actualizando uv..."
+    uv self update 2>/dev/null || true
+fi
+log_success "uv operativo: $(uv --version 2>/dev/null || echo 'ok')"
+
+# -----------------------------------------------------------------------------
+# 3. Python 3.14 Hermetic Virtual Environment (DIR-ONT-04)
+# -----------------------------------------------------------------------------
+log_step "Provisionando entorno hermético Python 3.14..."
+uv python install 3.14
+
+VENV_DIR="$PROJECT_ROOT/.venv"
+if [[ "$MODE" == "update" ]] || [[ ! -d "$VENV_DIR" ]]; then
+    log_step "Creando venv hermético en $VENV_DIR con Python 3.14..."
+    # DIR-ONT-04: STRICTLY omit --system-site-packages
+    uv venv --python 3.14 "$VENV_DIR"
+fi
+
+# Instalar dependencias del proyecto en modo editable con extras dev
+log_step "Sincronizando dependencias en el venv hermético..."
+VIRTUAL_ENV="$VENV_DIR" uv pip install -e ".[dev]"
+VIRTUAL_ENV="$VENV_DIR" uv pip install -q sqlite-vec fastembed playwright
+
+# Sincronizar symlink canónico para ~/.local/share/agent-os/venv
+mkdir -p "$HOME/.local/share/agent-os"
+ln -sfn "$VENV_DIR" "$HOME/.local/share/agent-os/venv"
+
+# Pre-cache de modelo semántico BAAI/bge-small-en-v1.5
+if "$VENV_DIR/bin/python" -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')" &>/dev/null; then
+    log_success "Entorno semántico listo (modelo bge-small-en-v1.5 cacheado)."
+else
+    log_warn "Modelo semántico bge-small-en-v1.5 se descargará en primer uso."
+fi
+
+# Chromium headless para visual_inspect (fail-soft)
+"$VENV_DIR/bin/python" -m playwright install chromium &>/dev/null     && log_success "Chromium headless provisionado (visual_inspect)."     || log_warn "Chromium no se pudo provisionar; visual_inspect degrada a DISPLAY_UNAVAILABLE."
+
+# -----------------------------------------------------------------------------
+# 4. Golang Toolchain & Static Diagnostic Probes
+# -----------------------------------------------------------------------------
+log_step "Verificando compilador Golang..."
+if ! command -v go &>/dev/null && [[ ! -x "$HOME/.local/bin/go" ]]; then
+    log_step "Golang ausente; intentando instalación..."
+    if sudo -n true 2>/dev/null; then
+        log_step "Instalando golang-go vía apt-get (sudo no-interactivo)..."
+        sudo -n apt-get update -qq && sudo -n apt-get install -y -qq golang-go 2>/dev/null || true
+    fi
+
+    if ! command -v go &>/dev/null; then
+        log_step "Instalando Golang en espacio de usuario desde tarball oficial..."
+        GO_VERSION="1.22.5"
+        GO_TARBALL="go${GO_VERSION}.linux-amd64.tar.gz"
+        curl -sSL -o "$TMP_DIR/$GO_TARBALL" "https://go.dev/dl/$GO_TARBALL"
+        mkdir -p "$HOME/.local/share"
+        rm -rf "$HOME/.local/share/go"
+        tar -C "$HOME/.local/share" -xzf "$TMP_DIR/$GO_TARBALL"
+        ln -sfn "$HOME/.local/share/go/bin/go" "$HOME/.local/bin/go"
+        export PATH="$HOME/.local/share/go/bin:$HOME/.local/bin:$PATH"
+    fi
+fi
+
+if command -v go &>/dev/null || [[ -x "$HOME/.local/bin/go" ]]; then
+    GO_CMD="$(command -v go || echo "$HOME/.local/bin/go")"
+    log_success "Golang disponible: $($GO_CMD version 2>/dev/null)"
+
+    log_step "Compilando sondas Go estáticas (socket-monitor, fd-rescuer)..."
+    mkdir -p "$HOME/.local/share/agent-os/bin"
+
+    SOCK_SRC=""
+    if [[ -f "$PROJECT_ROOT/diagnostic/go/socket-monitor/main.go" ]]; then
+        SOCK_SRC="$PROJECT_ROOT/diagnostic/go/socket-monitor/main.go"
+    else
+        SOCK_SRC="$PROJECT_ROOT/templates/tpl_socket_monitor.go"
+    fi
+
+    FD_SRC=""
+    if [[ -f "$PROJECT_ROOT/diagnostic/go/fd-rescuer/main.go" ]]; then
+        FD_SRC="$PROJECT_ROOT/diagnostic/go/fd-rescuer/main.go"
+    else
+        FD_SRC="$PROJECT_ROOT/templates/tpl_fd_rescuer.go"
+    fi
+
+    CGO_ENABLED=0 "$GO_CMD" build -ldflags="-s -w" -o "$HOME/.local/share/agent-os/bin/socket-monitor" "$SOCK_SRC"
+    CGO_ENABLED=0 "$GO_CMD" build -ldflags="-s -w" -o "$HOME/.local/share/agent-os/bin/fd-rescuer" "$FD_SRC"
+    chmod +x "$HOME/.local/share/agent-os/bin/socket-monitor" "$HOME/.local/share/agent-os/bin/fd-rescuer"
+    log_success "Sondas Go pre-compiladas estáticamente en ~/.local/share/agent-os/bin/"
+else
+    log_warn "Golang no disponible; sondas Go omitidas."
+fi
+
+# -----------------------------------------------------------------------------
+# 5. Bubblewrap Sandboxing (Fail-Soft)
+# -----------------------------------------------------------------------------
+log_step "Verificando Bubblewrap (bwrap)..."
+if ! command -v bwrap &>/dev/null; then
+    if sudo -n true 2>/dev/null; then
+        sudo -n apt-get update -qq && sudo -n apt-get install -y -qq bubblewrap 2>/dev/null || true
+    fi
+fi
+if command -v bwrap &>/dev/null; then
+    log_success "Bubblewrap disponible ($(bwrap --version 2>/dev/null || echo 'ok'))."
+else
+    log_warn "Bubblewrap no disponible; sandbox_run operará en modo fail-soft degradado."
+fi
+
+# -----------------------------------------------------------------------------
+# 6. Pueue Asynchronous Queue Daemon
+# -----------------------------------------------------------------------------
+log_step "Verificando demonio Pueue..."
+if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOME/.local/bin/pueued" ]]; then
+    log_step "Descargando binarios estáticos musl de Pueue a ~/.local/bin..."
+    TAG=$(curl -sSL https://api.github.com/repos/Nukesor/pueue/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*//' || echo "")
+    if [[ -n "${TAG:-}" ]]; then
+        for b in pueue pueued; do
+            curl -sSL -o "$TMP_DIR/$b" "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-x86_64-unknown-linux-musl"
+            chmod +x "$TMP_DIR/$b"
+            mv "$TMP_DIR/$b" "$HOME/.local/bin/$b"
+        done
+        log_success "Pueue $TAG instalado en ~/.local/bin."
+    else
+        log_warn "No se pudo consultar GitHub API para Pueue (posible limitación de red)."
+    fi
+fi
+
+if command -v pueued &>/dev/null || [[ -x "$HOME/.local/bin/pueued" ]]; then
+    PUEUE_CLI="$(command -v pueue 2>/dev/null || echo "$HOME/.local/bin/pueue")"
+    PUEUED_BIN="$(command -v pueued 2>/dev/null || echo "$HOME/.local/bin/pueued")"
+    if ! "$PUEUE_CLI" status &>/dev/null; then
+        systemctl --user enable --now pueued 2>/dev/null || "$PUEUED_BIN" -d 2>/dev/null || true
+    fi
+    log_success "Pueue daemon activo."
+else
+    log_warn "pueued no disponible; tareas asíncronas degradarán a fail-soft."
+fi
+
+# -----------------------------------------------------------------------------
+# 7. Shell Environment Inheritance (Agnostic)
+# -----------------------------------------------------------------------------
+log_step "Configurando herencia de shell agnóstica..."
+bash "$PROJECT_ROOT/scripts/install-shell-env.sh" 2>/dev/null || log_warn "Configuración de entorno shell omitida."
+
+# -----------------------------------------------------------------------------
+# 8. Artifact Catalog DB Initialization
+# -----------------------------------------------------------------------------
+log_step "Inicializando catálogo de artefactos (SQLite)..."
+PYTHONPATH="$PROJECT_ROOT" "$VENV_DIR/bin/python" -c "
 from engine.catalog import ArtifactCatalog
 from pathlib import Path
 cat = ArtifactCatalog()
 tpl_socket = Path('templates/tpl_socket_monitor.go').read_text()
-cue_socket = 'package schema\nname: \"socket-monitor\"\ncategory: \"network\"'
+cue_socket = 'package schema\nname: "socket-monitor"\ncategory: "network"'
 cat.register_artifact('socket-monitor', 'inspect_tcp_sockets', 'network', cue_socket, tpl_socket,
     intent_description='list and inspect listening TCP sockets and open network ports on the host')
 
 tpl_fd = Path('templates/tpl_fd_rescuer.go').read_text()
-cue_fd = 'package schema\nname: \"fd-rescuer\"\ncategory: \"process\"'
+cue_fd = 'package schema\nname: "fd-rescuer"\ncategory: "process"'
 cat.register_artifact('fd-rescuer', 'inspect_process_fds', 'process', cue_fd, tpl_fd,
     intent_description='inspect the open file descriptors of a process to diagnose hung or deadlocked threads')
-print('Catalogo SQLite listo (vec_available=%s).' % cat._vec_available)
-" || log_warn "Init del catálogo falló (¿DB bloqueada por un server activo?). Reintenta tras cerrar el MCP."
+print('Catálogo SQLite listo (vec_available=%s).' % cat._vec_available)
+" 2>/dev/null || log_warn "Init de catálogo omitido (posible lock activo)."
 
-# Pre-compilar los binarios en ~/.local/share/agent-os/bin
-CGO_ENABLED=0 go build -ldflags="-s -w" -o "$HOME/.local/share/agent-os/bin/socket-monitor" "$PROJECT_ROOT/templates/tpl_socket_monitor.go"
-CGO_ENABLED=0 go build -ldflags="-s -w" -o "$HOME/.local/share/agent-os/bin/fd-rescuer" "$PROJECT_ROOT/templates/tpl_fd_rescuer.go"
-log_success "Sondas Go pre-compiladas estáticamente en ~/.local/share/agent-os/bin/"
-
-# 3. Activación de demonio asíncrono Pueue (auto-descarga user-space, sin sudo)
-log_step "Verificando demonio Pueue..."
-if ! command -v pueued &> /dev/null && [[ ! -x "$HOME/.local/bin/pueued" ]]; then
-    log_step "pueued ausente; descargando binario estático musl a ~/.local/bin..."
-    TAG=$(curl -sSL https://api.github.com/repos/Nukesor/pueue/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ -n "${TAG:-}" ]]; then
-        for b in pueue pueued; do
-            curl -sSL -o "$HOME/.local/bin/$b" \
-                "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-x86_64-unknown-linux-musl" \
-                && chmod +x "$HOME/.local/bin/$b"
-        done
-        log_success "Pueue $TAG instalado en ~/.local/bin (sin sudo)."
-    else
-        log_warn "No se pudo resolver la release de Pueue (¿sin red?). Camino B async en modo degradado."
-    fi
-fi
-if command -v pueued &> /dev/null || [[ -x "$HOME/.local/bin/pueued" ]]; then
-    PUEUED_BIN="$(command -v pueued || echo "$HOME/.local/bin/pueued")"
-    systemctl --user enable --now pueued 2>/dev/null || "$PUEUED_BIN" -d 2>/dev/null || true
-    log_success "Pueue daemon activo."
-else
-    log_warn "pueued no disponible; async_job_dispatch degradará con error estructurado (fail-soft)."
-fi
-
-# 4. Herencia de shell AGNÓSTICA (bash/zsh/sh nativos; no requiere Oh My Zsh)
-# Delega en el instalador que hace source del archivo único config/shell/aep-env.sh
-# desde ~/.bashrc, ~/.zshenv y ~/.profile. Idempotente.
-log_step "Configurando herencia de shell no-bloqueante (agnóstica de shell)..."
-bash "$PROJECT_ROOT/scripts/install-shell-env.sh" || log_warn "Instalación de herencia de shell falló (no crítico)."
-
-# 5. Seeding del Servidor FastMCP en múltiples agentes (Claude, agy, Codex)
-log_step "Seeding del Servidor FastMCP en los agentes..."
-
-MCP_SERVER_SCRIPT="$PROJECT_ROOT/server.py"
-chmod +x "$MCP_SERVER_SCRIPT"
-chmod +x "$PROJECT_ROOT/scripts/aep-ctl" 2>/dev/null || true
-
-# Ingesta curada opcional de man-pages (SPEC-OM-4). ~30s; no bloquea el seeding.
-if [[ "$AEP_PYTHON" != "python3" ]]; then
-    log_step "Vectorizando man-pages del sistema (SPEC-OM-4, opcional)..."
-    PYTHONPATH="$PROJECT_ROOT" "$AEP_PYTHON" -c "
-from engine.docs_vectorizer import ManPagesVectorizer
-r = ManPagesVectorizer().ingest_curated()
-ok = sum(1 for v in r['results'].values() if v == 'OK')
-print('man-pages indexadas:', ok, '/', len(r['results']))
-" 2>/dev/null || log_warn "Ingesta de man-pages omitida (no crítico)."
-fi
-
-# Registro delegado al script de autogestión atómica (una sola fuente de verdad).
-# aep-sync.sh valida y SOLO si pasa re-registra el MCP en Claude/agy/Codex apuntando
-# al launcher estable (aep-mcp-launch.sh), que resuelve el intérprete por sí mismo.
-bash "$PROJECT_ROOT/scripts/aep-sync.sh" || log_warn "Auto-plug del MCP falló; revisa scripts/aep-sync.sh --check."
+# -----------------------------------------------------------------------------
+# 9. MCP Seeding & Hot-Reload Delegation (aep-sync.sh)
+# -----------------------------------------------------------------------------
+log_step "Ejecutando auto-plug y sincronización MCP multi-agente..."
+chmod +x "$PROJECT_ROOT/scripts/aep-mcp-launch.sh" "$PROJECT_ROOT/scripts/aep-sync.sh" "$PROJECT_ROOT/scripts/aep-ctl" 2>/dev/null || true
+bash "$PROJECT_ROOT/scripts/aep-sync.sh" || log_warn "Auto-plug MCP finalizó con advertencias; revisa aep-sync.sh --check."
 
 echo "=========================================================="
 echo "  Instalación y Seeding de AEP Completados con Éxito"

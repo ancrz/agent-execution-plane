@@ -91,7 +91,7 @@ def hydrate_struct(obj: Any, variables: dict[str, Any], strict: bool = True) -> 
                 raise ValueError(f"variable sin valor: ${{{name}}}")
             return s
 
-        def repl(mo: "re.Match") -> str:
+        def repl(mo: re.Match) -> str:
             name = mo.group(1)
             if name in variables:
                 return str(variables[name])

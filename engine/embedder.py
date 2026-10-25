@@ -24,7 +24,7 @@ EMBEDDING_DIM = 384
 
 
 class _EmbedderHolder:
-    instance: "LocalEmbedder | None" = None
+    instance: LocalEmbedder | None = None
 
 
 _instance_lock = threading.Lock()

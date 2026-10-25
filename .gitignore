@@ -44,3 +44,8 @@ core.*
 
 # Carpeta de pruebas local (Playwright, outputs) — NO commitear
 _probes/
+
+# Build / packaging
+*.egg-info/
+dist/
+build/

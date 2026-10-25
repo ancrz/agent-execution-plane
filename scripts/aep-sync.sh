@@ -28,7 +28,9 @@ warn() { echo -e "${YELLOW}[warn]${NC} $1"; }
 err()  { echo -e "${RED}[fail]${NC} $1"; }
 
 resolve_py() {
-    if [[ -x "$VENV_PY" ]] && "$VENV_PY" -c "import sqlite_vec" >/dev/null 2>&1; then
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]] && "$PROJECT_ROOT/.venv/bin/python" -c "import sqlite_vec" >/dev/null 2>&1; then
+        echo "$PROJECT_ROOT/.venv/bin/python"
+    elif [[ -x "$VENV_PY" ]] && "$VENV_PY" -c "import sqlite_vec" >/dev/null 2>&1; then
         echo "$VENV_PY"
     else
         command -v python3

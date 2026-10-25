@@ -642,26 +642,50 @@ flowchart LR
 
 ---
 
-## 10. Instalación desde Cero
+## 10. Instalación desde Cero, Auditoría y Actualizador Autónomo
+
+AEP incorpora un motor de ciclo de vida unificado en `scripts/setup.sh` que opera como bootstrapper
+cero-dependencias, actualizador continuo y auditor de salud no destructivo.
+
+### 10.1 Modos de Invocación CLI
 
 ```bash
 cd /ruta/a/agent-execution-plane
-./scripts/setup.sh        # idempotente, espacio de usuario, sin sudo en el camino crítico
+
+# 1. Modo Instalación Completa (Idempotente, espacio de usuario)
+./scripts/setup.sh
+
+# 2. Modo Auditoría de Salud Read-Only (DIR-ONT-01: cero mutaciones en disco, exit 0/1)
+./scripts/setup.sh --check
+
+# 3. Modo Actualizador (uv self update, actualización de dependencias y recompilación)
+./scripts/setup.sh --update
 ```
 
-`setup.sh` provisiona el venv semántico (`sqlite-vec` + `fastembed` + Playwright), compila las sondas
-Go, descarga Pueue (musl, user-space), instala la herencia de shell agnóstica, el hook pre-commit y
-re-registra el MCP en todos los agentes vía `aep-sync.sh`.
+### 10.2 Arquitectura del Bootstrapper Autónomo
 
 ```mermaid
 flowchart TD
-    A["setup.sh"] --> B["venv + sqlite-vec/fastembed/playwright"]
-    A --> C["sondas Go (CGO_ENABLED=0)"]
-    A --> D["Pueue musl → ~/.local/bin"]
-    A --> E["install-shell-env.sh (bash/zsh/sh)"]
-    A --> F["hook pre-commit (core.hooksPath)"]
-    A --> G["aep-sync.sh → registro MCP multi-agente"]
+    A["scripts/setup.sh"] --> Flag{"Flag CLI?"}
+    Flag -->|"--check"| CHK["run_check() — 100% Read-Only<br/>(Auditoría de 7 subsistemas, exit 0/1)"]
+    Flag -->|"--update"| UPD["Modo Update<br/>(uv self update + venv upgrade + probes)"]
+    Flag -->|"por defecto"| PROV["Idempotent Full Provisioning"]
+
+    PROV --> B1["Astral uv Auto-install<br/>(~/.local/bin/uv)"]
+    B1 --> B2["Python 3.14 Hermetic Venv<br/>(uv python install 3.14 & uv venv)"]
+    B2 --> B3["Dependencias FastMCP<br/>(mcp, anyio, pydantic, sqlite-vec, fastembed)"]
+    PROV --> G1["Golang Toolchain Provisioning<br/>(sudo -n apt o ~/.local/share/go tarball)"]
+    G1 --> G2["Sondas Go Estáticas CGO_ENABLED=0<br/>(~/.local/share/agent-os/bin/socket-monitor, fd-rescuer)"]
+    PROV --> P1["Pueue Daemon Musl Auto-download<br/>(~/.local/bin/pueue, pueued -d)"]
+    PROV --> S1["Omarchy Skills Hub Symlinks<br/>(Claude · Gemini · Codex)"]
+    PROV --> S2["Git Pre-commit Hook Tracked<br/>(core.hooksPath=scripts/hooks)"]
+    PROV --> S3["aep-sync.sh Auto-Plug & Hot Reload<br/>(FastMCP 15 tools, Connect-RPC RefreshMcpServers)"]
 ```
+
+### 10.3 Baseline Python 3.14 Production LTS
+- **Aislamiento Hermético**: Gestionado mediante `uv` (`uv python install 3.14`), desacoplado completamente del Python del sistema operativo host (PEP 668 compliant, estrictamente sin `--system-site-packages`).
+- **Primitivas Modernas**: Evaluación diferida de anotaciones de tipo (PEP 649), especialización JIT del intérprete y soporte nativo para arquitecturas concurrentes.
+- **Suite de Pruebas Automatizada**: `tests/test_setup_idempotency.sh` valida la idempotencia de ejecuciones consecutivas, la integridad del entorno Python 3.14 y la salida estructurada JSON de las sondas Go.
 
 [↑ Volver arriba](#top)
 

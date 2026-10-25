@@ -15,7 +15,9 @@ SERVER="$PROJECT_ROOT/server.py"
 VENV_PY="$HOME/.local/share/agent-os/venv/bin/python"
 
 # Preferir el venv si puede importar sqlite_vec (tier semántico); si no, python3 (fail-soft).
-if [[ -x "$VENV_PY" ]] && "$VENV_PY" -c "import sqlite_vec" >/dev/null 2>&1; then
+if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]] && "$PROJECT_ROOT/.venv/bin/python" -c "import sqlite_vec" >/dev/null 2>&1; then
+    AEP_PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [[ -x "$VENV_PY" ]] && "$VENV_PY" -c "import sqlite_vec" >/dev/null 2>&1; then
     AEP_PYTHON="$VENV_PY"
 else
     AEP_PYTHON="$(command -v python3)"

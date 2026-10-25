@@ -63,7 +63,7 @@ def verify_db_integrity(db_path: Path) -> bool:
 
 
 @contextmanager
-def backup_concurrency_lock(backups_dir: Path) -> Generator[None, None, None]:
+def backup_concurrency_lock(backups_dir: Path) -> Generator[None]:
     """Bloqueo de archivo consultivo (fcntl.flock) para serializar operaciones de backup."""
     backups_dir.mkdir(parents=True, exist_ok=True)
     lock_file = backups_dir / LOCK_FILENAME
