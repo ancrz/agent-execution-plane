@@ -2,13 +2,13 @@
 
 Preserve:
 - Pipeline Mode: Full (Topos Integrity Protocol).
-- Active Intent / Milestone: ONT-10 (Code Modernization, Ruff Linting, AnyIO & Hot SQLite Anti-Deadlock) VERIFIED; Task 111 PROMOTED (Score: 0.9250 TRUST).
-- Files Changed & Why: `engine/db.py` (segregated RO/RW, PRAGMA wal_autocheckpoint=1000, transaction_immediate), `server.py` (AnyIO async thread offloading for 15 tools), `engine/*.py` (eliminated P0-P3 Ruff violations, singleton holder classes, atomic executemany), `pyproject.toml` (Ruff SAST rules).
-- Open Defects: None (0 defects, 0 regressions, Ruff 0 errors, Semgrep 0 findings, 6/6 Dokimos gates passed).
-- Architecture Decisions: Segregated RO/RW SQLite handles; `BEGIN IMMEDIATE` anti-deadlock transactions; reject fork with open WAL FDs; AnyIO stdio offloading; Contract Validation Triad; PLW1510 subprocess check=False with FD isolation.
+- Active Intent / Milestone: ONT-11 (5-Slot Hot Backup Engine, Offensive Countermeasures & Multi-Agent Context Segregation) — Stage 2 G2 (Dokimos VERIFIED; Task 112 PROMOTED 0.9250 TRUST).
+- Files Changed & Why: `engine/backup.py` (5-slot hot backup, atomic restore, self-healing), `engine/privilege.py` (CapabilityGuard), `engine/security.py` (secret masking, hash chain), `schemas/database.sql` (agent_id, audit log), `scripts/aep-ctl` (backup CLI), `server.py` (FastMCP agent_id, bwrap hardening, memfd blacklist).
+- Open Defects: None (0 defects; 7/7 Dokimos gates passed; Ruff 0 errors; Semgrep 0 findings).
+- Decisions Taken: Native SQLite Backup API (`conn.backup()`); 5-slot FIFO pool; atomic WAL/SHM purge; CapabilityGuard CBAC; memfd path blacklist; Bubblewrap `--cap-drop ALL` & `--unshare-all`; SHA-256 hash chain; agent_id default segregation.
 - Next 3 Pending Actions:
-  1. Hermon (Stage 6): Atomic Conventional Commit (`refactor: code modernization, ruff linting, anyio concurrency and hot sqlite anti-deadlock`).
-  2. Hermon (Stage 6): Version release and branch push.
-  3. Post-release status confirmation and milestone closeout.
+  1. Hermon (Stage 6): Atomic Conventional Commit and release tagging.
+  2. Orchestrator: Verify clean git status and release report delivery.
+  3. Orchestrator / User: Milestone ONT-11 closure and next intent intake.
 
-Drop: Raw test outputs, intermediate linter logs, superseded plans, resolved dry-run findings.
+Drop: Tool outputs already summarized, intermediate test logs, superseded plans, resolved errors.

@@ -1,9 +1,9 @@
-# Feature Chain Rollup: Pipeline Milestone History (Documents 1–14)
+# Feature Chain Rollup: Pipeline Milestone History (Documents 1–15)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-24T18:31:40Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 14 (Code Modernization, Ruff SAST, AnyIO & Anti-Deadlock SQLite Complete)
-- **Current Active Document**: [`feature_20261024_171500_code_modernization_and_concurrency_optimization.md`](feature_20261024_171500_code_modernization_and_concurrency_optimization.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-25T03:59:11Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 15 (Database Backup & Restore Rotation Engine, Offensive Primitive Countermeasures & Multi-Agent Context Segregation Complete)
+- **Current Active Document**: [`feature_20261025_031500_backup_restore_and_offensive_countermeasures.md`](feature_20261025_031500_backup_restore_and_offensive_countermeasures.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 14)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 15)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -30,8 +30,9 @@ flowchart LR
         D12["Doc 12: 102000<br/>(Runtime Hardening, Secret Masking & Full README Sync: 7 Gaps Closed)"]
         D13["Doc 13: 115500<br/>(Memory-Mapped Hybrid SQLite Optimization: PRAGMA mmap_size 256MB)"]
         D14["Doc 14: 171500<br/>(Code Modernization, Ruff SAST, AnyIO & Anti-Deadlock SQLite)"]
+        D15["Doc 15: 031500<br/>(5-Slot Hot Backup Engine, Offensive Countermeasures & Multi-Agent Segregation)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15
     end
 ```
 
@@ -55,6 +56,7 @@ flowchart LR
 | **12** | `feature_20261024_102000_runtime_hardening_secrets_and_readme_sync.md` | Post-Consolidation Runtime Hardening, Secret Masking & Full README Sync. Remediated 7 operational gaps: GAP-SEC-01 (secret masking in logs and outputs), GAP-RT-01 (visual_inspect event loop decoupling via ThreadPoolExecutor), GAP-RT-02 (coredumpctl check harmonization across server.py and crash_router.py with exit code 1 handling), GAP-DX-01 (optional category in artifact_catalog query for cross-category kNN search), GAP-DX-02 (socket-to-PID correlation in aep_ctl network listeners), GAP-DX-03 (kanban demotion ergonomics supporting task_id), GAP-DOC-01 (full README sync to 15-tool bundle and diagram harmonization). Kanban Task 109 promoted to `PROMOTED` at `0.9949 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | Zero credential leakage in outputs and Pueue dumps; zero event loop collisions in headless Playwright; coredumpctl returns clean empty list when no dumps exist; artifact catalog supports global cross-category search; network listeners correlate to PIDs and processes; kanban demote accepts task_id or artifact_name; README.md in 100% sync with active FastMCP tools; Semgrep 0 findings across 1,198 rules. |
 | **13** | `feature_20261024_115500_mmap_hybrid_sqlite_ram_persistence.md` | Memory-Mapped Hybrid SQLite Optimization (PRAGMA mmap_size 256MB & 64MB Cache). Standardized all 5 SQLite touchpoints (`catalog.py`, `kanban.py`, `crash_router.py`, `playbook.py`, `docs_vectorizer.py`) onto centralized factory `engine/db.py`. Enforces 256MB mmap zero-copy reads, 64MB RAM page cache, WAL journal mode, 10s busy timeout, normal synchronous, memory temp_store. Exposed live `storage_engine` and `db_telemetry` in `artifact_catalog(action="reindex")`. Passed 1,000-op multithreaded WAL stress test with 0 lock errors in 0.125s. Kanban Task 110 promoted to `PROMOTED` at `0.9958 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | RAM-speed vector searches and metadata queries backed by 100% Linux kernel zero-copy memory mapping; multi-agent concurrent access without lock contention; 100% ACID persistence on disk for cross-agent reuse; Semgrep 0 findings across 1,198 rules. |
 | **14** | `feature_20261024_171500_code_modernization_and_concurrency_optimization.md` | Milestone ONT-10: Python 3.12 code modernization, strict Ruff SAST adherence (0 errors across E,W,F,I,UP,S,BLE,PLW,FURB), FastMCP stdio concurrency offloading via AnyIO worker thread pool (<2ms loop jitter), segregated RO/RW SQLite factory (`get_ro_connection` mode=ro vs `get_rw_connection` autocommit), explicit `transaction_immediate` (`BEGIN IMMEDIATE`) anti-deadlock context manager, WAL autocheckpoint tuning (1000 pages ~4MB), PLW1510 subprocess hardening with POSIX FD isolation (`pass_fds=(fd,)`, `timeout=30`, `close_fds=True`). Passed 6 Dokimos verification gates (1,000 concurrent ops in 0.14s with 0 lock errors); Task 111 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | Multi-agent concurrent FastMCP stdio requests never stall event loop; SQLite lock-upgrade deadlocks eliminated; zero silent exception swallows; zero unchecked subprocesses; Semgrep 0 findings across 1,352 rules. |
+| **15** | `feature_20261025_031500_backup_restore_and_offensive_countermeasures.md` | Milestone ONT-11: 5-slot online hot backup rotation pool (`conn.backup()`), SHA-256 pre-promotion checksums, atomic restore purging stale `-wal`/`-shm`, self-healing auto-recovery (`verify_and_auto_recover`), `CapabilityGuard` CBAC, in-RAM execution path blacklist (`/etc/shadow`, `/root`, `~/.ssh`), multi-agent caller context segregation (`agent_id: str = "default"`), hardened Bubblewrap (`--unshare-all`, `--cap-drop ALL`, isolated tmpfs), cryptographic SHA-256 hash-chain audit log (`security_audit_log`). Passed 7 Dokimos verification gates; Task 112 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | Native SQLite Backup API mandatory for WAL backups (raw copy prohibited); atomic restore must unlink `-wal` and `-shm`; in-RAM binaries cannot access sensitive paths; Bubblewrap drops all capabilities; SHA-256 audit log is immutable with cryptographic hash-chaining; `agent_id` segregates multi-agent contexts. |
 
 
 ---
@@ -86,3 +88,15 @@ flowchart LR
 7. **FastMCP Event Loop Concurrency Invariant**:
    - All 15 FastMCP tools in `server.py` are declared as non-blocking `async def` coroutines.
    - Synchronous blocking calls (SQLite queries, vector similarity scans, disk I/O, subprocess execution) must be offloaded to worker threads via `await anyio.to_thread.run_sync()`, guaranteeing stdio JSON-RPC loop jitter remains <2.0ms.
+8. **Database Resilience & Disaster Recovery Invariant**:
+   - SQLite backups under WAL mode must exclusively utilize the native SQLite Backup API (`conn.backup()`); raw filesystem copying (`shutil.copyfile`, `cp`) is strictly prohibited.
+   - The backup rotation pool is strictly bounded to 5 FIFO slots (`artifacts.db.bak.1..5`) tracked in `backups_manifest.json` with SHA-256 byte checksums.
+   - Atomic database restore must purge stale `-wal` and `-shm` sidecars prior to atomic file replacement (`os.replace`) to prevent catastrophic index desynchronization.
+   - Automated self-healing corruption recovery (`verify_and_auto_recover`) automatically falls back to the newest healthy backup slot on corruption.
+9. **Offensive Primitive Containment & Multi-Agent Segregation Invariant**:
+   - In-RAM binary execution via `artifact_execute_in_ram` is bounded by strict canonical path blacklists (`/etc/shadow`, `/root`, `~/.ssh`, kernel memory nodes) and network egress policy boundaries.
+   - `CapabilityGuard` enforces capability-based access control, preventing unprivileged agents from escalating privileges across tools or accessing sensitive operations.
+   - Bubblewrap sandboxes enforce complete namespace unsharing (`--unshare-all`), total Linux capability dropping (`--cap-drop ALL`), and ephemeral isolated memory mounts (`--tmpfs /tmp`).
+   - All 15 FastMCP tools enforce explicit `agent_id: str = "default"` caller context segregation with per-agent scratchpad directories and Pueue queue groups (`agent_{agent_id}`).
+   - All security actions are recorded in an immutable cryptographic SHA-256 hash-chained audit log with universal secret masking ($H_n = \text{SHA256}(H_{n-1} + \dots)$) and active tamper detection.
+
