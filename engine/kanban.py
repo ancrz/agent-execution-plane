@@ -40,12 +40,14 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     attempts INTEGER NOT NULL DEFAULT 0,
     promotion_score REAL NOT NULL DEFAULT 0.0,
     archived INTEGER NOT NULL DEFAULT 0,
+    agent_id TEXT NOT NULL DEFAULT 'default',
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
 CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived);
+CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id);
 """
 
 
@@ -65,6 +67,9 @@ class KanbanBoard:
         if "archived" not in cols:
             conn.execute("ALTER TABLE kanban_tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived)")
+        if "agent_id" not in cols:
+            conn.execute("ALTER TABLE kanban_tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id)")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -109,13 +114,18 @@ class KanbanBoard:
 
     # ------------------------------------------------------------------ operaciones
     def create_task(
-        self, title: str, intent: str = "", category: str = "", artifact_name: str | None = None
+        self,
+        title: str,
+        intent: str = "",
+        category: str = "",
+        artifact_name: str | None = None,
+        agent_id: str = "default",
     ) -> dict[str, Any]:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state) "
-                "VALUES (?, ?, ?, ?, 'BACKLOG')",
-                (title, intent, category, artifact_name),
+                "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id) "
+                "VALUES (?, ?, ?, ?, 'BACKLOG', ?)",
+                (title, intent, category, artifact_name, agent_id),
             )
             conn.commit()
             return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG"}

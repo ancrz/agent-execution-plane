@@ -18,6 +18,8 @@ import logging
 import os
 import shutil
 import subprocess
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("aep.privilege")
 
@@ -53,6 +55,27 @@ def privilege_mode() -> str:
         return "direct-root"
     return "sudo-n" if sudo_n_available() else "unprivileged"
 
+
+
+# Constantes de capacidades
+CAP_RAM_EXEC = "ram_execution"
+CAP_EPHEMERAL_SANDBOX = "ephemeral_sandbox"
+CAP_ARTIFACT_SYNTHESIS = "artifact_synthesis"
+CAP_ORIENTATION = "orientation"
+CAP_SEMANTIC_MEMORY = "semantic_memory"
+CAP_ASYNC_DISPATCH = "async_dispatch"
+CAP_PROCESS_INTROSPECTION = "process_introspection"
+CAP_SYSTEM_INSPECT = "system_inspect"
+CAP_SERVICE_CONTROL = "service_control"
+CAP_CRASH_FORENSICS = "crash_forensics"
+CAP_KERNEL_OBSERVABILITY = "kernel_observability"
+CAP_VISUAL_ACTUATION = "visual_actuation"
+CAP_TOPOS_AUDIT = "topos_audit"
+CAP_TASK_MANAGEMENT = "task_management"
+CAP_AUTOMATION = "automation"
+CAP_SYSTEM_DOCS = "system_docs"
+CAP_BACKUP_ADMIN = "backup_admin"
+CAP_AUDIT_READ = "audit_read"
 
 def capability_tier() -> str:
     """FULL si hay root o escalada disponible; DIMINISHED en caso contrario."""
@@ -142,6 +165,8 @@ _CAPABILITIES = {
         ["playbook_run"],
         "Pico-Playbooks: orquestación de flujos DAG, ejecución, listado, creación y poda segura (playbook_run: action='run'|'create'|'list'|'prune')",
     ),
+    "backup_admin": (4, 6, "system", ["aep_ctl"], "Gestión de copias de seguridad y rotación de backups (aep-ctl backup)"),
+    "audit_read": (4, 4, "self", ["aep_ctl"], "Inspección y verificación de la cadena de auditoría criptográfica"),
     "system_docs": (
         4,
         4,
@@ -173,6 +198,8 @@ _CAP_KEYWORDS = {
     "topos_audit": "audit dag graph dependency cycle codependency auditar grafo dependencia ciclo",
     "task_management": "task kanban board create advance promote demote reevaluate archive unarchive manage weigh track tarea tablero crear avanzar promover degradar reevaluar archivar desarchivar gestionar ponderar seguir",
     "automation": "automate playbook run create list prune workflow chain pipeline steps gc clean automatizar ejecutar crear listar podar orquestar flujo secuencia pasos limpiar",
+    "backup_admin": "backup restore recover rotation hot snapshot copia seguridad restaurar",
+    "audit_read": "audit log security chain cryptographic verificar auditoria cadena",
     "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando manual",
 }
 
@@ -211,3 +238,111 @@ def capability_manifest() -> dict:
         },
         "capabilities": caps,
     }
+
+
+class PermissionDenied(Exception):
+    """Excepción lanzada cuando una acción es bloqueada por CapabilityGuard."""
+
+    def __init__(
+        self,
+        message: str,
+        capability: str | None = None,
+        agent_id: str | None = None,
+        action: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.capability = capability
+        self.agent_id = agent_id
+        self.action = action
+
+
+class CapabilityGuard:
+    """Motor de control de acceso basado en capacidades (CBAC)."""
+
+    SYSTEM_MUTATION_ACTIONS: set[str] = {"system_service_mutate", "kernel_trace_start", "audit_purge"}
+
+    PATH_BLACKLIST: tuple[str, ...] = (
+        "/etc/shadow",
+        "/etc/gshadow",
+        "/etc/sudoers",
+        "/etc/security",
+        "/root",
+        "/proc/kcore",
+        "/dev/mem",
+        "/dev/kmem",
+    )
+
+    @classmethod
+    def is_path_blacklisted(cls, path_str: str) -> bool:
+        """Comprueba si una ruta coincide con o está dentro de rutas restringidas."""
+        try:
+            p = Path(path_str).expanduser().resolve()
+            resolved_str = str(p)
+            ssh_dir = str(Path.home() / ".ssh")
+            gnupg_dir = str(Path.home() / ".gnupg")
+            if resolved_str == ssh_dir or resolved_str.startswith(ssh_dir + "/"):
+                return True
+            if resolved_str == gnupg_dir or resolved_str.startswith(gnupg_dir + "/"):
+                return True
+            for b in cls.PATH_BLACKLIST:
+                if resolved_str == b or resolved_str.startswith(b + "/"):
+                    return True
+        except (OSError, ValueError):
+            return False
+        return False
+
+    @classmethod
+    def verify_action(
+        cls,
+        agent_id: str,
+        capability: str,
+        action: str,
+        target: str | None = None,
+    ) -> None:
+        """
+        Lanza PermissionDenied si la acción solicitada viola las políticas de capacidad.
+        """
+        tier = capability_tier()
+        norm_cap = capability.lower().removeprefix("cap_")
+
+        # 1. Validación de blacklist de rutas
+        if target and cls.is_path_blacklisted(target):
+            raise PermissionDenied(
+                f"Acceso denegado a ruta restringida '{target}' bajo capacidad '{capability}'.",
+                capability=capability,
+                agent_id=agent_id,
+                action=action,
+            )
+
+        # 2. DIMINISHED vs FULL: acciones restringidas a nivel de sistema
+        if tier == "DIMINISHED":
+            if action in cls.SYSTEM_MUTATION_ACTIONS or norm_cap == "kernel_observability":
+                raise PermissionDenied(
+                    f"Agente '{agent_id}' en tier DIMINISHED no tiene autorización para '{action}' en '{capability}'. Requiere nivel FULL.",
+                    capability=capability,
+                    agent_id=agent_id,
+                    action=action,
+                )
+
+    @classmethod
+    def check_action(
+        cls,
+        agent_id: str,
+        capability: str,
+        action: str,
+        target: str | None = None,
+    ) -> dict[str, Any]:
+        """Evaluación fail-soft de autorización que devuelve diccionario estructurado."""
+        try:
+            cls.verify_action(agent_id, capability, action, target)
+            return {"status": "ALLOWED", "allowed": True, "agent_id": agent_id, "capability": capability}
+        except PermissionDenied as e:
+            return {
+                "status": "PERMISSION_DENIED",
+                "allowed": False,
+                "error": e.message,
+                "agent_id": agent_id,
+                "capability": capability,
+                "action": action,
+            }

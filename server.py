@@ -21,18 +21,21 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 
 from engine import headless_display, matcher
+from engine.backup import create_backup, get_backup_status, restore_backup, verify_and_auto_recover
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
 from engine.kanban import KanbanBoard
 from engine.playbook import PlaybookStore
 from engine.privilege import (
+    CapabilityGuard,
+    PermissionDenied,
     capability_manifest,
     capability_tier,
     privilege_mode,
     privilege_prefix,
 )
-from engine.security import mask_pueue_output
+from engine.security import mask_pueue_output, record_audit_event, verify_audit_chain
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard
 
@@ -87,7 +90,7 @@ async def aep_capabilities(**kw: Any) -> str:
 
 
 @mcp.tool()
-async def topos_audit_dag(tasks: list[str], dependencies: dict[str, list[str]]) -> str:
+async def topos_audit_dag(tasks: list[str], dependencies: dict[str, list[str]], agent_id: str = "default") -> str:
     """
     [TOPOS INTEGRITY PROTOCOL] Audita un grafo de tareas antes de su despacho.
     Detecta co-dependencias circulares (A <-> B) que bloquearían al agente.
@@ -106,6 +109,7 @@ async def discover(
     use_case: str = "",
     action: str = "discover",
     limit: int = 3,
+    agent_id: str = "default",
 ) -> str:
     """
     [ORIENTACIÓN Y MANIFIESTO UNIFICADO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer
@@ -206,6 +210,7 @@ async def artifact_catalog(
     limit: int = 10,
     force: bool = False,
     apply: bool = False,
+    agent_id: str = "default",
 ) -> str:
     """
     [MEMORIA SEMÁNTICA UNIFICADA] Punto único para descubrir, consultar en caché,
@@ -323,6 +328,7 @@ async def artifact_lint_and_build(
     params: dict[str, Any] | None = None,
     cue_contract: str = "",
     limit: int = 5,
+    agent_id: str = "default",
 ) -> str:
     """
     [PICO-JENKINS / QUALITY GATE & ARTIFACT SYNTHESIS]
@@ -550,13 +556,74 @@ async def artifact_lint_and_build(
 
 
 @mcp.tool()
-async def artifact_execute_in_ram(name: str, args: list[str] | None = None) -> str:
+async def artifact_execute_in_ram(
+    name: str, args: list[str] | None = None, agent_id: str = "default"
+) -> str:
     """
     [CAMINO A / MEMFD EXECUTION] Carga un binario Go del catálogo o de bin/
     y lo inyecta directamente en memoria RAM vía memfd_create sin tocar almacenamiento secundario.
     """
 
     def _run() -> str:
+        cmd_args = args or []
+
+        # 1. Validación de autorización y blacklist
+        try:
+            CapabilityGuard.verify_action(agent_id, "cap_ram_exec", "ram_exec", target=name)
+        except PermissionDenied as e:
+            try:
+                with catalog._get_rw_conn() as conn:
+                    record_audit_event(
+                        conn,
+                        agent_id=agent_id,
+                        tool_name="artifact_execute_in_ram",
+                        action="ram_exec",
+                        capability_tier=capability_tier(),
+                        status="BLOCKED",
+                        details={"name": name, "reason": e.message},
+                        target=name,
+                    )
+            except Exception as log_err:
+                logger.debug("Failed recording audit event: %s", log_err)
+            return json.dumps(
+                {
+                    "status": "PERMISSION_DENIED",
+                    "agent_id": agent_id,
+                    "error": e.message,
+                    "target": name,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        for arg in cmd_args:
+            if CapabilityGuard.is_path_blacklisted(arg):
+                try:
+                    with catalog._get_rw_conn() as conn:
+                        record_audit_event(
+                            conn,
+                            agent_id=agent_id,
+                            tool_name="artifact_execute_in_ram",
+                            action="ram_exec",
+                            capability_tier=capability_tier(),
+                            status="BLOCKED",
+                            details={"name": name, "reason": "Restricted path in arguments", "arg": arg},
+                            target=arg,
+                        )
+                except Exception as log_err:
+                    logger.debug("Failed recording audit event: %s", log_err)
+
+                return json.dumps(
+                    {
+                        "status": "PERMISSION_DENIED",
+                        "agent_id": agent_id,
+                        "error": f"Acceso denegado a ruta restringida '{arg}' bajo capacidad 'cap_ram_exec'.",
+                        "target": arg,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
         bin_file = TEMP_BIN_DIR / name
         elf_bytes: bytes | None = None
         if bin_file.exists():
@@ -572,8 +639,7 @@ async def artifact_execute_in_ram(name: str, args: list[str] | None = None) -> s
                     logger.debug("Failed writing binary cache %s: %s", bin_file, e)
 
         if not elf_bytes:
-            return json.dumps({"status": "ERROR", "error": f"Binario no encontrado: {name}"})
-        cmd_args = args or []
+            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": f"Binario no encontrado: {name}"})
 
         start_time = time.time()
         fd = None
@@ -597,6 +663,7 @@ async def artifact_execute_in_ram(name: str, args: list[str] | None = None) -> s
                 return json.dumps(
                     {
                         "status": "TIMEOUT",
+                        "agent_id": agent_id,
                         "error": f"Artefacto '{name}' excedió el timeout de 30s (posible proceso daemonizado con descriptores abiertos).",
                     },
                     indent=2,
@@ -618,12 +685,35 @@ async def artifact_execute_in_ram(name: str, args: list[str] | None = None) -> s
                 res.returncode,
                 latency_ms,
                 error_message=(res.stderr.strip()[:500] if res.returncode != 0 and res.stderr else None),
+                agent_id=agent_id,
             )
             kanban_canary = kanban.record_canary_by_artifact(name, res.returncode == 0)
 
+            status_val = "SUCCESS" if res.returncode == 0 else "EXEC_FAILED"
+            try:
+                with catalog._get_rw_conn() as conn:
+                    record_audit_event(
+                        conn,
+                        agent_id=agent_id,
+                        tool_name="artifact_execute_in_ram",
+                        action="ram_exec",
+                        capability_tier=capability_tier(),
+                        status=status_val,
+                        details={
+                            "latency_ms": latency_ms,
+                            "exit_code": res.returncode,
+                            "args": cmd_args,
+                            "error": res.stderr.strip()[:200] if res.stderr else None,
+                        },
+                        target=name,
+                    )
+            except Exception as log_err:
+                logger.debug("Failed recording audit event: %s", log_err)
+
             return json.dumps(
                 {
-                    "status": "SUCCESS" if res.returncode == 0 else "EXEC_FAILED",
+                    "status": status_val,
+                    "agent_id": agent_id,
                     "exit_code": res.returncode,
                     "latency_ms": latency_ms,
                     "output": stdout_parsed,
@@ -634,7 +724,7 @@ async def artifact_execute_in_ram(name: str, args: list[str] | None = None) -> s
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, indent=2)
         finally:
             if fd is not None:
                 try:
@@ -646,7 +736,7 @@ async def artifact_execute_in_ram(name: str, args: list[str] | None = None) -> s
 
 
 @mcp.tool()
-async def process_inspect(pid: int = 0, limit: int = 100) -> str:
+async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "default") -> str:
     """
     [INTROSPECCIÓN DE PROCESOS] Inspecciona el estado, descriptores de archivo abiertos
     (/proc/PID/fd) y telemetría de recursos de un proceso.
@@ -880,6 +970,7 @@ async def async_job_dispatch(
     working_dir: str | None = None,
     task_id: int | None = None,
     lines: int = 50,
+    agent_id: str = "default",
 ) -> str:
     """
     [CAMINO B / PUEUE] Despacho e inspección unificada de tareas asíncronas en Pueue.
@@ -912,12 +1003,17 @@ async def async_job_dispatch(
                             "status": "DEGRADED",
                             "message": "pueue binary is not installed on host or daemon is unavailable. Camino B requires pueue daemon.",
                             "command": command,
+                            "agent_id": agent_id,
                         },
                         indent=2,
                         ensure_ascii=False,
                     )
 
-                cmd = [pueue_bin, "add", "--print-task-id", "--group", group]
+                effective_group = f"agent_{agent_id}" if group == "default" and agent_id != "default" else group
+                if effective_group != "default":
+                    subprocess.run([pueue_bin, "group", "add", effective_group], capture_output=True, check=False)
+
+                cmd = [pueue_bin, "add", "--print-task-id", "--group", effective_group]
                 if label:
                     cmd.extend(["--label", label])
                 if working_dir:
@@ -933,34 +1029,86 @@ async def async_job_dispatch(
                     timeout=10,
                     check=False,  # check=False: returncode verified immediately below
                 )
-                if res.returncode != 0 or not res.stdout.strip():
+
+                if res.returncode != 0:
                     return json.dumps(
                         {
-                            "status": "DEGRADED",
-                            "message": "Failed to dispatch async task to pueue daemon",
-                            "stderr": res.stderr.strip(),
-                            "exit_code": res.returncode,
+                            "status": "PUEUE_ERROR",
+                            "error": res.stderr.strip() or res.stdout.strip(),
+                            "command": command,
+                            "agent_id": agent_id,
                         },
                         indent=2,
                         ensure_ascii=False,
                     )
+
+                # parsea task-id del output numérico
+                out = res.stdout.strip()
                 try:
-                    tid = int(res.stdout.strip())
-                except ValueError:
-                    tid = res.stdout.strip()
+                    tid = int(out.split()[-1])
+                except (IndexError, ValueError):
+                    tid = out
+
                 return json.dumps(
-                    {"status": "queued", "task_id": tid, "group": group, "command": command},
+                    {
+                        "status": "queued",
+                        "task_id": tid,
+                        "group": effective_group,
+                        "agent_id": agent_id,
+                        "command": command,
+                    },
                     indent=2,
-                    ensure_ascii=False,
                 )
 
-            elif act in ("inspect", "status", "log"):
-                if act == "log" and task_id is None:
+            elif act in ("inspect", "status"):
+                pueue_bin = _ensure_pueue_daemon()
+                if not pueue_bin:
                     return json.dumps(
                         {
-                            "status": "PARAM_ERROR",
-                            "error": "Acción 'log' requiere 'task_id'.",
+                            "status": "DEGRADED",
+                            "message": "pueue daemon unavailable.",
+                            "agent_id": agent_id,
                         },
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+
+                if task_id is not None:
+                    # inspección detallada de un task
+                    res = subprocess.run(
+                        [pueue_bin, "log", "--json", str(task_id)],
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        close_fds=True,
+                        timeout=10,
+                        check=False,  # check=False: returncode verified below
+                    )
+                else:
+                    # status global
+                    res = subprocess.run(
+                        [pueue_bin, "status", "--json"],
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        close_fds=True,
+                        timeout=10,
+                        check=False,  # check=False: returncode verified below
+                    )
+
+                if res.returncode != 0:
+                    return json.dumps(
+                        {"status": "ERROR", "stderr": res.stderr.strip(), "agent_id": agent_id},
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+
+                return mask_pueue_output(res.stdout)
+
+            elif act == "log":
+                if task_id is None:
+                    return json.dumps(
+                        {"status": "PARAM_ERROR", "error": "Acción 'log' requiere 'task_id'."},
                         indent=2,
                         ensure_ascii=False,
                     )
@@ -970,67 +1118,44 @@ async def async_job_dispatch(
                     return json.dumps(
                         {
                             "status": "DEGRADED",
-                            "message": "pueue binary is not installed on host or daemon is unavailable",
+                            "message": "pueue daemon unavailable.",
+                            "agent_id": agent_id,
                         },
                         indent=2,
                         ensure_ascii=False,
                     )
 
-                if task_id is not None:
-                    res = subprocess.run(
-                        [pueue_bin, "log", str(task_id), "--lines", str(lines), "--json"],
-                        stdin=subprocess.DEVNULL,
-                        capture_output=True,
-                        text=True,
-                        close_fds=True,
-                        timeout=10,
-                        check=False,  # check=False: returncode verified immediately below
+                res = subprocess.run(
+                    [pueue_bin, "log", "--lines", str(lines), "--json", str(task_id)],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    close_fds=True,
+                    timeout=10,
+                    check=False,  # check=False: returncode verified below
+                )
+
+                if res.returncode != 0:
+                    return json.dumps(
+                        {"status": "ERROR", "stderr": res.stderr.strip(), "agent_id": agent_id},
+                        indent=2,
+                        ensure_ascii=False,
                     )
-                    if res.returncode != 0 or not res.stdout.strip():
-                        return json.dumps(
-                            {
-                                "status": "DEGRADED",
-                                "message": f"Failed to retrieve log for task {task_id}",
-                                "stderr": res.stderr.strip(),
-                            },
-                            indent=2,
-                            ensure_ascii=False,
-                        )
-                    return mask_pueue_output(res.stdout)
-                else:
-                    res = subprocess.run(
-                        [pueue_bin, "status", "--json"],
-                        stdin=subprocess.DEVNULL,
-                        capture_output=True,
-                        text=True,
-                        close_fds=True,
-                        timeout=10,
-                        check=False,  # check=False: returncode verified immediately below
-                    )
-                    if res.returncode != 0 or not res.stdout.strip():
-                        return json.dumps(
-                            {
-                                "status": "DEGRADED",
-                                "message": "Failed to connect to pueue daemon",
-                                "stderr": res.stderr.strip(),
-                            },
-                            indent=2,
-                            ensure_ascii=False,
-                        )
-                    return mask_pueue_output(res.stdout)
+
+                return mask_pueue_output(res.stdout)
 
             else:
                 return json.dumps(
                     {
                         "status": "INVALID_ACTION",
-                        "error": f"Acción '{action}' no válida para async_job_dispatch.",
-                        "valid_actions": ["dispatch", "inspect", "status", "log"],
+                        "error": f"Acción '{action}' desconocida. Válidas: dispatch, inspect, status, log.",
                     },
                     indent=2,
                     ensure_ascii=False,
                 )
+
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2, ensure_ascii=False)
+            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, indent=2, ensure_ascii=False)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -1040,6 +1165,7 @@ async def diagnose_system_crashes(
     action: str = "diagnose",
     limit: int = 5,
     resolve_after_report: bool = False,
+    agent_id: str = "default",
 ) -> str:
     """
     [FORENSE DE CRASHES UNIFICADO] Diagnóstico del sistema y alertas de crashes activos.
@@ -1138,7 +1264,7 @@ async def diagnose_system_crashes(
 
 
 @mcp.tool()
-async def sandbox_run(command: str, share_net: bool = True) -> str:
+async def sandbox_run(command: str, share_net: bool = True, agent_id: str = "default") -> str:
     """
     [BUBBLEWRAP SANDBOX] Ejecuta comandos en un sandbox efímero con bwrap
     aislando el sistema de archivos contra efectos secundarios destructivos.
@@ -1147,6 +1273,11 @@ async def sandbox_run(command: str, share_net: bool = True) -> str:
     def _run() -> str:
         bwrap_cmd = [
             "bwrap",
+            "--unshare-all",
+        ]
+        if share_net:
+            bwrap_cmd.append("--share-net")
+        bwrap_cmd.extend([
             "--ro-bind",
             "/usr",
             "/usr",
@@ -1156,20 +1287,37 @@ async def sandbox_run(command: str, share_net: bool = True) -> str:
             "--ro-bind",
             "/lib",
             "/lib",
-            "--ro-bind",
+            "--ro-bind-try",
             "/lib64",
             "/lib64",
+            "--ro-bind-try",
+            "/etc/ssl",
+            "/etc/ssl",
+            "--ro-bind-try",
+            "/etc/pki",
+            "/etc/pki",
+            "--ro-bind-try",
+            "/etc/resolv.conf",
+            "/etc/resolv.conf",
+            "--ro-bind-try",
+            "/etc/hosts",
+            "/etc/hosts",
             "--proc",
             "/proc",
             "--dev",
             "/dev",
             "--tmpfs",
             "/tmp",
-            "--unshare-pid",
-        ]
-        if not share_net:
-            bwrap_cmd.append("--unshare-net")
-        bwrap_cmd.extend(["--", "sh", "-c", command])
+            "--tmpfs",
+            "/dev/shm",
+            "--cap-drop",
+            "ALL",
+            "--die-with-parent",
+            "--",
+            "sh",
+            "-c",
+            command,
+        ])
 
         try:
             res = subprocess.run(
@@ -1180,6 +1328,8 @@ async def sandbox_run(command: str, share_net: bool = True) -> str:
             )
             return json.dumps(
                 {
+                    "status": "SUCCESS" if res.returncode == 0 else "EXEC_FAILED",
+                    "agent_id": agent_id,
                     "exit_code": res.returncode,
                     "stdout": res.stdout.strip(),
                     "stderr": res.stderr.strip(),
@@ -1187,20 +1337,46 @@ async def sandbox_run(command: str, share_net: bool = True) -> str:
                 indent=2,
             )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, indent=2)
 
     return await anyio.to_thread.run_sync(_run)
 
 
 @mcp.tool()
-async def aep_ctl(domain: str, action: str, name: str | None = None) -> str:
+async def aep_ctl(domain: str, action: str, name: str | None = None, agent_id: str = "default") -> str:
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
-    domain: service|network|storage|package. Salida JSON tipada, no-interactiva.
-    Ej: aep_ctl("network","listeners") | aep_ctl("package","check","nginx").
+    domain: service|network|storage|package|backup|audit. Salida JSON tipada, no-interactiva.
+    Ej: aep_ctl("network","listeners") | aep_ctl("package","check","nginx") | aep_ctl("backup","status").
     """
 
     def _run() -> str:
+        d = (domain or "").strip().lower()
+        a = (action or "").strip().lower()
+        if d == "backup":
+            if a == "backup":
+                return json.dumps(create_backup(), indent=2)
+            elif a == "restore":
+                slot = 1
+                if name and name.strip():
+                    try:
+                        slot = int(name.strip())
+                    except ValueError:
+                        return json.dumps({"status": "ERROR", "error": f"Número de slot inválido: {name}"}, indent=2)
+                return json.dumps(restore_backup(slot_number=slot), indent=2)
+            elif a in ("status", "backup_status"):
+                return json.dumps(get_backup_status(), indent=2)
+            elif a in ("auto_recover", "verify_and_auto_recover"):
+                return json.dumps(verify_and_auto_recover(), indent=2)
+            else:
+                return json.dumps({"status": "ERROR", "error": f"Acción de backup desconocida: {a}"}, indent=2)
+        elif d == "audit":
+            if a == "verify":
+                with catalog._get_ro_conn() as conn:
+                    return json.dumps(verify_audit_chain(conn), indent=2)
+            else:
+                return json.dumps({"status": "ERROR", "error": f"Acción de audit desconocida: {a}"}, indent=2)
+
         if not AEP_CTL.exists():
             return json.dumps({"status": "ERROR", "error": f"aep-ctl no encontrado en {AEP_CTL}"}, indent=2)
         cmd = ["python3", str(AEP_CTL), domain, action]
@@ -1231,7 +1407,7 @@ async def check_crash_alerts(resolve_after_report: bool = False) -> str:
 
 
 @mcp.tool()
-async def query_system_docs(query: str, limit: int = 3, ingest_command: str | None = None) -> str:
+async def query_system_docs(query: str, limit: int = 3, ingest_command: str | None = None, agent_id: str = "default") -> str:
     """
     [SPEC-OM-4 / DOCS VECTORIZER] Memoria semántica local de man-pages (sqlite-vec).
     Devuelve la sintaxis exacta de herramientas del sistema sin alucinar ni navegar la web.
@@ -1257,6 +1433,7 @@ async def visual_inspect(
     viewport_height: int = 800,
     selector: str | None = None,
     full_page: bool = True,
+    agent_id: str = "default",
 ) -> str:
     """
     [SPEC-OM-5 / HEADLESS DISPLAY] Renderiza una URL (http(s):// o file://) en Chromium
@@ -1295,7 +1472,7 @@ _BPFTRACE_MODES = {
 
 
 @mcp.tool()
-async def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str:
+async def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3, agent_id: str = "default") -> str:
     """
     [SPEC-OM-6 / KERNEL TRACE via eBPF] Observabilidad de kernel a bajo nivel (bpftrace).
     Requiere nivel FULL (sudo -n disponible); degrada limpiamente a DIMINISHED si no hay root.
@@ -1389,6 +1566,7 @@ async def kanban_board(
     max_score: float | None = None,
     apply: bool = False,
     target_state: str = "SYNTHESIZED",
+    agent_id: str = "default",
 ) -> str:
     """
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
@@ -1416,7 +1594,7 @@ async def kanban_board(
                         ensure_ascii=False,
                     )
                 return json.dumps(
-                    kanban.create_task(title.strip(), intent, category, artifact_name), indent=2, ensure_ascii=False
+                    kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id), indent=2, ensure_ascii=False
                 )
             elif act == "advance":
                 if task_id is None or not (to_state or "").strip():
@@ -1547,6 +1725,7 @@ async def playbook_run(
     params_contract: list[dict[str, Any]] | None = None,
     names: list[str] | None = None,
     apply: bool = False,
+    agent_id: str = "default",
 ) -> str:
     """
     [PICO-PLAYBOOK UNIFICADO] Orquestación y ejecución de automatizaciones DAG parametrizables.

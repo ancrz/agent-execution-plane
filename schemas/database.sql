@@ -37,11 +37,13 @@ CREATE TABLE IF NOT EXISTS execution_metrics (
     latency_ms REAL NOT NULL,
     memory_peak_kb INTEGER,
     error_message TEXT,
+    agent_id TEXT NOT NULL DEFAULT 'default',
     executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_artifact ON execution_metrics(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_agent ON execution_metrics(agent_id);
 
 -- SPEC-OM-2: Active Crash Routing. Dueño autoritativo del DDL de crash_events.
 -- engine/crash_router.py replica este CREATE IF NOT EXISTS como red de seguridad.
@@ -71,12 +73,14 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     attempts INTEGER NOT NULL DEFAULT 0,
     promotion_score REAL NOT NULL DEFAULT 0.0,
     archived INTEGER NOT NULL DEFAULT 0,
+    agent_id TEXT NOT NULL DEFAULT 'default',
     note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_state ON kanban_tasks(state);
 CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived);
+CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id);
 
 -- Pico-Playbooks: automatización por orquestación de tools/artefactos (DAG validado por Topos).
 -- engine/playbook.py replica este CREATE IF NOT EXISTS como red de seguridad.
@@ -91,3 +95,20 @@ CREATE TABLE IF NOT EXISTS playbooks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Registro de Auditoría Inmutable Criptográfico (SHA-256 Hash Chain)
+CREATE TABLE IF NOT EXISTS security_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    capability_tier TEXT NOT NULL DEFAULT '',
+    target TEXT DEFAULT '',
+    status TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    prev_hash TEXT NOT NULL,
+    entry_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_security_audit_agent ON security_audit_log(agent_id);
+CREATE INDEX IF NOT EXISTS idx_security_audit_action ON security_audit_log(action);

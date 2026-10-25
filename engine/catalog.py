@@ -80,6 +80,7 @@ class ArtifactCatalog:
         schema_path = Path(__file__).resolve().parent.parent / "schemas" / "database.sql"
         with self._get_rw_conn() as conn:
             with transaction_immediate(conn):
+                self._migrate(conn)
                 if schema_path.exists():
                     conn.executescript(schema_path.read_text())
                 else:
@@ -106,6 +107,29 @@ class ArtifactCatalog:
             conn.execute("ALTER TABLE artifacts ADD COLUMN promotion_score REAL NOT NULL DEFAULT 0.0")
         if "source_template" not in cols:
             conn.execute("ALTER TABLE artifacts ADD COLUMN source_template TEXT NOT NULL DEFAULT ''")
+        mcols = {r["name"] for r in conn.execute("PRAGMA table_info(execution_metrics)")}
+        if "agent_id" not in mcols:
+            conn.execute("ALTER TABLE execution_metrics ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_agent ON execution_metrics(agent_id)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS security_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL,
+                capability_tier TEXT NOT NULL DEFAULT '',
+                target TEXT DEFAULT '',
+                status TEXT NOT NULL,
+                details_json TEXT NOT NULL,
+                prev_hash TEXT NOT NULL,
+                entry_hash TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_security_audit_agent ON security_audit_log(agent_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_security_audit_action ON security_audit_log(action)")
 
     def _init_vec_table(self, conn: sqlite3.Connection) -> bool:
         """Crea la tabla virtual vec0 una sola vez. Devuelve True si el tier vectorial sirve."""
@@ -282,16 +306,17 @@ class ArtifactCatalog:
         latency_ms: float,
         memory_peak_kb: int | None = None,
         error_message: str | None = None,
+        agent_id: str = "default",
     ) -> None:
         with self._get_rw_conn() as conn:
             with transaction_immediate(conn):
                 conn.execute(
                     """
                     INSERT INTO execution_metrics (
-                        artifact_id, exit_code, latency_ms, memory_peak_kb, error_message
-                    ) VALUES (?, ?, ?, ?, ?)
+                        artifact_id, exit_code, latency_ms, memory_peak_kb, error_message, agent_id
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (artifact_id, exit_code, latency_ms, memory_peak_kb, error_message),
+                    (artifact_id, exit_code, latency_ms, memory_peak_kb, error_message, agent_id),
                 )
                 stats = conn.execute(
                     """
@@ -328,6 +353,7 @@ class ArtifactCatalog:
         exit_code: int,
         latency_ms: float,
         error_message: str | None = None,
+        agent_id: str = "default",
     ) -> bool:
         """Registra una ejecución buscando el artefacto por nombre. Cierra el lazo de
         telemetría: alimenta success_rate/execution_count que ponderan la reutilización.
@@ -337,7 +363,7 @@ class ArtifactCatalog:
                 row = conn.execute("SELECT id FROM artifacts WHERE name = ?", (name,)).fetchone()
             if not row:
                 return False
-            self.record_execution(row["id"], exit_code, latency_ms, error_message=error_message)
+            self.record_execution(row["id"], exit_code, latency_ms, error_message=error_message, agent_id=agent_id)
             return True
         except (sqlite3.Error, OSError) as e:
             logger.debug("Failed recording execution by name for %s: %s", name, e)

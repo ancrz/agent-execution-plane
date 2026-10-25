@@ -18,10 +18,14 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 
-def _sudo_prefix() -> Optional[List[str]]:
+def _sudo_prefix() -> list[str] | None:
     """[] si root; ['sudo','-n'] si escala sin password; None si no hay vía (DIMINISHED)."""
     if os.geteuid() == 0:
         return []
@@ -30,7 +34,7 @@ def _sudo_prefix() -> Optional[List[str]]:
             ["sudo", "-n", "true"], capture_output=True, timeout=5, check=False
         ).returncode == 0:
             return ["sudo", "-n"]
-    except Exception:
+    except Exception:  # noqa: S110
         pass
     return None
 
@@ -38,11 +42,12 @@ def _sudo_prefix() -> Optional[List[str]]:
 def _tier() -> str:
     return "FULL" if _sudo_prefix() is not None else "DIMINISHED"
 
-SCHEMA: Dict[str, Any] = {
+SCHEMA: dict[str, Any] = {
     "service": {"actions": ["status", "start", "stop", "restart"], "arg": "<name>", "scope": "systemd --user"},
     "network": {"actions": ["inspect", "routes", "listeners"], "arg": None},
     "storage": {"actions": ["usage", "mounts", "disks"], "arg": None},
     "package": {"actions": ["installed", "check", "info"], "arg": "<name>"},
+    "backup": {"actions": ["backup", "restore", "status", "backup_status"], "arg": "[slot_number]"},
 }
 
 
@@ -59,12 +64,12 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def _need(bin_name: str) -> Optional[str]:
+def _need(bin_name: str) -> str | None:
     return shutil.which(bin_name)
 
 
 # ------------------------------------------------------------------ dominios
-def domain_service(action: str, name: Optional[str]) -> Any:
+def domain_service(action: str, name: str | None) -> Any:
     if not name:
         fail("Falta <name> del servicio.", usage="aep-ctl service <action> <name> --json")
     if not _need("systemctl"):
@@ -169,7 +174,7 @@ def domain_storage(action: str) -> Any:
             r = _run(["findmnt", "-J"])
             try:
                 return {"status": "OK", **json.loads(r.stdout or "{}")}
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         return {"status": "DEGRADED", "message": "findmnt no disponible."}
     if action == "disks":
@@ -177,13 +182,13 @@ def domain_storage(action: str) -> Any:
             r = _run(["lsblk", "-J", "-o", "NAME,SIZE,TYPE,MOUNTPOINT"])
             try:
                 return {"status": "OK", **json.loads(r.stdout or "{}")}
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         return {"status": "DEGRADED", "message": "lsblk no disponible."}
     fail(f"Acción de storage desconocida: {action}", valid=SCHEMA["storage"]["actions"])
 
 
-def domain_package(action: str, name: Optional[str]) -> Any:
+def domain_package(action: str, name: str | None) -> Any:
     if not _need("dpkg-query"):
         return {"status": "DEGRADED", "message": "dpkg-query no disponible (¿no es Debian/Ubuntu?)."}
     if action == "installed":
@@ -210,15 +215,34 @@ def domain_package(action: str, name: Optional[str]) -> Any:
     fail(f"Acción de package desconocida: {action}", valid=SCHEMA["package"]["actions"])
 
 
+def domain_backup(action: str, name: str | None) -> Any:
+    from engine.backup import create_backup, get_backup_status, restore_backup
+
+    if action == "backup":
+        return create_backup()
+    if action == "restore":
+        slot = 1
+        if name and name.strip():
+            try:
+                slot = int(name.strip())
+            except ValueError:
+                fail(f"Número de slot inválido: {name}", valid="1..5")
+        return restore_backup(slot_number=slot)
+    if action in ("status", "backup_status"):
+        return get_backup_status()
+    fail(f"Acción de backup desconocida: {action}", valid=SCHEMA["backup"]["actions"])
+
+
 DOMAINS = {
-    "service": lambda a, n: domain_service(a, n),
+    "service": domain_service,
     "network": lambda a, n: domain_network(a),
     "storage": lambda a, n: domain_storage(a),
-    "package": lambda a, n: domain_package(a, n),
+    "package": domain_package,
+    "backup": domain_backup,
 }
 
 
-def main(argv: List[str]) -> None:
+def main(argv: list[str]) -> None:
     args = [a for a in argv if a != "--json"]  # --json es el default; lo aceptamos y lo ignoramos
     if "--schema" in args or not args:
         emit({"status": "OK", "tool": "aep-ctl", "domains": SCHEMA})
