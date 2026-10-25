@@ -32,7 +32,14 @@ flowchart LR
     M24 --> M25["M25: Memory-Mapped Hybrid SQLite Optimization (Archon/Ontos/Pragma/Dokimos/Graphos) ✅"]
     M25 --> M26["M26: Code Modernization, Ruff Linting & Anti-Deadlock SQLite (Archon/Ontos/Pragma/Dokimos/Graphos) ✅"]
     M26 --> M27["M27: 5-Slot Hot Backup Engine & Offensive Countermeasures (Archon/Ontos/Pragma/Dokimos/Graphos) ✅"]
-    M27 --> M28["M28: Atomic Release & Version Control Commit (Hermon) ⏳"]
+    M27 --> M28["M28: Atomic Release & Version Control Commit (Hermon) ✅"]
+    M28 --> M29["M29: Milestone ONT-12 Setup & Python 3.14 Planning (Archon) ✅"]
+    M29 --> M30["M30: Milestone ONT-12 Knowledge Graph Weave & Task 113 SYNTHESIZED (Graphos G1) ✅"]
+    M30 --> M31["M31: Milestone ONT-12 Topos Structural & Interface Audit (Ontos) ✅"]
+    M31 --> M32["M32: Milestone ONT-12 Execution of Bootstrapper & Tooling (Pragma) ✅"]
+    M32 --> M33["M33: Milestone ONT-12 Multi-Gate Verification (Dokimos) ✅"]
+    M33 --> M34["M34: Milestone ONT-12 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
+    M34 --> M35["M35: Milestone ONT-12 Atomic Release & Version Control Commit (Hermon) ⏳"]
 ```
 
 ## 2. Milestone Matrix
@@ -55,3 +62,4 @@ flowchart LR
 | **Memory-Mapped Hybrid SQLite (ONT-09)** | Standardize 5 SQLite touchpoints on `engine/db.py` (PRAGMA mmap_size 256MB, cache_size 64MB, WAL) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/db.py`, `engine/catalog.py`, `engine/kanban.py`, `engine/crash_router.py`, `engine/playbook.py`, `engine/docs_vectorizer.py`, `server.py` | **COMPLETED & VERIFIED (Task 110 PROMOTED) ✅** |
 | **Code Modernization & Concurrency (ONT-10)** | Modernize typing (PEP 585/604), Ruff SAST (P0-P3), AnyIO thread offloading, segregated RO/RW SQLite & BEGIN IMMEDIATE | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/db.py`, `server.py`, `engine/*.py` | **VERIFIED & PROMOTED (Task 111 Score: 0.925 TRUST) ✅** |
 | **Database Resilience & Security Hardening (ONT-11)** | 5-slot online hot backup rotation, atomic restore & self-healing, CapabilityGuard, RAM exec safety, multi-agent context segregation, bwrap hardening, SHA-256 audit log | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/backup.py`, `engine/privilege.py`, `engine/db.py`, `engine/security.py`, `server.py`, `scripts/aep-ctl` | **VERIFIED & PROMOTED (Task 112 Score: 0.9250 TRUST) ✅** |
+| **Autonomous Setup & Python 3.14 (ONT-12)** | Dual-mode bootstrapper & updater (`scripts/setup.sh`), Python 3.14 LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes (`socket-monitor`, `fd-rescuer`), Pueue daemon, bwrap, and 7 verification gates | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `pyproject.toml`, `scripts/setup.sh`, `scripts/aep-mcp-launch.sh`, `scripts/aep-sync.sh`, `diagnostic/go/`, `tests/test_setup_idempotency.sh`, `README.md` | **VERIFIED & PROMOTED (Task 113 Score: 0.9250 TRUST) ✅** |

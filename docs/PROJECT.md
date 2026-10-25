@@ -55,3 +55,4 @@ AEP is undergoing a structured 7-phase consolidation roadmap to achieve 1:1 pari
 - **Milestone ONT-10: Code Modernization & Concurrency** (Python 3.12, Ruff SAST, AnyIO offloading, segregated RO/RW SQLite, BEGIN IMMEDIATE) — VERIFIED & COMMITTED (Task 111 PROMOTED).
 - **Milestone ONT-11: Database Resilience & Security Hardening** (5-slot hot backup engine, atomic restore & self-healing, CapabilityGuard, RAM exec safety, multi-agent context segregation, Bubblewrap `--cap-drop ALL`, SHA-256 audit log) — VERIFIED & PROMOTED (Task 112 PROMOTED).
 \n
+- **Milestone ONT-12: Autonomous Setup & Python 3.14** (Dual-mode bootstrapper & updater `scripts/setup.sh`, Python 3.14 Production LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes `socket-monitor` & `fd-rescuer`, Pueue daemon, bwrap, 7 verification gates) — VERIFIED & PROMOTED (Task 113 PROMOTED 0.9250 TRUST) ✅.

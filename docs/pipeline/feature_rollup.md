@@ -1,9 +1,9 @@
-# Feature Chain Rollup: Pipeline Milestone History (Documents 1–15)
+# Feature Chain Rollup: Pipeline Milestone History (Documents 1–16)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-25T03:59:11Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 15 (Database Backup & Restore Rotation Engine, Offensive Primitive Countermeasures & Multi-Agent Context Segregation Complete)
-- **Current Active Document**: [`feature_20261025_031500_backup_restore_and_offensive_countermeasures.md`](feature_20261025_031500_backup_restore_and_offensive_countermeasures.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-25T05:45:00Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 16 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
+- **Current Active Document**: [`feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md`](feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 15)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 16)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -31,8 +31,9 @@ flowchart LR
         D13["Doc 13: 115500<br/>(Memory-Mapped Hybrid SQLite Optimization: PRAGMA mmap_size 256MB)"]
         D14["Doc 14: 171500<br/>(Code Modernization, Ruff SAST, AnyIO & Anti-Deadlock SQLite)"]
         D15["Doc 15: 031500<br/>(5-Slot Hot Backup Engine, Offensive Countermeasures & Multi-Agent Segregation)"]
+        D16["Doc 16: 051500<br/>(Autonomous Setup/Updater, Python 3.14 LTS Migration & Self-Provisioning)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15 --> D16
     end
 ```
 
@@ -57,6 +58,7 @@ flowchart LR
 | **13** | `feature_20261024_115500_mmap_hybrid_sqlite_ram_persistence.md` | Memory-Mapped Hybrid SQLite Optimization (PRAGMA mmap_size 256MB & 64MB Cache). Standardized all 5 SQLite touchpoints (`catalog.py`, `kanban.py`, `crash_router.py`, `playbook.py`, `docs_vectorizer.py`) onto centralized factory `engine/db.py`. Enforces 256MB mmap zero-copy reads, 64MB RAM page cache, WAL journal mode, 10s busy timeout, normal synchronous, memory temp_store. Exposed live `storage_engine` and `db_telemetry` in `artifact_catalog(action="reindex")`. Passed 1,000-op multithreaded WAL stress test with 0 lock errors in 0.125s. Kanban Task 110 promoted to `PROMOTED` at `0.9958 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | RAM-speed vector searches and metadata queries backed by 100% Linux kernel zero-copy memory mapping; multi-agent concurrent access without lock contention; 100% ACID persistence on disk for cross-agent reuse; Semgrep 0 findings across 1,198 rules. |
 | **14** | `feature_20261024_171500_code_modernization_and_concurrency_optimization.md` | Milestone ONT-10: Python 3.12 code modernization, strict Ruff SAST adherence (0 errors across E,W,F,I,UP,S,BLE,PLW,FURB), FastMCP stdio concurrency offloading via AnyIO worker thread pool (<2ms loop jitter), segregated RO/RW SQLite factory (`get_ro_connection` mode=ro vs `get_rw_connection` autocommit), explicit `transaction_immediate` (`BEGIN IMMEDIATE`) anti-deadlock context manager, WAL autocheckpoint tuning (1000 pages ~4MB), PLW1510 subprocess hardening with POSIX FD isolation (`pass_fds=(fd,)`, `timeout=30`, `close_fds=True`). Passed 6 Dokimos verification gates (1,000 concurrent ops in 0.14s with 0 lock errors); Task 111 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (16 Capabilities, 1:1 Parity)** | Multi-agent concurrent FastMCP stdio requests never stall event loop; SQLite lock-upgrade deadlocks eliminated; zero silent exception swallows; zero unchecked subprocesses; Semgrep 0 findings across 1,352 rules. |
 | **15** | `feature_20261025_031500_backup_restore_and_offensive_countermeasures.md` | Milestone ONT-11: 5-slot online hot backup rotation pool (`conn.backup()`), SHA-256 pre-promotion checksums, atomic restore purging stale `-wal`/`-shm`, self-healing auto-recovery (`verify_and_auto_recover`), `CapabilityGuard` CBAC, in-RAM execution path blacklist (`/etc/shadow`, `/root`, `~/.ssh`), multi-agent caller context segregation (`agent_id: str = "default"`), hardened Bubblewrap (`--unshare-all`, `--cap-drop ALL`, isolated tmpfs), cryptographic SHA-256 hash-chain audit log (`security_audit_log`). Passed 7 Dokimos verification gates; Task 112 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | Native SQLite Backup API mandatory for WAL backups (raw copy prohibited); atomic restore must unlink `-wal` and `-shm`; in-RAM binaries cannot access sensitive paths; Bubblewrap drops all capabilities; SHA-256 audit log is immutable with cryptographic hash-chaining; `agent_id` segregates multi-agent contexts. |
+| **16** | `feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md` | Milestone ONT-12: Autonomous zero-dependency bootstrapper, updater & health auditor (`scripts/setup.sh`), Python 3.14 Production LTS migration (`requires-python = ">=3.14"`, `target-version = "py314"`), hermetic Astral `uv` toolchain, user-space Golang auto-provisioning, static CGO_ENABLED=0 Go diagnostic probes (`socket-monitor`, `fd-rescuer`), Pueue daemon musl auto-download, bubblewrap containerization, Omarchy skills hub multi-agent symlinking, 6-gate idempotency test suite (`test_setup_idempotency.sh`). Passed 7 Dokimos verification gates (FastMCP parity 15 tools / 18 capabilities, read-only `--check`, idempotency, py314 hermetic venv, static probes, Ruff 0 errors, Semgrep 0 findings); Task 113 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | DIR-ONT-01 flag short-circuiting for `--check` (100% read-only, 0 mutations); DIR-ONT-02 atomic staging traps (`rm -rf "$TMP_DIR"`); DIR-ONT-03 subshell PATH injection; DIR-ONT-04 pure hermetic venv without host package pollution (PEP 668); pure user-space non-root fallback; dotfile idempotency (zero duplicate exports). |
 
 
 ---
@@ -99,4 +101,11 @@ flowchart LR
    - Bubblewrap sandboxes enforce complete namespace unsharing (`--unshare-all`), total Linux capability dropping (`--cap-drop ALL`), and ephemeral isolated memory mounts (`--tmpfs /tmp`).
    - All 15 FastMCP tools enforce explicit `agent_id: str = "default"` caller context segregation with per-agent scratchpad directories and Pueue queue groups (`agent_{agent_id}`).
    - All security actions are recorded in an immutable cryptographic SHA-256 hash-chained audit log with universal secret masking ($H_n = \text{SHA256}(H_{n-1} + \dots)$) and active tamper detection.
+10. **Autonomous Tooling Provisioning & Environment Hermeticity Invariant**:
+    - System bootstrapping and updates must be autonomous and zero-dependency, self-provisioning `uv`, Python 3.14, Go, and Pueue in user-space if non-root.
+    - Read-only health inspection (`--check`) must short-circuit upfront before any directory creation or network fetch (DIR-ONT-01), guaranteeing zero disk mutations and deterministic exit codes.
+    - Remote downloads must be guarded with atomic cleanup traps (`rm -rf "$TMP_DIR"` on EXIT/INT/TERM, DIR-ONT-02).
+    - Subshell and child processes must receive canonical PATH injection (`~/.local/bin`, `~/.local/share/go/bin`, `~/.local/share/agent-os/bin`, DIR-ONT-03).
+    - Python virtual environments must be purely hermetic without host system site-packages (DIR-ONT-04), fully compliant with PEP 668.
+    - Idempotency guards must prevent duplicate shell environment exports in user dotfiles.
 
