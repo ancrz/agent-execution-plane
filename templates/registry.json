@@ -69,7 +69,7 @@
         "capacity",
         "mount"
       ],
-      "description": "Uso de disco del sistema de archivos root vía statfs: total, libre y usado en bytes.",
+      "description": "Uso de disco del sistema de archivos root v\u00eda statfs: total, libre y usado en bytes.",
       "params": [
         {
           "name": "path",
@@ -98,6 +98,24 @@
         "consumption"
       ],
       "description": "Uso de memoria: lee /proc/meminfo y reporta RAM total, libre y disponible (usage) en bytes.",
+      "params": []
+    },
+    {
+      "name": "landlock-guard",
+      "source": "tpl_landlock_guard.go",
+      "category": "security",
+      "capability": "security_sandbox",
+      "tags": [
+        "landlock",
+        "sandbox",
+        "lsm",
+        "security",
+        "isolation",
+        "kernel",
+        "filesystem",
+        "probe"
+      ],
+      "description": "Sonda est\u00e1tica en Go para auditar soporte y confinamiento de Landlock LSM (Kernel 5.13+) v\u00eda syscalls puras.",
       "params": []
     }
   ]
