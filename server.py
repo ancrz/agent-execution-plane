@@ -21,11 +21,22 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 
 from engine import headless_display, matcher
-from engine.backup import create_backup, get_backup_status, restore_backup, verify_and_auto_recover
+from engine.backup import (
+    create_backup,
+    create_golden_snapshot,
+    create_micro_snapshot,
+    get_backup_status,
+    get_quarantine_status,
+    restore_backup,
+    restore_golden_snapshot,
+    verify_and_auto_recover,
+    verify_database_integrity,
+)
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
 from engine.kanban import KanbanBoard
+from engine.landlock import get_landlock_status
 from engine.playbook import PlaybookStore
 from engine.privilege import (
     CapabilityGuard,
@@ -1346,14 +1357,19 @@ async def sandbox_run(command: str, share_net: bool = True, agent_id: str = "def
 async def aep_ctl(domain: str, action: str, name: str | None = None, agent_id: str = "default") -> str:
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
-    domain: service|network|storage|package|backup|audit. Salida JSON tipada, no-interactiva.
-    Ej: aep_ctl("network","listeners") | aep_ctl("package","check","nginx") | aep_ctl("backup","status").
+    domain: service|network|storage|package|backup|security|audit. Salida JSON tipada, no-interactiva.
+    Ej: aep_ctl("network","listeners") | aep_ctl("package","check","nginx") | aep_ctl("backup","status") | aep_ctl("security","landlock_status").
     """
 
     def _run() -> str:
         d = (domain or "").strip().lower()
         a = (action or "").strip().lower()
-        if d == "backup":
+        if d == "security":
+            if a in ("landlock_status", "status"):
+                return json.dumps(get_landlock_status(), indent=2)
+            else:
+                return json.dumps({"status": "ERROR", "error": f"Acción de security desconocida: {a}"}, indent=2)
+        elif d == "backup":
             if a == "backup":
                 return json.dumps(create_backup(), indent=2)
             elif a == "restore":
@@ -1368,6 +1384,24 @@ async def aep_ctl(domain: str, action: str, name: str | None = None, agent_id: s
                 return json.dumps(get_backup_status(), indent=2)
             elif a in ("auto_recover", "verify_and_auto_recover"):
                 return json.dumps(verify_and_auto_recover(), indent=2)
+            elif a == "verify_integrity":
+                target = Path(name.strip()) if name and name.strip() else None
+                ok, reason, details = verify_database_integrity(target)
+                return json.dumps({
+                    "status": "OK" if ok else "INTEGRITY_FAILED",
+                    "valid": ok,
+                    "reason": reason,
+                    "details": details,
+                }, indent=2)
+            elif a == "micro_snapshot":
+                snap_id = name.strip() if name and name.strip() else None
+                return json.dumps(create_micro_snapshot(snapshot_id=snap_id), indent=2)
+            elif a == "golden":
+                return json.dumps(create_golden_snapshot(), indent=2)
+            elif a == "restore_golden":
+                return json.dumps(restore_golden_snapshot(), indent=2)
+            elif a == "quarantine_status":
+                return json.dumps(get_quarantine_status(), indent=2)
             else:
                 return json.dumps({"status": "ERROR", "error": f"Acción de backup desconocida: {a}"}, indent=2)
         elif d == "audit":
@@ -1468,6 +1502,9 @@ _BPFTRACE_MODES = {
     "syscall_count": "tracepoint:raw_syscalls:sys_enter {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
     "file_opens": "tracepoint:syscalls:sys_enter_openat {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
     "tcp_connect": "kprobe:tcp_connect {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "security_open_denials": "tracepoint:syscalls:sys_exit_openat /args->ret < 0/ {{ @[comm, args->ret] = count(); }} interval:s:{d} {{ exit(); }}",
+    "security_landlock_audit": "tracepoint:syscalls:sys_enter_landlock_restrict_self {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "security_exec_monitor": "tracepoint:syscalls:sys_enter_execve {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
 }
 
 
@@ -1477,7 +1514,8 @@ async def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3, agent
     [SPEC-OM-6 / KERNEL TRACE via eBPF] Observabilidad de kernel a bajo nivel (bpftrace).
     Requiere nivel FULL (sudo -n disponible); degrada limpiamente a DIMINISHED si no hay root.
     `mode`: 'syscall_count' (top syscalls por proceso), 'file_opens' (aperturas de archivo),
-    'tcp_connect' (conexiones salientes).
+    'tcp_connect' (conexiones salientes), 'security_open_denials' (fallos openat),
+    'security_landlock_audit' (invocaciones restrict_self), 'security_exec_monitor' (procesos ejecutados).
     """
 
     def _run() -> str:

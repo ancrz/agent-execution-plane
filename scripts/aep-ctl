@@ -47,7 +47,24 @@ SCHEMA: dict[str, Any] = {
     "network": {"actions": ["inspect", "routes", "listeners"], "arg": None},
     "storage": {"actions": ["usage", "mounts", "disks"], "arg": None},
     "package": {"actions": ["installed", "check", "info"], "arg": "<name>"},
-    "backup": {"actions": ["backup", "restore", "status", "backup_status"], "arg": "[slot_number]"},
+    "backup": {
+        "actions": [
+            "backup",
+            "restore",
+            "status",
+            "backup_status",
+            "verify_integrity",
+            "micro_snapshot",
+            "golden",
+            "restore_golden",
+            "quarantine_status",
+        ],
+        "arg": "[slot_number|name]",
+    },
+    "security": {
+        "actions": ["landlock_status"],
+        "arg": None,
+    },
 }
 
 
@@ -215,8 +232,25 @@ def domain_package(action: str, name: str | None) -> Any:
     fail(f"Acción de package desconocida: {action}", valid=SCHEMA["package"]["actions"])
 
 
+def domain_security(action: str, name: str | None) -> Any:
+    from engine.landlock import get_landlock_status
+
+    if action in ("landlock_status", "status"):
+        return get_landlock_status()
+    fail(f"Acción de security desconocida: {action}", valid=SCHEMA["security"]["actions"])
+
+
 def domain_backup(action: str, name: str | None) -> Any:
-    from engine.backup import create_backup, get_backup_status, restore_backup
+    from engine.backup import (
+        create_backup,
+        create_golden_snapshot,
+        create_micro_snapshot,
+        get_backup_status,
+        get_quarantine_status,
+        restore_backup,
+        restore_golden_snapshot,
+        verify_database_integrity,
+    )
 
     if action == "backup":
         return create_backup()
@@ -230,6 +264,19 @@ def domain_backup(action: str, name: str | None) -> Any:
         return restore_backup(slot_number=slot)
     if action in ("status", "backup_status"):
         return get_backup_status()
+    if action == "verify_integrity":
+        target = Path(name.strip()) if name and name.strip() else None
+        ok, reason, details = verify_database_integrity(target)
+        return {"status": "OK" if ok else "INTEGRITY_FAILED", "valid": ok, "reason": reason, "details": details}
+    if action == "micro_snapshot":
+        snap_id = name.strip() if name and name.strip() else None
+        return create_micro_snapshot(snapshot_id=snap_id)
+    if action == "golden":
+        return create_golden_snapshot()
+    if action == "restore_golden":
+        return restore_golden_snapshot()
+    if action == "quarantine_status":
+        return get_quarantine_status()
     fail(f"Acción de backup desconocida: {action}", valid=SCHEMA["backup"]["actions"])
 
 
@@ -239,6 +286,7 @@ DOMAINS = {
     "storage": lambda a, n: domain_storage(a),
     "package": domain_package,
     "backup": domain_backup,
+    "security": domain_security,
 }
 
 
