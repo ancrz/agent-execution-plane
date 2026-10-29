@@ -61,6 +61,7 @@ test_go_probes() {
     local probe_dir="$HOME/.local/share/agent-os/bin"
     [[ -x "$probe_dir/socket-monitor" ]] || return 1
     [[ -x "$probe_dir/fd-rescuer" ]] || return 1
+    [[ -x "$probe_dir/landlock-guard" ]] || return 1
     
     local sm_out
     sm_out="$("$probe_dir/socket-monitor")"
@@ -69,9 +70,13 @@ test_go_probes() {
     local fd_out
     fd_out="$("$probe_dir/fd-rescuer" $$)"
     echo "$fd_out" | grep -q "total_fd" || return 1
+
+    local lg_out
+    lg_out="$("$probe_dir/landlock-guard")"
+    echo "$lg_out" | grep -q "landlock-guard" || return 1
     return 0
 }
-assert_ok "Go diagnostic probes execute cleanly (socket-monitor & fd-rescuer)" test_go_probes
+assert_ok "Go diagnostic probes execute cleanly (socket-monitor, fd-rescuer, landlock-guard)" test_go_probes
 
 # Test 6: Verify aep-sync.sh --check passes cleanly
 assert_ok "aep-sync.sh --check FastMCP validation" ./scripts/aep-sync.sh --check

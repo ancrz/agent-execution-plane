@@ -24,12 +24,24 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from engine.backup import (  # noqa: E402
+    CANARY_TABLE,
     MAX_BACKUP_SLOTS,
+    DatabasePoisonError,
+    clear_micro_snapshots,
     compute_file_sha256,
+    compute_schema_hash,
     create_backup,
+    create_micro_snapshot,
+    ensure_canary,
     get_backup_status,
+    get_quarantine_status,
+    list_micro_snapshots,
+    quarantine_corrupted_db,
     restore_backup,
+    restore_micro_snapshot,
     verify_and_auto_recover,
+    verify_canary,
+    verify_database_integrity,
     verify_db_integrity,
 )
 from engine.db import (  # noqa: E402
@@ -37,6 +49,10 @@ from engine.db import (  # noqa: E402
     get_ro_connection,
     get_rw_connection,
     transaction_immediate,
+)
+from engine.landlock import (  # noqa: E402
+    get_landlock_status,
+    run_isolated_probe,
 )
 from engine.privilege import (  # noqa: E402
     CapabilityGuard,
@@ -390,3 +406,201 @@ class TestServerFastMCPParity:
         assert res["capability_tier"] in ("FULL", "DIMINISHED")
         assert "capabilities" in res
         assert len(res["capabilities"]) == 18
+
+
+# ==============================================================================
+# 6. Anti-Poisoning & Zero-Trust Quarantine Tests (engine/backup.py)
+# ==============================================================================
+
+class TestAntiPoisoningAndQuarantine:
+    def test_canary_lifecycle(self, tmp_path: Path):
+        db_path = tmp_path / "canary_test.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+            ensure_canary(conn)
+            assert verify_canary(conn) is True
+
+            # Tamper with canary token
+            conn.execute(f"UPDATE {CANARY_TABLE} SET canary_token = 'corrupted_token'")  # noqa: S608
+            conn.commit()
+            assert verify_canary(conn) is False
+
+    def test_schema_hash_calculation(self, tmp_path: Path):
+        db_path = tmp_path / "schema_test.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("CREATE TABLE t1 (a INT, b TEXT)")
+            h1 = compute_schema_hash(conn)
+            assert len(h1) == 64
+
+            conn.execute("CREATE TABLE t2 (c REAL)")
+            h2 = compute_schema_hash(conn)
+            assert h1 != h2
+
+    def test_verify_database_integrity_healthy(self, tmp_path: Path):
+        db_path = tmp_path / "healthy.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("CREATE TABLE config (k TEXT PRIMARY KEY, v TEXT)")
+            conn.execute("INSERT INTO config VALUES ('version', '1.0')")
+            conn.commit()
+
+        ok, reason, details = verify_database_integrity(db_path, auto_seed_canary=True)
+        assert ok is True
+        assert reason == "HEALTHY"
+        assert details["user_tables"] == 1
+        assert "schema_hash" in details
+
+    def test_verify_database_integrity_corrupted_canary(self, tmp_path: Path):
+        db_path = tmp_path / "tampered.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("CREATE TABLE config (k TEXT PRIMARY KEY, v TEXT)")
+            ensure_canary(conn)
+            conn.execute(f"UPDATE {CANARY_TABLE} SET canary_token = 'hacked'")  # noqa: S608
+            conn.commit()
+
+        ok, reason, details = verify_database_integrity(db_path, auto_seed_canary=False)
+        assert ok is False
+        assert reason == "CANARY_CORRUPTED"
+
+    def test_quarantine_corrupted_db(self, tmp_path: Path):
+        db_path = tmp_path / "bad.db"
+        db_path.write_text("corrupted content not sqlite")
+        q_dir = tmp_path / "quarantine"
+
+        res = quarantine_corrupted_db(
+            db_path=db_path,
+            reason="INVALID_SQLITE_HEADER",
+            details={"test": True},
+            quarantine_dir=q_dir,
+        )
+        assert res["status"] == "QUARANTINED"
+        assert Path(res["quarantined_file"]).exists()
+        assert Path(res["forensic_report"]).exists()
+
+        status = get_quarantine_status(tmp_path)
+        assert status["count"] == 1
+        assert len(status["quarantined"]) == 1
+
+    def test_create_backup_quarantines_poisoned_db(self, tmp_path: Path):
+        db_path = tmp_path / "poisoned.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("CREATE TABLE data (id INT)")
+            ensure_canary(conn)
+            conn.execute(f"UPDATE {CANARY_TABLE} SET canary_token = 'tampered'")  # noqa: S608
+            conn.commit()
+
+        backups_dir = tmp_path / "backups"
+
+        # 1. With raise_on_poison=True -> raises DatabasePoisonError
+        with pytest.raises(DatabasePoisonError) as exc_info:
+            create_backup(db_path=db_path, backups_dir=backups_dir, raise_on_poison=True)
+        assert "poison" in str(exc_info.value).lower() or "corrupt" in str(exc_info.value).lower()
+
+        # 2. Verify 5-slot FIFO pool has 0 backups (zero pollution)
+        b_status = get_backup_status(backups_dir)
+        assert b_status["active_slots"] == 0
+
+        # 3. Verify quarantine contains the forensic report
+        q_status = get_quarantine_status(backups_dir)
+        assert q_status["count"] == 1
+
+
+# ==============================================================================
+# 7. Linux Landlock LSM Tests (engine/landlock.py)
+# ==============================================================================
+
+class TestLandlockLSM:
+    def test_landlock_status_reporting(self):
+        status = get_landlock_status()
+        assert "status" in status
+        assert "supported" in status
+        assert "abi_version" in status
+        if status["supported"]:
+            assert status["abi_version"] >= 1
+            assert status["status"] == "SUPPORTED"
+
+    def test_landlock_isolated_probe(self, tmp_path: Path):
+        test_dir = tmp_path / "sandbox_test"
+        test_dir.mkdir()
+        read_file = test_dir / "readable.txt"
+        read_file.write_text("hello landlock")
+
+        probe_target = test_dir / "forbidden_write.txt"
+        res = run_isolated_probe(probe_target)
+        assert "supported" in res
+        if res.get("supported"):
+            assert res.get("enforced") is True
+            assert res.get("write_blocked") is True
+
+
+# ==============================================================================
+# 8. Volatile RAM Micro-Snapshots Tests (engine/backup.py)
+# ==============================================================================
+
+class TestVolatileMicroSnapshots:
+    def test_micro_snapshot_lifecycle(self, tmp_path: Path):
+        clear_micro_snapshots()
+        db_path = tmp_path / "ram_test.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("CREATE TABLE state (id INT PRIMARY KEY, val TEXT)")
+            conn.execute("INSERT INTO state VALUES (1, 'initial')")
+            conn.commit()
+
+        # 1. Create micro-snapshot
+        snap_res = create_micro_snapshot(db_path, snapshot_id="snap1")
+        assert snap_res["status"] == "SUCCESS"
+        assert snap_res["in_ram"] is True
+        assert snap_res["snapshot_id"] == "snap1"
+        assert snap_res["latency_ms"] < 100.0  # Ultra-fast RAM streaming
+
+        # 2. Modify disk database
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("UPDATE state SET val = 'mutated' WHERE id = 1")
+            conn.commit()
+
+        # Verify mutation
+        with sqlite3.connect(str(db_path)) as conn:
+            assert conn.execute("SELECT val FROM state WHERE id = 1").fetchone()[0] == "mutated"
+
+        # 3. Restore micro-snapshot
+        rest_res = restore_micro_snapshot(db_path, snapshot_id="snap1")
+        assert rest_res["status"] == "SUCCESS"
+        assert rest_res["restored"] is True
+
+        # Verify state rolled back to 'initial'
+        with sqlite3.connect(str(db_path)) as conn:
+            assert conn.execute("SELECT val FROM state WHERE id = 1").fetchone()[0] == "initial"
+
+        # 4. List and clear
+        assert "snap1" in list_micro_snapshots()["active_snapshots"]
+        clear_micro_snapshots()
+        assert len(list_micro_snapshots()["active_snapshots"]) == 0
+
+
+# ==============================================================================
+# 9. Control Plane & FastMCP Extensions Tests
+# ==============================================================================
+
+class TestControlPlaneExtensions:
+    def test_aep_ctl_security_domain(self):
+        import subprocess
+        ctl_path = PROJECT_ROOT / "scripts" / "aep-ctl"
+        res = subprocess.run([sys.executable, str(ctl_path), "security", "landlock_status", "--json"], capture_output=True, text=True, check=False)
+        assert res.returncode == 0
+        data = json.loads(res.stdout)
+        assert data["status"] in ("SUPPORTED", "UNSUPPORTED")
+
+    def test_server_security_and_backup_ctl(self, tmp_path: Path):
+        import server
+        res_sec = asyncio.run(server.aep_ctl(domain="security", action="landlock_status"))
+        data_sec = json.loads(res_sec)
+        assert data_sec["status"] in ("SUPPORTED", "UNSUPPORTED")
+
+        res_b = asyncio.run(server.aep_ctl(domain="backup", action="quarantine_status"))
+        data_b = json.loads(res_b)
+        assert data_b["status"] == "OK"
+
+    def test_server_kernel_trace_security_mode(self):
+        import server
+        res = asyncio.run(server.kernel_trace(mode="security_open_denials", duration_sec=1))
+        data = json.loads(res)
+        assert data["status"] in ("OK", "DEGRADED")
