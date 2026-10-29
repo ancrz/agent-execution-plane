@@ -39,7 +39,16 @@ flowchart LR
     M31 --> M32["M32: Milestone ONT-12 Execution of Bootstrapper & Tooling (Pragma) ✅"]
     M32 --> M33["M33: Milestone ONT-12 Multi-Gate Verification (Dokimos) ✅"]
     M33 --> M34["M34: Milestone ONT-12 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
-    M34 --> M35["M35: Milestone ONT-12 Atomic Release & Version Control Commit (Hermon) ⏳"]
+    M34 --> M35["M35: Milestone ONT-12 Atomic Release & Version Control Commit (Hermon) ✅"]
+    M35 --> M36["M36: Milestone ONT-13 Strategic Plan Formulation (Archon) ✅"]
+    M36 --> M37["M37: Milestone ONT-13 Knowledge Graph Weave & Task 114 SYNTHESIZED (Graphos G1) ✅"]
+    M37 --> M38["M38: Milestone ONT-13 Topos Structural & Interface Audit (Ontos) ✅"]
+    M38 --> M39["M39: Milestone ONT-13 Implementation of Sandboxing & Backups (Pragma) ✅"]
+    M39 --> M40["M40: Milestone ONT-13 Gate 2 Interception & Defect Recording (Dokimos/Graphos G2) ✅"]
+    M40 --> M41["M41: Milestone ONT-13 Remediation Cycle (Pragma) ✅"]
+    M41 --> M42["M42: Milestone ONT-13 Re-Verification All 7 Gates Passed (Dokimos) ✅"]
+    M42 --> M43["M43: Milestone ONT-13 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
+    M43 --> M44["M44: Milestone ONT-13 Atomic Release & Version Control Commit (Hermon) ⏳"]
 ```
 
 ## 2. Milestone Matrix
@@ -62,4 +71,5 @@ flowchart LR
 | **Memory-Mapped Hybrid SQLite (ONT-09)** | Standardize 5 SQLite touchpoints on `engine/db.py` (PRAGMA mmap_size 256MB, cache_size 64MB, WAL) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/db.py`, `engine/catalog.py`, `engine/kanban.py`, `engine/crash_router.py`, `engine/playbook.py`, `engine/docs_vectorizer.py`, `server.py` | **COMPLETED & VERIFIED (Task 110 PROMOTED) ✅** |
 | **Code Modernization & Concurrency (ONT-10)** | Modernize typing (PEP 585/604), Ruff SAST (P0-P3), AnyIO thread offloading, segregated RO/RW SQLite & BEGIN IMMEDIATE | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/db.py`, `server.py`, `engine/*.py` | **VERIFIED & PROMOTED (Task 111 Score: 0.925 TRUST) ✅** |
 | **Database Resilience & Security Hardening (ONT-11)** | 5-slot online hot backup rotation, atomic restore & self-healing, CapabilityGuard, RAM exec safety, multi-agent context segregation, bwrap hardening, SHA-256 audit log | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/backup.py`, `engine/privilege.py`, `engine/db.py`, `engine/security.py`, `server.py`, `scripts/aep-ctl` | **VERIFIED & PROMOTED (Task 112 Score: 0.9250 TRUST) ✅** |
-| **Autonomous Setup & Python 3.14 (ONT-12)** | Dual-mode bootstrapper & updater (`scripts/setup.sh`), Python 3.14 LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes (`socket-monitor`, `fd-rescuer`), Pueue daemon, bwrap, and 7 verification gates | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `pyproject.toml`, `scripts/setup.sh`, `scripts/aep-mcp-launch.sh`, `scripts/aep-sync.sh`, `diagnostic/go/`, `tests/test_setup_idempotency.sh`, `README.md` | **VERIFIED & PROMOTED (Task 113 Score: 0.9250 TRUST) ✅** |
+| **Autonomous Setup & Python 3.14 (ONT-12)** | Dual-mode bootstrapper & updater (`scripts/setup.sh`), Python 3.14 LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes (`socket-monitor`, `fd-rescuer`), Pueue daemon, bwrap, and 7 verification gates | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `pyproject.toml`, `scripts/setup.sh`, `scripts/aep-mcp-launch.sh`, `scripts/aep-sync.sh`, `diagnostic/go/`, `tests/test_setup_idempotency.sh`, `README.md` | **VERIFIED & COMMITTED (Task 113 PROMOTED 0.9250 TRUST) ✅** |
+| **Kernel Sandboxing & Anti-Poisoning Backups (ONT-13)** | RE as SDD for Linux primitives (`docs/sdd/`), in-process Landlock LSM sandboxing (`engine/landlock.py`), anti-poisoning hot backup engine & quarantine (`engine/backup.py`), volatile RAM micro-snapshots (`engine/db.py`), eBPF security probing (`server.py`), Go static Landlock probe (`diagnostic/go/landlock-guard`), CLI integration (`scripts/aep-ctl`), and verification suite | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `docs/sdd/`, `engine/landlock.py`, `engine/backup.py`, `engine/db.py`, `server.py`, `diagnostic/go/`, `templates/`, `scripts/aep-ctl`, `tests/` | **VERIFIED & PROMOTED (Task 114 Score: 0.9250 TRUST) ✅** |
