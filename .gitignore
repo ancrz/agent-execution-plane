@@ -30,6 +30,14 @@ venv/
 socket_monitor
 fd_rescuer
 ram_runner
+landlock-guard
+diagnostic/go/**/socket-monitor
+diagnostic/go/**/fd-rescuer
+diagnostic/go/**/landlock-guard
+
+# Documentación del proyecto (SIEMPRE RASTREADA - NUNCA IGNORAR)
+!docs/
+!docs/**
 
 # Local databases & logs
 *.db

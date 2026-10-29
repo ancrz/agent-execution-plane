@@ -10,6 +10,7 @@
 [![SQLite 3 WAL](https://img.shields.io/badge/SQLite_3-WAL_%2B_mmap_%2B_vec-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
 [![Tests Passing](https://img.shields.io/badge/Tests-31%2F31_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
@@ -19,6 +20,15 @@
 > LLMs y agentes autónomos, fundamentado en primitivas estándar de bajo nivel del
 > kernel Linux (namespaces, memoria anónima volátil, descriptores y telemetría dinámica)
 > sobre entornos Ubuntu/Linux.
+
+> [!WARNING]
+> **AVISO DE SEGURIDAD Y ENTORNO DE PRUEBAS (EDR / SANDBOX DISCLAIMER)**
+>
+> AEP utiliza primitivas de bajo nivel del kernel Linux (`memfd_create` para ejecución anónima en RAM, confinamiento en espacio de usuario vía Landlock LSM, sondas dinámicas eBPF/kprobes, inspección de descriptores de archivos `/proc` y aislamiento por namespaces).
+>
+> Debido a que estas primitivas interactúan íntimamente con el subsistema de seguridad y memoria del sistema operativo, soluciones de seguridad corporativa, antivirus y plataformas **EDR (Endpoint Detection and Response)** basadas en comportamiento heurístico pueden clasificar estas actividades como potencialmente anómalas o herramientas ofensivas/de ciberseguridad.
+>
+> **Se recomienda encarecidamente evaluar y ejecutar AEP en entornos de prueba dedicados, máquinas virtuales o sandboxes aislados.**
 
 ---
 
@@ -53,6 +63,7 @@
 13. [Estructura del Repositorio](#13-estructura-del-repositorio)
 14. [Inventario Sincero de la Fuente de la Verdad](#14-inventario-sincero-de-la-fuente-de-la-verdad)
 15. [RE as SDD y Matriz de Inspiración](#15-re-as-sdd-y-matriz-de-inspiración)
+16. [Licencia y Términos](#16-licencia-y-términos)
 
 ---
 
@@ -991,5 +1002,17 @@ flowchart LR
 
 > Este `README.md` es la **fuente única de verdad** del proyecto: toda la especificación,
 > arquitectura y auditoría viven aquí, sin documentación dispersa.
+
+[↑ Volver arriba](#top)
+
+---
+
+## 16. Licencia y Términos
+
+Este proyecto está licenciado bajo los términos de la **Apache License 2.0**. Consulta el archivo [`LICENSE`](LICENSE) para obtener los términos y condiciones completos de uso, reproducción, distribución y concesión de patentes.
+
+- **Compatibilidad**: Compatible con licencias empresariales y proyectos open-source permisivos (MIT, BSD-3-Clause) y bases de datos en dominio público (SQLite).
+- **Concesión de Patentes**: Incluye cláusula de protección bilateral de patentes (Sección 3 de Apache 2.0).
+- **Exención de Responsabilidad**: El software se entrega "TAL CUAL" (*AS IS*), sin garantías expresas o implícitas (Secciones 7 y 8 de Apache 2.0).
 
 [↑ Volver arriba](#top)

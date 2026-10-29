@@ -48,7 +48,14 @@ flowchart LR
     M40 --> M41["M41: Milestone ONT-13 Remediation Cycle (Pragma) ✅"]
     M41 --> M42["M42: Milestone ONT-13 Re-Verification All 7 Gates Passed (Dokimos) ✅"]
     M42 --> M43["M43: Milestone ONT-13 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
-    M43 --> M44["M44: Milestone ONT-13 Atomic Release & Version Control Commit (Hermon) ⏳"]
+    M43 --> M44["M44: Milestone ONT-13 Atomic Release & Version Control Commit (Hermon) ✅"]
+    M44 --> M45["M45: Milestone ONT-14 Public GitHub Release Plan Formulation (Archon) ✅"]
+    M45 --> M46["M46: Milestone ONT-14 Baseline Weave & Task 115 SYNTHESIZED (Graphos G1) 🔵"]
+    M46 --> M47["M47: Milestone ONT-14 Topos Structural & Compliance Audit (Ontos) ⏳"]
+    M47 --> M48["M48: Milestone ONT-14 Implementation of License, EDR Warning & Git Hardening (Pragma) ⏳"]
+    M48 --> M49["M49: Milestone ONT-14 Multi-Gate Verification Pre-Deploy (Dokimos) ✅"]
+    M49 --> M50["M50: Milestone ONT-14 Documentation Rollup & Verification Record (Graphos G2) ✅"]
+    M50 --> M51["M51: Milestone ONT-14 GitHub Repository Creation, Remote Sync & Release (Hermon) ⏳"]
 ```
 
 ## 2. Milestone Matrix
@@ -73,3 +80,4 @@ flowchart LR
 | **Database Resilience & Security Hardening (ONT-11)** | 5-slot online hot backup rotation, atomic restore & self-healing, CapabilityGuard, RAM exec safety, multi-agent context segregation, bwrap hardening, SHA-256 audit log | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/backup.py`, `engine/privilege.py`, `engine/db.py`, `engine/security.py`, `server.py`, `scripts/aep-ctl` | **VERIFIED & PROMOTED (Task 112 Score: 0.9250 TRUST) ✅** |
 | **Autonomous Setup & Python 3.14 (ONT-12)** | Dual-mode bootstrapper & updater (`scripts/setup.sh`), Python 3.14 LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes (`socket-monitor`, `fd-rescuer`), Pueue daemon, bwrap, and 7 verification gates | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `pyproject.toml`, `scripts/setup.sh`, `scripts/aep-mcp-launch.sh`, `scripts/aep-sync.sh`, `diagnostic/go/`, `tests/test_setup_idempotency.sh`, `README.md` | **VERIFIED & COMMITTED (Task 113 PROMOTED 0.9250 TRUST) ✅** |
 | **Kernel Sandboxing & Anti-Poisoning Backups (ONT-13)** | RE as SDD for Linux primitives (`docs/sdd/`), in-process Landlock LSM sandboxing (`engine/landlock.py`), anti-poisoning hot backup engine & quarantine (`engine/backup.py`), volatile RAM micro-snapshots (`engine/db.py`), eBPF security probing (`server.py`), Go static Landlock probe (`diagnostic/go/landlock-guard`), CLI integration (`scripts/aep-ctl`), and verification suite | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `docs/sdd/`, `engine/landlock.py`, `engine/backup.py`, `engine/db.py`, `server.py`, `diagnostic/go/`, `templates/`, `scripts/aep-ctl`, `tests/` | **VERIFIED & PROMOTED (Task 114 Score: 0.9250 TRUST) ✅** |
+| **Public GitHub Release & Compliance (ONT-14)** | Apache 2.0 license (`LICENSE`), git config hardening (`.gitignore`, `.gitattributes`), EDR/sandbox warning & license in `README.md`, pre-deploy quality verification, public GitHub repo creation (`ancrz/agent-execution-plane`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `LICENSE`, `.gitignore`, `.gitattributes`, `README.md`, GitHub Remote | **VERIFIED & PROMOTED (Task 115 Score: 0.950 TRUST) ✅** |

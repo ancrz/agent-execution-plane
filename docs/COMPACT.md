@@ -2,10 +2,10 @@
 
 Preserve:
 - Pipeline Mode: Full (Topos Integrity Protocol).
-- Active Intent / Milestone: ONT-13 (Landlock LSM, eBPF & Anti-Poisoning Backups) — VERIFIED & PROMOTED ✅.
-- Verified Status: All 7 Dokimos Gates passed (Task 114 score: 0.9250 TRUST, 31/31 pytest, 0 Semgrep/Ruff).
-- Stage: Transitioning from Graphos G2 to Stage 6 (Hermon — Atomic Commits & Version Control).
-- Next Actions: Hermon commits ONT-13 changes atomically, generates release notes, and confirms clean git tree.
-- Key Capabilities: In-process Landlock sandbox, <0.28ms RAM micro-snapshots, zero-trust backup quarantine, eBPF security probing, pure Go static probe.
+- Active Intent / Milestone: ONT-14 (Public GitHub Release & Compliance) — VERIFIED & PROMOTED ✅.
+- Verified Status: Task 115 score 0.950 TRUST. Apache 2.0 LICENSE, EDR warning, git config verified, 31/31 pytest.
+- Current Stage: Stage 6 — Hermon (Terminal Stage: Commit & GitHub Remote Creation + Push).
+- Remote Target: https://github.com/ancrz/agent-execution-plane (Public).
+- Passed Invariants: 0 co-dep, docs/ tracked & NOT ignored, 9/9 setup subsystems HEALTHY, 15 tools FastMCP parity.
 
 Drop: Raw tool outputs already summarized, transient test logs, superseded plans, resolved errors.
