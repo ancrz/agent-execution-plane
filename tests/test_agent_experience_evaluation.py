@@ -338,5 +338,100 @@ def test_deep_omission_battery_v3_polymorphic_dag_and_aliases() -> None:
     assert p1["status"] in ("OK", "PARTIAL")
     assert p1["pid"] == 1
 
+def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
+    """Verify setup.sh integrity, Pueue tag extraction, and Topos anti-cascade blob preservation."""
+    from engine.catalog import ArtifactCatalog
 
+    # 1. Topos anti-cascade blob preservation:
+    # cat.register_artifact(..., binary_blob=fake_elf) followed by cat.register_artifact(..., binary_blob=None)
+    # preserves binary_blob == fake_elf and binary_hash (X1 ↛ X2 ↛ X1)
+    db_file = tmp_path / "test_anti_cascade.db"
+    cat = ArtifactCatalog(db_path=db_file)
+    fake_elf = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 24 + b"STATIC_PROBE_DUMMY_ELF_PAYLOAD"
+    cue_code = 'package schema\nname: "test-probe"\ncategory: "diagnostic"'
+    go_code = "package main\nfunc main() {}\n"
+
+    art_id1 = cat.register_artifact(
+        name="test-probe",
+        intent="diagnose_system_integrity",
+        category="diagnostic",
+        cue_contract=cue_code,
+        go_source=go_code,
+        binary_blob=fake_elf,
+        intent_description="topos test probe for anti cascade verification",
+        source_template="test-probe",
+    )
+    with cat._get_ro_conn() as conn:
+        row1 = conn.execute("SELECT binary_blob, binary_hash FROM artifacts WHERE name = ?", ("test-probe",)).fetchone()
+        assert row1 is not None
+        assert bytes(row1["binary_blob"]) == fake_elf
+        assert row1["binary_hash"] is not None
+        orig_hash = row1["binary_hash"]
+
+    art_id2 = cat.register_artifact(
+        name="test-probe",
+        intent="diagnose_system_integrity",
+        category="diagnostic",
+        cue_contract=cue_code,
+        go_source=go_code,
+        binary_blob=None,
+        intent_description="topos test probe updated without compiled binary",
+        source_template="test-probe",
+    )
+    assert art_id2 == art_id1
+    with cat._get_ro_conn() as conn:
+        row2 = conn.execute("SELECT binary_blob, binary_hash FROM artifacts WHERE name = ?", ("test-probe",)).fetchone()
+        assert row2 is not None
+        assert bytes(row2["binary_blob"]) == fake_elf, "Topos anti-cascade violation: binary_blob was overwritten by NULL"
+        assert row2["binary_hash"] == orig_hash, "Topos anti-cascade violation: binary_hash was overwritten by NULL"
+
+    assert cat.get_binary_blob("test-probe") == fake_elf
+
+    # 2. bash -n scripts/setup.sh and bash -n scripts/aep-sync.sh exit 0
+    res_bash_setup = subprocess.run(
+        ["bash", "-n", str(PROJECT_ROOT / "scripts" / "setup.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res_bash_setup.returncode == 0, f"bash -n setup.sh failed: {res_bash_setup.stderr}"
+
+    res_bash_sync = subprocess.run(
+        ["bash", "-n", str(PROJECT_ROOT / "scripts" / "aep-sync.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res_bash_sync.returncode == 0, f"bash -n aep-sync.sh failed: {res_bash_sync.stderr}"
+
+    # 3. scripts/setup.sh contains \1 backreference on the Pueue sed line and not / /
+    setup_text = (PROJECT_ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
+    assert "sed -E 's/.*\"([^\"]+)\".*/\\1/'" in setup_text, "setup.sh must use \\1 in Pueue tag extraction"
+    assert "sed -E 's/.*\"([^\"]+)\".*/ /'" not in setup_text, "setup.sh must not use broken space replacement in Pueue sed"
+
+    # 4. ./scripts/setup.sh --check exits 0 and outputs [PASS] SQLite Catalog & Integrity and [PASS] MCP Ecosystem Sync
+    res_check = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "setup.sh"), "--check"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res_check.returncode == 0, f"setup.sh --check failed:\nSTDOUT:\n{res_check.stdout}\nSTDERR:\n{res_check.stderr}"
+    assert "[PASS] SQLite Catalog & Integrity" in res_check.stdout
+    assert "[PASS] MCP Ecosystem Sync" in res_check.stdout
+
+    # 5. ./scripts/aep-sync.sh --check exits 0
+    res_sync = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "aep-sync.sh"), "--check"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res_sync.returncode == 0, f"aep-sync.sh --check failed:\nSTDOUT:\n{res_sync.stdout}\nSTDERR:\n{res_sync.stderr}"
+
+    # 6. Stray 0-byte PROJECT_ROOT / "artifacts.db" is unlinked / does not exist
+    stray_db = PROJECT_ROOT / "artifacts.db"
+    assert not stray_db.exists(), f"Stray 0-byte database file must not exist at repo root: {stray_db}"
 

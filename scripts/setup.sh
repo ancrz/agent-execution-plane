@@ -8,6 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+export PATH="$HOME/.local/bin:$HOME/.local/share/go/bin:$HOME/.local/share/agent-os/bin:$PATH"
 
 # -----------------------------------------------------------------------------
 # Color Codes & Terminal Logging
@@ -176,6 +177,57 @@ run_check() {
         echo -e "[PASS] Git Pre-commit Hook: tracked (core.hooksPath=scripts/hooks)"
     else
         echo -e "[WARN] Git Pre-commit Hook: not tracked (current: '$HOOKS_PATH')"
+    fi
+
+    # 8. SQLite Catalog & Storage Integrity
+    local DB_PATH="${AEP_CATALOG_DB:-$HOME/.local/share/agent-os/artifacts.db}"
+    if [[ -x "$VENV_PY" ]] && [[ -f "$DB_PATH" ]]; then
+        local DB_CHK_OUT
+        DB_CHK_OUT=$(PYTHONPATH="$PROJECT_ROOT" "$VENV_PY" - "$DB_PATH" <<'PY' 2>/dev/null || echo "FAILED"
+import sqlite3
+import sys
+from pathlib import Path
+from engine.backup import verify_database_integrity
+
+db_path = Path(sys.argv[1]).resolve()
+ok, status, _ = verify_database_integrity(db_path=db_path, auto_seed_canary=False)
+if not ok:
+    print(f"FAIL:{status}")
+    sys.exit(1)
+
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+try:
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='artifacts'")
+    if cur.fetchone()[0] == 0:
+        print("FAIL:ARTIFACTS_TABLE_MISSING")
+        sys.exit(1)
+finally:
+    conn.close()
+
+print("HEALTHY")
+PY
+)
+        if [[ "$DB_CHK_OUT" == "HEALTHY" ]]; then
+            echo -e "[PASS] SQLite Catalog & Integrity: Healthy ($DB_PATH)"
+        else
+            echo -e "[FAIL] SQLite Catalog & Integrity: check failed ($DB_CHK_OUT) ($DB_PATH)"
+            DEGRADED=1
+        fi
+    elif [[ -x "$VENV_PY" ]] && [[ ! -f "$DB_PATH" ]]; then
+        echo -e "[FAIL] SQLite Catalog & Integrity: missing database file ($DB_PATH)"
+        DEGRADED=1
+    else
+        echo -e "[FAIL] SQLite Catalog & Integrity: Python runtime unavailable"
+        DEGRADED=1
+    fi
+
+    # 9. MCP Ecosystem Sync & Server Importability
+    if bash "$PROJECT_ROOT/scripts/aep-sync.sh" --check >/dev/null 2>&1; then
+        echo -e "[PASS] MCP Ecosystem Sync: Server compile & import verification passed"
+    else
+        echo -e "[FAIL] MCP Ecosystem Sync: aep-sync.sh --check failed"
+        DEGRADED=1
     fi
 
     echo "=========================================================="
@@ -351,7 +403,7 @@ fi
 log_step "Verificando demonio Pueue..."
 if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOME/.local/bin/pueued" ]]; then
     log_step "Descargando binarios estáticos musl de Pueue a ~/.local/bin..."
-    TAG=$(curl -sSL https://api.github.com/repos/Nukesor/pueue/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*//' || echo "")
+    TAG=$(curl -sSL https://api.github.com/repos/Nukesor/pueue/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
     if [[ -n "${TAG:-}" ]]; then
         for b in pueue pueued; do
             curl -sSL -o "$TMP_DIR/$b" "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-x86_64-unknown-linux-musl"
@@ -385,21 +437,46 @@ bash "$PROJECT_ROOT/scripts/install-shell-env.sh" 2>/dev/null || log_warn "Confi
 # 8. Artifact Catalog DB Initialization
 # -----------------------------------------------------------------------------
 log_step "Inicializando catálogo de artefactos (SQLite)..."
-PYTHONPATH="$PROJECT_ROOT" "$VENV_DIR/bin/python" -c "
-from engine.catalog import ArtifactCatalog
+PYTHONPATH="$PROJECT_ROOT" "$VENV_DIR/bin/python" - "$PROJECT_ROOT" <<'PY' 2>/dev/null || log_warn "Init de catálogo omitido (posible lock activo)."
+import sys
 from pathlib import Path
-cat = ArtifactCatalog()
-tpl_socket = Path('templates/tpl_socket_monitor.go').read_text()
-cue_socket = 'package schema\nname: "socket-monitor"\ncategory: "network"'
-cat.register_artifact('socket-monitor', 'inspect_tcp_sockets', 'network', cue_socket, tpl_socket,
-    intent_description='list and inspect listening TCP sockets and open network ports on the host')
+from engine.catalog import ArtifactCatalog
 
-tpl_fd = Path('templates/tpl_fd_rescuer.go').read_text()
+project_root = Path(sys.argv[1]).resolve()
+cat = ArtifactCatalog()
+probe_dir = Path.home() / ".local" / "share" / "agent-os" / "bin"
+socket_bin = (probe_dir / "socket-monitor").read_bytes() if (probe_dir / "socket-monitor").is_file() else None
+fd_bin = (probe_dir / "fd-rescuer").read_bytes() if (probe_dir / "fd-rescuer").is_file() else None
+
+tpl_socket = (project_root / "templates" / "tpl_socket_monitor.go").read_text(encoding="utf-8")
+cue_socket = 'package schema\nname: "socket-monitor"\ncategory: "network"'
+for name in ("socket-monitor", "socket_monitor"):
+    cat.register_artifact(
+        name,
+        "inspect_tcp_sockets",
+        "network",
+        cue_socket,
+        tpl_socket,
+        binary_blob=socket_bin,
+        intent_description="list and inspect listening TCP sockets and open network ports on the host",
+        source_template="socket-monitor",
+    )
+
+tpl_fd = (project_root / "templates" / "tpl_fd_rescuer.go").read_text(encoding="utf-8")
 cue_fd = 'package schema\nname: "fd-rescuer"\ncategory: "process"'
-cat.register_artifact('fd-rescuer', 'inspect_process_fds', 'process', cue_fd, tpl_fd,
-    intent_description='inspect the open file descriptors of a process to diagnose hung or deadlocked threads')
-print('Catálogo SQLite listo (vec_available=%s).' % cat._vec_available)
-" 2>/dev/null || log_warn "Init de catálogo omitido (posible lock activo)."
+for name in ("fd-rescuer", "fd_rescuer"):
+    cat.register_artifact(
+        name,
+        "inspect_process_fds",
+        "process",
+        cue_fd,
+        tpl_fd,
+        binary_blob=fd_bin,
+        intent_description="inspect the open file descriptors of a process to diagnose hung or deadlocked threads",
+        source_template="fd-rescuer",
+    )
+print(f"Catálogo SQLite listo (vec_available={cat._vec_available}).")
+PY
 
 # -----------------------------------------------------------------------------
 # 9. MCP Seeding & Hot-Reload Delegation (aep-sync.sh)
