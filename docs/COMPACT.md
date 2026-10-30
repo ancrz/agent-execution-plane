@@ -1,11 +1,11 @@
 # Context Compaction Guidance — AEP
 
 Preserve:
-- Pipeline Mode: Full (Topos Integrity Protocol).
-- Active Intent / Milestone: ONT-14 (Public GitHub Release & Compliance) — VERIFIED & PROMOTED ✅.
-- Verified Status: Task 115 score 0.950 TRUST. Apache 2.0 LICENSE, EDR warning, git config verified, 31/31 pytest.
-- Current Stage: Stage 6 — Hermon (Terminal Stage: Commit & GitHub Remote Creation + Push).
-- Remote Target: https://github.com/ancrz/agent-execution-plane (Public).
-- Passed Invariants: 0 co-dep, docs/ tracked & NOT ignored, 9/9 setup subsystems HEALTHY, 15 tools FastMCP parity.
-
-Drop: Raw tool outputs already summarized, transient test logs, superseded plans, resolved errors.
+- Pipeline Mode: Short.
+- Active intent: agent-experience evaluation; battery and second report added.
+- Files changed: `tests/test_agent_experience_evaluation.py`, report, and pipeline feature record.
+- Verification: Ruff clean; pytest `34 passed, 2 xfailed`; Semgrep unavailable.
+- Open product gaps: clean HOME bootstrap fails before schema creation; CLI schema omits MCP `audit` domain.
+- AEP evidence: async dispatch passed; sandbox lacks allowlisted workspace mounts; detailed JSON is token-heavy.
+- Next actions: fix bootstrap ordering; unify MCP/CLI schema; add bounded summary output and resource deltas.
+Drop: raw AEP outputs, completed dispatch logs, superseded first-report conclusions.
