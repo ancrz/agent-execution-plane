@@ -437,12 +437,40 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
 
 
 def test_self_evolutionary_loop_and_ram_probes() -> None:
-    """ONT-19: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and severity inference."""
+    """ONT-19 & ONT-20: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and 15/15 verbosity."""
+    import inspect
+
     import server
     from engine.telemetry import infer_severity
 
     for st in ("ARCHIVED", "UNARCHIVED", "PRUNED", "DEMOTED", "REEVALUATED", "REINDEXED", "CLEAN"):
         assert infer_severity(st) == "INFO", f"Expected INFO for {st}, got {infer_severity(st)}"
+
+    # Verify all 15 MCP tools accept verbosity uniformly
+    for tool_name in (
+        "discover",
+        "artifact_lint_and_build",
+        "artifact_execute_in_ram",
+        "artifact_catalog",
+        "kanban_board",
+        "process_inspect",
+        "sandbox_run",
+        "async_job_dispatch",
+        "diagnose_system_crashes",
+        "kernel_trace",
+        "aep_ctl",
+        "query_system_docs",
+        "visual_inspect",
+        "topos_audit_dag",
+        "playbook_run",
+    ):
+        sig = inspect.signature(getattr(server, tool_name))
+        assert "verbosity" in sig.parameters, f"{tool_name} must accept 'verbosity'"
+
+    # Verify compact template catalog saves tokens
+    cat_detail = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog", verbosity="detail")))
+    cat_summary = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog", verbosity="summary")))
+    assert cat_summary["telemetry"]["output_bytes"] < cat_detail["telemetry"]["output_bytes"]
 
     # Verify 1-step template build with zero-config defaults and alias parameters
     build_res = json.loads(

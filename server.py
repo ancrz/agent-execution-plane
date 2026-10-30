@@ -112,6 +112,7 @@ async def aep_capabilities(**kw: Any) -> str:
 async def topos_audit_dag(
     tasks: list[Any],
     dependencies: dict[str, list[str]] | list[dict[str, Any]] | None = None,
+    verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
@@ -168,6 +169,7 @@ async def topos_audit_dag(
         return attach_envelope(
             {"status": verdict, "verdict": verdict, "details": logs},
             tracker,
+            verbosity=verbosity,
             summary=f"DAG audit verdict: {verdict} ({len(norm_tasks)} tasks).",
         )
 
@@ -341,6 +343,7 @@ async def artifact_catalog(
     limit: int = 10,
     force: bool = False,
     apply: bool = False,
+    verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
@@ -356,9 +359,23 @@ async def artifact_catalog(
     def _run() -> str:
         act = (action or "browse").strip().lower()
         tracker = RequestTelemetry("artifact_catalog", act)
+        is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
         try:
             if act in ("browse", "list"):
                 items = catalog.browse(category=category, query=query or intent, limit=limit)
+                if is_compact:
+                    items = [
+                        {
+                            "name": it.get("name"),
+                            "category": it.get("category"),
+                            "promotion_score": it.get("promotion_score"),
+                            "verdict": it.get("verdict"),
+                            "reusable": it.get("reusable"),
+                            "execution_count": it.get("execution_count"),
+                            "success_rate": it.get("success_rate"),
+                        }
+                        for it in items
+                    ]
                 return attach_envelope(
                     {
                         "status": "OK",
@@ -367,6 +384,7 @@ async def artifact_catalog(
                         "artifacts": items,
                     },
                     tracker,
+                    verbosity=verbosity,
                     summary=f"Catalog browse returned {len(items)} artifacts.",
                 )
             elif act in ("query", "search"):
@@ -455,6 +473,7 @@ async def artifact_lint_and_build(
     params: dict[str, Any] | None = None,
     cue_contract: str = "",
     limit: int = 5,
+    verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
@@ -475,13 +494,27 @@ async def artifact_lint_and_build(
         try:
             if act == "catalog":
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
+                tpls = template_registry.catalog(feedback=fb)
+                if (verbosity or "detail").strip().lower() in ("summary", "brief"):
+                    tpls = [
+                        {
+                            "name": t["name"],
+                            "category": t["category"],
+                            "capability": t.get("capability"),
+                            "description": t.get("description"),
+                            "source": t.get("source"),
+                            "proven": t.get("proven"),
+                        }
+                        for t in tpls
+                    ]
                 return attach_envelope(
                     {
                         "status": "OK",
-                        "templates": template_registry.catalog(feedback=fb),
+                        "templates": tpls,
                         "redundancy": template_registry.redundancy(),
                     },
                     tracker,
+                    verbosity=verbosity,
                 )
 
             if act == "select":
@@ -498,6 +531,7 @@ async def artifact_lint_and_build(
                 return attach_envelope(
                     {"status": "OK", "intent": intent.strip(), "matches": matches},
                     tracker,
+                    verbosity=verbosity,
                 )
 
             if act == "hydrate":
@@ -509,12 +543,14 @@ async def artifact_lint_and_build(
                             "error": "Debe proporcionar 'template_name' (o 'source_template') para hidratar.",
                         },
                         tracker,
+                        verbosity=verbosity,
                     )
                 contract = template_registry.get_contract(tpl)
                 source_code = hydrator.hydrate(tpl, params or {}, contract=contract)
                 return attach_envelope(
                     {"status": "SUCCESS", "template_name": tpl, "go_source": source_code},
                     tracker,
+                    verbosity=verbosity,
                 )
 
             if act == "build":
@@ -650,20 +686,22 @@ async def artifact_lint_and_build(
                     try:
                         with kanban._conn_ro() as kconn:
                             existing_kt = kconn.execute(
-                                "SELECT id FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
-                                "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY') ORDER BY id DESC LIMIT 1",
+                                "SELECT id, state FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                                "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY', 'PROMOTED') ORDER BY id DESC LIMIT 1",
                                 (art_name,),
                             ).fetchone()
                         if existing_kt:
                             kanban_task_id = existing_kt["id"]
+                            target_st = existing_kt["state"] if existing_kt["state"] in ("CANARY", "PROMOTED") else "LINTED"
                         else:
                             kt = kanban.create_task(
                                 title=f"build:{art_name}", intent=art_intent, category=art_cat, artifact_name=art_name
                             )
                             kanban_task_id = kt["task_id"]
+                            target_st = "LINTED"
                         kanban.advance(
                             kanban_task_id,
-                            "LINTED",
+                            target_st,
                             lint_passed=True,
                             note=f"go vet OK; {len(lint_warnings)} avisos golangci-lint",
                         )
@@ -683,6 +721,7 @@ async def artifact_lint_and_build(
                             "kanban_task_id": kanban_task_id,
                         },
                         tracker,
+                        verbosity=verbosity,
                     )
 
             return attach_envelope(
@@ -1651,6 +1690,7 @@ async def sandbox_run(
     ro_paths: list[str] | None = None,
     rw_paths: list[str] | None = None,
     timeout: int = 60,
+    verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
@@ -1815,6 +1855,17 @@ async def sandbox_run(
                 check=False,
             )
             st = "SUCCESS" if res.returncode == 0 else "EXEC_FAILED"
+            out_str = res.stdout.strip()
+            err_str = res.stderr.strip()
+            is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
+            truncated = False
+            if is_compact:
+                if len(out_str) > 4000:
+                    out_str = out_str[-4000:]
+                    truncated = True
+                if len(err_str) > 4000:
+                    err_str = err_str[-4000:]
+                    truncated = True
             return attach_envelope(
                 {
                     "status": st,
@@ -1824,10 +1875,12 @@ async def sandbox_run(
                     "working_dir": resolved_wd,
                     "ro_mounts": mounted_ro,
                     "rw_mounts": mounted_rw,
-                    "stdout": res.stdout.strip(),
-                    "stderr": res.stderr.strip(),
+                    "stdout": out_str,
+                    "stderr": err_str,
                 },
                 tracker,
+                verbosity=verbosity,
+                truncated=truncated,
                 summary=f"Sandbox command exited with code {res.returncode} (net={'on' if share_net else 'off'}).",
             )
         except Exception as e:
