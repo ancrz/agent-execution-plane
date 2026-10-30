@@ -8,8 +8,8 @@
 #      al launcher estable (aep-mcp-launch.sh). Nunca "enchufa" un server roto (atómico).
 #
 # Uso:
-#   ./scripts/aep-sync.sh               # valida + re-registra una vez (Claude desconectado por defecto)
-#   ./scripts/aep-sync.sh --with-claude # valida + re-registra incluyendo Claude Code
+#   ./scripts/aep-sync.sh               # valida + re-registra una vez (Claude, agy, Codex, Gemini)
+#   ./scripts/aep-sync.sh --no-claude   # valida + re-registra omitiendo Claude Code
 #   ./scripts/aep-sync.sh --check       # solo valida (CI/pre-commit), no toca registros
 #   ./scripts/aep-sync.sh --watch       # vigila cambios y re-sincroniza automáticamente
 # =============================================================================
@@ -57,7 +57,7 @@ register() {
     local n=0
     if command -v claude >/dev/null 2>&1; then
         claude mcp remove --scope user "$SERVER_NAME" >/dev/null 2>&1 || true
-        if [[ "${AEP_PLUG_CLAUDE:-0}" == "1" ]]; then
+        if [[ "${AEP_PLUG_CLAUDE:-1}" == "1" ]]; then
             if claude mcp add --scope user "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1; then
                 ok "Claude Code re-registrado"
                 n=$((n+1))
@@ -65,7 +65,7 @@ register() {
                 warn "Claude: fallo al registrar"
             fi
         else
-            log "Claude Code: desconectado en este host (auto-plug preservado; activa con AEP_PLUG_CLAUDE=1 o --with-claude)"
+            log "Claude Code: omitido (AEP_PLUG_CLAUDE=0 o --no-claude)"
         fi
     fi
     if command -v agy >/dev/null 2>&1; then
@@ -179,6 +179,7 @@ case "${1:-}" in
     --check)       validate ;;
     --watch)       watch_mode ;;
     --with-claude) AEP_PLUG_CLAUDE=1 sync_once ;;
+    --no-claude)   AEP_PLUG_CLAUDE=0 sync_once ;;
     "")            sync_once ;;
-    *)             err "Uso: aep-sync.sh [--check|--watch|--with-claude]"; exit 2 ;;
+    *)             err "Uso: aep-sync.sh [--check|--watch|--with-claude|--no-claude]"; exit 2 ;;
 esac
