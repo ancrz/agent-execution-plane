@@ -114,8 +114,13 @@ async def topos_audit_dag(tasks: list[str], dependencies: dict[str, list[str]], 
     """
 
     def _run() -> str:
+        tracker = RequestTelemetry("topos_audit_dag", "audit")
         verdict, logs = ToposGuard.audit_task_dag(tasks, dependencies)
-        return json.dumps({"verdict": verdict, "details": logs}, indent=2)
+        return attach_envelope(
+            {"status": verdict, "verdict": verdict, "details": logs},
+            tracker,
+            summary=f"DAG audit verdict: {verdict} ({len(tasks)} tasks).",
+        )
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -124,6 +129,8 @@ async def topos_audit_dag(tasks: list[str], dependencies: dict[str, list[str]], 
 async def discover(
     use_case: str = "",
     action: str = "discover",
+    intent: str = "",
+    query: str = "",
     limit: int = 3,
     verbosity: str = "detail",
     agent_id: str = "default",
@@ -132,13 +139,14 @@ async def discover(
     [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
     devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico estilo Kali-MCP.
     action:
-      - 'discover' (default): enruta caso de uso -> capacidad sugerida (con umbral de confianza) + llamada canónica + artefactos/plantillas/playbooks.
+      - 'discover' (default; alias: 'match', 'route', 'search'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
       - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
       - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida estilo Kali-MCP.
     """
 
     def _run() -> str:
         act = (action or "discover").strip().lower()
+        eff_use_case = (use_case or intent or query or "").strip()
         tracker = RequestTelemetry("discover", act)
         if act == "capabilities":
             manifest = capability_manifest()
@@ -178,13 +186,13 @@ async def discover(
                 summary="Kali-style tactical playbook and token-efficiency Rules of Engagement loaded.",
                 next_action="Select a workflow recipe (WF-1..WF-4) or canonical call from quick_reference.",
             )
-        elif act == "discover":
-            if not use_case.strip():
+        elif act in ("discover", "match", "route", "search"):
+            if not eff_use_case:
                 return attach_envelope(
                     {
                         "status": "PARAM_ERROR",
-                        "error": "Acción 'discover' requiere el parámetro 'use_case' no vacío.",
-                        "valid_actions": ["discover", "capabilities", "playbook"],
+                        "error": "Acción 'discover' requiere el parámetro 'use_case' (o 'intent'/'query') no vacío.",
+                        "valid_actions": ["discover", "match", "capabilities", "playbook"],
                     },
                     tracker,
                     verbosity=verbosity,
@@ -199,27 +207,27 @@ async def discover(
                     }
                     for k, v in caps.items()
                 ]
-                cap = matcher.rank(use_case, cap_docs, limit=2)
+                cap = matcher.rank(eff_use_case, cap_docs, limit=2)
                 top_rel = cap[0]["relevance"] if cap else 0.0
                 high_conf = top_rel >= 0.12
                 top_cap_name = cap[0]["name"] if cap else None
                 top_cap_info = caps.get(top_cap_name, {}) if top_cap_name else {}
                 rec_calls = top_cap_info.get("canonical_calls", [])
 
-                reuse = catalog.browse(query=use_case, limit=limit)
+                reuse = catalog.browse(query=eff_use_case, limit=limit)
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
-                synth = template_registry.select(use_case, limit=limit, feedback=fb)
+                synth = template_registry.select(eff_use_case, limit=limit, feedback=fb)
                 pb_docs = [
                     {"name": p["name"], "tags": [], "description": p.get("description", "")}
                     for p in playbook_store.list()
                 ]
-                automate = matcher.rank(use_case, pb_docs, limit=limit)
+                automate = matcher.rank(eff_use_case, pb_docs, limit=limit)
                 payload = {
                     "status": "OK",
-                    "use_case": use_case,
+                    "use_case": eff_use_case,
                     "match_status": "MATCHED" if high_conf else "NO_HIGH_CONFIDENCE_MATCH",
                     "confidence": "HIGH" if high_conf else "LOW",
-                    "recommended_next_call": rec_calls[0] if rec_calls else 'discover(action="playbook")',
+                    "recommended_next_call": rec_calls[0] if (high_conf and rec_calls) else 'discover(action="playbook")',
                     "suggested_capability": [
                         {
                             "capability": c["name"],
@@ -266,7 +274,7 @@ async def discover(
                 {
                     "status": "INVALID_ACTION",
                     "error": f"Acción '{action}' no válida para discover.",
-                    "valid_actions": ["discover", "capabilities", "playbook"],
+                    "valid_actions": ["discover", "match", "capabilities", "playbook"],
                 },
                 tracker,
                 verbosity=verbosity,
@@ -297,35 +305,35 @@ async def artifact_catalog(
     """
 
     def _run() -> str:
+        act = (action or "browse").strip().lower()
+        tracker = RequestTelemetry("artifact_catalog", act)
         try:
-            act = (action or "browse").strip().lower()
             if act == "browse":
                 items = catalog.browse(category=category, query=query or intent, limit=limit)
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "OK",
                         "capability_tier": capability_tier(),
                         "count": len(items),
                         "artifacts": items,
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    summary=f"Catalog browse returned {len(items)} artifacts.",
                 )
             elif act == "query":
                 eff_intent = (intent or query or "").strip()
                 eff_category = category.strip() if (category and category.strip()) else None
                 if not eff_intent:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "PARAM_ERROR",
                             "error": "Acción 'query' requiere el parámetro 'intent' (o 'query').",
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
                     )
                 hit = catalog.find_hybrid(eff_intent, category=eff_category)
                 if hit:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "CACHE_HIT",
                             "artifact_id": hit["id"],
@@ -334,29 +342,28 @@ async def artifact_catalog(
                             "version": hit["version"],
                             "success_rate": hit["success_rate"],
                             "execution_count": hit["execution_count"],
-                            # Campos aditivos (no rompen consumidores previos):
                             "retrieval_mode": hit.get("retrieval_mode", "exact_hash"),
                             "semantic_distance": hit.get("semantic_distance"),
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        summary=f"Cache hit: {hit['name']} ({hit.get('retrieval_mode', 'exact_hash')}).",
                     )
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "CACHE_MISS",
                         "message": "No se encontró artefacto en caché. Proceder a hidratar o sintetizar.",
                         "available_templates": hydrator.list_available_templates(),
                         "semantic_available": catalog._vec_available,
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    summary="Cache miss: no matching artifact found.",
                 )
             elif act == "reindex":
                 before = catalog.index_coverage()
                 result = catalog.reindex(force=force)
                 after = catalog.index_coverage()
                 storage_tel = catalog.storage_telemetry()
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": result.get("status", "OK"),
                         "reindex": result,
@@ -365,27 +372,22 @@ async def artifact_catalog(
                         "storage_engine": storage_tel,
                         "db_telemetry": storage_tel,
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
             elif act == "prune":
                 protect = {t["name"] for t in template_registry.catalog()} | {"socket_monitor", "fd_rescuer"}
-                return json.dumps(
-                    catalog.prune(protect=protect, apply=apply),
-                    indent=2,
-                    ensure_ascii=False,
-                )
+                return attach_envelope(catalog.prune(protect=protect, apply=apply), tracker)
             else:
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "INVALID_ACTION",
                         "error": f"Acción '{action}' no reconocida. Acciones válidas: 'browse', 'query', 'reindex', 'prune'.",
+                        "valid_actions": ["browse", "query", "reindex", "prune"],
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -417,53 +419,51 @@ async def artifact_lint_and_build(
     """
 
     def _run() -> str:
+        act = (action or "build").strip().lower()
+        tracker = RequestTelemetry("artifact_lint_and_build", act)
         try:
-            act = (action or "build").strip().lower()
-
             if act == "catalog":
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "OK",
                         "templates": template_registry.catalog(feedback=fb),
                         "redundancy": template_registry.redundancy(),
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
 
             if act == "select":
                 if not intent or not intent.strip():
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "PARAM_ERROR",
                             "error": "El parámetro 'intent' es obligatorio para la acción 'select'.",
                         },
-                        indent=2,
+                        tracker,
                     )
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
                 matches = template_registry.select(intent.strip(), limit=limit, feedback=fb)
-                return json.dumps(
+                return attach_envelope(
                     {"status": "OK", "intent": intent.strip(), "matches": matches},
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
 
             if act == "hydrate":
                 tpl = (template_name or source_template or name or "").strip()
                 if not tpl:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "PARAM_ERROR",
                             "error": "Debe proporcionar 'template_name' (o 'source_template') para hidratar.",
                         },
-                        indent=2,
+                        tracker,
                     )
                 contract = template_registry.get_contract(tpl)
                 source_code = hydrator.hydrate(tpl, params or {}, contract=contract)
-                return json.dumps(
+                return attach_envelope(
                     {"status": "SUCCESS", "template_name": tpl, "go_source": source_code},
-                    indent=2,
+                    tracker,
                 )
 
             if act == "build":
@@ -475,12 +475,12 @@ async def artifact_lint_and_build(
                 if not category or not category.strip():
                     missing.append("category")
                 if missing:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "PARAM_ERROR",
                             "error": f"Faltan parámetros obligatorios para la acción 'build': {', '.join(missing)}",
                         },
-                        indent=2,
+                        tracker,
                     )
 
                 art_name = name.strip()
@@ -496,20 +496,20 @@ async def artifact_lint_and_build(
                             contract = template_registry.get_contract(art_src_tpl)
                             effective_src = hydrator.hydrate(art_src_tpl, params or {}, contract=contract)
                         except Exception as he:
-                            return json.dumps(
+                            return attach_envelope(
                                 {
                                     "status": "HYDRATE_ERROR",
                                     "error": f"Error al auto-hidratar la plantilla '{art_src_tpl}': {str(he)}",
                                 },
-                                indent=2,
+                                tracker,
                             )
                     else:
-                        return json.dumps(
+                        return attach_envelope(
                             {
                                 "status": "PARAM_ERROR",
                                 "error": "Debe proporcionar 'go_source' o 'template_name'/'source_template' para compilar.",
                             },
-                            indent=2,
+                            tracker,
                         )
 
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -522,16 +522,16 @@ async def artifact_lint_and_build(
                         ["go", "vet", str(src_file)],
                         capture_output=True,
                         text=True,
-                        check=False,  # check=False: returncode handled explicitly below
+                        check=False,
                     )
                     if vet_res.returncode != 0:
-                        return json.dumps(
+                        return attach_envelope(
                             {
                                 "status": "LINT_ERROR",
                                 "error": vet_res.stderr.strip(),
                                 "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
                             },
-                            indent=2,
+                            tracker,
                         )
 
                     # 1.5. golangci-lint ADVISORY (no bloqueante). go vet sigue siendo el gate duro.
@@ -543,7 +543,7 @@ async def artifact_lint_and_build(
                             text=True,
                             cwd=tmpdir,
                             timeout=30,
-                            check=False,  # check=False: returncode handled explicitly below
+                            check=False,
                         )
                         if gcl.returncode != 0:
                             out = (gcl.stdout or gcl.stderr or "").strip()
@@ -562,17 +562,17 @@ async def artifact_lint_and_build(
                         capture_output=True,
                         text=True,
                         env=env,
-                        check=False,  # check=False: returncode handled explicitly below
+                        check=False,
                     )
                     compile_latency_ms = round((time.time() - start_time) * 1000, 2)
 
                     if build_res.returncode != 0:
-                        return json.dumps(
+                        return attach_envelope(
                             {
                                 "status": "BUILD_ERROR",
                                 "error": build_res.stderr.strip(),
                             },
-                            indent=2,
+                            tracker,
                         )
 
                     binary_bytes = bin_file.read_bytes()
@@ -601,7 +601,7 @@ async def artifact_lint_and_build(
                     except Exception as e:
                         logger.debug("Kanban task advance failed for %s: %s", art_name, e)
 
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "SUCCESS",
                             "artifact_id": artifact_id,
@@ -613,33 +613,42 @@ async def artifact_lint_and_build(
                             "lint_warnings": lint_warnings,
                             "kanban_task_id": kanban_task_id,
                         },
-                        indent=2,
+                        tracker,
                     )
 
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "INVALID_ACTION",
                     "error": f"Acción '{action}' no reconocida. Acciones válidas: 'build', 'catalog', 'select', 'hydrate'.",
+                    "valid_actions": ["build", "catalog", "select", "hydrate"],
                 },
-                indent=2,
+                tracker,
             )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
 
     return await anyio.to_thread.run_sync(_run)
 
 
 @mcp.tool()
 async def artifact_execute_in_ram(
-    name: str, args: list[str] | None = None, agent_id: str = "default"
+    name: str,
+    args: list[str] | None = None,
+    verbosity: str = "summary",
+    limit: int = 25,
+    agent_id: str = "default",
 ) -> str:
     """
     [CAMINO A / MEMFD EXECUTION] Carga un binario Go del catálogo o de bin/
     y lo inyecta directamente en memoria RAM vía memfd_create sin tocar almacenamiento secundario.
+    - `verbosity`: 'summary' (default, trunca colecciones extensas a `limit`) | 'detail'.
     """
 
     def _run() -> str:
+        tracker = RequestTelemetry("artifact_execute_in_ram", f"exec:{name}")
         cmd_args = args or []
+        is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
+        eff_limit = max(1, int(limit or 25))
 
         # 1. Validación de autorización y blacklist
         try:
@@ -659,15 +668,15 @@ async def artifact_execute_in_ram(
                     )
             except Exception as log_err:
                 logger.debug("Failed recording audit event: %s", log_err)
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "PERMISSION_DENIED",
                     "agent_id": agent_id,
                     "error": e.message,
                     "target": name,
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
+                verbosity=verbosity,
             )
 
         for arg in cmd_args:
@@ -687,24 +696,36 @@ async def artifact_execute_in_ram(
                 except Exception as log_err:
                     logger.debug("Failed recording audit event: %s", log_err)
 
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "PERMISSION_DENIED",
                         "agent_id": agent_id,
                         "error": f"Acceso denegado a ruta restringida '{arg}' bajo capacidad 'cap_ram_exec'.",
                         "target": arg,
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    verbosity=verbosity,
                 )
 
-        bin_file = TEMP_BIN_DIR / name
+        resolved_name = name
+        bin_file = TEMP_BIN_DIR / resolved_name
         elf_bytes: bytes | None = None
         if bin_file.exists():
             elf_bytes = bin_file.read_bytes()
         else:
-            blob = catalog.get_binary_blob(name)
-            if blob:
+            blob = catalog.get_binary_blob(resolved_name)
+            if not blob:
+                alt_name = name.replace("-", "_") if "-" in name else name.replace("_", "-")
+                if (TEMP_BIN_DIR / alt_name).exists():
+                    resolved_name = alt_name
+                    bin_file = TEMP_BIN_DIR / resolved_name
+                    elf_bytes = bin_file.read_bytes()
+                else:
+                    blob = catalog.get_binary_blob(alt_name)
+                    if blob:
+                        resolved_name = alt_name
+                        bin_file = TEMP_BIN_DIR / resolved_name
+            if blob and not elf_bytes:
                 elf_bytes = blob
                 try:
                     bin_file.write_bytes(blob)
@@ -713,12 +734,16 @@ async def artifact_execute_in_ram(
                     logger.debug("Failed writing binary cache %s: %s", bin_file, e)
 
         if not elf_bytes:
-            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": f"Binario no encontrado: {name}"})
+            return attach_envelope(
+                {"status": "ERROR", "agent_id": agent_id, "error": f"Binario no encontrado: {name}"},
+                tracker,
+                verbosity=verbosity,
+            )
 
         start_time = time.time()
         fd = None
         try:
-            fd = os.memfd_create(f"anon_{name}", 0)
+            fd = os.memfd_create(f"anon_{resolved_name}", 0)
             os.write(fd, elf_bytes)
             os.lseek(fd, 0, os.SEEK_SET)
 
@@ -731,17 +756,17 @@ async def artifact_execute_in_ram(
                     stdin=subprocess.DEVNULL,
                     close_fds=True,
                     timeout=30,
-                    check=False,  # check=False: returncode handled explicitly below for telemetry and kanban recording
+                    check=False,
                 )
             except subprocess.TimeoutExpired:
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "TIMEOUT",
                         "agent_id": agent_id,
-                        "error": f"Artefacto '{name}' excedió el timeout de 30s (posible proceso daemonizado con descriptores abiertos).",
+                        "error": f"Artefacto '{resolved_name}' excedió el timeout de 30s (posible proceso daemonizado con descriptores abiertos).",
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    verbosity=verbosity,
                 )
 
             latency_ms = round((time.time() - start_time) * 1000, 2)
@@ -752,16 +777,22 @@ async def artifact_execute_in_ram(
             except Exception as e:
                 logger.debug("Stdout was not json: %s", e)
 
-            # Cierra el lazo de telemetría: cada ejecución alimenta success_rate/execution_count,
-            # que ponderan la reutilización del artefacto (dimensiones reliability/experience).
+            truncated = False
+            if is_compact and isinstance(stdout_parsed, dict):
+                for k, v in list(stdout_parsed.items()):
+                    if isinstance(v, list) and len(v) > eff_limit:
+                        stdout_parsed[f"total_{k}"] = len(v)
+                        stdout_parsed[k] = v[:eff_limit]
+                        truncated = True
+
             recorded = catalog.record_execution_by_name(
-                name,
+                resolved_name,
                 res.returncode,
                 latency_ms,
                 error_message=(res.stderr.strip()[:500] if res.returncode != 0 and res.stderr else None),
                 agent_id=agent_id,
             )
-            kanban_canary = kanban.record_canary_by_artifact(name, res.returncode == 0)
+            kanban_canary = kanban.record_canary_by_artifact(resolved_name, res.returncode == 0)
 
             status_val = "SUCCESS" if res.returncode == 0 else "EXEC_FAILED"
             try:
@@ -779,26 +810,34 @@ async def artifact_execute_in_ram(
                             "args": cmd_args,
                             "error": res.stderr.strip()[:200] if res.stderr else None,
                         },
-                        target=name,
+                        target=resolved_name,
                     )
             except Exception as log_err:
                 logger.debug("Failed recording audit event: %s", log_err)
 
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": status_val,
                     "agent_id": agent_id,
+                    "name": resolved_name,
                     "exit_code": res.returncode,
                     "latency_ms": latency_ms,
                     "output": stdout_parsed,
                     "stderr": res.stderr.strip() if res.stderr else None,
-                    "metric_recorded": recorded,  # True si alimentó la ponderación del catálogo
+                    "metric_recorded": recorded,
                     "kanban_canary": kanban_canary,
                 },
-                indent=2,
+                tracker,
+                verbosity=verbosity,
+                truncated=truncated,
+                summary=f"RAM execution of '{resolved_name}' finished with status {status_val} in {latency_ms}ms.",
             )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, indent=2)
+            return attach_envelope(
+                {"status": "ERROR", "agent_id": agent_id, "error": str(e)},
+                tracker,
+                verbosity=verbosity,
+            )
         finally:
             if fd is not None:
                 try:
@@ -1050,6 +1089,65 @@ def _ensure_pueue_daemon() -> str | None:
     return pueue_bin
 
 
+def _compact_pueue_payload(raw_json_str: str, *, limit: int = 15, is_compact: bool = True) -> tuple[dict[str, Any], bool]:
+    """Sanitize and compact pueue status/log JSON, stripping multi-megabyte `envs` dicts."""
+    masked = mask_pueue_output(raw_json_str)
+    try:
+        data = json.loads(masked)
+    except Exception:
+        return {"status": "OK", "raw": masked[:16_000]}, len(masked) > 16_000
+
+    truncated = False
+    if isinstance(data, dict):
+        # Case 1: pueue status --json -> {"tasks": {"1": {...}, ...}, "groups": {...}}
+        if isinstance(data.get("tasks"), dict):
+            all_tasks: dict[str, Any] = data["tasks"]
+            total_tasks = len(all_tasks)
+            sorted_keys = sorted(all_tasks.keys(), key=lambda k: int(k) if str(k).isdigit() else -1, reverse=True)
+            sliced_keys = sorted_keys[: max(1, limit)]
+            truncated = total_tasks > len(sliced_keys)
+            compact_tasks: dict[str, Any] = {}
+            for k in sliced_keys:
+                t = all_tasks[k]
+                if isinstance(t, dict):
+                    t_clean = {tk: tv for tk, tv in t.items() if tk != "envs"}
+                    if is_compact:
+                        t_clean = {
+                            "id": t_clean.get("id"),
+                            "label": t_clean.get("label"),
+                            "command": t_clean.get("command"),
+                            "path": t_clean.get("path"),
+                            "group": t_clean.get("group"),
+                            "status": t_clean.get("status"),
+                        }
+                    compact_tasks[k] = t_clean
+                else:
+                    compact_tasks[k] = t
+            return {
+                "status": "OK",
+                "total_tasks": total_tasks,
+                "count": len(compact_tasks),
+                "groups": data.get("groups", {}),
+                "tasks": compact_tasks,
+            }, truncated
+
+        # Case 2: pueue log --json <id> -> {"870": {"task": {...}, "output": "..."}}
+        out_dict: dict[str, Any] = {"status": "OK"}
+        for k, v in data.items():
+            if isinstance(v, dict) and isinstance(v.get("task"), dict):
+                t_clean = {tk: tv for tk, tv in v["task"].items() if tk != "envs"}
+                out_str = v.get("output", "")
+                if is_compact and isinstance(out_str, str) and len(out_str) > 8000:
+                    out_str = out_str[-8000:]
+                    truncated = True
+                out_dict[k] = {"task": t_clean, "output": out_str}
+            else:
+                out_dict[k] = v
+        return out_dict, truncated
+
+    return {"status": "OK", "data": data}, False
+
+
 @mcp.tool()
 async def async_job_dispatch(
     action: str = "dispatch",
@@ -1059,43 +1157,48 @@ async def async_job_dispatch(
     working_dir: str | None = None,
     task_id: int | None = None,
     lines: int = 50,
+    limit: int = 15,
+    verbosity: str = "summary",
     agent_id: str = "default",
 ) -> str:
     """
     [CAMINO B / PUEUE] Despacho e inspección unificada de tareas asíncronas en Pueue.
-    action: 'dispatch' (default), 'inspect', 'status', 'log'.
+    action: 'dispatch' (default), 'inspect', 'status', 'log' (alias: 'logs').
     - 'dispatch': Encola un comando de larga duración en segundo plano (requiere 'command').
-    - 'inspect' / 'status': Consulta el estado global de la cola o logs si se especifica 'task_id'.
-    - 'log': Extrae el log aislado del 'task_id' especificado ('lines' por defecto 50).
+    - 'inspect' / 'status': Consulta las últimas `limit` tareas de la cola (sin volcar `envs` masivos) o logs si se especifica 'task_id'.
+    - 'log' / 'logs': Extrae el log aislado del 'task_id' especificado ('lines' por defecto 50).
     Devuelve inmediatamente JSON tipado con fail-soft sin bloquear el loop del agente.
     """
 
     def _run() -> str:
         act = (action or "dispatch").strip().lower()
+        tracker = RequestTelemetry("async_job_dispatch", act)
+        is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
+        eff_limit = max(1, int(limit or 15))
 
         try:
             if act == "dispatch":
                 if not command or not command.strip():
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "PARAM_ERROR",
                             "error": "Acción 'dispatch' requiere 'command' no vacío.",
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
                 pueue_bin = _ensure_pueue_daemon()
                 if not pueue_bin:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "DEGRADED",
                             "message": "pueue binary is not installed on host or daemon is unavailable. Camino B requires pueue daemon.",
                             "command": command,
                             "agent_id": agent_id,
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
                 effective_group = f"agent_{agent_id}" if group == "default" and agent_id != "default" else group
@@ -1116,29 +1219,28 @@ async def async_job_dispatch(
                     text=True,
                     close_fds=True,
                     timeout=10,
-                    check=False,  # check=False: returncode verified immediately below
+                    check=False,
                 )
 
                 if res.returncode != 0:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "PUEUE_ERROR",
                             "error": res.stderr.strip() or res.stdout.strip(),
                             "command": command,
                             "agent_id": agent_id,
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
-                # parsea task-id del output numérico
                 out = res.stdout.strip()
                 try:
                     tid = int(out.split()[-1])
                 except (IndexError, ValueError):
                     tid = out
 
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "queued",
                         "task_id": tid,
@@ -1146,35 +1248,35 @@ async def async_job_dispatch(
                         "agent_id": agent_id,
                         "command": command,
                     },
-                    indent=2,
+                    tracker,
+                    verbosity=verbosity,
+                    summary=f"Dispatched async job #{tid} to group '{effective_group}'.",
                 )
 
             elif act in ("inspect", "status"):
                 pueue_bin = _ensure_pueue_daemon()
                 if not pueue_bin:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "DEGRADED",
                             "message": "pueue daemon unavailable.",
                             "agent_id": agent_id,
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
                 if task_id is not None:
-                    # inspección detallada de un task
                     res = subprocess.run(
-                        [pueue_bin, "log", "--json", str(task_id)],
+                        [pueue_bin, "log", "--lines", str(lines), "--json", str(task_id)],
                         stdin=subprocess.DEVNULL,
                         capture_output=True,
                         text=True,
                         close_fds=True,
                         timeout=10,
-                        check=False,  # check=False: returncode verified below
+                        check=False,
                     )
                 else:
-                    # status global
                     res = subprocess.run(
                         [pueue_bin, "status", "--json"],
                         stdin=subprocess.DEVNULL,
@@ -1182,36 +1284,43 @@ async def async_job_dispatch(
                         text=True,
                         close_fds=True,
                         timeout=10,
-                        check=False,  # check=False: returncode verified below
+                        check=False,
                     )
 
                 if res.returncode != 0:
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "ERROR", "stderr": res.stderr.strip(), "agent_id": agent_id},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
-                return mask_pueue_output(res.stdout)
+                payload, trunc = _compact_pueue_payload(res.stdout, limit=eff_limit, is_compact=is_compact)
+                return attach_envelope(
+                    payload,
+                    tracker,
+                    verbosity=verbosity,
+                    truncated=trunc,
+                    summary=f"Pueue {act} returned ({payload.get('count', 1)} tasks).",
+                )
 
-            elif act == "log":
+            elif act in ("log", "logs"):
                 if task_id is None:
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'log' requiere 'task_id'."},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
                 pueue_bin = _ensure_pueue_daemon()
                 if not pueue_bin:
-                    return json.dumps(
+                    return attach_envelope(
                         {
                             "status": "DEGRADED",
                             "message": "pueue daemon unavailable.",
                             "agent_id": agent_id,
                         },
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
                 res = subprocess.run(
@@ -1221,30 +1330,42 @@ async def async_job_dispatch(
                     text=True,
                     close_fds=True,
                     timeout=10,
-                    check=False,  # check=False: returncode verified below
+                    check=False,
                 )
 
                 if res.returncode != 0:
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "ERROR", "stderr": res.stderr.strip(), "agent_id": agent_id},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
+                        verbosity=verbosity,
                     )
 
-                return mask_pueue_output(res.stdout)
+                payload, trunc = _compact_pueue_payload(res.stdout, limit=eff_limit, is_compact=is_compact)
+                return attach_envelope(
+                    payload,
+                    tracker,
+                    verbosity=verbosity,
+                    truncated=trunc,
+                    summary=f"Retrieved log for Pueue task #{task_id}.",
+                )
 
             else:
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "INVALID_ACTION",
                         "error": f"Acción '{action}' desconocida. Válidas: dispatch, inspect, status, log.",
+                        "valid_actions": ["dispatch", "inspect", "status", "log"],
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    verbosity=verbosity,
                 )
 
         except Exception as e:
-            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, indent=2, ensure_ascii=False)
+            return attach_envelope(
+                {"status": "ERROR", "agent_id": agent_id, "error": str(e)},
+                tracker,
+                verbosity=verbosity,
+            )
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -1843,7 +1964,14 @@ async def check_crash_alerts(resolve_after_report: bool = False) -> str:
 
 
 @mcp.tool()
-async def query_system_docs(query: str, limit: int = 3, ingest_command: str | None = None, agent_id: str = "default") -> str:
+async def query_system_docs(
+    query: str,
+    limit: int = 3,
+    ingest_command: str | None = None,
+    source: str | None = None,
+    verbosity: str = "detail",
+    agent_id: str = "default",
+) -> str:
     """
     [SPEC-OM-4 / DOCS VECTORIZER] Memoria semántica local de man-pages (sqlite-vec).
     Devuelve la sintaxis exacta de herramientas del sistema sin alucinar ni navegar la web.
@@ -1851,13 +1979,20 @@ async def query_system_docs(query: str, limit: int = 3, ingest_command: str | No
     """
 
     def _run() -> str:
+        tracker = RequestTelemetry("query_system_docs", source or "man")
         try:
             dv = _get_docs_vectorizer()
             if ingest_command:
                 dv.ingest_command(ingest_command)
-            return json.dumps(dv.query(query, limit), indent=2)
+            res = dv.query(query, limit)
+            return attach_envelope(
+                res,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Retrieved {len(res.get('results', []))} doc chunks for query '{query[:40]}'.",
+            )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -1869,6 +2004,7 @@ async def visual_inspect(
     viewport_height: int = 800,
     selector: str | None = None,
     full_page: bool = True,
+    verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
@@ -1878,23 +2014,25 @@ async def visual_inspect(
     """
 
     def _run() -> str:
+        tracker = RequestTelemetry("visual_inspect", "render")
         try:
             future = _display_executor.submit(
                 headless_display.visual_inspect, url, viewport_width, viewport_height, selector, full_page
             )
             res = future.result(timeout=25)
-            return json.dumps(res, indent=2)
+            return attach_envelope(res, tracker, verbosity=verbosity)
         except concurrent.futures.TimeoutError:
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "DISPLAY_UNAVAILABLE",
                     "message": "Playwright timeout exceeded 25s",
                     "url": url,
                 },
-                indent=2,
+                tracker,
+                verbosity=verbosity,
             )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -1909,49 +2047,80 @@ _BPFTRACE_MODES = {
     "security_exec_monitor": "tracepoint:syscalls:sys_enter_execve {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
 }
 
+_BPFTRACE_MODE_ALIASES = {
+    "syscalls": "syscall_count",
+    "syscall": "syscall_count",
+    "opens": "file_opens",
+    "openat": "file_opens",
+    "tcp": "tcp_connect",
+    "denials": "security_open_denials",
+    "landlock": "security_landlock_audit",
+    "exec": "security_exec_monitor",
+    "execve": "security_exec_monitor",
+}
+
 
 @mcp.tool()
-async def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3, agent_id: str = "default") -> str:
+async def kernel_trace(
+    mode: str = "syscall_count",
+    duration_sec: int = 3,
+    probe: str | None = None,
+    duration: int | None = None,
+    limit: int = 25,
+    verbosity: str = "summary",
+    agent_id: str = "default",
+) -> str:
     """
     [SPEC-OM-6 / KERNEL TRACE via eBPF] Observabilidad de kernel a bajo nivel (bpftrace).
     Requiere nivel FULL (sudo -n disponible); degrada limpiamente a DIMINISHED si no hay root.
-    `mode`: 'syscall_count' (top syscalls por proceso), 'file_opens' (aperturas de archivo),
-    'tcp_connect' (conexiones salientes), 'security_open_denials' (fallos openat),
-    'security_landlock_audit' (invocaciones restrict_self), 'security_exec_monitor' (procesos ejecutados).
+    `mode` (alias `probe`): 'syscall_count' (alias 'syscalls'), 'file_opens' ('opens'),
+    'tcp_connect' ('tcp'), 'security_open_denials' ('denials'),
+    'security_landlock_audit' ('landlock'), 'security_exec_monitor' ('exec').
+    Ordena resultados de mayor a menor actividad y trunca a `limit` en modo `summary`.
     """
 
     def _run() -> str:
-        if mode not in _BPFTRACE_MODES:
-            return json.dumps(
+        raw_mode = (probe or mode or "syscall_count").strip().lower()
+        eff_mode = _BPFTRACE_MODE_ALIASES.get(raw_mode, raw_mode)
+        eff_dur = int(duration if duration is not None else duration_sec)
+        is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
+        eff_limit = max(1, int(limit or 25))
+        tracker = RequestTelemetry("kernel_trace", eff_mode)
+
+        if eff_mode not in _BPFTRACE_MODES:
+            return attach_envelope(
                 {
                     "status": "INVALID_MODE",
-                    "error": f"Modo '{mode}' no soportado. Válidos: {list(_BPFTRACE_MODES.keys())}",
+                    "error": f"Modo '{raw_mode}' no soportado. Válidos: {list(_BPFTRACE_MODES.keys())}",
+                    "valid_modes": list(_BPFTRACE_MODES.keys()),
                 },
-                indent=2,
+                tracker,
+                verbosity=verbosity,
             )
         prefix = privilege_prefix()
         if prefix is None:
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "DEGRADED",
                     "capability_tier": "DIMINISHED",
                     "message": "bpftrace requiere root (CAP_BPF) y no hay sudo -n disponible.",
                 },
-                indent=2,
+                tracker,
+                verbosity=verbosity,
             )
         pmode = privilege_mode()
-        script = _BPFTRACE_MODES[mode].format(d=max(1, min(duration_sec, 30)))
+        clamped_dur = max(1, min(eff_dur, 30))
+        script = _BPFTRACE_MODES[eff_mode].format(d=clamped_dur)
         try:
-            # El script proviene de _BPFTRACE_MODES (curado, solo-lectura), nunca de entrada libre.
             res = subprocess.run(
                 prefix + ["bpftrace", "-f", "json", "-e", script],
                 capture_output=True,
                 text=True,
-                timeout=max(5, duration_sec + 10),
-                check=False,  # check=False: returncode inspected below
+                timeout=max(5, clamped_dur + 10),
+                check=False,
             )
             if res.returncode != 0:
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "DEGRADED",
                         "capability_tier": "FULL",
@@ -1959,31 +2128,48 @@ async def kernel_trace(mode: str = "syscall_count", duration_sec: int = 3, agent
                         "message": "bpftrace falló pese a la escalada.",
                         "stderr": res.stderr.strip()[:300],
                     },
-                    indent=2,
+                    tracker,
+                    verbosity=verbosity,
                 )
-            counts = {}
+            counts: dict[str, int] = {}
             for line in res.stdout.splitlines():
                 try:
                     obj = json.loads(line)
                     if obj.get("type") == "map":
                         for _, m in obj.get("data", {}).items():
                             if isinstance(m, dict):
-                                counts.update(m)
+                                for k, v in m.items():
+                                    counts[str(k)] = int(v) if isinstance(v, (int, float)) else 0
                 except Exception as e:
                     logger.debug("Failed parsing bpftrace line: %s", e)
-            return json.dumps(
+
+            sorted_items = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+            total_procs = len(sorted_items)
+            total_events = sum(v for _, v in sorted_items)
+            truncated = False
+            if is_compact and total_procs > eff_limit:
+                sorted_items = sorted_items[:eff_limit]
+                truncated = True
+            ordered_counts = dict(sorted_items)
+
+            return attach_envelope(
                 {
                     "status": "OK",
                     "capability_tier": "FULL",
-                    "mode": mode,
-                    "duration_sec": duration_sec,
+                    "mode": eff_mode,
+                    "duration_sec": clamped_dur,
                     "privilege_mode": pmode,
-                    "counts": counts,
+                    "total_processes": total_procs,
+                    "total_events": total_events,
+                    "counts": ordered_counts,
                 },
-                indent=2,
+                tracker,
+                verbosity=verbosity,
+                truncated=truncated,
+                summary=f"eBPF {eff_mode} ({clamped_dur}s): {total_events} events across {total_procs} processes.",
             )
         except Exception as e:
-            return json.dumps({"status": "DEGRADED", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "DEGRADED", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -2006,12 +2192,14 @@ async def kanban_board(
     max_score: float | None = None,
     apply: bool = False,
     target_state: str = "SYNTHESIZED",
+    limit: int = 5,
+    verbosity: str = "summary",
     agent_id: str = "default",
 ) -> str:
     """
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
     action:
-      - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED).
+      - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED). En modo `summary`, muestra hasta `limit` tareas recientes por lane.
       - 'create' (o 'task_create'): crea una tarea atómica en BACKLOG (requiere `title`).
       - 'advance': mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
       - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
@@ -2022,73 +2210,88 @@ async def kanban_board(
     """
 
     def _run() -> str:
+        act = (action or "board").strip().lower()
+        tracker = RequestTelemetry("kanban_board", act)
+        is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
+        eff_limit = max(1, int(limit or 5))
         try:
-            act = (action or "board").strip().lower()
             if act == "board":
-                return json.dumps(kanban.board(include_archived=include_archived), indent=2, ensure_ascii=False)
+                res = kanban.board(include_archived=include_archived)
+                res.setdefault("status", "OK")
+                truncated = False
+                if is_compact and isinstance(res.get("lanes"), dict):
+                    for lane_name, cards in list(res["lanes"].items()):
+                        if isinstance(cards, list) and len(cards) > eff_limit:
+                            sorted_cards = sorted(
+                                cards,
+                                key=lambda c: int(c.get("task_id", 0)) if isinstance(c, dict) else 0,
+                                reverse=True,
+                            )
+                            res["lanes"][lane_name] = sorted_cards[:eff_limit]
+                            truncated = True
+                return attach_envelope(
+                    res,
+                    tracker,
+                    verbosity=verbosity,
+                    truncated=truncated,
+                    summary=f"Kanban board loaded (counts={res.get('counts', {})}).",
+                )
             elif act in ("create", "task_create"):
                 if not (title or "").strip():
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'title'."},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
                     )
-                return json.dumps(
-                    kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id), indent=2, ensure_ascii=False
-                )
+                res = kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id)
+                return attach_envelope(res, tracker)
             elif act == "advance":
                 if task_id is None or not (to_state or "").strip():
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'advance' requiere 'task_id' y 'to_state'."},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
                     )
-                return json.dumps(
+                return attach_envelope(
                     kanban.advance(task_id, to_state.strip(), lint_passed, canary_passed, note),
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
             elif act == "promote":
                 if task_id is None:
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'promote' requiere 'task_id'."},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
                     )
-                return json.dumps(kanban.promote(task_id), indent=2, ensure_ascii=False)
+                return attach_envelope(kanban.promote(task_id), tracker)
             elif act == "demote":
                 if not (artifact_name or "").strip() and task_id is None:
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'demote' requiere 'artifact_name' o 'task_id'."},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
                     )
-                return json.dumps(
+                return attach_envelope(
                     kanban.demote(
                         artifact_name.strip() if artifact_name else None,
                         reason,
                         task_id=task_id,
                         target_state=target_state,
                     ),
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
             elif act == "reevaluate":
-                return json.dumps(kanban.reevaluate(), indent=2, ensure_ascii=False)
+                return attach_envelope(kanban.reevaluate(), tracker)
             elif act == "archive":
-                return json.dumps(
-                    kanban.archive(states=states, max_score=max_score, apply=apply), indent=2, ensure_ascii=False
+                return attach_envelope(
+                    kanban.archive(states=states, max_score=max_score, apply=apply),
+                    tracker,
                 )
             elif act == "unarchive":
                 if task_id is None:
-                    return json.dumps(
+                    return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'unarchive' requiere 'task_id'."},
-                        indent=2,
-                        ensure_ascii=False,
+                        tracker,
                     )
-                return json.dumps(kanban.unarchive(task_id), indent=2, ensure_ascii=False)
+                return attach_envelope(kanban.unarchive(task_id), tracker)
             else:
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "INVALID_ACTION",
                         "error": f"Acción '{action}' no reconocida. Acciones válidas: 'board', 'create', 'advance', 'promote', 'demote', 'reevaluate', 'archive', 'unarchive'.",
@@ -2103,11 +2306,10 @@ async def kanban_board(
                             "unarchive",
                         ],
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -2176,36 +2378,37 @@ async def playbook_run(
       - 'prune': poda destructiva segura de playbooks con fallo demostrado (éxito < 0.70) o explícitos en `names` (apply=False -> DRY_RUN).
     """
     act = (action or "run").strip().lower()
+    tracker = RequestTelemetry("playbook_run", act)
     effective_vars = vars if vars is not None else (params or {})
     effective_desc = (description or intent_description or "").strip()
     try:
         if act == "run":
             if not (name or "").strip():
-                return json.dumps(
-                    {"status": "PARAM_ERROR", "error": "Acción 'run' requiere 'name'."}, indent=2, ensure_ascii=False
+                return attach_envelope(
+                    {"status": "PARAM_ERROR", "error": "Acción 'run' requiere 'name'."},
+                    tracker,
                 )
             pb = playbook_store.get(name.strip())
             if not pb:
-                return json.dumps(
-                    {"status": "ERROR", "error": f"playbook '{name.strip()}' no existe"}, indent=2, ensure_ascii=False
+                return attach_envelope(
+                    {"status": "ERROR", "error": f"playbook '{name.strip()}' no existe"},
+                    tracker,
                 )
 
             try:
                 resolved = resolve_params(pb.get("params_contract") or [], effective_vars)
                 hydrated_steps = hydrate_struct(pb["steps"], resolved, strict=True)
             except ValueError as e:
-                return json.dumps(
+                return attach_envelope(
                     {"status": "PARAM_ERROR", "error": str(e), "contract": pb.get("params_contract") or []},
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
 
             v = PlaybookStore.validate_and_order(hydrated_steps)
             if not v.get("ok"):
-                return json.dumps(
+                return attach_envelope(
                     {"status": "BLOCKED", "verdict": v.get("verdict"), "logs": v.get("logs")},
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
 
             dispatch = _playbook_dispatch()
@@ -2236,7 +2439,7 @@ async def playbook_run(
                         break
 
             playbook_store.record_run(name.strip(), all_ok)
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "OK" if all_ok else "PARTIAL",
                     "playbook": name.strip(),
@@ -2244,49 +2447,44 @@ async def playbook_run(
                     "steps_run": len(results),
                     "results": results,
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
             )
 
         elif act == "create":
             if not (name or "").strip() or not effective_desc or not steps:
-                return json.dumps(
+                return attach_envelope(
                     {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'name', 'description' y 'steps'."},
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
             allowed = set(_playbook_dispatch())
             bad = sorted({s.get("tool") for s in steps if isinstance(s, dict) and s.get("tool") not in allowed})
             if bad:
-                return json.dumps(
+                return attach_envelope(
                     {"status": "LINT_ERROR", "invalid_tools": bad, "allowed_tools": sorted(allowed)},
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
                 )
-            return json.dumps(
+            return attach_envelope(
                 playbook_store.create(name.strip(), effective_desc, steps, params_contract),
-                indent=2,
-                ensure_ascii=False,
+                tracker,
             )
 
         elif act == "list":
-            return json.dumps({"status": "OK", "playbooks": playbook_store.list()}, indent=2, ensure_ascii=False)
+            return attach_envelope({"status": "OK", "playbooks": playbook_store.list()}, tracker)
 
         elif act == "prune":
-            return json.dumps(playbook_store.prune(names=names, apply=apply), indent=2, ensure_ascii=False)
+            return attach_envelope(playbook_store.prune(names=names, apply=apply), tracker)
 
         else:
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "INVALID_ACTION",
                     "error": f"Acción '{action}' no reconocida. Acciones válidas: 'run', 'create', 'list', 'prune'.",
                     "valid_actions": ["run", "create", "list", "prune"],
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
             )
     except Exception as e:
-        return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+        return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
 
 
 if __name__ == "__main__":

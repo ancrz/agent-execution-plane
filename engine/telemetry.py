@@ -70,11 +70,56 @@ class RequestTelemetry:
 
 def infer_severity(status: str) -> str:
     st = (status or "OK").upper()
-    if st in ("OK", "SUCCESS", "APPROVED", "CACHE_HIT", "ALLOWED", "SUPPORTED", "QUEUED"):
+    if st in (
+        "OK",
+        "SUCCESS",
+        "APPROVED",
+        "CACHE_HIT",
+        "ALLOWED",
+        "SUPPORTED",
+        "QUEUED",
+        "PROMOTED",
+        "CREATED",
+        "DRY_RUN",
+    ):
         return "INFO"
-    if st in ("DEGRADED", "DIMINISHED", "CACHE_MISS", "PARTIAL", "UNSUPPORTED", "DISPLAY_UNAVAILABLE"):
+    if st in (
+        "DEGRADED",
+        "DIMINISHED",
+        "CACHE_MISS",
+        "PARTIAL",
+        "UNSUPPORTED",
+        "DISPLAY_UNAVAILABLE",
+        "HOLD",
+    ):
         return "WARN"
     return "ERROR"
+
+
+MAX_SAFE_JSON_BYTES = 180_000
+
+
+def _clamp_oversized_payload(payload: dict[str, Any], max_bytes: int = MAX_SAFE_JSON_BYTES) -> bool:
+    """Prevent MCP stdio JSON-RPC line-buffer overflows by clamping huge nested lists/strings in-place."""
+    clamped = False
+    for k, v in list(payload.items()):
+        if k in ("envelope", "telemetry"):
+            continue
+        if isinstance(v, str) and len(v) > 32_000 and k != "screenshot_base64":
+            payload[k] = v[-32_000:]
+            payload[f"{k}_clamped"] = True
+            clamped = True
+        elif isinstance(v, list) and len(v) > 50:
+            payload[f"{k}_total_count"] = len(v)
+            payload[k] = v[:50]
+            clamped = True
+        elif isinstance(v, dict) and len(json.dumps(v, ensure_ascii=False)) > max_bytes // 2:
+            items = list(v.items())
+            if len(items) > 50:
+                payload[f"{k}_total_keys"] = len(items)
+                payload[k] = dict(items[:50])
+                clamped = True
+    return clamped
 
 
 def attach_envelope(
@@ -133,7 +178,11 @@ def attach_envelope(
     payload.setdefault("next_action", next_action)
     payload["envelope"] = envelope
 
-    # Provisional serialization to compute exact byte & token footprint
+    # Provisional serialization to compute exact byte & token footprint and guard JSON-RPC frame size
     provisional = json.dumps(payload, indent=2 if mode != "brief" else None, ensure_ascii=False)
+    if len(provisional.encode("utf-8")) > MAX_SAFE_JSON_BYTES and _clamp_oversized_payload(payload):
+        payload["truncated"] = True
+        envelope["truncated"] = True
+        provisional = json.dumps(payload, indent=2 if mode != "brief" else None, ensure_ascii=False)
     payload["telemetry"] = tracker.finish(len(provisional.encode("utf-8")))
     return json.dumps(payload, indent=2 if mode != "brief" else None, ensure_ascii=False)

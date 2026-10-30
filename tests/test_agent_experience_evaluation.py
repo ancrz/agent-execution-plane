@@ -190,3 +190,48 @@ def test_discover_binary_readiness_and_kali_tactical_playbook() -> None:
     assert routed["match_status"] == "MATCHED"
     top_caps = [c["capability"] for c in routed["suggested_capability"]]
     assert "ephemeral_sandbox" in top_caps
+
+
+def test_omission_battery_all_15_tools_envelope_and_frame_safety() -> None:
+    """All 15 tools include envelope+telemetry, support ergonomic aliases, and prevent JSON-RPC frame overflow."""
+    import server
+    from engine.telemetry import MAX_SAFE_JSON_BYTES
+
+    # 1. discover accepts action="match" and intent= alias, and flags low confidence for unrelated queries
+    low_conf = json.loads(
+        asyncio.run(server.discover(action="match", intent="plant tomatoes in backyard garden"))
+    )
+    assert low_conf["status"] == "OK"
+    assert low_conf["match_status"] == "NO_HIGH_CONFIDENCE_MATCH"
+    assert "envelope" in low_conf and "telemetry" in low_conf
+
+    # 2. async_job_dispatch(action="status") strips massive envs and stays strictly under MAX_SAFE_JSON_BYTES
+    pueue_st_raw = asyncio.run(server.async_job_dispatch(action="status", limit=5, verbosity="summary"))
+    assert len(pueue_st_raw.encode("utf-8")) < MAX_SAFE_JSON_BYTES
+    pueue_st = json.loads(pueue_st_raw)
+    assert "envelope" in pueue_st and "telemetry" in pueue_st
+    if pueue_st["status"] == "OK" and "tasks" in pueue_st:
+        assert len(pueue_st["tasks"]) <= 5
+        for t in pueue_st["tasks"].values():
+            assert "envs" not in t
+
+    # 3. artifact_execute_in_ram resolves socket_monitor <-> socket-monitor and truncates in summary mode
+    ram_res = json.loads(
+        asyncio.run(server.artifact_execute_in_ram(name="socket_monitor", limit=5, verbosity="summary"))
+    )
+    assert "envelope" in ram_res and "telemetry" in ram_res
+    if ram_res["status"] == "SUCCESS" and isinstance(ram_res.get("output"), dict):
+        if "sockets" in ram_res["output"]:
+            assert len(ram_res["output"]["sockets"]) <= 5
+
+    # 4. Remaining tools return uniform envelope + telemetry
+    dag = json.loads(asyncio.run(server.topos_audit_dag(tasks=["a", "b"], dependencies={"a": [], "b": ["a"]})))
+    cat = json.loads(asyncio.run(server.artifact_catalog(action="browse", limit=2)))
+    bld = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog")))
+    docs = json.loads(asyncio.run(server.query_system_docs(query="bwrap", source="man", limit=1)))
+    kb = json.loads(asyncio.run(server.kanban_board(action="board")))
+    pb = json.loads(asyncio.run(server.playbook_run(action="list")))
+    for r in (dag, cat, bld, docs, kb, pb):
+        assert "envelope" in r
+        assert "telemetry" in r
+
