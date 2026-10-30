@@ -183,43 +183,363 @@ _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "-
 # ("run binary", "memory", "trace kernel") tenía poco con qué casar. Esto cierra la colisión ES/EN:
 # el matcher las pondera como tags (x2) sumadas a los nombres de tools. Ampliar aquí es barato.
 _CAP_KEYWORDS = {
-    "ram_execution": "run binary memfd fileless in-memory ejecutar binario memoria elf payload",
-    "ephemeral_sandbox": "sandbox isolate bwrap jail contained run aislar aislado seguro",
-    "artifact_synthesis": "synthesize template catalog select hydrate lint build compile go binary cue generate create sintetizar plantilla catalogo seleccionar hidratar compilar construir binario generar crear",
-    "orientation": "discover orient what to do route start where begin capabilities manifest status chmod permisos autonomy autonomia orientar descubrir enrutar empezar",
-    "semantic_memory": "memory search recall catalog query reindex prune index vector embeddings reuse find store memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
-    "async_dispatch": "async background queue long job pueue dispatch inspect status log cola asincrono tarea larga despachar inspeccionar estado segundo plano",
-    "process_introspection": "process inspect fd descriptor proc pid introspection open files socket pipes leak proceso descriptor introspeccion archivos abiertos fugas",
-    "system_inspect": "network storage packages inspect read system status red almacenamiento paquetes inspeccionar sistema estado",
-    "service_control": "service control start stop restart systemd daemon servicio controlar arrancar detener reiniciar",
-    "crash_forensics": "crash core dump forensic coredump diagnose fault alerts router ticket new proactive crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
-    "kernel_observability": "kernel trace ebpf bpf syscall observe probe kernel trazar sondear llamadas sistema",
-    "visual_actuation": "visual screenshot render headless ui browser page visual captura renderizar pantalla navegador",
-    "topos_audit": "audit dag graph dependency cycle codependency auditar grafo dependencia ciclo",
-    "task_management": "task kanban board create advance promote demote reevaluate archive unarchive manage weigh track tarea tablero crear avanzar promover degradar reevaluar archivar desarchivar gestionar ponderar seguir",
-    "automation": "automate playbook run create list prune workflow chain pipeline steps gc clean automatizar ejecutar crear listar podar orquestar flujo secuencia pasos limpiar",
-    "backup_admin": "backup restore recover rotation hot snapshot copia seguridad restaurar",
-    "audit_read": "audit log security chain cryptographic verificar auditoria cadena",
-    "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando manual",
+    "ram_execution": "run binary memfd fileless in-memory ejecutar binario memoria elf payload probe",
+    "ephemeral_sandbox": "sandbox isolate bwrap jail contained run test pytest repo workspace mount ro_paths rw_paths working_dir aislar aislado seguro pruebas",
+    "artifact_synthesis": "synthesize template catalog select hydrate lint build compile go binary cue contract schema validate code static analysis vet generar crear sintetizar plantilla catalogo seleccionar hidratar compilar construir binario",
+    "orientation": "discover orient what to do route start where begin capabilities manifest status chmod permisos autonomy autonomia playbook tactical guide help how to use orientar descubrir enrutar empezar",
+    "semantic_memory": "memory search recall catalog query reindex prune index vector embeddings reuse find store sqlite vec memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
+    "async_dispatch": "async background queue long job pueue dispatch inspect status log test suite ruff pytest ci lint verify cola asincrono tarea larga despachar inspeccionar estado segundo plano",
+    "process_introspection": "process inspect fd descriptor proc pid introspection open files socket pipes leak rss memory telemetry resource footprint proceso descriptor introspeccion archivos abiertos fugas",
+    "system_inspect": "network storage packages inspect read system status listeners mounts disks schema aep_ctl control plane contract red almacenamiento paquetes inspeccionar sistema estado esquema",
+    "service_control": "service control start stop restart systemd daemon unit servicio controlar arrancar detener reiniciar",
+    "crash_forensics": "crash core dump forensic coredump diagnose fault alerts router ticket new proactive journalctl systemd errors crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
+    "kernel_observability": "kernel trace ebpf bpf syscall observe probe openat execve landlock denials trazar sondear llamadas sistema",
+    "visual_actuation": "visual screenshot render headless ui browser page html dom layout playwright chromium visual captura renderizar pantalla navegador",
+    "topos_audit": "audit dag graph dependency cycle codependency architecture code review structural verification validation plan auditar grafo dependencia ciclo arquitectura",
+    "task_management": "task kanban board create advance promote demote reevaluate archive unarchive manage weigh track milestone state tarea tablero crear avanzar promover degradar reevaluar archivar desarchivar gestionar ponderar seguir",
+    "automation": "automate playbook run create list prune workflow chain pipeline steps gc clean orchestrate automatizar ejecutar crear listar podar orquestar flujo secuencia pasos limpiar",
+    "backup_admin": "backup restore recover rotation hot snapshot sqlite wal quarantine golden micro_snapshot copia seguridad restaurar",
+    "audit_read": "audit log security chain cryptographic hash ledger tamper verify verificar auditoria cadena criptografica",
+    "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando",
 }
+
+# Single Source of Truth for the Control Plane Schema (shared by scripts/aep-ctl and server.py)
+CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
+    "service": {
+        "actions": ["status", "start", "stop", "restart"],
+        "arg": "<name>",
+        "scope": "systemd --user (DIMINISHED) | system (FULL)",
+        "description": "Inspect or mutate systemd service units without interactive pagers.",
+    },
+    "network": {
+        "actions": ["inspect", "routes", "listeners"],
+        "arg": None,
+        "description": "Inspect network interfaces, routing tables, and active TCP/UDP listening sockets.",
+    },
+    "storage": {
+        "actions": ["usage", "mounts", "disks"],
+        "arg": None,
+        "description": "Inspect filesystem byte usage, mount trees, and block devices.",
+    },
+    "package": {
+        "actions": ["installed", "check", "info"],
+        "arg": "<name>",
+        "description": "Query Debian/Ubuntu dpkg state for installed packages and versions.",
+    },
+    "backup": {
+        "actions": [
+            "backup",
+            "restore",
+            "status",
+            "backup_status",
+            "auto_recover",
+            "verify_and_auto_recover",
+            "verify_integrity",
+            "micro_snapshot",
+            "golden",
+            "restore_golden",
+            "quarantine_status",
+        ],
+        "arg": "[slot_number|name]",
+        "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots, canary integrity, and quarantine.",
+    },
+    "security": {
+        "actions": ["landlock_status", "status"],
+        "arg": None,
+        "description": "Check Linux Landlock LSM kernel ABI support and self-confinement readiness.",
+    },
+    "audit": {
+        "actions": ["verify"],
+        "arg": None,
+        "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger.",
+    },
+}
+
+_CAP_BINARIES: dict[str, list[str]] = {
+    "ram_execution": [],
+    "ephemeral_sandbox": ["bwrap"],
+    "artifact_synthesis": ["go"],
+    "orientation": [],
+    "semantic_memory": [],
+    "async_dispatch": ["pueue", "pueued"],
+    "process_introspection": [],
+    "system_inspect": ["ss", "ip", "findmnt", "lsblk", "dpkg-query"],
+    "service_control": ["systemctl"],
+    "crash_forensics": ["coredumpctl", "journalctl"],
+    "kernel_observability": ["bpftrace"],
+    "visual_actuation": ["chromium_or_playwright"],
+    "topos_audit": [],
+    "task_management": [],
+    "automation": [],
+    "backup_admin": [],
+    "audit_read": [],
+    "system_docs": ["man"],
+}
+
+_CAP_TACTICAL: dict[str, dict[str, Any]] = {
+    "orientation": {
+        "when_to_use": "First call in any session to inspect permissions, binary readiness, tactical playbooks, or route a natural-language task.",
+        "canonical_calls": [
+            'discover(action="capabilities")',
+            'discover(action="playbook")',
+            'discover(use_case="run repository test suite in isolated sandbox")',
+        ],
+    },
+    "topos_audit": {
+        "when_to_use": "Before executing multi-step plans or code changes to verify zero circular co-dependencies (A <-> B).",
+        "canonical_calls": [
+            'topos_audit_dag(tasks=["plan", "code", "verify"], dependencies={"plan": [], "code": ["plan"], "verify": ["code"]})',
+        ],
+    },
+    "ephemeral_sandbox": {
+        "when_to_use": "Execute untrusted commands, linters, or repository test suites inside an isolated Bubblewrap namespace jail.",
+        "canonical_calls": [
+            'sandbox_run(command="pytest -q", working_dir="/path/to/repo", ro_paths=["/path/to/repo"], share_net=False)',
+            'sandbox_run(command="python3 -c \'print(42)\'")',
+        ],
+    },
+    "async_dispatch": {
+        "when_to_use": "Run long-running test suites, builds, or linters asynchronously via Pueue without blocking the agent loop.",
+        "canonical_calls": [
+            'async_job_dispatch(action="dispatch", command="pytest -q", working_dir="/path/to/repo")',
+            'async_job_dispatch(action="status", verbosity="summary")',
+            'async_job_dispatch(action="log", task_id=1, lines=40)',
+        ],
+    },
+    "system_inspect": {
+        "when_to_use": "Query control-plane schema, network listeners, routes, storage mounts, or installed packages as compact typed JSON.",
+        "canonical_calls": [
+            'aep_ctl(action="schema")',
+            'aep_ctl(domain="network", action="listeners", verbosity="summary", limit=20)',
+            'aep_ctl(domain="storage", action="mounts", verbosity="summary")',
+            'aep_ctl(domain="package", action="check", name="semgrep")',
+        ],
+    },
+    "process_introspection": {
+        "when_to_use": "Inspect open file descriptors (/proc/PID/fd), sockets, pipes, threads, and RSS memory delta of AEP or target PIDs.",
+        "canonical_calls": [
+            'process_inspect(pid=0, limit=25, verbosity="summary")',
+            'process_inspect(pid=1234, limit=50)',
+        ],
+    },
+    "ram_execution": {
+        "when_to_use": "Execute pre-compiled static Go binaries from the catalog directly in anonymous RAM (memfd_create) with zero disk footprint.",
+        "canonical_calls": [
+            'artifact_execute_in_ram(name="socket_monitor", args=["--port=8080"])',
+        ],
+    },
+    "artifact_synthesis": {
+        "when_to_use": "Select, hydrate, vet, and compile static Go probes (CGO_ENABLED=0) from parameterized templates.",
+        "canonical_calls": [
+            'artifact_lint_and_build(action="catalog")',
+            'artifact_lint_and_build(action="build", name="tcp_probe", intent="monitor tcp port", category="network", template_name="socket_monitor")',
+        ],
+    },
+    "semantic_memory": {
+        "when_to_use": "Search, query, reindex, or garbage-collect the hybrid SHA-256 + sqlite-vec artifact catalog.",
+        "canonical_calls": [
+            'artifact_catalog(action="browse", query="socket monitor", limit=5)',
+            'artifact_catalog(action="query", intent="inspect open sockets", category="network")',
+        ],
+    },
+    "crash_forensics": {
+        "when_to_use": "Check proactive crash tickets or diagnose recent systemd/coredump failures with compact journal filtering.",
+        "canonical_calls": [
+            'diagnose_system_crashes(action="alerts")',
+            'diagnose_system_crashes(action="diagnose", limit=5, verbosity="summary")',
+        ],
+    },
+    "kernel_observability": {
+        "when_to_use": "Run curated read-only eBPF probes (syscall counts, openat denials, execve monitor, Landlock audit) when in FULL tier.",
+        "canonical_calls": [
+            'kernel_trace(mode="syscall_count", duration_sec=2)',
+            'kernel_trace(mode="security_open_denials", duration_sec=2)',
+        ],
+    },
+    "visual_actuation": {
+        "when_to_use": "Render a web UI in headless Chromium and capture a RAM screenshot (/dev/shm) with fail-soft fallback.",
+        "canonical_calls": [
+            'visual_inspect(url="http://localhost:8000", viewport_width=1280, viewport_height=800)',
+        ],
+    },
+    "service_control": {
+        "when_to_use": "Check or manage systemd services (user-scope in DIMINISHED, system-scope in FULL).",
+        "canonical_calls": [
+            'aep_ctl(domain="service", action="status", name="ssh")',
+        ],
+    },
+    "backup_admin": {
+        "when_to_use": "Create/restore 5-slot FIFO SQLite backups, ultra-fast RAM micro-snapshots, or inspect anti-poisoning quarantine.",
+        "canonical_calls": [
+            'aep_ctl(domain="backup", action="micro_snapshot", name="pre_change")',
+            'aep_ctl(domain="backup", action="status")',
+            'aep_ctl(domain="backup", action="verify_integrity")',
+        ],
+    },
+    "audit_read": {
+        "when_to_use": "Verify cryptographic integrity of the SHA-256 chained security audit log.",
+        "canonical_calls": [
+            'aep_ctl(domain="audit", action="verify")',
+        ],
+    },
+    "task_management": {
+        "when_to_use": "Track multi-step engineering state in SQLite (BACKLOG -> SYNTHESIZED -> LINTED -> CANARY -> PROMOTED) outside volatile LLM context.",
+        "canonical_calls": [
+            'kanban_board(action="board")',
+            'kanban_board(action="create", title="feat: x", intent="implement x", category="engine")',
+        ],
+    },
+    "automation": {
+        "when_to_use": "Create or run parameterized multi-tool DAG playbooks validated by ToposGuard.",
+        "canonical_calls": [
+            'playbook_run(action="list")',
+            'playbook_run(action="run", name="system_health_check")',
+        ],
+    },
+    "system_docs": {
+        "when_to_use": "Retrieve exact CLI flag syntax from local vectorized man-pages without hallucinating options.",
+        "canonical_calls": [
+            'query_system_docs(query="bubblewrap bind mount read only", ingest_command="bwrap", limit=3)',
+        ],
+    },
+}
+
+
+def check_binary_prerequisites() -> dict[str, dict[str, Any]]:
+    """Inspect real host installation status for all binary prerequisites used across AEP."""
+    binaries = [
+        "bwrap",
+        "pueue",
+        "pueued",
+        "go",
+        "golangci-lint",
+        "coredumpctl",
+        "journalctl",
+        "bpftrace",
+        "ss",
+        "ip",
+        "findmnt",
+        "lsblk",
+        "dpkg-query",
+        "systemctl",
+        "man",
+    ]
+    status: dict[str, dict[str, Any]] = {}
+    local_bin = Path.home() / ".local" / "bin"
+    for b in binaries:
+        found = shutil.which(b)
+        if not found and (local_bin / b).exists():
+            found = str(local_bin / b)
+        status[b] = {"installed": bool(found), "path": found}
+
+    # Check Chromium / Playwright availability for visual_inspect
+    pw_browsers = list((Path.home() / ".cache" / "ms-playwright").glob("chromium*")) if (Path.home() / ".cache" / "ms-playwright").exists() else []
+    sys_browser = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+    browser_path = sys_browser or (str(pw_browsers[0]) if pw_browsers else None)
+    status["chromium_or_playwright"] = {
+        "installed": bool(browser_path),
+        "path": browser_path,
+    }
+    return status
+
+
+def tactical_playbook() -> dict[str, Any]:
+    """Kali-MCP inspired semantic playbook: taxonomic catalog, canonical 1-liners, workflows, and RoE."""
+    prereqs = check_binary_prerequisites()
+    return {
+        "status": "OK",
+        "playbook_version": "EAES-v2-Kali-Semantic",
+        "overview": (
+            "Agent Execution Plane (AEP) Tactical Guide. Designed for zero-hallucination, "
+            "low-token consumption, and deterministic Linux control. Every tool returns typed JSON "
+            "with request telemetry and an agent-brief envelope."
+        ),
+        "rules_of_engagement": [
+            "1. TOKEN EFFICIENCY FIRST: Pass verbosity='summary' (or 'brief') on diagnostic calls (aep_ctl, diagnose_system_crashes, process_inspect) to cut payload size by 70-85%.",
+            "2. SCHEMA WITHOUT GUESSING: Call aep_ctl(action='schema') to inspect all control-plane domains and valid actions before invoking aep_ctl.",
+            "3. SANDBOX ISOLATION: sandbox_run defaults to share_net=False and hides the host workspace. Pass working_dir='/path/to/repo' or ro_paths=['/path'] to mount authorized directories safely.",
+            "4. STATE EXTERNALIZATION: Record multi-step work in kanban_board and validate task dependencies with topos_audit_dag before mutating files.",
+            "5. SNAPSHOT BEFORE MUTATION: Call aep_ctl(domain='backup', action='micro_snapshot', name='pre_edit') before risky database or catalog changes.",
+        ],
+        "workflow_recipes": [
+            {
+                "id": "WF-1",
+                "name": "Code, Contract & Architecture Audit",
+                "steps": [
+                    '1. discover(action="capabilities") -> Verify tier, binary readiness, and permissions.',
+                    '2. aep_ctl(action="schema") -> Inspect unified control-plane contract.',
+                    '3. topos_audit_dag(tasks=[...], dependencies={...}) -> Verify zero circular co-dependencies.',
+                    '4. aep_ctl(domain="audit", action="verify") -> Verify SHA-256 security ledger integrity.',
+                ],
+            },
+            {
+                "id": "WF-2",
+                "name": "Safe Sandboxed Repository Verification",
+                "steps": [
+                    '1. sandbox_run(command="pytest -q", working_dir="/path/to/repo", share_net=False) -> Run tests inside isolated Bubblewrap jail with read-only workspace bind.',
+                    '2. async_job_dispatch(action="dispatch", command="ruff check . && pytest -q", working_dir="/path/to/repo") -> Offload long test suites to Pueue background queue.',
+                ],
+            },
+            {
+                "id": "WF-3",
+                "name": "Low-Token System & Process Triage",
+                "steps": [
+                    '1. process_inspect(pid=0, limit=15, verbosity="summary") -> Check AEP RSS memory and FD deltas.',
+                    '2. aep_ctl(domain="network", action="listeners", verbosity="summary", limit=15) -> List active ports compactly.',
+                    '3. diagnose_system_crashes(action="diagnose", limit=5, verbosity="summary") -> Inspect compact systemd errors and coredumps.',
+                ],
+            },
+            {
+                "id": "WF-4",
+                "name": "Zero-Disk Go Probe Synthesis & RAM Execution",
+                "steps": [
+                    '1. artifact_lint_and_build(action="select", intent="monitor tcp sockets") -> Rank proven templates.',
+                    '2. artifact_lint_and_build(action="build", name="probe_1", intent="monitor tcp", category="network", template_name="socket_monitor") -> Hydrate, vet, and compile static ELF.',
+                    '3. artifact_execute_in_ram(name="probe_1") -> Execute via memfd_create in RAM and auto-record canary metrics.',
+                ],
+            },
+        ],
+        "quick_reference": {
+            "orient_and_readiness": 'discover(action="capabilities")',
+            "tactical_guide": 'discover(action="playbook")',
+            "control_plane_schema": 'aep_ctl(action="schema")',
+            "compact_listeners": 'aep_ctl(domain="network", action="listeners", verbosity="summary")',
+            "compact_mounts": 'aep_ctl(domain="storage", action="mounts", verbosity="summary")',
+            "sandbox_repo_test": 'sandbox_run(command="pytest -q", working_dir="/path/to/repo")',
+            "ram_micro_snapshot": 'aep_ctl(domain="backup", action="micro_snapshot", name="snap1")',
+            "audit_ledger_verify": 'aep_ctl(domain="audit", action="verify")',
+        },
+        "prerequisites_summary": {
+            k: v["installed"] for k, v in prereqs.items()
+        },
+    }
 
 
 def capability_manifest() -> dict:
     """Manifiesto de autonomía en primera vista para la IA que consume el MCP."""
     tier = capability_tier()
     idx = 1 if tier == "FULL" else 0
+    prereqs = check_binary_prerequisites()
     caps = {}
     for name, (dim, full, scope, tools, desc) in _CAPABILITIES.items():
         bits = (dim, full)[idx]
+        req_bins = _CAP_BINARIES.get(name, [])
+        missing_bins = [b for b in req_bins if not prereqs.get(b, {}).get("installed", False)]
+        tactical = _CAP_TACTICAL.get(name, {})
         caps[name] = {
             "perm": f"{bits}{_PERM_TABLE[bits]}",  # p.ej. "4r--", "7rwx"
             "octal_now": bits,
             "octal_diminished": dim,
             "octal_full": full,
             "unlocks_with_full": full > dim,
+            "ready": (bits > 0) and (len(missing_bins) == 0),
+            "required_binaries": req_bins,
+            "missing_binaries": missing_bins,
             "scope": scope if bits else "none",
             "tools": tools,
             "description": desc,
+            "when_to_use": tactical.get("when_to_use", desc),
+            "canonical_calls": tactical.get("canonical_calls", []),
             "keywords": _CAP_KEYWORDS.get(name, ""),
         }
     return {
@@ -228,6 +548,9 @@ def capability_manifest() -> dict:
         "introspección) en capacidades agénticas gobernadas por privilegio.",
         "capability_tier": tier,
         "privilege_mode": privilege_mode(),
+        "prerequisites": prereqs,
+        "control_plane_domains": list(CONTROL_PLANE_SCHEMA.keys()),
+        "tactical_hint": "Call discover(action='playbook') for Kali-style workflow recipes, canonical 1-liners, and token-saving Rules of Engagement.",
         "legend": {
             "r (4)": "SENSAR — leer estado/telemetría",
             "w (2)": "ACTUAR — mutar estado del sistema",

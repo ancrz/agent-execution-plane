@@ -20,23 +20,27 @@ The battery is executable: three current contracts pass and two strict `xfail` m
 | `aep_ctl audit verify` | 4/4 blocks valid | Audit-chain read contract worked. |
 | `process_inspect(self)` | 42 threads, 616,556 KiB RSS, 28 FDs | Useful state, but no per-request baseline/delta. |
 
-## Test battery
+## Test battery (Post-Evolution ONT-15)
 
 File: `tests/test_agent_experience_evaluation.py`
 
-| Contract | Status | Purpose |
-|---|---|---|
-| CLI schema is machine-discoverable | PASS | No human-help parsing required. |
-| Invalid control action returns alternatives | PASS | Recovery data is structured. |
-| Default sandbox hides checkout | PASS | Workspace is not implicitly exposed. |
-| Fresh HOME starts MCP runtime | XFAIL | Reproduces clean-install startup defect. |
-| CLI schema matches MCP domains | XFAIL | Reproduces omitted `audit` domain. |
+| Contract | Pre-ONT-15 | Post-ONT-15 | Purpose |
+|---|---|---|---|
+| CLI schema is machine-discoverable | PASS | PASS | No human-help parsing required. |
+| Invalid control action returns alternatives | PASS | PASS | Recovery data is structured. |
+| Default sandbox hides checkout (`share_net=False`) | PASS | PASS | Workspace is not implicitly exposed; network off by default. |
+| Fresh HOME starts MCP runtime | XFAIL | **PASS** | Clean-install SQLite bootstrap (`if cols:` guard before `ALTER TABLE`). |
+| CLI schema matches MCP domains + `aep_ctl(action="schema")` | XFAIL | **PASS** | Unified `CONTROL_PLANE_SCHEMA` across CLI and MCP without dummy domain. |
+| Sandbox allowlisted `working_dir` / `ro_paths` / `rw_paths` + Guard | — | **PASS** | Runs repo tests inside `bwrap` and blocks `/etc/shadow`, `~/.ssh`. |
+| Compact `verbosity="summary"` & `telemetry` attribution | — | **PASS** | Cuts payload bytes by 70-85% and attributes RSS/FD/byte/token deltas. |
+| Binary readiness + Kali-style tactical playbook (`action="playbook"`) | — | **PASS** | Reports real host binaries (`bwrap`, `pueue`, `go`) & workflow recipes. |
 
-Executed via `async_job_dispatch`:
+Executed via `async_job_dispatch` & `sandbox_run`:
 
 ```text
-ruff check tests/test_agent_experience_evaluation.py  -> PASS
-pytest -q -p no:cacheprovider                         -> 34 passed, 2 xfailed
+ruff check .                                          -> PASS (0 errors)
+pytest -q -p no:cacheprovider                         -> 39 passed, 0 xfailed
+./scripts/aep-sync.sh                                 -> PASS (hot-reload verified)
 ```
 
 ## Deep findings and improvements

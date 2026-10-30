@@ -118,7 +118,7 @@ PY
         if codex mcp add "$SERVER_NAME" -- "$LAUNCHER" >/dev/null 2>&1; then
             local codex_sock="${CODEX_HOME:-$HOME/.codex}/app-server-control/app-server-control.sock"
             if [[ -S "$codex_sock" ]]; then
-                python3 - "$codex_sock" <<'PY' >/dev/null 2>&1 || true
+                timeout 3 python3 - "$codex_sock" <<'PY' >/dev/null 2>&1 || true
 import json, subprocess, sys
 sock = sys.argv[1]
 proc = subprocess.Popen(
@@ -133,10 +133,6 @@ try:
     ):
         proc.stdin.write(json.dumps(msg) + "\n")
         proc.stdin.flush()
-    for _ in range(6):
-        line = proc.stdout.readline()
-        if not line or '"id":2' in line or '"id": 2' in line:
-            break
 finally:
     proc.terminate()
 PY

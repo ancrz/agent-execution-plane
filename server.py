@@ -39,14 +39,17 @@ from engine.kanban import KanbanBoard
 from engine.landlock import get_landlock_status
 from engine.playbook import PlaybookStore
 from engine.privilege import (
+    CONTROL_PLANE_SCHEMA,
     CapabilityGuard,
     PermissionDenied,
     capability_manifest,
     capability_tier,
     privilege_mode,
     privilege_prefix,
+    tactical_playbook,
 )
 from engine.security import mask_pueue_output, record_audit_event, verify_audit_chain
+from engine.telemetry import RequestTelemetry, attach_envelope
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard
 
@@ -59,8 +62,10 @@ _INSTRUCTIONS = (
     "gobernadas por privilegio en dos niveles: FULL (root/sudo -n -> alcance de sistema/kernel) "
     "y DIMINISHED (usuario -> alcance acotado, fail-soft). PRIMERA LLAMADA RECOMENDADA: "
     '`discover(action="capabilities")` devuelve un manifiesto estilo chmod/777 (r=sensar, w=actuar, '
-    "x=ejecutar por caminos no-tradicionales) con lo que PUEDES hacer ahora mismo. Para un caso "
-    "de uso concreto, `discover(use_case)` enruta a qué reutilizar/sintetizar/automatizar."
+    "x=ejecutar por caminos no-tradicionales) y prerrequisitos reales de binarios; "
+    '`discover(action="playbook")` entrega la guía táctica estilo Kali-MCP con recetas, llamadas '
+    "canónicas y reglas de ahorro de tokens (usa `verbosity='summary'` en diagnósticos y "
+    '`aep_ctl(action="schema")` para descubrir contratos sin adivinar).'
 )
 
 
@@ -120,44 +125,87 @@ async def discover(
     use_case: str = "",
     action: str = "discover",
     limit: int = 3,
+    verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
-    [ORIENTACIÓN Y MANIFIESTO UNIFICADO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer
-    o devuelve el manifiesto de autonomía agéntica estilo chmod/777.
+    [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
+    devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico estilo Kali-MCP.
     action:
-      - 'discover' (default): enruta caso de uso -> capacidad sugerida + artefactos reutilizables + plantillas + playbooks.
-      - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar) y qué desbloquea FULL.
+      - 'discover' (default): enruta caso de uso -> capacidad sugerida (con umbral de confianza) + llamada canónica + artefactos/plantillas/playbooks.
+      - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
+      - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida estilo Kali-MCP.
     """
 
     def _run() -> str:
         act = (action or "discover").strip().lower()
+        tracker = RequestTelemetry("discover", act)
         if act == "capabilities":
-            return json.dumps(capability_manifest(), indent=2, ensure_ascii=False)
+            manifest = capability_manifest()
+            manifest["status"] = "OK"
+            if (verbosity or "detail").strip().lower() in ("summary", "brief"):
+                compact_caps = {
+                    k: {
+                        "perm": v["perm"],
+                        "ready": v["ready"],
+                        "missing_binaries": v["missing_binaries"],
+                        "tools": v["tools"],
+                        "when_to_use": v["when_to_use"],
+                        "canonical_calls": v["canonical_calls"][:1],
+                    }
+                    for k, v in manifest["capabilities"].items()
+                }
+                manifest = {
+                    "status": "OK",
+                    "capability_tier": manifest["capability_tier"],
+                    "privilege_mode": manifest["privilege_mode"],
+                    "control_plane_domains": manifest["control_plane_domains"],
+                    "capabilities": compact_caps,
+                }
+            return attach_envelope(
+                manifest,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Capability manifest loaded (tier={manifest['capability_tier']}, 18 capabilities).",
+                next_action="Call discover(action='playbook') for tactical workflows or invoke a ready tool.",
+            )
+        elif act in ("playbook", "tactical_guide"):
+            pb = tactical_playbook()
+            return attach_envelope(
+                pb,
+                tracker,
+                verbosity=verbosity,
+                summary="Kali-style tactical playbook and token-efficiency Rules of Engagement loaded.",
+                next_action="Select a workflow recipe (WF-1..WF-4) or canonical call from quick_reference.",
+            )
         elif act == "discover":
             if not use_case.strip():
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "PARAM_ERROR",
                         "error": "Acción 'discover' requiere el parámetro 'use_case' no vacío.",
-                        "valid_actions": ["discover", "capabilities"],
+                        "valid_actions": ["discover", "capabilities", "playbook"],
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    verbosity=verbosity,
                 )
             try:
                 caps = capability_manifest().get("capabilities", {})
-                # tags = tools (EN) + keywords bilingües -> cierra la colisión ES/EN (descriptions en ES,
-                # queries a menudo en EN). El matcher pondera tags x2, dando anclaje léxico language-aligned.
                 cap_docs = [
                     {
                         "name": k,
                         "tags": list(v.get("tools", [])) + v.get("keywords", "").split(),
-                        "description": v.get("description", ""),
+                        "description": f"{v.get('description', '')} {v.get('when_to_use', '')}",
                     }
                     for k, v in caps.items()
                 ]
                 cap = matcher.rank(use_case, cap_docs, limit=2)
+                top_rel = cap[0]["relevance"] if cap else 0.0
+                high_conf = top_rel >= 0.12
+                top_cap_name = cap[0]["name"] if cap else None
+                top_cap_info = caps.get(top_cap_name, {}) if top_cap_name else {}
+                rec_calls = top_cap_info.get("canonical_calls", [])
+
                 reuse = catalog.browse(query=use_case, limit=limit)
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
                 synth = template_registry.select(use_case, limit=limit, feedback=fb)
@@ -166,47 +214,62 @@ async def discover(
                     for p in playbook_store.list()
                 ]
                 automate = matcher.rank(use_case, pb_docs, limit=limit)
-                return json.dumps(
-                    {
-                        "status": "OK",
-                        "use_case": use_case,
-                        "suggested_capability": [{"capability": c["name"], "relevance": c["relevance"]} for c in cap],
-                        "reuse_artifacts": [
-                            {
-                                "name": a.get("name"),
-                                "category": a.get("category"),
-                                "promotion_score": a.get("promotion_score"),
-                                "semantic_distance": a.get("semantic_distance"),
-                            }
-                            for a in reuse
-                        ],
-                        "synthesize_templates": [
-                            {
-                                "name": t["name"],
-                                "capability": t.get("capability"),
-                                "relevance": t["relevance"],
-                                "proven": t.get("proven"),
-                            }
-                            for t in synth
-                        ],
-                        "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
-                        "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
-                        "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_run(action='prune').",
-                    },
-                    indent=2,
-                    ensure_ascii=False,
+                payload = {
+                    "status": "OK",
+                    "use_case": use_case,
+                    "match_status": "MATCHED" if high_conf else "NO_HIGH_CONFIDENCE_MATCH",
+                    "confidence": "HIGH" if high_conf else "LOW",
+                    "recommended_next_call": rec_calls[0] if rec_calls else 'discover(action="playbook")',
+                    "suggested_capability": [
+                        {
+                            "capability": c["name"],
+                            "relevance": c["relevance"],
+                            "tools": caps.get(c["name"], {}).get("tools", []),
+                            "ready": caps.get(c["name"], {}).get("ready", True),
+                            "canonical_calls": caps.get(c["name"], {}).get("canonical_calls", []),
+                        }
+                        for c in cap
+                    ],
+                    "reuse_artifacts": [
+                        {
+                            "name": a.get("name"),
+                            "category": a.get("category"),
+                            "promotion_score": a.get("promotion_score"),
+                            "semantic_distance": a.get("semantic_distance"),
+                        }
+                        for a in reuse
+                    ],
+                    "synthesize_templates": [
+                        {
+                            "name": t["name"],
+                            "capability": t.get("capability"),
+                            "relevance": t["relevance"],
+                            "proven": t.get("proven"),
+                        }
+                        for t in synth
+                    ],
+                    "automate_playbooks": [{"name": p["name"], "relevance": p["relevance"]} for p in automate],
+                    "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
+                    "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_run(action='prune').",
+                }
+                return attach_envelope(
+                    payload,
+                    tracker,
+                    verbosity=verbosity,
+                    summary=f"Routed use_case to {top_cap_name or 'none'} (confidence={'HIGH' if high_conf else 'LOW'}).",
+                    next_action=payload["recommended_next_call"],
                 )
             except Exception as e:
-                return json.dumps({"status": "ERROR", "error": str(e)}, indent=2, ensure_ascii=False)
+                return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
         else:
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "INVALID_ACTION",
                     "error": f"Acción '{action}' no válida para discover.",
-                    "valid_actions": ["discover", "capabilities"],
+                    "valid_actions": ["discover", "capabilities", "playbook"],
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
+                verbosity=verbosity,
             )
 
     return await anyio.to_thread.run_sync(_run)
@@ -747,29 +810,36 @@ async def artifact_execute_in_ram(
 
 
 @mcp.tool()
-async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "default") -> str:
+async def process_inspect(
+    pid: int = 0,
+    limit: int = 100,
+    verbosity: str = "detail",
+    agent_id: str = "default",
+) -> str:
     """
     [INTROSPECCIÓN DE PROCESOS] Inspecciona el estado, descriptores de archivo abiertos
-    (/proc/PID/fd) y telemetría de recursos de un proceso.
+    (/proc/PID/fd) y telemetría de recursos (RSS delta, FD delta) de un proceso.
     pid: 0 para auto-inspección del propio servidor (self); >0 para un PID específico.
-    limit: número máximo de descriptores detallados en la lista (default 100).
+    limit: número máximo de descriptores detallados en la lista (default 100; 15 en modo summary).
+    verbosity: 'detail' (default) | 'summary' | 'brief' (compacta descriptores y ahorra tokens).
     Salida JSON tipada clasificando descriptores (socket, pipe, device, anon_inode, file).
     Fail-soft: devuelve NOT_FOUND o PERMISSION_DENIED sin lanzar excepciones.
     """
 
     def _run() -> str:
+        tracker = RequestTelemetry("process_inspect", f"pid:{pid}")
         target_pid = os.getpid() if pid <= 0 else pid
         proc_dir = Path(f"/proc/{target_pid}")
 
         if not proc_dir.exists():
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "NOT_FOUND",
                     "pid": target_pid,
                     "error": f"Proceso {target_pid} no encontrado en /proc.",
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
+                verbosity=verbosity,
             )
 
         comm_file = proc_dir / "comm"
@@ -808,8 +878,7 @@ async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "defau
 
         fd_dir = proc_dir / "fd"
         if not fd_dir.exists():
-            # Kernel threads do not expose /proc/PID/fd
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "OK",
                     "pid": target_pid,
@@ -822,8 +891,8 @@ async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "defau
                     "summary_by_type": {},
                     "descriptors": [],
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
+                verbosity=verbosity,
             )
 
         descriptors: list[dict[str, Any]] = []
@@ -838,25 +907,25 @@ async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "defau
         try:
             raw_entries = os.listdir(fd_dir)
         except PermissionError:
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "PERMISSION_DENIED",
                     "pid": target_pid,
                     "capability_tier": capability_tier(),
                     "error": f"Permiso denegado al inspeccionar descriptores en /proc/{target_pid}/fd.",
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
+                verbosity=verbosity,
             )
         except (FileNotFoundError, ProcessLookupError):
-            return json.dumps(
+            return attach_envelope(
                 {
                     "status": "NOT_FOUND",
                     "pid": target_pid,
                     "error": f"Proceso {target_pid} terminó durante la inspección.",
                 },
-                indent=2,
-                ensure_ascii=False,
+                tracker,
+                verbosity=verbosity,
             )
 
         sorted_entries = sorted(raw_entries, key=lambda x: int(x) if x.isdigit() else x)
@@ -884,8 +953,10 @@ async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "defau
             descriptors.append({"fd": fd_num, "type": dtype, "target": target})
 
         fd_count = len(descriptors)
-        truncated = fd_count > limit
-        reported_descriptors = descriptors[:limit]
+        is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
+        eff_limit = min(limit, 15) if (is_compact and limit == 100) else max(0, limit)
+        truncated = fd_count > eff_limit
+        reported_descriptors = descriptors[:eff_limit]
 
         res_data: dict[str, Any] = {
             "status": "OK",
@@ -901,7 +972,14 @@ async def process_inspect(pid: int = 0, limit: int = 100, agent_id: str = "defau
         if truncated:
             res_data["truncated"] = True
 
-        return json.dumps(res_data, indent=2, ensure_ascii=False)
+        return attach_envelope(
+            res_data,
+            tracker,
+            verbosity=verbosity,
+            summary=f"Process {name} (pid={target_pid}): {rss_kb} KiB RSS, {threads} threads, {fd_count} open FDs.",
+            truncated=truncated,
+            cursor=str(eff_limit) if truncated else None,
+        )
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -1176,6 +1254,7 @@ async def diagnose_system_crashes(
     action: str = "diagnose",
     limit: int = 5,
     resolve_after_report: bool = False,
+    verbosity: str = "summary",
     agent_id: str = "default",
 ) -> str:
     """
@@ -1183,11 +1262,17 @@ async def diagnose_system_crashes(
     action:
       - 'diagnose' (default): ejecuta coredumpctl + journalctl (nivel FULL con sudo -n; DIMINISHED usuario).
       - 'alerts' (o 'check'): consulta crashes pendientes en artifacts.db; `resolve_after_report=True` los marca resueltos.
+    verbosity:
+      - 'summary' (default): resume journald a {timestamp, unit, priority, pid, message} ahorrando ~80% de tokens.
+      - 'detail': devuelve todos los metadatos crudos de systemd-journald.
     """
 
     def _run() -> str:
+        act = (action or "diagnose").strip().lower()
+        tracker = RequestTelemetry("diagnose_system_crashes", act)
+        is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
         try:
-            if action == "diagnose":
+            if act == "diagnose":
                 prefix = privilege_prefix() or []
 
                 def _safe_run(cmd: list[str]) -> subprocess.CompletedProcess | None:
@@ -1199,7 +1284,7 @@ async def diagnose_system_crashes(
                             stdin=subprocess.DEVNULL,
                             close_fds=True,
                             timeout=15,
-                            check=False,  # check=False: returncode inspected below
+                            check=False,
                         )
                     except (FileNotFoundError, subprocess.TimeoutExpired):
                         return None
@@ -1216,7 +1301,20 @@ async def diagnose_system_crashes(
                     elif coredumps_raw.returncode == 0:
                         if coredumps_raw.stdout.strip():
                             try:
-                                recent_coredumps = json.loads(coredumps_raw.stdout)
+                                raw_cd = json.loads(coredumps_raw.stdout)
+                                if is_compact and isinstance(raw_cd, list):
+                                    recent_coredumps = [
+                                        {
+                                            "pid": c.get("pid"),
+                                            "uid": c.get("uid"),
+                                            "sig": c.get("sig"),
+                                            "time": c.get("time"),
+                                            "exe": c.get("exe"),
+                                        }
+                                        for c in raw_cd[:limit]
+                                    ]
+                                else:
+                                    recent_coredumps = raw_cd[:limit] if isinstance(raw_cd, list) else raw_cd
                             except Exception:
                                 recent_coredumps = []
                     elif coredumps_raw.returncode == 1 and (
@@ -1227,7 +1325,6 @@ async def diagnose_system_crashes(
                     else:
                         unavailable.append("coredumpctl")
 
-                journal_errs = None
                 recent_errors = []
                 if not shutil.which("journalctl"):
                     unavailable.append("journalctl")
@@ -1239,49 +1336,139 @@ async def diagnose_system_crashes(
                         for line in journal_errs.stdout.splitlines():
                             if line.strip():
                                 try:
-                                    recent_errors.append(json.loads(line))
+                                    entry = json.loads(line)
+                                    if is_compact and isinstance(entry, dict):
+                                        msg = entry.get("MESSAGE")
+                                        if isinstance(msg, list):
+                                            msg = bytes(msg).decode("utf-8", errors="replace")
+                                        recent_errors.append(
+                                            {
+                                                "timestamp": entry.get("__REALTIME_TIMESTAMP"),
+                                                "unit": (
+                                                    entry.get("_SYSTEMD_UNIT")
+                                                    or entry.get("SYSLOG_IDENTIFIER")
+                                                    or entry.get("_COMM")
+                                                ),
+                                                "priority": entry.get("PRIORITY"),
+                                                "pid": entry.get("_PID"),
+                                                "message": str(msg)[:300] if msg is not None else "",
+                                            }
+                                        )
+                                    else:
+                                        recent_errors.append(entry)
                                 except Exception as e:
                                     logger.debug("Failed parsing journal error line: %s", e)
 
-                return json.dumps(
-                    {
-                        "status": "DEGRADED" if unavailable else "OK",
-                        "capability_tier": capability_tier(),
-                        "scope": "system" if prefix else "user",
-                        "recent_coredumps": recent_coredumps,
-                        "recent_systemd_errors": recent_errors,
-                        "unavailable_sources": unavailable,
-                    },
-                    indent=2,
+                payload = {
+                    "status": "DEGRADED" if unavailable else "OK",
+                    "capability_tier": capability_tier(),
+                    "scope": "system" if prefix else "user",
+                    "verbosity": "summary" if is_compact else "detail",
+                    "recent_coredumps": recent_coredumps,
+                    "recent_systemd_errors": recent_errors,
+                    "unavailable_sources": unavailable,
+                }
+                return attach_envelope(
+                    payload,
+                    tracker,
+                    verbosity=verbosity,
+                    summary=f"Crash diagnosis ({payload['status']}): {len(recent_coredumps)} coredumps, {len(recent_errors)} systemd errors.",
                 )
 
-            elif action in ("alerts", "check"):
-                return json.dumps(crash_router.check(resolve_after_report), indent=2)
+            elif act in ("alerts", "check"):
+                res = crash_router.check(resolve_after_report)
+                return attach_envelope(
+                    res,
+                    tracker,
+                    verbosity=verbosity,
+                    summary=f"Crash alerts: {res.get('pending_count', 0)} pending ({res.get('new_since_last_check', 0)} new).",
+                )
 
             else:
-                return json.dumps(
+                return attach_envelope(
                     {
                         "status": "INVALID_ACTION",
                         "error": f"Acción desconocida '{action}'",
                         "valid_actions": ["diagnose", "alerts", "check"],
                     },
-                    indent=2,
-                    ensure_ascii=False,
+                    tracker,
+                    verbosity=verbosity,
                 )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2, ensure_ascii=False)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 
 
 @mcp.tool()
-async def sandbox_run(command: str, share_net: bool = True, agent_id: str = "default") -> str:
+async def sandbox_run(
+    command: str,
+    share_net: bool = False,
+    working_dir: str | None = None,
+    ro_paths: list[str] | None = None,
+    rw_paths: list[str] | None = None,
+    timeout: int = 60,
+    agent_id: str = "default",
+) -> str:
     """
     [BUBBLEWRAP SANDBOX] Ejecuta comandos en un sandbox efímero con bwrap
     aislando el sistema de archivos contra efectos secundarios destructivos.
+    - Por defecto oculta el workspace del host y desactiva red (`share_net=False`).
+    - `working_dir`: monta el directorio en modo solo-lectura (salvo que esté en `rw_paths`) y hace `--chdir`.
+    - `ro_paths` / `rw_paths`: montajes explícitos validados contra `CapabilityGuard.is_path_blacklisted()`.
     """
 
     def _run() -> str:
+        tracker = RequestTelemetry("sandbox_run", "exec")
+        eff_ro = list(ro_paths or [])
+        eff_rw = list(rw_paths or [])
+        resolved_wd: str | None = None
+
+        # 1. Validar blacklist de seguridad en todas las rutas solicitadas
+        all_requested = eff_ro + eff_rw + ([working_dir] if working_dir else [])
+        for raw_p in all_requested:
+            if CapabilityGuard.is_path_blacklisted(raw_p):
+                try:
+                    with catalog._get_rw_conn() as conn:
+                        record_audit_event(
+                            conn,
+                            agent_id=agent_id,
+                            tool_name="sandbox_run",
+                            action="sandbox_mount",
+                            capability_tier=capability_tier(),
+                            status="BLOCKED",
+                            details={"reason": "Blacklisted path requested for sandbox mount", "path": raw_p},
+                            target=raw_p,
+                        )
+                except Exception as log_err:
+                    logger.debug("Failed recording sandbox audit event: %s", log_err)
+                return attach_envelope(
+                    {
+                        "status": "PERMISSION_DENIED",
+                        "agent_id": agent_id,
+                        "error": f"Acceso denegado: la ruta '{raw_p}' está restringida por CapabilityGuard.",
+                        "target": raw_p,
+                    },
+                    tracker,
+                )
+
+        if working_dir:
+            wd_path = Path(working_dir).expanduser().resolve()
+            if not wd_path.exists():
+                return attach_envelope(
+                    {
+                        "status": "PARAM_ERROR",
+                        "agent_id": agent_id,
+                        "error": f"working_dir no existe: {working_dir}",
+                    },
+                    tracker,
+                )
+            resolved_wd = str(wd_path)
+            resolved_ro_set = {str(Path(p).expanduser().resolve()) for p in eff_ro}
+            resolved_rw_set = {str(Path(p).expanduser().resolve()) for p in eff_rw}
+            if resolved_wd not in resolved_ro_set and resolved_wd not in resolved_rw_set:
+                eff_ro.append(resolved_wd)
+
         bwrap_cmd = [
             "bwrap",
             "--unshare-all",
@@ -1321,6 +1508,52 @@ async def sandbox_run(command: str, share_net: bool = True, agent_id: str = "def
             "/tmp",
             "--tmpfs",
             "/dev/shm",
+        ])
+
+        mounted_ro: list[str] = []
+        mounted_rw: list[str] = []
+        for p in eff_ro:
+            rp = str(Path(p).expanduser().resolve())
+            if Path(rp).exists():
+                bwrap_cmd.extend(["--ro-bind", rp, rp])
+                mounted_ro.append(rp)
+                # Auto-resolve uv/pyenv/virtualenv interpreter symlink chain so .venv/bin/python works in jail
+                venv_py = Path(rp) / ".venv" / "bin" / "python"
+                if venv_py.is_symlink():
+                    try:
+                        py_real = venv_py.resolve()
+                        if py_real.exists():
+                            # Mount parent pool (e.g. ~/.local/share/uv/python) so intermediate symlinks resolve
+                            idx = 2 if len(py_real.parents) >= 3 else 1
+                            py_root = str(py_real.parents[idx])
+                            if not CapabilityGuard.is_path_blacklisted(py_root) and py_root not in mounted_ro:
+                                bwrap_cmd.extend(["--ro-bind-try", py_root, py_root])
+                                mounted_ro.append(py_root)
+                    except OSError:
+                        pass
+        for p in eff_rw:
+            rp = str(Path(p).expanduser().resolve())
+            if Path(rp).exists():
+                bwrap_cmd.extend(["--bind", rp, rp])
+                mounted_rw.append(rp)
+
+        # Provide writable ephemeral HOME/XDG and tool cache directories on /tmp tmpfs inside the sandbox
+        host_home = str(Path.home().resolve())
+        if host_home not in mounted_rw:
+            bwrap_cmd.extend([
+                "--setenv", "HOME", "/tmp",
+                "--setenv", "XDG_CACHE_HOME", "/tmp/.cache",
+                "--setenv", "XDG_DATA_HOME", "/tmp/.local/share",
+                "--setenv", "RUFF_CACHE_DIR", "/tmp/.ruff_cache",
+                "--setenv", "PYTEST_ADDOPTS", "-o cache_dir=/tmp/.pytest_cache",
+                "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
+                "--setenv", "GOCACHE", "/tmp/.gocache",
+            ])
+
+        if resolved_wd:
+            bwrap_cmd.extend(["--chdir", resolved_wd])
+
+        bwrap_cmd.extend([
             "--cap-drop",
             "ALL",
             "--die-with-parent",
@@ -1335,85 +1568,177 @@ async def sandbox_run(command: str, share_net: bool = True, agent_id: str = "def
                 bwrap_cmd,
                 capture_output=True,
                 text=True,
-                check=False,  # check=False: exit_code returned in JSON payload
+                timeout=max(5, min(timeout, 300)),
+                check=False,
             )
-            return json.dumps(
+            st = "SUCCESS" if res.returncode == 0 else "EXEC_FAILED"
+            return attach_envelope(
                 {
-                    "status": "SUCCESS" if res.returncode == 0 else "EXEC_FAILED",
+                    "status": st,
                     "agent_id": agent_id,
                     "exit_code": res.returncode,
+                    "share_net": share_net,
+                    "working_dir": resolved_wd,
+                    "ro_mounts": mounted_ro,
+                    "rw_mounts": mounted_rw,
                     "stdout": res.stdout.strip(),
                     "stderr": res.stderr.strip(),
                 },
-                indent=2,
+                tracker,
+                summary=f"Sandbox command exited with code {res.returncode} (net={'on' if share_net else 'off'}).",
             )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, tracker)
 
     return await anyio.to_thread.run_sync(_run)
 
 
+def _flatten_mounts(nodes: list[dict[str, Any]], out: list[dict[str, Any]]) -> None:
+    """Flatten nested findmnt JSON tree into a flat list of mount records."""
+    _VIRTUAL_FS = {
+        "cgroup2", "cgroup", "proc", "sysfs", "nsfs", "mqueue", "hugetlbfs",
+        "tracefs", "debugfs", "securityfs", "pstore", "bpf", "configfs",
+        "fusectl", "autofs", "devpts", "devtmpfs", "efivarfs", "binfmt_misc",
+    }
+    for n in nodes:
+        fstype = n.get("fstype", "")
+        if fstype not in _VIRTUAL_FS:
+            out.append({
+                "target": n.get("target"),
+                "source": n.get("source"),
+                "fstype": fstype,
+            })
+        children = n.get("children")
+        if isinstance(children, list):
+            _flatten_mounts(children, out)
+
+
 @mcp.tool()
-async def aep_ctl(domain: str, action: str, name: str | None = None, agent_id: str = "default") -> str:
+async def aep_ctl(
+    domain: str = "schema",
+    action: str = "schema",
+    name: str | None = None,
+    verbosity: str = "detail",
+    limit: int = 50,
+    cursor: int = 0,
+    agent_id: str = "default",
+) -> str:
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
-    domain: service|network|storage|package|backup|security|audit. Salida JSON tipada, no-interactiva.
-    Ej: aep_ctl("network","listeners") | aep_ctl("package","check","nginx") | aep_ctl("backup","status") | aep_ctl("security","landlock_status").
+    - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
+    - `domain`: schema|service|network|storage|package|backup|security|audit.
+    - `verbosity`: 'detail' (default) | 'summary' | 'brief' (compacta listeners/mounts/interfaces ahorrando tokens).
+    - `limit` y `cursor`: paginación determinista sobre listas extensas.
+    Ej: aep_ctl(action="schema") | aep_ctl("network","listeners",verbosity="summary") | aep_ctl("audit","verify").
     """
 
     def _run() -> str:
-        d = (domain or "").strip().lower()
-        a = (action or "").strip().lower()
+        d = (domain or "schema").strip().lower()
+        a = (action or "schema").strip().lower()
+        tracker = RequestTelemetry("aep_ctl", f"{d}.{a}")
+        is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
+        eff_cursor = max(0, int(cursor or 0))
+        eff_limit = max(1, int(limit or (25 if is_compact else 50)))
+
+        # 1. Explicit schema discovery without dummy domain
+        if d in ("schema", "--schema", "") or a in ("schema", "--schema"):
+            schema_payload: dict[str, Any] = {
+                "status": "OK",
+                "tool": "aep-ctl",
+                "domains": CONTROL_PLANE_SCHEMA,
+            }
+            if d in CONTROL_PLANE_SCHEMA:
+                schema_payload["domain"] = d
+                schema_payload["schema"] = CONTROL_PLANE_SCHEMA[d]
+            return attach_envelope(
+                schema_payload,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Control plane schema returned ({len(CONTROL_PLANE_SCHEMA)} domains).",
+            )
+
+        if d not in CONTROL_PLANE_SCHEMA:
+            return attach_envelope(
+                {
+                    "status": "ERROR",
+                    "message": f"Dominio desconocido: {d}",
+                    "error": f"Dominio desconocido: {d}",
+                    "valid": list(CONTROL_PLANE_SCHEMA.keys()),
+                },
+                tracker,
+                verbosity=verbosity,
+            )
+
+        valid_actions = CONTROL_PLANE_SCHEMA[d]["actions"]
+        if a not in valid_actions:
+            return attach_envelope(
+                {
+                    "status": "ERROR",
+                    "message": f"Acción de {d} desconocida: {a}",
+                    "error": f"Acción de {d} desconocida: {a}",
+                    "valid": valid_actions,
+                },
+                tracker,
+                verbosity=verbosity,
+            )
+
         if d == "security":
-            if a in ("landlock_status", "status"):
-                return json.dumps(get_landlock_status(), indent=2)
-            else:
-                return json.dumps({"status": "ERROR", "error": f"Acción de security desconocida: {a}"}, indent=2)
+            res_obj = get_landlock_status()
+            return attach_envelope(res_obj, tracker, verbosity=verbosity)
+
         elif d == "backup":
             if a == "backup":
-                return json.dumps(create_backup(), indent=2)
+                res_obj = create_backup()
             elif a == "restore":
                 slot = 1
                 if name and name.strip():
                     try:
                         slot = int(name.strip())
                     except ValueError:
-                        return json.dumps({"status": "ERROR", "error": f"Número de slot inválido: {name}"}, indent=2)
-                return json.dumps(restore_backup(slot_number=slot), indent=2)
+                        return attach_envelope(
+                            {"status": "ERROR", "error": f"Número de slot inválido: {name}", "valid": "1..5"},
+                            tracker,
+                            verbosity=verbosity,
+                        )
+                res_obj = restore_backup(slot_number=slot)
             elif a in ("status", "backup_status"):
-                return json.dumps(get_backup_status(), indent=2)
+                res_obj = get_backup_status()
             elif a in ("auto_recover", "verify_and_auto_recover"):
-                return json.dumps(verify_and_auto_recover(), indent=2)
+                res_obj = verify_and_auto_recover()
             elif a == "verify_integrity":
                 target = Path(name.strip()) if name and name.strip() else None
                 ok, reason, details = verify_database_integrity(target)
-                return json.dumps({
+                res_obj = {
                     "status": "OK" if ok else "INTEGRITY_FAILED",
                     "valid": ok,
                     "reason": reason,
                     "details": details,
-                }, indent=2)
+                }
             elif a == "micro_snapshot":
                 snap_id = name.strip() if name and name.strip() else None
-                return json.dumps(create_micro_snapshot(snapshot_id=snap_id), indent=2)
+                res_obj = create_micro_snapshot(snapshot_id=snap_id)
             elif a == "golden":
-                return json.dumps(create_golden_snapshot(), indent=2)
+                res_obj = create_golden_snapshot()
             elif a == "restore_golden":
-                return json.dumps(restore_golden_snapshot(), indent=2)
+                res_obj = restore_golden_snapshot()
             elif a == "quarantine_status":
-                return json.dumps(get_quarantine_status(), indent=2)
+                res_obj = get_quarantine_status()
             else:
-                return json.dumps({"status": "ERROR", "error": f"Acción de backup desconocida: {a}"}, indent=2)
+                res_obj = {"status": "ERROR", "error": f"Acción de backup desconocida: {a}", "valid": valid_actions}
+            return attach_envelope(res_obj, tracker, verbosity=verbosity)
+
         elif d == "audit":
-            if a == "verify":
-                with catalog._get_ro_conn() as conn:
-                    return json.dumps(verify_audit_chain(conn), indent=2)
-            else:
-                return json.dumps({"status": "ERROR", "error": f"Acción de audit desconocida: {a}"}, indent=2)
+            with catalog._get_ro_conn() as conn:
+                res_obj = verify_audit_chain(conn)
+            return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         if not AEP_CTL.exists():
-            return json.dumps({"status": "ERROR", "error": f"aep-ctl no encontrado en {AEP_CTL}"}, indent=2)
-        cmd = ["python3", str(AEP_CTL), domain, action]
+            return attach_envelope(
+                {"status": "ERROR", "error": f"aep-ctl no encontrado en {AEP_CTL}"},
+                tracker,
+                verbosity=verbosity,
+            )
+        cmd = ["python3", str(AEP_CTL), d, a]
         if name:
             cmd.append(name)
         cmd.append("--json")
@@ -1423,11 +1748,88 @@ async def aep_ctl(domain: str, action: str, name: str | None = None, agent_id: s
                 capture_output=True,
                 text=True,
                 timeout=30,
-                check=False,  # check=False: returncode/stderr handled explicitly below
+                check=False,
             )
-            return res.stdout.strip() or json.dumps({"status": "ERROR", "stderr": res.stderr.strip()}, indent=2)
+            raw_out = res.stdout.strip()
+            if not raw_out:
+                return attach_envelope(
+                    {"status": "ERROR", "stderr": res.stderr.strip()},
+                    tracker,
+                    verbosity=verbosity,
+                )
+            parsed = json.loads(raw_out)
+
+            # Apply compact summarization & pagination when requested or on large collections
+            truncated = False
+            next_cur: str | None = None
+            if isinstance(parsed, dict) and parsed.get("status") == "OK":
+                if d == "network" and a == "listeners" and isinstance(parsed.get("listeners"), list):
+                    all_items = parsed["listeners"]
+                    total = len(all_items)
+                    cap = min(eff_limit, 25) if is_compact else eff_limit
+                    sliced = all_items[eff_cursor : eff_cursor + cap]
+                    if is_compact:
+                        sliced = [
+                            {
+                                "proto": it.get("proto"),
+                                "local": it.get("local"),
+                                "process": it.get("process"),
+                                "pid": it.get("pid"),
+                            }
+                            for it in sliced
+                        ]
+                    truncated = (eff_cursor + len(sliced)) < total
+                    next_cur = str(eff_cursor + len(sliced)) if truncated else None
+                    parsed["total_count"] = total
+                    parsed["count"] = len(sliced)
+                    parsed["listeners"] = sliced
+                elif d == "network" and a == "inspect" and is_compact and isinstance(parsed.get("interfaces"), list):
+                    parsed["interfaces"] = [
+                        {
+                            "ifname": iface.get("ifname"),
+                            "operstate": iface.get("operstate"),
+                            "mtu": iface.get("mtu"),
+                            "addresses": [
+                                ai.get("local") for ai in iface.get("addr_info", []) if isinstance(ai, dict) and ai.get("local")
+                            ],
+                        }
+                        for iface in parsed["interfaces"]
+                    ]
+                elif d == "storage" and a == "mounts" and is_compact and isinstance(parsed.get("filesystems"), list):
+                    flat: list[dict[str, Any]] = []
+                    _flatten_mounts(parsed["filesystems"], flat)
+                    total = len(flat)
+                    cap = min(eff_limit, 25)
+                    sliced = flat[eff_cursor : eff_cursor + cap]
+                    truncated = (eff_cursor + len(sliced)) < total
+                    next_cur = str(eff_cursor + len(sliced)) if truncated else None
+                    parsed = {
+                        "status": "OK",
+                        "verbosity": "summary",
+                        "total_mounts": total,
+                        "count": len(sliced),
+                        "filesystems": sliced,
+                    }
+                elif d == "package" and a == "installed" and isinstance(parsed.get("packages"), list):
+                    all_pkgs = parsed["packages"]
+                    total = parsed.get("count", len(all_pkgs))
+                    cap = min(eff_limit, 30) if is_compact else eff_limit
+                    sliced = all_pkgs[eff_cursor : eff_cursor + cap]
+                    truncated = (eff_cursor + len(sliced)) < len(all_pkgs)
+                    next_cur = str(eff_cursor + len(sliced)) if truncated else None
+                    parsed["total_count"] = total
+                    parsed["count"] = len(sliced)
+                    parsed["packages"] = sliced
+
+            return attach_envelope(
+                parsed,
+                tracker,
+                verbosity=verbosity,
+                truncated=truncated,
+                cursor=next_cur,
+            )
         except Exception as e:
-            return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 

@@ -1,9 +1,11 @@
 """Executable evaluation of AEP's public agent-facing contracts.
 
-The two strict xfails are intentional: they turn confirmed product gaps into
-visible regression markers without making the existing release suite red.
-When either behaviour is implemented, its test becomes an XPASS and must be
-converted into a normal passing contract test.
+Covers all remediated product contracts from the Agent Experience Evaluation:
+1. Clean-home hermetic SQLite bootstrap (promoted from xfail -> PASS).
+2. Unified CLI & MCP control-plane schema including `audit` and `aep_ctl(action="schema")` (promoted from xfail -> PASS).
+3. Bubblewrap sandbox isolation by default + explicit `working_dir`/`ro_paths`/`rw_paths` + `share_net=False` + `CapabilityGuard` blacklist enforcement.
+4. Compact `verbosity="summary"` / `"brief"` modes, pagination cursors, and per-request telemetry (`output_bytes`, `estimated_tokens`, `rss_delta_kb`, `fd_delta`).
+5. Real binary prerequisite readiness and Kali-MCP style semantic playbook (`discover(action="playbook")`) & intent precision.
 """
 
 from __future__ import annotations
@@ -14,8 +16,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CTL = PROJECT_ROOT / "scripts" / "aep-ctl"
@@ -38,7 +38,7 @@ def test_control_plane_schema_is_machine_discoverable() -> None:
     assert schema["status"] == "OK"
     domains = schema["domains"]
     assert isinstance(domains, dict)
-    assert {"service", "network", "storage", "package", "backup", "security"} <= set(domains)
+    assert {"service", "network", "storage", "package", "backup", "security", "audit"} <= set(domains)
 
 
 def test_invalid_control_action_returns_remediation() -> None:
@@ -56,12 +56,9 @@ def test_sandbox_hides_the_host_workspace() -> None:
         asyncio.run(server.sandbox_run(f"test ! -e {PROJECT_ROOT}"))
     )
     assert result["status"] == "SUCCESS"
+    assert result["share_net"] is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Fresh ArtifactCatalog startup runs migrations before creating the base schema.",
-)
 def test_clean_home_bootstraps_the_mcp_runtime(tmp_path: Path) -> None:
     """A newly installed AEP runtime must import without pre-existing state."""
     env = os.environ | {
@@ -81,13 +78,115 @@ def test_clean_home_bootstraps_the_mcp_runtime(tmp_path: Path) -> None:
     assert result.stdout.strip() == "bootstrapped"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="The MCP advertises an audit domain, but the CLI schema omits it.",
-)
 def test_control_plane_schema_matches_advertised_mcp_domains() -> None:
     """The CLI schema and MCP aep_ctl domain contract must remain aligned."""
-    schema = _run_ctl("--schema")
-    domains = schema["domains"]
-    assert isinstance(domains, dict)
-    assert "audit" in domains
+    import server
+
+    cli_schema = _run_ctl("--schema")
+    cli_domains = cli_schema["domains"]
+    assert isinstance(cli_domains, dict)
+    assert "audit" in cli_domains
+
+    mcp_schema = json.loads(asyncio.run(server.aep_ctl(action="schema")))
+    assert mcp_schema["status"] == "OK"
+    assert mcp_schema["domains"] == cli_domains
+    assert "telemetry" in mcp_schema
+    assert "envelope" in mcp_schema
+
+
+def test_sandbox_authorized_workspace_and_blacklist_guard(tmp_path: Path) -> None:
+    """sandbox_run supports explicit read-only working_dir and blocks blacklisted paths."""
+    import server
+
+    # 1. Authorized working_dir mounts read-only and sets cwd
+    res_ok = json.loads(
+        asyncio.run(
+            server.sandbox_run(
+                "test -f pyproject.toml && ! touch .sandbox_write_probe",
+                working_dir=str(PROJECT_ROOT),
+            )
+        )
+    )
+    assert res_ok["status"] == "SUCCESS"
+    assert res_ok["working_dir"] == str(PROJECT_ROOT)
+    assert str(PROJECT_ROOT) in res_ok["ro_mounts"]
+
+    # 2. Explicit rw_paths allows writing inside an authorized temporary workspace
+    rw_dir = tmp_path / "rw_work"
+    rw_dir.mkdir()
+    res_rw = json.loads(
+        asyncio.run(
+            server.sandbox_run(
+                "echo 'ok' > allowed.txt && cat allowed.txt",
+                working_dir=str(rw_dir),
+                rw_paths=[str(rw_dir)],
+            )
+        )
+    )
+    assert res_rw["status"] == "SUCCESS"
+    assert res_rw["stdout"] == "ok"
+    assert (rw_dir / "allowed.txt").read_text().strip() == "ok"
+
+    # 3. Blacklisted path (/etc/shadow or ~/.ssh) is blocked by CapabilityGuard
+    res_blocked = json.loads(
+        asyncio.run(
+            server.sandbox_run("cat /etc/shadow", ro_paths=["/etc/shadow"])
+        )
+    )
+    assert res_blocked["status"] == "PERMISSION_DENIED"
+    assert res_blocked["envelope"]["severity"] == "ERROR"
+
+
+def test_compact_summary_and_telemetry_attribution() -> None:
+    """Summary mode reduces payload size and records byte/token/RSS/FD telemetry."""
+    import server
+
+    detail_mounts = json.loads(
+        asyncio.run(server.aep_ctl(domain="storage", action="mounts", verbosity="detail"))
+    )
+    summary_mounts = json.loads(
+        asyncio.run(server.aep_ctl(domain="storage", action="mounts", verbosity="summary", limit=5))
+    )
+    assert detail_mounts["status"] == "OK"
+    assert summary_mounts["status"] == "OK"
+    assert summary_mounts["telemetry"]["output_bytes"] < detail_mounts["telemetry"]["output_bytes"]
+    assert summary_mounts["telemetry"]["estimated_tokens"] >= 1
+    assert "rss_delta_kb" in summary_mounts["telemetry"]
+    assert "fd_delta" in summary_mounts["telemetry"]
+    assert summary_mounts["envelope"]["status"] == "OK"
+
+    proc_sum = json.loads(
+        asyncio.run(server.process_inspect(pid=0, verbosity="summary"))
+    )
+    assert proc_sum["status"] == "OK"
+    assert len(proc_sum["descriptors"]) <= 15
+    assert "telemetry" in proc_sum
+
+
+def test_discover_binary_readiness_and_kali_tactical_playbook() -> None:
+    """discover exposes binary prerequisites, Kali-style tactical playbook, and intent precision."""
+    import server
+
+    caps = json.loads(asyncio.run(server.discover(action="capabilities")))
+    assert caps["status"] == "OK"
+    assert "prerequisites" in caps
+    assert "bwrap" in caps["prerequisites"]
+    assert "ready" in caps["capabilities"]["ephemeral_sandbox"]
+    assert "canonical_calls" in caps["capabilities"]["ephemeral_sandbox"]
+
+    playbook = json.loads(asyncio.run(server.discover(action="playbook")))
+    assert playbook["status"] == "OK"
+    assert playbook["playbook_version"] == "EAES-v2-Kali-Semantic"
+    assert len(playbook["rules_of_engagement"]) >= 5
+    assert len(playbook["workflow_recipes"]) >= 4
+
+    routed = json.loads(
+        asyncio.run(
+            server.discover(use_case="run pytest repository test suite in isolated bubblewrap sandbox")
+        )
+    )
+    assert routed["status"] == "OK"
+    assert routed["confidence"] == "HIGH"
+    assert routed["match_status"] == "MATCHED"
+    top_caps = [c["capability"] for c in routed["suggested_capability"]]
+    assert "ephemeral_sandbox" in top_caps

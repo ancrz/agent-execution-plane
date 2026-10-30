@@ -18,11 +18,14 @@ import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+from engine.privilege import CONTROL_PLANE_SCHEMA as SCHEMA  # noqa: E402
 
 
 def _sudo_prefix() -> list[str] | None:
@@ -41,31 +44,6 @@ def _sudo_prefix() -> list[str] | None:
 
 def _tier() -> str:
     return "FULL" if _sudo_prefix() is not None else "DIMINISHED"
-
-SCHEMA: dict[str, Any] = {
-    "service": {"actions": ["status", "start", "stop", "restart"], "arg": "<name>", "scope": "systemd --user"},
-    "network": {"actions": ["inspect", "routes", "listeners"], "arg": None},
-    "storage": {"actions": ["usage", "mounts", "disks"], "arg": None},
-    "package": {"actions": ["installed", "check", "info"], "arg": "<name>"},
-    "backup": {
-        "actions": [
-            "backup",
-            "restore",
-            "status",
-            "backup_status",
-            "verify_integrity",
-            "micro_snapshot",
-            "golden",
-            "restore_golden",
-            "quarantine_status",
-        ],
-        "arg": "[slot_number|name]",
-    },
-    "security": {
-        "actions": ["landlock_status"],
-        "arg": None,
-    },
-}
 
 
 def emit(obj: Any, code: int = 0) -> None:
@@ -249,6 +227,7 @@ def domain_backup(action: str, name: str | None) -> Any:
         get_quarantine_status,
         restore_backup,
         restore_golden_snapshot,
+        verify_and_auto_recover,
         verify_database_integrity,
     )
 
@@ -264,6 +243,8 @@ def domain_backup(action: str, name: str | None) -> Any:
         return restore_backup(slot_number=slot)
     if action in ("status", "backup_status"):
         return get_backup_status()
+    if action in ("auto_recover", "verify_and_auto_recover"):
+        return verify_and_auto_recover()
     if action == "verify_integrity":
         target = Path(name.strip()) if name and name.strip() else None
         ok, reason, details = verify_database_integrity(target)
@@ -280,6 +261,17 @@ def domain_backup(action: str, name: str | None) -> Any:
     fail(f"Acción de backup desconocida: {action}", valid=SCHEMA["backup"]["actions"])
 
 
+def domain_audit(action: str, name: str | None) -> Any:
+    from engine.catalog import ArtifactCatalog
+    from engine.security import verify_audit_chain
+
+    if action == "verify":
+        cat = ArtifactCatalog()
+        with cat._get_ro_conn() as conn:
+            return verify_audit_chain(conn)
+    fail(f"Acción de audit desconocida: {action}", valid=SCHEMA["audit"]["actions"])
+
+
 DOMAINS = {
     "service": domain_service,
     "network": lambda a, n: domain_network(a),
@@ -287,17 +279,20 @@ DOMAINS = {
     "package": domain_package,
     "backup": domain_backup,
     "security": domain_security,
+    "audit": domain_audit,
 }
 
 
 def main(argv: list[str]) -> None:
     args = [a for a in argv if a != "--json"]  # --json es el default; lo aceptamos y lo ignoramos
-    if "--schema" in args or not args:
+    if "--schema" in args or not args or args[0] in ("schema", "--schema"):
         emit({"status": "OK", "tool": "aep-ctl", "domains": SCHEMA})
     domain = args[0]
     if domain not in DOMAINS:
         fail(f"Dominio desconocido: {domain}", valid=list(SCHEMA.keys()))
     action = args[1] if len(args) > 1 else None
+    if action in ("--schema", "schema"):
+        emit({"status": "OK", "tool": "aep-ctl", "domain": domain, "schema": SCHEMA[domain], "domains": SCHEMA})
     name = args[2] if len(args) > 2 else None
     if not action or action not in SCHEMA[domain]["actions"]:
         fail(f"Acción inválida para {domain}: {action}", valid=SCHEMA[domain]["actions"])

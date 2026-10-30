@@ -57,6 +57,7 @@ class KanbanBoard:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
+                self._migrate(conn)
                 conn.executescript(_KANBAN_DDL)
                 self._migrate(conn)
 
@@ -64,12 +65,13 @@ class KanbanBoard:
     def _migrate(conn: sqlite3.Connection) -> None:
         """Migración in-code aditiva (idempotente): columnas nuevas sobre tableros ya existentes."""
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(kanban_tasks)").fetchall()}
-        if "archived" not in cols:
-            conn.execute("ALTER TABLE kanban_tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived)")
-        if "agent_id" not in cols:
-            conn.execute("ALTER TABLE kanban_tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id)")
+        if cols:
+            if "archived" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_archived ON kanban_tasks(archived)")
+            if "agent_id" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id)")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)

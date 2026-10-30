@@ -99,18 +99,20 @@ class ArtifactCatalog:
     def _migrate(self, conn: sqlite3.Connection) -> None:
         """Migración idempotente en código (evita archivos SQL frágiles bajo set -e)."""
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(artifacts)")}
-        if "intent_description" not in cols:
-            conn.execute("ALTER TABLE artifacts ADD COLUMN intent_description TEXT NOT NULL DEFAULT ''")
-        if "reusable" not in cols:
-            conn.execute("ALTER TABLE artifacts ADD COLUMN reusable INTEGER NOT NULL DEFAULT 1")
-        if "promotion_score" not in cols:
-            conn.execute("ALTER TABLE artifacts ADD COLUMN promotion_score REAL NOT NULL DEFAULT 0.0")
-        if "source_template" not in cols:
-            conn.execute("ALTER TABLE artifacts ADD COLUMN source_template TEXT NOT NULL DEFAULT ''")
+        if cols:
+            if "intent_description" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN intent_description TEXT NOT NULL DEFAULT ''")
+            if "reusable" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN reusable INTEGER NOT NULL DEFAULT 1")
+            if "promotion_score" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN promotion_score REAL NOT NULL DEFAULT 0.0")
+            if "source_template" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN source_template TEXT NOT NULL DEFAULT ''")
         mcols = {r["name"] for r in conn.execute("PRAGMA table_info(execution_metrics)")}
-        if "agent_id" not in mcols:
-            conn.execute("ALTER TABLE execution_metrics ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_agent ON execution_metrics(agent_id)")
+        if mcols:
+            if "agent_id" not in mcols:
+                conn.execute("ALTER TABLE execution_metrics ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_agent ON execution_metrics(agent_id)")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS security_audit_log (
