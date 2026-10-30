@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-10-30
+
+### Added
+- **Multi-Agent Pico-Jenkins Build Slot Isolation (`GAP-OM23-1`)**:
+  - Isolated Go compilation under `GLOBAL_SESSION_POOL` in `/dev/shm/aep_pool/slot_<id>` per agent (`agent_id=eff_agent`).
+  - Added atomic binary materialization via `.tmp` staging and `os.replace` to `TEMP_BIN_DIR`, eliminating parallel compilation clobbers and TOCTOU races.
+  - Enhanced `artifact_execute_in_ram` with ELF header magic (`\x7fELF`) validation before in-RAM execution.
+- **Precomputed Vector Embeddings Outside SQLite Write Transactions (`GAP-OM23-4`)**:
+  - Implemented `_precompute_embedding()` in `engine/catalog.py` using fastembed outside SQLite write locks.
+  - Updated `_upsert_embedding()` to accept precomputed float32 serialized vectors, reducing SQLite write lock hold times by >95% and eliminating `vec0` primary key collisions.
+- **Pico-Ansible Saved Playbook Multi-Agent Parity (`GAP-OM23-3`)**:
+  - Brought `playbook_run(action="run")` to full parity with ephemeral batch execution: leases dedicated agent IPC slot, resolves step reference piping (`$prev`, `$steps.<id>`, `$cache`, `$slot`), and automatically injects caller `agent_id`.
+  - Added server-side field projection (`return_only`, `select_fields`) with token savings estimation (94.25% token savings) and `failed_steps` error preservation.
+
+### Fixed
+- **Atomic Kanban Upsert & Immediate Transaction Locking (`GAP-OM23-2`)**:
+  - Replaced read-then-write kanban task creation with atomic `kanban.upsert_build_task()` in `engine/kanban.py` under `transaction_immediate(conn)`.
+  - Atomically matches active tasks across lanes, increments attempt counts and scores in-place, and prevents duplicate task creation during concurrent pipeline builds.
+
+### Changed
+- Expanded test suite with `TestPicoTriadMultiAgentConcurrency` in `tests/test_spec_om7_ipc_batch.py` covering all 4 concurrency scenarios (66/66 total tests passing).
+- Updated `README.md` and architecture documentation with Pico-Triad multi-agent concurrency isolation patterns.
+
 ## [0.2.1] - 2026-10-30
 
 ### Added

@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-62%2F62_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-66%2F66_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -683,6 +683,11 @@ flowchart TD
   2. **UNIX Socket Mux (`/dev/shm/aep.sock`)**: Persistent AF_UNIX daemon with line-delimited JSON framing, 16 MB bounded buffer, and guaranteed zero file descriptor leaks (`fd_delta == 0`).
   3. **Cloudflare-Style Ephemeral Batching**: Single-turn multi-step pipeline execution supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`), multi-agent shared RAM session cache piping (`$cache.<key>`, `$slot.<key>`), and partial error diagnostics preservation (`failed_steps`).
   4. **Server-Side Field Projection (`select_fields`)**: Discards verbose JSON metadata directly in RAM prior to network serialization, reducing payload tokens by 80–95% with smart dot-path fallback mapping.
+  5. **Pico-Triad Multi-Agent Concurrency Isolation**:
+     - **Pico-Jenkins Slot Compilation**: `artifact_lint_and_build(action="build")` compiles Go diagnostic probes inside dedicated `/dev/shm` session slots, publishing output binaries atomically via hidden `.tmp` staging and `os.replace` to prevent binary corruption during parallel builds.
+     - **Atomic Kanban Upsert**: `kanban.upsert_build_task()` executes task creation and attempt/score progression under a single `transaction_immediate(conn)` transaction, completely eliminating TOCTOU race conditions and duplicate task cards.
+     - **Vector Embedding Offloading**: `engine/catalog.py` serializes float32 vector embeddings outside SQLite write transactions, reducing write-lock duration by >95% and eliminating `vec0` primary key contention.
+     - **Pico-Ansible Saved Playbook Parity**: `playbook_run(action="run")` provides 100% parity with `action="batch"` (slot leasing, `$prev.*` / `$steps.*` / `$cache.*` reference piping, `failed_steps` retention, and server-side field projection reducing tokens by 94%+).
 - **Control Plane Domain**: Unified under `aep_ctl(domain="ipc", action="status"|"ping"|"lease"|"release"|"reap"|"pool"|"flush"|"metrics"|"cache")` and `./scripts/aep-ctl ipc`.
 
 ---

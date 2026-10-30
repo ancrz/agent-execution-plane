@@ -240,6 +240,7 @@ class ArtifactCatalog:
         intent_hash = self.compute_intent_hash(intent, category)
         binary_hash = hashlib.sha256(binary_blob).hexdigest() if binary_blob else None
         description = intent_description.strip() or intent.strip()
+        precomputed_vec = self._precompute_embedding(description)
 
         with self._get_rw_conn() as conn:
             with transaction_immediate(conn):
@@ -279,23 +280,53 @@ class ArtifactCatalog:
                 ).fetchone()
                 real_id = row["id"] if row else new_id
 
-                # Embedding en el tier vectorial. Falla aislada: nunca rompe el registro.
-                self._upsert_embedding(conn, real_id, description)
+                # Embedding en el tier vectorial con vector precalculado fuera del lock.
+                self._upsert_embedding(conn, real_id, description, precomputed_vec=precomputed_vec)
         return real_id
 
-    def _upsert_embedding(self, conn: sqlite3.Connection, artifact_id: str, text: str) -> None:
+    def _precompute_embedding(self, text: str) -> bytes | None:
+        """Pre-compute serialized vector embedding OUTSIDE SQLite write transaction."""
         if not self._vec_available or sqlite_vec is None:
-            return
+            return None
         embedder = get_instance()
         if not embedder.is_available:
-            return
+            return None
         vec = embedder.embed(text)
         if vec is None:
-            return
+            return None
         try:
+            return sqlite_vec.serialize_float32(vec)
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.debug("Failed serializing vector embedding: %s", e)
+            return None
+
+    def _upsert_embedding(
+        self,
+        conn: sqlite3.Connection,
+        artifact_id: str,
+        text: str,
+        precomputed_vec: bytes | None = None,
+    ) -> None:
+        if not self._vec_available or sqlite_vec is None:
+            return
+        vec_bytes = precomputed_vec
+        if vec_bytes is None:
+            embedder = get_instance()
+            if not embedder.is_available:
+                return
+            vec = embedder.embed(text)
+            if vec is None:
+                return
+            try:
+                vec_bytes = sqlite_vec.serialize_float32(vec)
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.debug("Failed serializing vector embedding: %s", e)
+                return
+        try:
+            conn.execute("DELETE FROM vec_artifacts WHERE artifact_id = ?", (artifact_id,))
             conn.execute(
-                "INSERT OR REPLACE INTO vec_artifacts (artifact_id, intent_embedding) VALUES (?, ?)",
-                (artifact_id, sqlite_vec.serialize_float32(vec)),
+                "INSERT INTO vec_artifacts (artifact_id, intent_embedding) VALUES (?, ?)",
+                (artifact_id, vec_bytes),
             )
         except (sqlite3.Error, OSError) as e:
             logger.debug("Failed upserting embedding for %s: %s", artifact_id, e)

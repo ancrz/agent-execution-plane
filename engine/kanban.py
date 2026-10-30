@@ -102,17 +102,20 @@ class KanbanBoard:
     def _artifact_stats(self, conn: sqlite3.Connection, name: str | None) -> dict[str, Any]:
         if not name:
             return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
-        row = conn.execute(
-            "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name = ?", (name,)
-        ).fetchone()
-        if not row:
+        try:
+            row = conn.execute(
+                "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name = ?", (name,)
+            ).fetchone()
+            if not row:
+                return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
+            return {
+                "success_rate": row["success_rate"],
+                "execution_count": row["execution_count"],
+                "exists": True,
+                "days_since": ponder.days_since(row["updated_at"]),
+            }
+        except sqlite3.OperationalError:
             return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
-        return {
-            "success_rate": row["success_rate"],
-            "execution_count": row["execution_count"],
-            "exists": True,
-            "days_since": ponder.days_since(row["updated_at"]),
-        }
 
     # ------------------------------------------------------------------ operaciones
     def create_task(
@@ -123,14 +126,86 @@ class KanbanBoard:
         artifact_name: str | None = None,
         agent_id: str = "default",
     ) -> dict[str, Any]:
-        with self._conn() as conn:
-            cur = conn.execute(
-                "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id) "
-                "VALUES (?, ?, ?, ?, 'BACKLOG', ?)",
-                (title, intent, category, artifact_name, agent_id),
-            )
-            conn.commit()
-            return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG"}
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                cur = conn.execute(
+                    "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id) "
+                    "VALUES (?, ?, ?, ?, 'BACKLOG', ?)",
+                    (title, intent, category, artifact_name, agent_id),
+                )
+                return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG"}
+
+    def upsert_build_task(
+        self,
+        artifact_name: str,
+        intent: str = "",
+        category: str = "",
+        lint_passed: bool = True,
+        note: str | None = None,
+        agent_id: str = "default",
+    ) -> dict[str, Any]:
+        """Atomic upsert of a build task for an artifact under transaction_immediate.
+        Prevents TOCTOU duplicate task creation during concurrent Go artifact builds.
+        """
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                existing = conn.execute(
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                    "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY', 'PROMOTED') "
+                    "ORDER BY id DESC LIMIT 1",
+                    (artifact_name,),
+                ).fetchone()
+
+                if existing:
+                    target_st = existing["state"] if existing["state"] in ("CANARY", "PROMOTED") else "LINTED"
+                    lp = 1 if lint_passed else existing["lint_passed"]
+                    cp = existing["canary_passed"]
+                    stats = self._artifact_stats(conn, artifact_name)
+                    p = self._ponder(
+                        bool(lp), bool(cp), stats["success_rate"], stats["execution_count"], stats["days_since"]
+                    )
+                    conn.execute(
+                        "UPDATE kanban_tasks SET state=?, lint_passed=?, canary_passed=?, promotion_score=?, "
+                        "attempts=attempts+1, agent_id=COALESCE(?, agent_id), note=COALESCE(?, note), "
+                        "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (target_st, lp, cp, p["effective"], agent_id, note, existing["id"]),
+                    )
+                    return {
+                        "status": "OK",
+                        "task_id": existing["id"],
+                        "state": target_st,
+                        "promotion_score": p["effective"],
+                        "verdict": p["verdict"],
+                        "reused_existing": True,
+                    }
+
+                stats = self._artifact_stats(conn, artifact_name)
+                p = self._ponder(
+                    bool(lint_passed), False, stats["success_rate"], stats["execution_count"], stats["days_since"]
+                )
+                cur = conn.execute(
+                    "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, lint_passed, "
+                    "canary_passed, attempts, promotion_score, agent_id, note) "
+                    "VALUES (?, ?, ?, ?, 'LINTED', ?, 0, 1, ?, ?, ?)",
+                    (
+                        f"build:{artifact_name}",
+                        intent,
+                        category,
+                        artifact_name,
+                        1 if lint_passed else 0,
+                        p["effective"],
+                        agent_id,
+                        note,
+                    ),
+                )
+                return {
+                    "status": "OK",
+                    "task_id": cur.lastrowid,
+                    "state": "LINTED",
+                    "promotion_score": p["effective"],
+                    "verdict": p["verdict"],
+                    "reused_existing": False,
+                }
 
     def advance(
         self,

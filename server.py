@@ -6,6 +6,7 @@ asynchronous job queues (Pueue), crash forensics, and Topos DAG auditing to AI a
 """
 
 import concurrent.futures
+import contextlib
 import inspect
 import json
 import logging
@@ -14,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -646,10 +648,20 @@ async def artifact_lint_and_build(
                             tracker,
                         )
 
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    src_file = Path(tmpdir) / f"{art_name}.go"
+                eff_agent = agent_id or "default"
+                slot = GLOBAL_SESSION_POOL.acquire(session_id="pico-jenkins", agent_id=eff_agent)
+                build_id = f"build_{art_name}_{uuid.uuid4().hex[:8]}"
+                scratch_base = Path(slot["scratch_dir"])
+                build_dir = scratch_base / build_id
+                try:
+                    build_dir.mkdir(parents=True, exist_ok=True)
+                except OSError:
+                    build_dir = Path(tempfile.mkdtemp(prefix=f"build_{art_name}_"))
+
+                try:
+                    src_file = build_dir / f"{art_name}.go"
                     src_file.write_text(effective_src, encoding="utf-8")
-                    bin_file = TEMP_BIN_DIR / art_name
+                    slot_bin_file = build_dir / art_name
 
                     # 1. Validación estática con go vet
                     vet_res = subprocess.run(
@@ -675,7 +687,7 @@ async def artifact_lint_and_build(
                             ["golangci-lint", "run", str(src_file)],
                             capture_output=True,
                             text=True,
-                            cwd=tmpdir,
+                            cwd=str(build_dir),
                             timeout=30,
                             check=False,
                         )
@@ -683,19 +695,20 @@ async def artifact_lint_and_build(
                             out = (gcl.stdout or gcl.stderr or "").strip()
                             if out:
                                 lint_warnings = out.splitlines()[:20]
-                    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+                    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
                         logger.debug("golangci-lint advisory run failed or unavailable: %s", e)
                         lint_warnings = []
 
-                    # 2. Compilación estática pura (CGO_ENABLED=0)
+                    # 2. Compilación estática pura (CGO_ENABLED=0) dentro del build_dir aislado
                     start_time = time.time()
                     env = os.environ.copy()
                     env["CGO_ENABLED"] = "0"
                     build_res = subprocess.run(
-                        ["go", "build", "-ldflags=-s -w", "-o", str(bin_file), str(src_file)],
+                        ["go", "build", "-ldflags=-s -w", "-o", str(slot_bin_file), str(src_file)],
                         capture_output=True,
                         text=True,
                         env=env,
+                        cwd=str(build_dir),
                         check=False,
                     )
                     compile_latency_ms = round((time.time() - start_time) * 1000, 2)
@@ -709,7 +722,16 @@ async def artifact_lint_and_build(
                             tracker,
                         )
 
-                    binary_bytes = bin_file.read_bytes()
+                    binary_bytes = slot_bin_file.read_bytes()
+
+                    # Publicación atómica a TEMP_BIN_DIR / art_name via tmp_bin + os.replace
+                    bin_file = TEMP_BIN_DIR / art_name
+                    tmp_bin = TEMP_BIN_DIR / f".{art_name}.{uuid.uuid4().hex[:8]}.tmp"
+                    tmp_bin.write_bytes(binary_bytes)
+                    with contextlib.suppress(OSError):
+                        tmp_bin.chmod(0o755)
+                    os.replace(tmp_bin, bin_file)
+
                     artifact_id = catalog.register_artifact(
                         name=art_name,
                         intent=art_intent,
@@ -722,28 +744,16 @@ async def artifact_lint_and_build(
 
                     kanban_task_id = None
                     try:
-                        with kanban._conn_ro() as kconn:
-                            existing_kt = kconn.execute(
-                                "SELECT id, state FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
-                                "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY', 'PROMOTED') ORDER BY id DESC LIMIT 1",
-                                (art_name,),
-                            ).fetchone()
-                        if existing_kt:
-                            kanban_task_id = existing_kt["id"]
-                            target_st = existing_kt["state"] if existing_kt["state"] in ("CANARY", "PROMOTED") else "LINTED"
-                        else:
-                            kt = kanban.create_task(
-                                title=f"build:{art_name}", intent=art_intent, category=art_cat, artifact_name=art_name
-                            )
-                            kanban_task_id = kt["task_id"]
-                            target_st = "LINTED"
-                        kanban.advance(
-                            kanban_task_id,
-                            target_st,
+                        kt_res = kanban.upsert_build_task(
+                            artifact_name=art_name,
+                            intent=art_intent,
+                            category=art_cat,
                             lint_passed=True,
                             note=f"go vet OK; {len(lint_warnings)} avisos golangci-lint",
+                            agent_id=eff_agent,
                         )
-                    except Exception as e:
+                        kanban_task_id = kt_res.get("task_id")
+                    except Exception as e:  # noqa: BLE001
                         logger.debug("Kanban task advance failed for %s: %s", art_name, e)
 
                     return attach_envelope(
@@ -757,10 +767,18 @@ async def artifact_lint_and_build(
                             "compile_time_ms": compile_latency_ms,
                             "lint_warnings": lint_warnings,
                             "kanban_task_id": kanban_task_id,
+                            "ipc_slot": {
+                                "slot_id": slot["slot_id"],
+                                "agent_id": eff_agent,
+                                "scratch_dir": str(slot["scratch_dir"]),
+                            },
                         },
                         tracker,
                         verbosity=verbosity,
                     )
+                finally:
+                    shutil.rmtree(build_dir, ignore_errors=True)
+                    GLOBAL_SESSION_POOL.release("pico-jenkins", eff_agent, clear_state=False)
 
             return attach_envelope(
                 {
@@ -857,16 +875,27 @@ async def artifact_execute_in_ram(
         bin_file = TEMP_BIN_DIR / resolved_name
         elf_bytes: bytes | None = None
         if bin_file.exists():
-            elf_bytes = bin_file.read_bytes()
-        else:
+            try:
+                raw_elf = bin_file.read_bytes()
+                if len(raw_elf) >= 4 and raw_elf[:4] == b"ELF":
+                    elf_bytes = raw_elf
+            except Exception:  # noqa: BLE001
+                elf_bytes = None
+
+        if not elf_bytes:
             blob = catalog.get_binary_blob(resolved_name)
             if not blob:
                 alt_name = name.replace("-", "_") if "-" in name else name.replace("_", "-")
                 if (TEMP_BIN_DIR / alt_name).exists():
-                    resolved_name = alt_name
-                    bin_file = TEMP_BIN_DIR / resolved_name
-                    elf_bytes = bin_file.read_bytes()
-                else:
+                    try:
+                        raw_elf = (TEMP_BIN_DIR / alt_name).read_bytes()
+                        if len(raw_elf) >= 4 and raw_elf[:4] == b"ELF":
+                            resolved_name = alt_name
+                            bin_file = TEMP_BIN_DIR / resolved_name
+                            elf_bytes = raw_elf
+                    except Exception:  # noqa: BLE001
+                        elf_bytes = None
+                if not elf_bytes:
                     blob = catalog.get_binary_blob(alt_name)
                     if blob:
                         resolved_name = alt_name
@@ -874,9 +903,12 @@ async def artifact_execute_in_ram(
             if blob and not elf_bytes:
                 elf_bytes = blob
                 try:
-                    bin_file.write_bytes(blob)
-                    bin_file.chmod(0o755)
-                except Exception as e:
+                    tmp_bin = TEMP_BIN_DIR / f".{resolved_name}.{uuid.uuid4().hex[:8]}.tmp"
+                    tmp_bin.write_bytes(blob)
+                    with contextlib.suppress(OSError):
+                        tmp_bin.chmod(0o755)
+                    os.replace(tmp_bin, bin_file)
+                except Exception as e:  # noqa: BLE001
                     logger.debug("Failed writing binary cache %s: %s", bin_file, e)
 
         if not elf_bytes:
@@ -2762,53 +2794,171 @@ async def playbook_run(
                     verbosity=verbosity,
                 )
 
+            eff_sid = (
+                (effective_vars.get("session_id") if isinstance(effective_vars, dict) else None)
+                or (params.get("session_id") if isinstance(params, dict) else None)
+                or f"playbook-{name.strip()}"
+            )
+            eff_agent = agent_id or "default"
+            slot = GLOBAL_SESSION_POOL.acquire(session_id=eff_sid, agent_id=eff_agent)
+
             dispatch = _playbook_dispatch()
+            step_outputs: dict[str, Any] = {}
+            prev_output: Any = None
             results: list[dict[str, Any]] = []
             all_ok = True
-            for step in v["ordered_steps"]:
-                tool, step_params = step["tool"], dict(step.get("params", {}))
-                fn = dispatch.get(tool)
-                if fn is None:
-                    results.append({"id": step["id"], "tool": tool, "status": "NOT_ALLOWED", "ok": False})
-                    all_ok = False
-                    if stop_on_error:
-                        break
-                    continue
-                try:
-                    sig = inspect.signature(fn)
-                    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-                    if not has_var_kw:
-                        step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
-                    if is_compact and "verbosity" not in step_params and ("verbosity" in sig.parameters or has_var_kw):
-                        step_params["verbosity"] = "summary"
-                    raw = fn(**step_params)
-                    if inspect.iscoroutine(raw):
-                        raw = await raw
-                    out = json.loads(raw) if isinstance(raw, str) else raw
-                    st = out.get("status", "OK") if isinstance(out, dict) else "OK"
-                    if is_compact and isinstance(out, dict):
-                        out.pop("envelope", None)
-                except Exception as e:
-                    st, out = "ERROR", {"error": str(e)}
-                ok = st not in _PLAYBOOK_FAIL
-                results.append({"id": step["id"], "tool": tool, "status": st, "ok": ok, "output": out})
-                if not ok:
-                    all_ok = False
-                    if stop_on_error:
-                        break
+            slot_cache_dict = dict(GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("cache", {}))
+
+            try:
+                for step in v["ordered_steps"]:
+                    sid = str(step.get("id", f"s{len(results)+1}"))
+                    tool = step.get("tool")
+                    step_params = dict(step.get("params", {}))
+
+                    # Resolve variable piping from previous outputs (.*, .<id>.*, .*, .*)
+                    step_params = resolve_step_refs(step_params, step_outputs, prev_output, slot_cache=slot_cache_dict)
+
+                    fn = dispatch.get(tool)
+                    if fn is None:
+                        results.append({"id": sid, "tool": tool, "status": "NOT_ALLOWED", "ok": False})
+                        all_ok = False
+                        if stop_on_error:
+                            break
+                        continue
+
+                    try:
+                        sig = inspect.signature(fn)
+                        if "agent_id" not in step_params and "agent_id" in sig.parameters:
+                            step_params["agent_id"] = eff_agent
+
+                        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                        if not has_var_kw:
+                            step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
+                        if is_compact and "verbosity" not in step_params and ("verbosity" in sig.parameters or has_var_kw):
+                            step_params["verbosity"] = "summary"
+                        raw = fn(**step_params)
+                        if inspect.iscoroutine(raw):
+                            raw = await raw
+                        out = json.loads(raw) if isinstance(raw, str) else raw
+                        st = out.get("status", "OK") if isinstance(out, dict) else "OK"
+                        if is_compact and isinstance(out, dict):
+                            out.pop("envelope", None)
+                    except Exception as e:
+                        st, out = "ERROR", {"error": str(e)}
+
+                    ok = st not in _PLAYBOOK_FAIL
+                    step_res = {"id": sid, "tool": tool, "status": st, "ok": ok, "output": out}
+                    results.append(step_res)
+                    step_outputs[sid] = out
+                    prev_output = out
+
+                    if ok:
+                        GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, sid, out)
+                        slot_cache_dict[sid] = out
+                        if step.get("store_as"):
+                            k_as = str(step["store_as"]).strip()
+                            if k_as:
+                                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, k_as, out)
+                                slot_cache_dict[k_as] = out
+
+                    if not ok:
+                        all_ok = False
+                        if stop_on_error:
+                            break
+            finally:
+                GLOBAL_SESSION_POOL.release(session_id=eff_sid, agent_id=eff_agent, clear_state=False)
 
             playbook_store.record_run(name.strip(), all_ok)
-            return attach_envelope(
+
+            ret_mode = (return_only or "all").strip().lower()
+            pb_name = name.strip()
+
+            base_res: dict[str, Any] = {
+                "status": "OK" if all_ok else "PARTIAL",
+                "playbook": pb_name,
+                "all_ok": all_ok,
+                "steps_run": len(results),
+            }
+
+            failed_steps = [
                 {
-                    "status": "OK" if all_ok else "PARTIAL",
-                    "playbook": name.strip(),
-                    "all_ok": all_ok,
-                    "steps_run": len(results),
-                    "results": results,
-                },
+                    "id": r["id"],
+                    "tool": r["tool"],
+                    "status": r["status"],
+                    "error": (
+                        (r.get("output") or {}).get("error")
+                        or (r.get("output") or {}).get("message")
+                        if isinstance(r.get("output"), dict)
+                        else str(r.get("output"))
+                    ),
+                }
+                for r in results
+                if not r.get("ok")
+            ]
+            if failed_steps:
+                base_res["failed_steps"] = failed_steps
+
+            if ret_mode == "last":
+                base_res["output"] = prev_output
+            elif ret_mode == "summary":
+                base_res["steps_summary"] = [
+                    {"id": r["id"], "tool": r["tool"], "status": r["status"], "ok": r["ok"]}
+                    for r in results
+                ]
+            else:  # "all"
+                base_res["results"] = results
+
+            base_res["ipc_slot"] = {
+                "slot_id": slot["slot_id"],
+                "agent_id": eff_agent,
+                "reuse_count": slot["reuse_count"],
+                "scratch_dir": str(slot["scratch_dir"]),
+                "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
+                "cached_keys": GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("keys", []),
+            }
+
+            if select_fields and isinstance(select_fields, list):
+                full_json = json.dumps(base_res)
+                full_bytes = len(full_json.encode("utf-8"))
+
+                projected_res = project_fields(base_res, select_fields)
+                if "status" not in projected_res:
+                    projected_res["status"] = base_res.get("status", "OK")
+                if "playbook" not in projected_res:
+                    projected_res["playbook"] = pb_name
+                if failed_steps and "failed_steps" not in projected_res:
+                    projected_res["failed_steps"] = failed_steps
+                proj_json = json.dumps(projected_res)
+                proj_bytes = len(proj_json.encode("utf-8"))
+
+                saved_bytes = max(0, full_bytes - proj_bytes)
+                savings_pct = round((saved_bytes / full_bytes * 100), 2) if full_bytes > 0 else 0.0
+
+                projected_res["token_savings_estimate"] = {
+                    "full_bytes": full_bytes,
+                    "projected_bytes": proj_bytes,
+                    "saved_bytes": saved_bytes,
+                    "savings_pct": savings_pct,
+                    "turns_saved": max(0, len(results) - 1),
+                }
+                final_res = projected_res
+            else:
+                full_json = json.dumps(base_res)
+                full_bytes = len(full_json.encode("utf-8"))
+                base_res["token_savings_estimate"] = {
+                    "full_bytes": full_bytes,
+                    "projected_bytes": full_bytes,
+                    "saved_bytes": 0,
+                    "savings_pct": 0.0,
+                    "turns_saved": max(0, len(results) - 1),
+                }
+                final_res = base_res
+
+            return attach_envelope(
+                final_res,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Playbook '{name.strip()}' finished ({len(results)} steps, all_ok={all_ok}).",
+                summary=f"Playbook '{pb_name}' finished ({len(results)} steps, all_ok={all_ok}).",
             )
 
         elif act == "create":
@@ -2915,6 +3065,9 @@ async def playbook_run(
 
                     try:
                         sig = inspect.signature(fn)
+                        if "agent_id" not in step_params and "agent_id" in sig.parameters:
+                            step_params["agent_id"] = eff_agent
+
                         has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
                         if not has_var_kw:
                             step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
@@ -2992,6 +3145,7 @@ async def playbook_run(
 
             base_res["ipc_slot"] = {
                 "slot_id": slot["slot_id"],
+                "agent_id": eff_agent,
                 "reuse_count": slot["reuse_count"],
                 "scratch_dir": str(slot["scratch_dir"]),
                 "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),

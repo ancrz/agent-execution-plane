@@ -416,3 +416,195 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
             assert "lanes" in res["results"][0]["output"]
 
         asyncio.run(_run())
+
+
+# ==============================================================================
+# 8. Milestone ONT-23: Pico-Triad Multi-Agent Concurrency Isolation Tests
+# ==============================================================================
+
+class TestPicoTriadMultiAgentConcurrency:
+    def test_concurrent_pico_jenkins_go_builds_no_collision(self):
+        async def _run():
+            # Clean up any existing tasks for concurrent_mem_stat
+            with server.kanban._conn_rw() as conn:
+                conn.execute(
+                    "DELETE FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat'"
+                )
+
+            agents = ["pragma", "dokimos", "archon", "ontos"]
+            build_coros = [
+                server.artifact_lint_and_build(
+                    action="build",
+                    template_name="mem-stat",
+                    name="concurrent_mem_stat",
+                    agent_id=agent,
+                )
+                for agent in agents
+            ]
+            raw_build_results = await asyncio.gather(*build_coros)
+
+            for agent, raw in zip(agents, raw_build_results):
+                data = json.loads(raw)
+                assert data["status"] == "SUCCESS", f"Build failed for {agent}: {data}"
+                assert data["name"] == "concurrent_mem_stat"
+                assert "ipc_slot" in data
+                assert data["ipc_slot"]["agent_id"] == agent
+                bin_path = Path(data["binary_path"])
+                assert bin_path.exists()
+                assert bin_path.read_bytes()[:4] == b"\x7fELF"
+
+            # Verify Kanban tasks immediately after 4 concurrent builds:
+            # exactly 1 active task for concurrent_mem_stat with attempts == 4
+            with server.kanban._conn_ro() as conn:
+                tasks = conn.execute(
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat' AND archived = 0"
+                ).fetchall()
+                assert len(tasks) == 1
+                assert tasks[0]["attempts"] == 4
+                assert tasks[0]["state"] == "LINTED"
+
+            # Execute in RAM concurrently across agents
+            exec_coros = [
+                server.artifact_execute_in_ram(name="concurrent_mem_stat", agent_id=agent)
+                for agent in agents
+            ]
+            raw_exec_results = await asyncio.gather(*exec_coros)
+            for agent, raw in zip(agents, raw_exec_results):
+                ex_data = json.loads(raw)
+                assert ex_data["status"] == "SUCCESS", f"Execution failed for {agent}: {ex_data}"
+                assert ex_data.get("exit_code") == 0
+
+            # Canary execution updates kanban task: attempts == 8, canary_passed == 1
+            with server.kanban._conn_ro() as conn:
+                tasks_after = conn.execute(
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat' AND archived = 0"
+                ).fetchall()
+                assert len(tasks_after) == 1
+                assert tasks_after[0]["attempts"] == 8
+                assert tasks_after[0]["canary_passed"] == 1
+
+        asyncio.run(_run())
+
+    def test_atomic_kanban_upsert_build_task_concurrency(self, tmp_path: Path):
+        from engine.kanban import KanbanBoard
+
+        k = KanbanBoard(db_path=tmp_path / "k.db")
+        results = []
+        errors = []
+        lock = threading.Lock()
+
+        def worker(idx: int):
+            try:
+                res = k.upsert_build_task(
+                    artifact_name="shared_go_probe",
+                    intent="concurrency test",
+                    category="test",
+                    lint_passed=True,
+                    agent_id=f"agent_{idx}",
+                    note=f"concurrent run {idx}",
+                )
+                with lock:
+                    results.append(res)
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Errors during concurrent upsert: {errors}"
+        assert len(results) == 8
+        task_ids = {r["task_id"] for r in results}
+        assert len(task_ids) == 1, f"Expected 1 unique task_id, got: {task_ids}"
+        assert all(r["status"] == "OK" for r in results)
+        assert all(r["state"] == "LINTED" for r in results)
+
+        with k._conn_ro() as conn:
+            rows = conn.execute("SELECT * FROM kanban_tasks WHERE artifact_name = 'shared_go_probe'").fetchall()
+            assert len(rows) == 1
+            assert rows[0]["attempts"] == 8
+            assert rows[0]["id"] == list(task_ids)[0]
+
+    def test_pico_ansible_saved_playbook_multi_agent_isolation_and_piping(self):
+        async def _run():
+            pb_name = "pb_multi_isolation"
+            steps = [
+                {"id": "s1", "tool": "process_inspect", "params": {"pid": 0}},
+                {"id": "s2", "tool": "kanban_board", "params": {"action": "board", "limit": 2}},
+            ]
+            res_create = json.loads(
+                await server.playbook_run(
+                    action="create",
+                    name=pb_name,
+                    description="Multi agent isolation test",
+                    steps=steps,
+                )
+            )
+            assert res_create["status"] == "OK"
+
+            agents = ["agent_alpha", "agent_beta", "agent_gamma", "agent_delta"]
+            coros = [
+                server.playbook_run(
+                    action="run",
+                    name=pb_name,
+                    return_only="last",
+                    select_fields=["status", "counts", "ipc_slot"],
+                    agent_id=agent,
+                )
+                for agent in agents
+            ]
+            raw_results = await asyncio.gather(*coros)
+
+            for agent, raw in zip(agents, raw_results):
+                data = json.loads(raw)
+                assert data["status"] == "OK", f"Playbook run failed for {agent}: {data}"
+                assert "ipc_slot" in data
+                assert data["ipc_slot"]["agent_id"] == agent
+                assert "output" in data
+                assert "token_savings_estimate" in data
+                assert "counts" in data["output"] or "lanes" in data["output"] or "status" in data
+
+        asyncio.run(_run())
+
+    def test_catalog_register_artifact_precomputed_embedding_concurrency(self, tmp_path: Path):
+        from engine.catalog import ArtifactCatalog
+
+        cat = ArtifactCatalog(db_path=tmp_path / "cat.db")
+        ids = []
+        errors = []
+        lock = threading.Lock()
+
+        def worker(idx: int):
+            try:
+                aid = cat.register_artifact(
+                    name="concurrent_vec_art",
+                    intent=f"Concurrent embedding registration test {idx}",
+                    category="test",
+                    cue_contract="package schema",
+                    go_source="package main\nfunc main() {}",
+                    binary_blob=b"\x7fELFfaketest",
+                )
+                with lock:
+                    ids.append(aid)
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Concurrent register_artifact failed: {errors}"
+        assert len(ids) == 4
+        assert len(set(ids)) == 1
+
+        with cat._get_ro_conn() as conn:
+            row = conn.execute("SELECT * FROM artifacts WHERE name = 'concurrent_vec_art'").fetchone()
+            assert row is not None
+            assert row["version"] == 4
+
