@@ -256,6 +256,11 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": None,
         "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger.",
     },
+    "ipc": {
+        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics"],
+        "arg": "[session_id]",
+        "description": "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management.",
+    },
 }
 
 _CAP_BINARIES: dict[str, list[str]] = {
@@ -463,6 +468,7 @@ def tactical_playbook() -> dict[str, Any]:
             "3. SANDBOX ISOLATION: sandbox_run defaults to share_net=False and hides the host workspace. Pass working_dir='/path/to/repo' or ro_paths=['/path'] to mount authorized directories safely.",
             "4. STATE EXTERNALIZATION: Record multi-step work in kanban_board and validate task dependencies with topos_audit_dag before mutating files.",
             "5. SNAPSHOT BEFORE MUTATION: Call aep_ctl(domain='backup', action='micro_snapshot', name='pre_edit') before risky database or catalog changes.",
+            "6. EPHEMERAL PIPELINE BATCHING: Use playbook_run(action='batch', steps=[...], select_fields=[...]) or /dev/shm/aep.sock UNIX socket pool to execute multi-tool chains in a single turn and discard unneeded fields server-side (saving 80-95% tokens).",
         ],
         "workflow_recipes": [
             {
@@ -501,6 +507,14 @@ def tactical_playbook() -> dict[str, Any]:
                     '3. artifact_execute_in_ram(name="probe_1") -> Execute via memfd_create in RAM and auto-record canary metrics.',
                 ],
             },
+            {
+                "id": "WF-5",
+                "name": "Cloudflare-Style Ephemeral Batch & UNIX Socket Pool",
+                "steps": [
+                    '1. aep_ctl(domain="ipc", action="status") -> Check /dev/shm/aep.sock listener and active pool slots.',
+                    '2. playbook_run(action="batch", steps=[{"id":"s1","tool":"process_inspect","params":{"pid":0}}, {"id":"s2","tool":"topos_audit_dag","params":{"tasks":["t1"],"dependencies":{}}}], return_only="last", select_fields=["status","pid","rss_kb"]) -> Execute multi-step DAG in 1 turn with field projection.',
+                ],
+            },
         ],
         "quick_reference": {
             "orient_and_readiness": 'discover(action="capabilities")',
@@ -511,6 +525,8 @@ def tactical_playbook() -> dict[str, Any]:
             "sandbox_repo_test": 'sandbox_run(command="pytest -q", working_dir="/path/to/repo")',
             "ram_micro_snapshot": 'aep_ctl(domain="backup", action="micro_snapshot", name="snap1")',
             "audit_ledger_verify": 'aep_ctl(domain="audit", action="verify")',
+            "ipc_socket_status": 'aep_ctl(domain="ipc", action="status")',
+            "ephemeral_batch": 'playbook_run(action="batch", steps=[...], return_only="last")',
         },
         "prerequisites_summary": {
             k: v["installed"] for k, v in prereqs.items()

@@ -1,9 +1,9 @@
 # Feature Chain Rollup: Pipeline Milestone History (Documents 1–16)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T06:52:00Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 21 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md`](feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T11:05:00Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 22 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
+- **Current Active Document**: [`feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md`](feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 21)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 22)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -39,7 +39,8 @@ flowchart LR
         D20["Doc 20: 013500<br/>(ONT-15: Self-Evolutionary Suite & Kali Semantics)"]
         D21["Doc 21: 065200<br/>(ONT-18: Topos Anti-Cascade Battery & Setup Hardening)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15 --> D16 --> D17 --> D18 --> D19 --> D20 --> D21
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15 --> D16 --> D17 --> D18 --> D19 --> D20 --> D21 --> D22
+        D22["Doc 22: 110500<br/>(ONT-21: Spec OM-7 IPC Socket Pool & Code Batch Mode)"]
     end
 ```
 
@@ -71,6 +72,7 @@ flowchart LR
 | **19** | `feature_20261030_003000_aep_agent_experience_evaluation.md` | Agent Experience Evaluation Suite (Gemini Flash 3.8 High & ChatGPT Terra Medium reports). Benchmarked 15 FastMCP tools, evaluated developer ergonomics, token overhead, and error recovery workflows. 39 passed in `tests/test_agent_experience_evaluation.py`. | **15 (18 Capabilities, 1:1 Parity)** | Empirical measurement of LLM agent interaction patterns, tool telemetry, and failure mode recovery. |
 | **20** | `feature_20261030_013500_self_evolutionary_suite_and_kali_semantics.md` | Milestone ONT-15: Self-Evolutionary Suite & Kali-Style Semantic Ergonomics. Hermetic clean-install bootstrap in `catalog.py`/`kanban.py` (table guards on `_migrate`), single-source `CONTROL_PLANE_SCHEMA` in `privilege.py`, bwrap network isolation default (`share_net=False`), `RequestTelemetry` and envelope formatting, `discover` playbook `EAES-v2-Kali-Semantic`. 39/39 passed. Task 120 `PROMOTED`. | **15 (18 Capabilities, 1:1 Parity)** | Hermetic bootstrap without pre-existing HOME; bwrap sandbox blocks private paths by default; response token payloads reduced 70-85%. |
 | **21** | `feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md` | Milestone ONT-18: Topos Anti-Cascade Omission Battery & Installation Pipeline Hardening. COALESCE `binary_blob`/`hash` upsert in `engine/catalog.py` to prevent ELF payload wipe on setup re-run, Pueue release tag regex fix in `scripts/setup.sh`, Step 8 quoted heredoc probe seeding with probe aliases (`socket_monitor`/`fd_rescuer`), `setup.sh --check` schema validation & zero-canary verification, 43 regression tests suite, doc badges. Task 122 `PROMOTED` (Score: 0.9940 TRUST, 43/43 Tests Passed). | **15 (18 Capabilities, 1:1 Parity)** | $X_1 \not\to X_2 \not\to X_1$: Re-running installer never wipes compiled binary payloads; diagnostics never mutate production state. |
+| **22** | `feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md` | Milestone ONT-21: Spec OM-7 Shared-Memory UNIX Socket Pool (`/dev/shm/aep.sock`), Cloudflare-Style Ephemeral Batch/Code Mode with Server-Side Field Projection, control plane `ipc` domain, and SDD. Task 129 `PROMOTED` (Score: 1.0 TRUST, 58/58 Tests Passed, 0.52ms IPC, 74.6%–96.98% Token Reduction). | **15 (18 Capabilities, 1:1 Parity)** | Sub-millisecond warm IPC via `/dev/shm`; server-side field projection eliminates token waste; atomic cleanup of socket on exit. |
 
 ---
 
@@ -122,3 +124,6 @@ flowchart LR
 11. **Topos Anti-Cascade & Idempotent Catalog Seeding Invariant**:
     - Artifact upserts in SQLite (`register_artifact`) must use `COALESCE(excluded.binary_blob, artifacts.binary_blob)` and `COALESCE(excluded.binary_hash, artifacts.binary_hash)` on name conflict, preventing binary_blob wipe cascades ($X_1 \not\to X_2 \not\to X_1$) during repeated installer or bootstrap executions.
     - Diagnostics and verification gates (`setup.sh --check`) must never seed canary artifacts into production catalogs (`auto_seed_canary=False`) and must assert schema column integrity directly against active SQLite stores.
+12. **Shared-Memory IPC & Server-Side Field Projection Invariant (Spec OM-7)**:
+    - IPC communication via UNIX domain sockets in `/dev/shm` must maintain warm connection reuse, strict file descriptor ownership with zero FD leaks, and graceful fallback to stdio.
+    - Server-side field projection must filter responses before serialization to bound context window consumption.

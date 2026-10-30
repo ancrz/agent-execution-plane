@@ -38,6 +38,14 @@ from engine.backup import (
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
+from engine.ipc_pool import (
+    GLOBAL_SESSION_POOL,
+    GLOBAL_SOCKET_MUX,
+    ensure_ipc_server_started,
+    ipc_client_request,
+    project_fields,
+    resolve_step_refs,
+)
 from engine.kanban import KanbanBoard
 from engine.landlock import get_landlock_status
 from engine.playbook import PlaybookStore
@@ -67,7 +75,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
 2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-4`) and canonical calls.
-3. `aep_ctl(action="schema")` -> Returns the complete 7-domain control-plane contract without requiring a dummy domain.
+3. `aep_ctl(action="schema")` -> Returns the complete 8-domain control-plane contract without requiring a dummy domain.
 
 ## 2. Complete 15-Tool Suite Map (6 Operational Domains)
 - **Domain 1 — Orientation, Synthesis & In-RAM Execution**:
@@ -86,11 +94,11 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   10. `diagnose_system_crashes(action="diagnose"|"alerts", limit=5, verbosity="summary")` *(deduplicated systemd errors & coredumps)*
   11. `kernel_trace(mode="syscall_count"|"file_opens"|"tcp_connect"|"security_open_denials"|"security_landlock_audit"|"security_exec_monitor", duration_sec=2, verbosity="summary")`
 - **Domain 5 — Unified System Control, Man-Pages & Visual Capture**:
-  12. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
+  12. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit"|"ipc", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
   13. `query_system_docs(query="bwrap ro-bind", ingest_command=None, limit=3, verbosity="summary")` *(offline `sqlite-vec` man-pages)*
   14. `visual_inspect(url="http://localhost:8000", include_base64=False, verbosity="summary")` *(renders in headless Chromium to `/dev/shm/aep_shot_*.png`, returning path + sha256 + text excerpt in ~275 tokens)*
 - **Domain 6 — DAG Workflow Orchestration**:
-  15. `playbook_run(action="run"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, verbosity="summary")`
+  15. `playbook_run(action="run"|"batch"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, steps=[...], select_fields=[...], verbosity="summary")`
 
 ## 3. Rules of Engagement (Token Efficiency & Safety)
 - Always pass `verbosity="summary"` (supported across all 15/15 tools) for 70-98% token savings.
@@ -2075,6 +2083,52 @@ async def aep_ctl(
                 res_obj = verify_audit_chain(conn)
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
+        elif d == "ipc":
+            if a == "status":
+                pool_status = GLOBAL_SESSION_POOL.status()
+                mux_status = GLOBAL_SOCKET_MUX.status()
+                res_obj = {
+                    "status": "OK",
+                    "ipc_socket": str(GLOBAL_SOCKET_MUX.socket_path),
+                    "socket_active": GLOBAL_SOCKET_MUX.is_running,
+                    "session_pool": pool_status,
+                    "mux": mux_status,
+                }
+            elif a == "ping":
+                ensure_ipc_server_started()
+                res_obj = ipc_client_request({"action": "ping"})
+            elif a == "lease":
+                sid = eff_name.strip() if eff_name and eff_name.strip() else "ctl-default"
+                slot = GLOBAL_SESSION_POOL.acquire(session_id=sid, agent_id=agent_id or "aep-ctl")
+                res_obj = {"status": "OK", "leased_slot": slot}
+            elif a == "release":
+                sid = eff_name.strip() if eff_name and eff_name.strip() else "ctl-default"
+                res = GLOBAL_SESSION_POOL.release(session_id=sid, agent_id=agent_id or "aep-ctl", clear_state=False)
+                res_obj = {"status": "OK", "released": res}
+            elif a == "reap":
+                reaped = GLOBAL_SESSION_POOL.reap_expired()
+                res_obj = {"status": "OK", "reaped_count": reaped}
+            elif a == "pool":
+                res_obj = {"status": "OK", "pool": GLOBAL_SESSION_POOL.status()}
+            elif a == "flush":
+                flushed = GLOBAL_SESSION_POOL.flush()
+                res_obj = {"status": "OK", "flushed_count": flushed}
+            elif a == "metrics":
+                p_st = GLOBAL_SESSION_POOL.status()
+                m_st = GLOBAL_SOCKET_MUX.status()
+                res_obj = {
+                    "status": "OK",
+                    "active_sessions": p_st["active_count"],
+                    "idle_slots": p_st["idle_count"],
+                    "allocated_slots": p_st["allocated_count"],
+                    "total_requests": m_st.get("total_requests", 0),
+                    "active_clients": m_st.get("active_clients", 0),
+                    "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
+                }
+            else:
+                res_obj = {"status": "ERROR", "error": f"Acción de ipc desconocida: {a}", "valid": valid_actions}
+            return attach_envelope(res_obj, tracker, verbosity=verbosity)
+
         if not AEP_CTL.exists():
             return attach_envelope(
                 {"status": "ERROR", "error": f"aep-ctl no encontrado en {AEP_CTL}"},
@@ -2643,20 +2697,26 @@ async def playbook_run(
     stop_on_error: bool = True,
     description: str | None = None,
     intent_description: str | None = None,
-    steps: list[dict[str, Any]] | None = None,
+    steps: list[dict[str, Any]] | str | None = None,
     params_contract: list[dict[str, Any]] | None = None,
     names: list[str] | None = None,
     apply: bool = False,
     verbosity: str = "summary",
     agent_id: str = "default",
+    return_only: str = "all",
+    select_fields: list[str] | None = None,
 ) -> str:
     """
-    [PICO-PLAYBOOK UNIFICADO] Orquestación y ejecución de automatizaciones DAG parametrizables.
+    [PICO-PLAYBOOK UNIFICADO] Orquestación y ejecución de automatizaciones DAG parametrizables y pipelines efímeros.
     action:
       - 'run' (default): instancia y ejecuta un playbook en orden topológico (requiere `name`; `vars` o `params` hidrata marcadores `${var}`).
+      - 'batch' | 'code' | 'ephemeral' | 'pipeline': ejecuta una secuencia efímera de pasos en un solo turno, reutilizando slots en RAM (/dev/shm) con Server-Side Field Projection.
       - 'create': define una automatización parametrizable y valida su DAG (requiere `name`, `description` y `steps`).
       - 'list': lista los playbooks guardados con su tasa de éxito, número de pasos y contratos.
       - 'prune': poda destructiva segura de playbooks con fallo demostrado (éxito < 0.70) o explícitos en `names` (apply=False -> DRY_RUN).
+    Parámetros de batch:
+      - `return_only`: 'all' (defecto), 'last' (solo output del último paso), o 'summary' (resumen booleano por paso).
+      - `select_fields`: lista de dot-paths (ej: ['status', 'results.0.output.pid']) para proyectar la respuesta en RAM y ahorrar tokens.
     """
     act = (action or "run").strip().lower()
     tracker = RequestTelemetry("playbook_run", act)
@@ -2767,6 +2827,183 @@ async def playbook_run(
         elif act == "list":
             return attach_envelope({"status": "OK", "playbooks": playbook_store.list()}, tracker)
 
+        elif act in ("batch", "code", "ephemeral", "pipeline"):
+            raw_steps = steps
+            if isinstance(raw_steps, str):
+                try:
+                    raw_steps = json.loads(raw_steps)
+                except Exception as e:
+                    return attach_envelope(
+                        {"status": "PARAM_ERROR", "error": f"Formato JSON inválido en steps: {e}"},
+                        tracker,
+                        verbosity=verbosity,
+                    )
+            if not isinstance(raw_steps, list) or not raw_steps:
+                return attach_envelope(
+                    {
+                        "status": "PARAM_ERROR",
+                        "error": "Acción 'batch' requiere 'steps' (lista no vacía de diccionarios de pasos).",
+                    },
+                    tracker,
+                    verbosity=verbosity,
+                )
+
+            if effective_vars:
+                try:
+                    raw_steps = hydrate_struct(raw_steps, effective_vars, strict=False)
+                except Exception as e:
+                    return attach_envelope(
+                        {"status": "PARAM_ERROR", "error": f"Error hidratando parámetros de steps: {e}"},
+                        tracker,
+                        verbosity=verbosity,
+                    )
+
+            try:
+                v = PlaybookStore.validate_and_order(raw_steps)
+            except ValueError as e:
+                return attach_envelope(
+                    {"status": "PARAM_ERROR", "error": str(e)},
+                    tracker,
+                    verbosity=verbosity,
+                )
+            if not v.get("ok"):
+                return attach_envelope(
+                    {"status": "BLOCKED", "verdict": v.get("verdict"), "logs": v.get("logs")},
+                    tracker,
+                    verbosity=verbosity,
+                )
+
+            ordered_steps = v.get("ordered_steps") or raw_steps
+
+            eff_sid = (
+                (effective_vars.get("session_id") if isinstance(effective_vars, dict) else None)
+                or (params.get("session_id") if isinstance(params, dict) else None)
+                or "mcp-batch"
+            )
+            eff_agent = agent_id or "default"
+            slot = GLOBAL_SESSION_POOL.acquire(session_id=eff_sid, agent_id=eff_agent)
+
+            dispatch = _playbook_dispatch()
+            step_outputs: dict[str, Any] = {}
+            prev_output: Any = None
+            results: list[dict[str, Any]] = []
+            all_ok = True
+
+            try:
+                for step in ordered_steps:
+                    sid = str(step.get("id", f"s{len(results)+1}"))
+                    tool = step.get("tool")
+                    step_params = dict(step.get("params", {}))
+
+                    # Resolve variable piping from previous outputs ($prev.*, $steps.<id>.*)
+                    step_params = resolve_step_refs(step_params, step_outputs, prev_output)
+
+                    fn = dispatch.get(tool)
+                    if fn is None:
+                        err_res = {"id": sid, "tool": tool, "status": "NOT_ALLOWED", "ok": False}
+                        results.append(err_res)
+                        all_ok = False
+                        if stop_on_error:
+                            break
+                        continue
+
+                    try:
+                        if is_compact and "verbosity" not in step_params:
+                            sig = inspect.signature(fn)
+                            if "verbosity" in sig.parameters or any(
+                                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                            ):
+                                step_params["verbosity"] = "summary"
+                        raw = fn(**step_params)
+                        if inspect.iscoroutine(raw):
+                            raw = await raw
+                        out = json.loads(raw) if isinstance(raw, str) else raw
+                        st = out.get("status", "OK") if isinstance(out, dict) else "OK"
+                        if is_compact and isinstance(out, dict):
+                            out.pop("envelope", None)
+                    except Exception as e:
+                        st, out = "ERROR", {"error": str(e)}
+
+                    ok = st not in _PLAYBOOK_FAIL
+                    step_res = {"id": sid, "tool": tool, "status": st, "ok": ok, "output": out}
+                    results.append(step_res)
+                    step_outputs[sid] = out
+                    prev_output = out
+
+                    if not ok:
+                        all_ok = False
+                        if stop_on_error:
+                            break
+            finally:
+                GLOBAL_SESSION_POOL.release(session_id=eff_sid, agent_id=eff_agent, clear_state=False)
+
+            ret_mode = (return_only or "all").strip().lower()
+            batch_name = (name or "ephemeral-batch").strip()
+
+            base_res: dict[str, Any] = {
+                "status": "OK" if all_ok else "PARTIAL",
+                "batch": batch_name,
+                "all_ok": all_ok,
+                "steps_run": len(results),
+            }
+
+            if ret_mode == "last":
+                base_res["output"] = prev_output
+            elif ret_mode == "summary":
+                base_res["steps_summary"] = [
+                    {"id": r["id"], "tool": r["tool"], "status": r["status"], "ok": r["ok"]}
+                    for r in results
+                ]
+            else:  # "all"
+                base_res["results"] = results
+
+            base_res["ipc_slot"] = {
+                "slot_id": slot["slot_id"],
+                "reuse_count": slot["reuse_count"],
+                "scratch_dir": str(slot["scratch_dir"]),
+                "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
+            }
+
+            if select_fields and isinstance(select_fields, list):
+                full_json = json.dumps(base_res)
+                full_bytes = len(full_json.encode("utf-8"))
+
+                projected_res = project_fields(base_res, select_fields)
+                if "status" not in projected_res:
+                    projected_res["status"] = base_res.get("status", "OK")
+                proj_json = json.dumps(projected_res)
+                proj_bytes = len(proj_json.encode("utf-8"))
+
+                saved_bytes = max(0, full_bytes - proj_bytes)
+                savings_pct = round((saved_bytes / full_bytes * 100), 2) if full_bytes > 0 else 0.0
+
+                projected_res["token_savings_estimate"] = {
+                    "full_bytes": full_bytes,
+                    "projected_bytes": proj_bytes,
+                    "saved_bytes": saved_bytes,
+                    "savings_pct": savings_pct,
+                    "turns_saved": max(0, len(results) - 1),
+                }
+                final_res = projected_res
+            else:
+                full_json = json.dumps(base_res)
+                full_bytes = len(full_json.encode("utf-8"))
+                base_res["token_savings_estimate"] = {
+                    "full_bytes": full_bytes,
+                    "projected_bytes": full_bytes,
+                    "saved_bytes": 0,
+                    "savings_pct": 0.0,
+                    "turns_saved": max(0, len(results) - 1),
+                }
+                final_res = base_res
+
+            return attach_envelope(
+                final_res,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Ephemeral batch '{batch_name}' finished ({len(results)} steps, all_ok={all_ok}).",
+            )
+
         elif act == "prune":
             return attach_envelope(playbook_store.prune(names=names, apply=apply), tracker)
 
@@ -2774,13 +3011,38 @@ async def playbook_run(
             return attach_envelope(
                 {
                     "status": "INVALID_ACTION",
-                    "error": f"Acción '{action}' no reconocida. Acciones válidas: 'run', 'create', 'list', 'prune'.",
-                    "valid_actions": ["run", "create", "list", "prune"],
+                    "error": f"Acción '{action}' no reconocida. Acciones válidas: 'run', 'batch', 'create', 'list', 'prune'.",
+                    "valid_actions": ["run", "batch", "create", "list", "prune"],
                 },
                 tracker,
             )
     except Exception as e:
         return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
+
+
+# ---------------------------------------------------------------------------
+# IPC Socket Pool & Mux Registration (Spec OM-7)
+# ---------------------------------------------------------------------------
+async def _handle_ipc_batch(req: dict[str, Any]) -> dict[str, Any]:
+    raw = await playbook_run(
+        action="batch",
+        name=req.get("name") or "ipc-batch",
+        steps=req.get("steps"),
+        params=req.get("params"),
+        vars=req.get("vars"),
+        stop_on_error=bool(req.get("stop_on_error", True)),
+        return_only=req.get("return_only", "all"),
+        select_fields=req.get("select_fields"),
+        agent_id=req.get("agent_id", "default"),
+    )
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+GLOBAL_SOCKET_MUX.set_batch_handler(_handle_ipc_batch)
+try:
+    ensure_ipc_server_started()
+except Exception as e:
+    logger.warning("No se pudo iniciar el daemon de IPC socket pool al cargar server.py: %s", e)
 
 
 if __name__ == "__main__":

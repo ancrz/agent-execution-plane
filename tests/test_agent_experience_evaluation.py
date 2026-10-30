@@ -38,7 +38,7 @@ def test_control_plane_schema_is_machine_discoverable() -> None:
     assert schema["status"] == "OK"
     domains = schema["domains"]
     assert isinstance(domains, dict)
-    assert {"service", "network", "storage", "package", "backup", "security", "audit"} <= set(domains)
+    assert {"service", "network", "storage", "package", "backup", "security", "audit", "ipc"} <= set(domains)
 
 
 def test_invalid_control_action_returns_remediation() -> None:
@@ -494,3 +494,40 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     assert exec_res["telemetry"]["fd_delta"] == 0
 
 
+
+
+def test_spec_om7_ipc_control_plane_actions() -> None:
+    """Spec OM-7 IPC domain responds deterministically to status, ping, and metrics."""
+    result = _run_ctl("ipc", "status")
+    assert result["status"] == "OK"
+    assert "ipc_socket" in result
+    assert "session_pool" in result
+
+    metrics = _run_ctl("ipc", "metrics")
+    assert metrics["status"] == "OK"
+    assert "active_sessions" in metrics
+    assert "idle_slots" in metrics
+
+
+def test_spec_om7_ephemeral_batch_execution_and_token_savings() -> None:
+    """Spec OM-7 playbook_run batch executes multi-step chains with field projection."""
+    import server
+
+    steps = [
+        {"id": "p1", "tool": "process_inspect", "params": {"pid": 0, "limit": 2}},
+        {"id": "p2", "tool": "topos_audit_dag", "params": {"tasks": ["t1"], "dependencies": {}}},
+    ]
+    raw = asyncio.run(
+        server.playbook_run(
+            action="batch",
+            steps=steps,
+            return_only="last",
+            select_fields=["status", "batch", "output.verdict"],
+        )
+    )
+    result = json.loads(raw)
+    assert result["status"] == "OK"
+    assert result["output"]["verdict"] == "APPROVED"
+    assert "token_savings_estimate" in result
+    assert result["token_savings_estimate"]["turns_saved"] == 1
+    assert result["token_savings_estimate"]["savings_pct"] >= 50.0

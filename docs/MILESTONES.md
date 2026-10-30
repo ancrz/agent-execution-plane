@@ -63,7 +63,14 @@ flowchart LR
     M55 --> M56["M56: Milestone ONT-18 Anti-Cascade Implementation (Pragma) ✅"]
     M56 --> M57["M57: Milestone ONT-18 Verification 43/43 Tests (Dokimos) ✅"]
     M57 --> M58["M58: Milestone ONT-18 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
-    M58 --> M59["M59: Milestone ONT-18 Atomic Release & Version Control Commit (Hermon) ⏳"]
+    M58 --> M59["M59: Milestone ONT-18 Atomic Release & Version Control Commit (Hermon) ✅"]
+    M59 --> M60["M60: Milestone ONT-21 Spec OM-7 Planning (Archon) ✅"]
+    M60 --> M61["M61: Milestone ONT-21 Knowledge Graph Weave & Task #129 Registered (Graphos G1) ✅"]
+    M61 --> M62["M62: Milestone ONT-21 Topos Structural Audit (Ontos) ✅"]
+    M62 --> M63["M63: Milestone ONT-21 Implementation of IPC Pool & Code Mode (Pragma) ✅"]
+    M63 --> M64["M64: Milestone ONT-21 Multi-Gate Verification (Dokimos) ✅"]
+    M64 --> M65["M65: Milestone ONT-21 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
+    M65 --> M66["M66: Milestone ONT-21 Atomic Release & Version Control Commit (Hermon) ✅"]
 ```
 
 ## 2. Milestone Matrix
@@ -91,3 +98,4 @@ flowchart LR
 | **Public GitHub Release & Compliance (ONT-14)** | Apache 2.0 license (`LICENSE`), git config hardening (`.gitignore`, `.gitattributes`), EDR/sandbox warning & license in `README.md`, pre-deploy quality verification, public GitHub repo creation (`ancrz/agent-execution-plane`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `LICENSE`, `.gitignore`, `.gitattributes`, `README.md`, GitHub Remote | **VERIFIED & PROMOTED (Task 115 Score: 0.950 TRUST) ✅** |
 | **Self-Evolutionary Suite & Kali Semantics (ONT-15)** | Hermetic clean-install bootstrap, single-source schema (`engine/privilege.py`), bwrap network isolation default (`share_net=False`), request telemetry envelopes, and Kali-MCP tactical playbook (`discover(action="playbook")`). | Archon, Pragma, Dokimos, Graphos, Hermon | `engine/catalog.py`, `engine/kanban.py`, `engine/privilege.py`, `server.py`, `engine/telemetry.py`, `scripts/aep-ctl`, `tests/` | **VERIFIED & PROMOTED (Task 120 Score: 0.950 TRUST) ✅** |
 | **Topos Anti-Cascade Battery & Setup Hardening (ONT-18)** | Prevent SQLite `binary_blob` wipe cascade on setup re-run via `COALESCE` upsert, fix Pueue release regex in `scripts/setup.sh`, Step 8 quoted heredoc probe seeding (`socket_monitor`/`fd_rescuer`), and `setup.sh --check` schema/zero-canary verification. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/catalog.py`, `scripts/setup.sh`, `tests/test_agent_experience_evaluation.py`, `README.md` | **VERIFIED & PROMOTED (Task 122 Score: 0.9940 TRUST, 43/43 Tests) ✅** |
+| **IPC Socket Pool & Ephemeral Batch/Code Mode (ONT-21)** | Spec OM-7: Shared-memory UNIX socket session pool (`/dev/shm/aep.sock`), Cloudflare-style ephemeral batch/code mode, server-side field projection (`fields: list[str]`), `ipc` control plane domain, and SDD documentation. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/ipc_pool.py`, `engine/playbook.py`, `engine/privilege.py`, `server.py`, `scripts/aep-ctl`, `docs/sdd/`, `tests/` | **VERIFIED & PROMOTED (Task 129 Score: 1.0 TRUST, 58/58 Tests) ✅** |

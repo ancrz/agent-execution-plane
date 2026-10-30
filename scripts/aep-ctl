@@ -305,6 +305,58 @@ def domain_audit(action: str, name: str | None) -> Any:
     fail(f"Acción de audit desconocida: {action}", valid=SCHEMA["audit"]["actions"])
 
 
+def domain_ipc(action: str, name: str | None) -> Any:
+    from engine.ipc_pool import (
+        GLOBAL_SESSION_POOL,
+        GLOBAL_SOCKET_MUX,
+        ensure_ipc_server_started,
+        ipc_client_request,
+    )
+
+    if action == "status":
+        pool_status = GLOBAL_SESSION_POOL.status()
+        mux_status = GLOBAL_SOCKET_MUX.status()
+        return {
+            "status": "OK",
+            "ipc_socket": str(GLOBAL_SOCKET_MUX.socket_path),
+            "socket_active": GLOBAL_SOCKET_MUX.is_running,
+            "session_pool": pool_status,
+            "mux": mux_status,
+        }
+    if action == "ping":
+        ensure_ipc_server_started()
+        return ipc_client_request({"action": "ping"})
+    if action == "lease":
+        sid = name.strip() if name and name.strip() else "ctl-default"
+        slot = GLOBAL_SESSION_POOL.acquire(session_id=sid, agent_id="aep-ctl")
+        return {"status": "OK", "leased_slot": slot}
+    if action == "release":
+        sid = name.strip() if name and name.strip() else "ctl-default"
+        res = GLOBAL_SESSION_POOL.release(session_id=sid, agent_id="aep-ctl", clear_state=False)
+        return {"status": "OK", "released": res}
+    if action == "reap":
+        reaped = GLOBAL_SESSION_POOL.reap_expired()
+        return {"status": "OK", "reaped_count": reaped}
+    if action == "pool":
+        return {"status": "OK", "pool": GLOBAL_SESSION_POOL.status()}
+    if action == "flush":
+        flushed = GLOBAL_SESSION_POOL.flush()
+        return {"status": "OK", "flushed_count": flushed}
+    if action == "metrics":
+        p_st = GLOBAL_SESSION_POOL.status()
+        m_st = GLOBAL_SOCKET_MUX.status()
+        return {
+            "status": "OK",
+            "active_sessions": p_st["active_count"],
+            "idle_slots": p_st["idle_count"],
+            "allocated_slots": p_st["allocated_count"],
+            "total_requests": m_st.get("total_requests", 0),
+            "active_clients": m_st.get("active_clients", 0),
+            "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
+        }
+    fail(f"Acción de ipc desconocida: {action}", valid=SCHEMA["ipc"]["actions"])
+
+
 DOMAINS = {
     "service": domain_service,
     "network": lambda a, n: domain_network(a),
@@ -313,6 +365,7 @@ DOMAINS = {
     "backup": domain_backup,
     "security": domain_security,
     "audit": domain_audit,
+    "ipc": domain_ipc,
 }
 
 

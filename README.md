@@ -58,7 +58,7 @@
    - [eBPF Security Observability](#ebpf-security-observability)
 8. [Omarchy Enhancements (5 Distro-Agnostic Specs)](#8-omarchy-enhancements-5-distro-agnostic-specs)
    - [Omarchy Distro-Agnostic Specification Matrix](#omarchy-distro-agnostic-specification-matrix)
-   - [Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-5)](#detailed-technical-specifications-spec-om-1-to-spec-om-5)
+   - [Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-7)](#detailed-technical-specifications-spec-om-1-to-spec-om-7)
    - [Architecture and Data Flow of Omarchy Enhancements](#architecture-and-data-flow-of-omarchy-enhancements)
 9. [Two-Tier Privilege Model + Manifest](#9-two-tier-privilege-model--manifest)
 10. [Auto-Plug: Atomic MCP Self-Management](#10-auto-plug-atomic-mcp-self-management)
@@ -626,10 +626,11 @@ flowchart TD
 | **SPEC-OM-3** | **Universal Multi-Agent Skills Hub** | Symlink farm<br/>`scripts/setup.sh` | Convergent symlinks from `~/.agents/skills/` to Claude, Antigravity, Codex, and Gemini directories. | Decouples skills from Hyprland/Arch, enabling universal multi-agent synchronization on Ubuntu. | Idempotent linking; if an agent is absent on the host, setup continues cleanly without errors. |
 | **SPEC-OM-4** | **Local System Docs Vectorizer** | `query_system_docs`<br/>`engine/docs_vectorizer.py` | Local `system_docs.db` vector store with `sqlite-vec` and CPU embeddings (`bge-small-en-v1.5`) over `man` pages. | Replaces heavy ChromaDB stores and remote LLM API lookups with sub-5ms offline ONNX inference. | Lazy loader; if vector dependencies are absent, returns a structured degraded response without throwing exceptions. |
 | **SPEC-OM-5** | **Headless Visual & Display Actuator** | `visual_inspect`<br/>`engine/headless_display.py` | Headless Chromium automation via Playwright with ephemeral RAM screenshots (`/dev/shm`). | Eliminates need for physical Wayland/Hyprland compositors or X11 servers (`Xvfb`) for UI audits. | If Playwright or Chromium is absent, returns `DISPLAY_UNAVAILABLE` with an exact resolution command. |
+| **SPEC-OM-7** | **Shared-Memory Socket Pool & Ephemeral Batch/Code Mode** | `playbook_run(action="batch")`<br/>`engine/ipc_pool.py`<br/>`/dev/shm/aep.sock` | Persistent AF_UNIX socket multiplexer in Linux shared memory (`/dev/shm`), 16-slot session pool, server-side field projection (`select_fields`). | Replaces chat context hopping and cold process spin-up with warm <0.5ms IPC and single-turn DAG batching. | Fail-soft to `/tmp/aep_pool` if `/dev/shm` is unwritable; strict zero-FD leak (`fd_delta == 0`). |
 
 ---
 
-#### Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-5)
+#### Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-7)
 
 #### 1. SPEC-OM-1: Unified System Control Plane (`aep_ctl` / `scripts/aep-ctl`)
 - **Objective**: Provide a deterministic CLI and RPC interface for language models to inspect and modify OS state without hallucinating flags or parsing unstructured text.
@@ -674,6 +675,15 @@ flowchart TD
   3. Waits for page `load` event. If a CSS selector is specified, targets the designated element.
   4. Writes screenshots directly into shared volatile RAM (`/dev/shm/aep_shot_<uuid>.png`).
   5. Encodes file bytes into Base64, calculates latency, and unlinks the temporary RAM file immediately, ensuring zero secondary disk persistence.
+
+#### 6. SPEC-OM-7: Shared-Memory UNIX Socket Pool & Ephemeral Batch/Code Mode (`playbook_run(action="batch")`)
+- **Objective**: Eliminate per-call process spin-up latency and chat-turn token bloat in multi-agent tool chains.
+- **Architectural Mechanics**:
+  1. **Session Pool (`/dev/shm/aep_pool/slot_<id>`)**: Manages up to 16 warm execution slots with 60s TTL, automatic reaping, and thread/async-safe slot leasing.
+  2. **UNIX Socket Mux (`/dev/shm/aep.sock`)**: Persistent AF_UNIX daemon with line-delimited JSON framing, 16 MB bounded buffer, and guaranteed zero file descriptor leaks (`fd_delta == 0`).
+  3. **Cloudflare-Style Ephemeral Batching**: Single-turn multi-step pipeline execution supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`).
+  4. **Server-Side Field Projection (`select_fields`)**: Discards verbose JSON metadata directly in RAM prior to network serialization, reducing payload tokens by 80–95%.
+- **Control Plane Domain**: Unified under `aep_ctl(domain="ipc", action="status"|"ping"|"lease"|"release"|"reap"|"pool"|"flush"|"metrics")` and `./scripts/aep-ctl ipc`.
 
 ---
 
