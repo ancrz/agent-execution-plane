@@ -369,10 +369,14 @@ async def artifact_catalog(
                             "name": it.get("name"),
                             "category": it.get("category"),
                             "promotion_score": it.get("promotion_score"),
-                            "verdict": it.get("verdict"),
                             "reusable": it.get("reusable"),
                             "execution_count": it.get("execution_count"),
                             "success_rate": it.get("success_rate"),
+                            **(
+                                {"semantic_distance": it["semantic_distance"]}
+                                if "semantic_distance" in it
+                                else {}
+                            ),
                         }
                         for it in items
                     ]
