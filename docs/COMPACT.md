@@ -1,16 +1,9 @@
 # Context Compaction Guidance — AEP
 
 Preserve:
-- Pipeline Mode: Short (Self-Evolutionary Loop with Live AEP MCP Hot-Reload).
-- Active Intent / Milestone: ONT-15 (Self-Evolutionary Agent Experience Suite & Kali-Style Semantic Ergonomics) — VERIFIED & PROMOTED ✅.
-- Files Changed:
-  - `engine/catalog.py` & `engine/kanban.py`: Clean-home SQLite bootstrap (`if cols:` guard before `ALTER TABLE` in `_migrate`).
-  - `engine/telemetry.py`: Per-request latency, byte count, estimated tokens, RSS/FD delta attribution, and normalized `agent-brief` envelope (`status`, `severity`, `summary`, `next_action`, `truncated`, `cursor`, `telemetry`).
-  - `engine/privilege.py`: Shared `CONTROL_PLANE_SCHEMA`, `check_binary_prerequisites()` real binary readiness (`bwrap`, `pueue`, `go`, `coredumpctl`, `bpftrace`, etc.), and `tactical_playbook()` (`EAES-v2-Kali-Semantic`) with canonical 1-liners, workflow recipes, and token-efficiency Rules of Engagement.
-  - `scripts/aep-ctl`: Unified schema imported from `engine.privilege`, added `audit` domain (`verify`) and `auto_recover`.
-  - `server.py`: `aep_ctl(action="schema")` without dummy domain, `verbosity="summary"|"detail"|"brief"` & pagination cursors, `sandbox_run` with `share_net=False` default, `working_dir`/`ro_paths`/`rw_paths`, automatic `.venv` interpreter symlink mount, and `CapabilityGuard` blacklist enforcement.
-  - `scripts/aep-sync.sh`: Added `timeout 3` around Codex socket reload so hot-reload completes non-blockingly.
-  - `tests/test_agent_experience_evaluation.py`: Promoted both strict `xfail` tests to `PASS` and added contract tests for workspace sandboxing, telemetry attribution, compact summaries, and Kali tactical playbook.
-- Verification Status: `ruff check .` (0 errors); `pytest` (39/39 passed, 0 xfailed); `sandbox_run` & `async_job_dispatch` live-verified via hot-reloaded AEP MCP.
-- Next Actions: Sync `dev` and `main` branches and push to `origin`.
-Drop: raw AEP outputs, intermediate debug traces, superseded pre-ONT-15 failure logs.
+- Pipeline Mode: Full (ONT-18 Stage 2: Graphos G2 Record) -> Hermon (Stage 6).
+- Active Intent / Milestone: ONT-18 (Topos Anti-Cascade Battery & Setup Hardening) — VERIFIED & PROMOTED ✅ (Task #122 Score: 0.9940 TRUST).
+- Files Changed: `engine/catalog.py` (COALESCE upsert), `scripts/setup.sh` (Pueue regex, Step 8 heredoc, --check integrity), `tests/test_agent_experience_evaluation.py` (anti-cascade battery), `README.md` (badge 43/43, zero-FD, /dev/shm, DAG, snapshot docs), stray root `artifacts.db` unlinked.
+- Verification Status: pytest 43/43 passed, 0 ruff errors, 0 semgrep findings, setup.sh --check HEALTHY (exit 0), audit chain 18 blocks valid, Kanban Task #122 PROMOTED.
+- Readiness & Next Actions: Ready for Hermon (Stage 6) git commit & push, followed by ONT-19 Short-mode self-evolution loop.
+Drop: raw AEP tool outputs, intermediate debug traces, superseded test execution logs.

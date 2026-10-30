@@ -445,7 +445,9 @@ async def artifact_catalog(
 async def artifact_lint_and_build(
     action: str = "build",
     name: str | None = None,
+    artifact_name: str | None = None,
     intent: str | None = None,
+    description: str | None = None,
     category: str | None = None,
     go_source: str | None = None,
     template_name: str | None = None,
@@ -516,12 +518,22 @@ async def artifact_lint_and_build(
                 )
 
             if act == "build":
+                art_src_tpl = (source_template or template_name or "").strip()
+                tpl_meta = (
+                    next((t for t in template_registry.templates if t["name"] == art_src_tpl), None)
+                    if art_src_tpl
+                    else None
+                )
+                eff_name = (name or artifact_name or (art_src_tpl.replace("-", "_") if art_src_tpl else "")).strip()
+                eff_intent = (intent or description or (tpl_meta["description"] if tpl_meta else "")).strip()
+                eff_cat = (category or (tpl_meta["capability"] if tpl_meta else "")).strip()
+
                 missing = []
-                if not name or not name.strip():
+                if not eff_name:
                     missing.append("name")
-                if not intent or not intent.strip():
+                if not eff_intent:
                     missing.append("intent")
-                if not category or not category.strip():
+                if not eff_cat:
                     missing.append("category")
                 if missing:
                     return attach_envelope(
@@ -532,10 +544,9 @@ async def artifact_lint_and_build(
                         tracker,
                     )
 
-                art_name = name.strip()
-                art_intent = intent.strip()
-                art_cat = category.strip()
-                art_src_tpl = (source_template or template_name or "").strip()
+                art_name = eff_name
+                art_intent = eff_intent
+                art_cat = eff_cat
                 effective_src = (go_source or "").strip()
 
                 # 1-Step Template-to-Binary Compilation Shortcut
@@ -637,10 +648,19 @@ async def artifact_lint_and_build(
 
                     kanban_task_id = None
                     try:
-                        kt = kanban.create_task(
-                            title=f"build:{art_name}", intent=art_intent, category=art_cat, artifact_name=art_name
-                        )
-                        kanban_task_id = kt["task_id"]
+                        with kanban._conn_ro() as kconn:
+                            existing_kt = kconn.execute(
+                                "SELECT id FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                                "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY') ORDER BY id DESC LIMIT 1",
+                                (art_name,),
+                            ).fetchone()
+                        if existing_kt:
+                            kanban_task_id = existing_kt["id"]
+                        else:
+                            kt = kanban.create_task(
+                                title=f"build:{art_name}", intent=art_intent, category=art_cat, artifact_name=art_name
+                            )
+                            kanban_task_id = kt["task_id"]
                         kanban.advance(
                             kanban_task_id,
                             "LINTED",
@@ -808,6 +828,8 @@ async def artifact_execute_in_ram(
                     check=False,
                 )
             except subprocess.TimeoutExpired:
+                os.close(fd)
+                fd = None
                 return attach_envelope(
                     {
                         "status": "TIMEOUT",
@@ -817,6 +839,8 @@ async def artifact_execute_in_ram(
                     tracker,
                     verbosity=verbosity,
                 )
+            os.close(fd)
+            fd = None
 
             latency_ms = round((time.time() - start_time) * 1000, 2)
 

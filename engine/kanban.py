@@ -383,7 +383,8 @@ class KanbanBoard:
         states = [s for s in states if s not in protect]
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT id, title, state, artifact_name, promotion_score, attempts "
+                "SELECT id, title, state, artifact_name, promotion_score, attempts, canary_passed, "
+                "(JULIANDAY('now') - JULIANDAY(updated_at)) * 1440.0 AS age_minutes "
                 "FROM kanban_tasks WHERE archived=0 ORDER BY id DESC"
             ).fetchall()
             candidates = [
@@ -396,7 +397,15 @@ class KanbanBoard:
                     "attempts": r["attempts"],
                 }
                 for r in rows
-                if r["state"] in states and r["state"] not in protect and r["promotion_score"] < thr
+                if r["state"] in states
+                and r["state"] not in protect
+                and r["promotion_score"] < thr
+                and not (
+                    r["state"] == "LINTED"
+                    and r["canary_passed"] == 0
+                    and r["attempts"] <= 1
+                    and (r["age_minutes"] or 0.0) < 10.0
+                )
             ]
             if apply and candidates:
                 with transaction_immediate(conn):

@@ -435,3 +435,31 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
     stray_db = PROJECT_ROOT / "artifacts.db"
     assert not stray_db.exists(), f"Stray 0-byte database file must not exist at repo root: {stray_db}"
 
+
+def test_self_evolutionary_loop_and_ram_probes() -> None:
+    """ONT-19: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and severity inference."""
+    import server
+    from engine.telemetry import infer_severity
+
+    for st in ("ARCHIVED", "UNARCHIVED", "PRUNED", "DEMOTED", "REEVALUATED", "REINDEXED", "CLEAN"):
+        assert infer_severity(st) == "INFO", f"Expected INFO for {st}, got {infer_severity(st)}"
+
+    # Verify 1-step template build with zero-config defaults and alias parameters
+    build_res = json.loads(
+        asyncio.run(
+            server.artifact_lint_and_build(
+                action="build",
+                artifact_name="mem_stat",
+                template_name="mem-stat",
+            )
+        )
+    )
+    assert build_res["status"] == "SUCCESS"
+    assert build_res["lint_warnings"] == []
+
+    # Verify in-RAM execution closes memfd before telemetry finish (fd_delta == 0)
+    exec_res = json.loads(asyncio.run(server.artifact_execute_in_ram(name="mem_stat")))
+    assert exec_res["status"] == "SUCCESS"
+    assert exec_res["telemetry"]["fd_delta"] == 0
+
+

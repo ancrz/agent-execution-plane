@@ -76,7 +76,7 @@ func runChildEnforcement(tmpDir string) int {
 	if int(rulesetFD) < 0 {
 		return 10
 	}
-	defer syscall.Close(int(rulesetFD))
+	defer func() { _ = syscall.Close(int(rulesetFD)) }()
 
 	fd, errOpen := syscall.Open(tmpDir, syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
 	if errOpen != nil {
@@ -95,7 +95,7 @@ func runChildEnforcement(tmpDir string) int {
 		0,
 		0,
 	)
-	syscall.Close(fd)
+	_ = syscall.Close(fd)
 	if retAdd != 0 {
 		return 12
 	}
@@ -135,7 +135,7 @@ func runChildEnforcement(tmpDir string) int {
 	// 2. Escritura en ruta no permitida (debe fallar con EACCES/EPERM)
 	blockedFile := filepath.Join(os.TempDir(), fmt.Sprintf("landlock_blocked_%d.txt", os.Getpid()))
 	if errBlocked := os.WriteFile(blockedFile, []byte("fail"), 0644); errBlocked == nil {
-		os.Remove(blockedFile)
+		_ = os.Remove(blockedFile)
 		return 16 // Falla: permitió escribir en ruta no autorizada
 	}
 
@@ -181,11 +181,15 @@ func main() {
 		fmt.Println(string(data))
 		return
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	exePath, errExe := os.Executable()
-	if errExe != nil {
-		exePath = os.Args[0]
+	exePath := "/proc/self/exe"
+	if _, errStat := os.Stat(exePath); errStat != nil {
+		if p, errExe := os.Executable(); errExe == nil {
+			exePath = p
+		} else {
+			exePath = os.Args[0]
+		}
 	}
 
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command

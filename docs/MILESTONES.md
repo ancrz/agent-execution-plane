@@ -55,7 +55,15 @@ flowchart LR
     M47 --> M48["M48: Milestone ONT-14 Implementation of License, EDR Warning & Git Hardening (Pragma) ⏳"]
     M48 --> M49["M49: Milestone ONT-14 Multi-Gate Verification Pre-Deploy (Dokimos) ✅"]
     M49 --> M50["M50: Milestone ONT-14 Documentation Rollup & Verification Record (Graphos G2) ✅"]
-    M50 --> M51["M51: Milestone ONT-14 GitHub Repository Creation, Remote Sync & Release (Hermon) ⏳"]
+    M50 --> M51["M51: Milestone ONT-14 GitHub Repository Creation, Remote Sync & Release (Hermon) ✅"]
+    M51 --> M52["M52: Milestone ONT-15 Self-Evolutionary Suite & Kali Semantics (Archon/Pragma/Dokimos/Graphos) ✅"]
+    M52 --> M53["M53: Milestone ONT-18 Anti-Cascade Battery Planning (Archon) ✅"]
+    M53 --> M54["M54: Milestone ONT-18 Knowledge Graph Weave & Task 122 Registered (Graphos G1) ✅"]
+    M54 --> M55["M55: Milestone ONT-18 Topos Structural Audit (Ontos) ✅"]
+    M55 --> M56["M56: Milestone ONT-18 Anti-Cascade Implementation (Pragma) ✅"]
+    M56 --> M57["M57: Milestone ONT-18 Verification 43/43 Tests (Dokimos) ✅"]
+    M57 --> M58["M58: Milestone ONT-18 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
+    M58 --> M59["M59: Milestone ONT-18 Atomic Release & Version Control Commit (Hermon) ⏳"]
 ```
 
 ## 2. Milestone Matrix
@@ -81,3 +89,5 @@ flowchart LR
 | **Autonomous Setup & Python 3.14 (ONT-12)** | Dual-mode bootstrapper & updater (`scripts/setup.sh`), Python 3.14 LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes (`socket-monitor`, `fd-rescuer`), Pueue daemon, bwrap, and 7 verification gates | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `pyproject.toml`, `scripts/setup.sh`, `scripts/aep-mcp-launch.sh`, `scripts/aep-sync.sh`, `diagnostic/go/`, `tests/test_setup_idempotency.sh`, `README.md` | **VERIFIED & COMMITTED (Task 113 PROMOTED 0.9250 TRUST) ✅** |
 | **Kernel Sandboxing & Anti-Poisoning Backups (ONT-13)** | RE as SDD for Linux primitives (`docs/sdd/`), in-process Landlock LSM sandboxing (`engine/landlock.py`), anti-poisoning hot backup engine & quarantine (`engine/backup.py`), volatile RAM micro-snapshots (`engine/db.py`), eBPF security probing (`server.py`), Go static Landlock probe (`diagnostic/go/landlock-guard`), CLI integration (`scripts/aep-ctl`), and verification suite | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `docs/sdd/`, `engine/landlock.py`, `engine/backup.py`, `engine/db.py`, `server.py`, `diagnostic/go/`, `templates/`, `scripts/aep-ctl`, `tests/` | **VERIFIED & PROMOTED (Task 114 Score: 0.9250 TRUST) ✅** |
 | **Public GitHub Release & Compliance (ONT-14)** | Apache 2.0 license (`LICENSE`), git config hardening (`.gitignore`, `.gitattributes`), EDR/sandbox warning & license in `README.md`, pre-deploy quality verification, public GitHub repo creation (`ancrz/agent-execution-plane`) | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `LICENSE`, `.gitignore`, `.gitattributes`, `README.md`, GitHub Remote | **VERIFIED & PROMOTED (Task 115 Score: 0.950 TRUST) ✅** |
+| **Self-Evolutionary Suite & Kali Semantics (ONT-15)** | Hermetic clean-install bootstrap, single-source schema (`engine/privilege.py`), bwrap network isolation default (`share_net=False`), request telemetry envelopes, and Kali-MCP tactical playbook (`discover(action="playbook")`). | Archon, Pragma, Dokimos, Graphos, Hermon | `engine/catalog.py`, `engine/kanban.py`, `engine/privilege.py`, `server.py`, `engine/telemetry.py`, `scripts/aep-ctl`, `tests/` | **VERIFIED & PROMOTED (Task 120 Score: 0.950 TRUST) ✅** |
+| **Topos Anti-Cascade Battery & Setup Hardening (ONT-18)** | Prevent SQLite `binary_blob` wipe cascade on setup re-run via `COALESCE` upsert, fix Pueue release regex in `scripts/setup.sh`, Step 8 quoted heredoc probe seeding (`socket_monitor`/`fd_rescuer`), and `setup.sh --check` schema/zero-canary verification. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/catalog.py`, `scripts/setup.sh`, `tests/test_agent_experience_evaluation.py`, `README.md` | **VERIFIED & PROMOTED (Task 122 Score: 0.9940 TRUST, 43/43 Tests) ✅** |

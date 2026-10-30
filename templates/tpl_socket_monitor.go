@@ -83,7 +83,7 @@ func main() {
 		fmt.Println(string(output))
 		os.Exit(1)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	// Saltar cabecera

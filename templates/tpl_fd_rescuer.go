@@ -52,10 +52,11 @@ func main() {
 	}
 
 	if argPID == "" || argPID[0] == '{' || argPID == "0" {
-		resp.Error = "Debe proporcionar un PID como argumento o hidratar {{pid}}. Uso: ./fd_rescuer <PID>"
-		out, _ := json.MarshalIndent(resp, "", "  ")
-		fmt.Println(string(out))
-		os.Exit(1)
+		ppid := os.Getppid()
+		if ppid <= 0 {
+			ppid = os.Getpid()
+		}
+		argPID = strconv.Itoa(ppid)
 	}
 
 	pid, err := strconv.Atoi(argPID)

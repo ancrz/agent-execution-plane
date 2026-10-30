@@ -81,6 +81,13 @@ def infer_severity(status: str) -> str:
         "PROMOTED",
         "CREATED",
         "DRY_RUN",
+        "ARCHIVED",
+        "UNARCHIVED",
+        "PRUNED",
+        "DEMOTED",
+        "REEVALUATED",
+        "REINDEXED",
+        "CLEAN",
     ):
         return "INFO"
     if st in (

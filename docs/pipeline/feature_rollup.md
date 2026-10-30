@@ -1,9 +1,9 @@
 # Feature Chain Rollup: Pipeline Milestone History (Documents 1–16)
 
 - **Document ID**: `feature_rollup.md`
-- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-25T05:45:00Z
-- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 16 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md`](feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md)
+- **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T06:52:00Z
+- **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 21 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
+- **Current Active Document**: [`feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md`](feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -14,7 +14,7 @@ This rollup breaks recursive token overload across historical pipeline artifacts
 
 ```mermaid
 flowchart LR
-    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 16)"]
+    subgraph RollupChain["Consolidated Pipeline History (Docs 1 to 21)"]
         direction LR
         D1["Doc 1: 044156<br/>(AEP FastMCP Core & Privilege Tiers)"]
         D2["Doc 2: 054100<br/>(sqlite-vec Memory & Crash Forensics)"]
@@ -33,7 +33,13 @@ flowchart LR
         D15["Doc 15: 031500<br/>(5-Slot Hot Backup Engine, Offensive Countermeasures & Multi-Agent Segregation)"]
         D16["Doc 16: 051500<br/>(Autonomous Setup/Updater, Python 3.14 LTS Migration & Self-Provisioning)"]
 
-        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15 --> D16
+                D17["Doc 17: 144500<br/>(ONT-13: Landlock LSM, Anti-Poisoning Backups & RAM Micro-Snapshots)"]
+        D18["Doc 18: 235800<br/>(ONT-14: Public GitHub Release & Compliance)"]
+        D19["Doc 19: 003000<br/>(AEP Agent Experience Evaluation Suite: 39 Passed)"]
+        D20["Doc 20: 013500<br/>(ONT-15: Self-Evolutionary Suite & Kali Semantics)"]
+        D21["Doc 21: 065200<br/>(ONT-18: Topos Anti-Cascade Battery & Setup Hardening)"]
+
+        D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10 --> D11 --> D12 --> D13 --> D14 --> D15 --> D16 --> D17 --> D18 --> D19 --> D20 --> D21
     end
 ```
 
@@ -60,6 +66,11 @@ flowchart LR
 | **15** | `feature_20261025_031500_backup_restore_and_offensive_countermeasures.md` | Milestone ONT-11: 5-slot online hot backup rotation pool (`conn.backup()`), SHA-256 pre-promotion checksums, atomic restore purging stale `-wal`/`-shm`, self-healing auto-recovery (`verify_and_auto_recover`), `CapabilityGuard` CBAC, in-RAM execution path blacklist (`/etc/shadow`, `/root`, `~/.ssh`), multi-agent caller context segregation (`agent_id: str = "default"`), hardened Bubblewrap (`--unshare-all`, `--cap-drop ALL`, isolated tmpfs), cryptographic SHA-256 hash-chain audit log (`security_audit_log`). Passed 7 Dokimos verification gates; Task 112 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | Native SQLite Backup API mandatory for WAL backups (raw copy prohibited); atomic restore must unlink `-wal` and `-shm`; in-RAM binaries cannot access sensitive paths; Bubblewrap drops all capabilities; SHA-256 audit log is immutable with cryptographic hash-chaining; `agent_id` segregates multi-agent contexts. |
 | **16** | `feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md` | Milestone ONT-12: Autonomous zero-dependency bootstrapper, updater & health auditor (`scripts/setup.sh`), Python 3.14 Production LTS migration (`requires-python = ">=3.14"`, `target-version = "py314"`), hermetic Astral `uv` toolchain, user-space Golang auto-provisioning, static CGO_ENABLED=0 Go diagnostic probes (`socket-monitor`, `fd-rescuer`), Pueue daemon musl auto-download, bubblewrap containerization, Omarchy skills hub multi-agent symlinking, 6-gate idempotency test suite (`test_setup_idempotency.sh`). Passed 7 Dokimos verification gates (FastMCP parity 15 tools / 18 capabilities, read-only `--check`, idempotency, py314 hermetic venv, static probes, Ruff 0 errors, Semgrep 0 findings); Task 113 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | DIR-ONT-01 flag short-circuiting for `--check` (100% read-only, 0 mutations); DIR-ONT-02 atomic staging traps (`rm -rf "$TMP_DIR"`); DIR-ONT-03 subshell PATH injection; DIR-ONT-04 pure hermetic venv without host package pollution (PEP 668); pure user-space non-root fallback; dotfile idempotency (zero duplicate exports). |
 
+| **17** | `feature_20261025_144500_re_as_sdd_landlock_ebpf_and_anti_poisoning_backups.md` | Milestone ONT-13: RE as SDD for Linux primitives (`docs/sdd/`), in-process Landlock LSM sandboxing (`engine/landlock.py`), anti-poisoning hot backup engine & quarantine (`engine/backup.py`), volatile RAM micro-snapshots (`engine/db.py`), eBPF security probing (`server.py`), Go static Landlock probe (`diagnostic/go/landlock-guard`), CLI integration (`scripts/aep-ctl`), and verification suite. Passed 7 Dokimos verification gates; Task 114 promoted to `PROMOTED` at `0.9250 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | Landlock restricts kernel unprivileged paths; volatile RAM micro-snapshots bypass disk WAL corruption during incident response; backup quarantine isolates malicious payloads. |
+| **18** | `feature_20261028_235800_prepare_and_publish_github_repository_public_release.md` | Milestone ONT-14: Public GitHub Release & Compliance. Apache 2.0 license (`LICENSE`), git config hardening (`.gitignore`, `.gitattributes`), EDR/sandbox security warnings & license badge in `README.md`, pre-deploy verification suite, remote sync preparation. Task 115 promoted to `PROMOTED` at `0.950 TRUST`. | **15 (18 Capabilities, 1:1 Parity)** | Zero leaked credentials or test DB artifacts in repository tree; deterministic reproducible builds. |
+| **19** | `feature_20261030_003000_aep_agent_experience_evaluation.md` | Agent Experience Evaluation Suite (Gemini Flash 3.8 High & ChatGPT Terra Medium reports). Benchmarked 15 FastMCP tools, evaluated developer ergonomics, token overhead, and error recovery workflows. 39 passed in `tests/test_agent_experience_evaluation.py`. | **15 (18 Capabilities, 1:1 Parity)** | Empirical measurement of LLM agent interaction patterns, tool telemetry, and failure mode recovery. |
+| **20** | `feature_20261030_013500_self_evolutionary_suite_and_kali_semantics.md` | Milestone ONT-15: Self-Evolutionary Suite & Kali-Style Semantic Ergonomics. Hermetic clean-install bootstrap in `catalog.py`/`kanban.py` (table guards on `_migrate`), single-source `CONTROL_PLANE_SCHEMA` in `privilege.py`, bwrap network isolation default (`share_net=False`), `RequestTelemetry` and envelope formatting, `discover` playbook `EAES-v2-Kali-Semantic`. 39/39 passed. Task 120 `PROMOTED`. | **15 (18 Capabilities, 1:1 Parity)** | Hermetic bootstrap without pre-existing HOME; bwrap sandbox blocks private paths by default; response token payloads reduced 70-85%. |
+| **21** | `feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md` | Milestone ONT-18: Topos Anti-Cascade Omission Battery & Installation Pipeline Hardening. COALESCE `binary_blob`/`hash` upsert in `engine/catalog.py` to prevent ELF payload wipe on setup re-run, Pueue release tag regex fix in `scripts/setup.sh`, Step 8 quoted heredoc probe seeding with probe aliases (`socket_monitor`/`fd_rescuer`), `setup.sh --check` schema validation & zero-canary verification, 43 regression tests suite, doc badges. Task 122 `PROMOTED` (Score: 0.9940 TRUST, 43/43 Tests Passed). | **15 (18 Capabilities, 1:1 Parity)** | $X_1 \not\to X_2 \not\to X_1$: Re-running installer never wipes compiled binary payloads; diagnostics never mutate production state. |
 
 ---
 
@@ -108,4 +119,6 @@ flowchart LR
     - Subshell and child processes must receive canonical PATH injection (`~/.local/bin`, `~/.local/share/go/bin`, `~/.local/share/agent-os/bin`, DIR-ONT-03).
     - Python virtual environments must be purely hermetic without host system site-packages (DIR-ONT-04), fully compliant with PEP 668.
     - Idempotency guards must prevent duplicate shell environment exports in user dotfiles.
-
+11. **Topos Anti-Cascade & Idempotent Catalog Seeding Invariant**:
+    - Artifact upserts in SQLite (`register_artifact`) must use `COALESCE(excluded.binary_blob, artifacts.binary_blob)` and `COALESCE(excluded.binary_hash, artifacts.binary_hash)` on name conflict, preventing binary_blob wipe cascades ($X_1 \not\to X_2 \not\to X_1$) during repeated installer or bootstrap executions.
+    - Diagnostics and verification gates (`setup.sh --check`) must never seed canary artifacts into production catalogs (`auto_seed_canary=False`) and must assert schema column integrity directly against active SQLite stores.

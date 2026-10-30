@@ -16,7 +16,7 @@ func main() {
 		fmt.Printf("{\"error\":%q}\n", err.Error())
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	mem := map[string]int64{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
