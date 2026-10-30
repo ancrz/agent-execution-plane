@@ -109,20 +109,66 @@ async def aep_capabilities(**kw: Any) -> str:
 
 
 @mcp.tool()
-async def topos_audit_dag(tasks: list[str], dependencies: dict[str, list[str]], agent_id: str = "default") -> str:
+async def topos_audit_dag(
+    tasks: list[Any],
+    dependencies: dict[str, list[str]] | list[dict[str, Any]] | None = None,
+    agent_id: str = "default",
+) -> str:
     """
     [TOPOS INTEGRITY PROTOCOL] Audita un grafo de tareas antes de su despacho.
     Detecta co-dependencias circulares (A <-> B) que bloquearían al agente.
+    Soporta tanto `tasks: list[str]` + `dependencies: dict[str, list[str]]` como
+    objetos de tarea `tasks=[{"id": "A", "consumes": ["B"]}]` o listas de aristas
+    `dependencies=[{"from": "A", "to": "B"}]`.
     Retorna APPROVED o BLOCKED con el camino de remediación.
     """
 
     def _run() -> str:
         tracker = RequestTelemetry("topos_audit_dag", "audit")
-        verdict, logs = ToposGuard.audit_task_dag(tasks, dependencies)
+        norm_tasks: list[str] = []
+        norm_deps: dict[str, list[str]] = {}
+
+        for item in tasks or []:
+            if isinstance(item, str):
+                norm_tasks.append(item)
+                norm_deps.setdefault(item, [])
+            elif isinstance(item, dict):
+                tid = str(item.get("id") or item.get("name") or item.get("task") or item.get("module") or "")
+                if tid:
+                    norm_tasks.append(tid)
+                    cons = item.get("consumes") or item.get("depends_on") or item.get("dependencies") or []
+                    if isinstance(cons, list):
+                        norm_deps.setdefault(tid, []).extend(str(c) for c in cons if c)
+                    else:
+                        norm_deps.setdefault(tid, [])
+
+        if isinstance(dependencies, dict):
+            for k, v in dependencies.items():
+                key = str(k)
+                if key not in norm_tasks:
+                    norm_tasks.append(key)
+                if isinstance(v, list):
+                    norm_deps.setdefault(key, []).extend(str(dep) for dep in v if dep)
+        elif isinstance(dependencies, list):
+            for edge in dependencies:
+                if isinstance(edge, dict):
+                    src = str(edge.get("from") or edge.get("source") or edge.get("task") or "")
+                    dst = str(edge.get("to") or edge.get("target") or edge.get("depends_on") or "")
+                    etype = str(edge.get("type", "dependency")).lower()
+                    if src and dst:
+                        if src not in norm_tasks:
+                            norm_tasks.append(src)
+                        if dst not in norm_tasks:
+                            norm_tasks.append(dst)
+                        norm_deps.setdefault(src, []).append(dst)
+                        if etype in ("codependency", "co-dependency", "bidirectional"):
+                            norm_deps.setdefault(dst, []).append(src)
+
+        verdict, logs = ToposGuard.audit_task_dag(norm_tasks, norm_deps)
         return attach_envelope(
             {"status": verdict, "verdict": verdict, "details": logs},
             tracker,
-            summary=f"DAG audit verdict: {verdict} ({len(tasks)} tasks).",
+            summary=f"DAG audit verdict: {verdict} ({len(norm_tasks)} tasks).",
         )
 
     return await anyio.to_thread.run_sync(_run)
@@ -142,7 +188,7 @@ async def discover(
     [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
     devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico estilo Kali-MCP.
     action:
-      - 'discover' (default; alias: 'match', 'route', 'search'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
+      - 'discover' (default; alias: 'match', 'route', 'search', 'recommend'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
       - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
       - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida estilo Kali-MCP.
     """
@@ -155,17 +201,17 @@ async def discover(
             manifest = capability_manifest()
             manifest["status"] = "OK"
             if (verbosity or "detail").strip().lower() in ("summary", "brief"):
-                compact_caps = {
-                    k: {
+                compact_caps: dict[str, Any] = {}
+                for k, v in manifest["capabilities"].items():
+                    entry: dict[str, Any] = {
                         "perm": v["perm"],
                         "ready": v["ready"],
-                        "missing_binaries": v["missing_binaries"],
                         "tools": v["tools"],
-                        "when_to_use": v["when_to_use"],
-                        "canonical_calls": v["canonical_calls"][:1],
+                        "canonical_call": v["canonical_calls"][0] if v.get("canonical_calls") else None,
                     }
-                    for k, v in manifest["capabilities"].items()
-                }
+                    if v.get("missing_binaries"):
+                        entry["missing_binaries"] = v["missing_binaries"]
+                    compact_caps[k] = entry
                 manifest = {
                     "status": "OK",
                     "capability_tier": manifest["capability_tier"],
@@ -189,7 +235,7 @@ async def discover(
                 summary="Kali-style tactical playbook and token-efficiency Rules of Engagement loaded.",
                 next_action="Select a workflow recipe (WF-1..WF-4) or canonical call from quick_reference.",
             )
-        elif act in ("discover", "match", "route", "search"):
+        elif act in ("discover", "match", "route", "search", "recommend"):
             if not eff_use_case:
                 return attach_envelope(
                     {
@@ -311,7 +357,7 @@ async def artifact_catalog(
         act = (action or "browse").strip().lower()
         tracker = RequestTelemetry("artifact_catalog", act)
         try:
-            if act == "browse":
+            if act in ("browse", "list"):
                 items = catalog.browse(category=category, query=query or intent, limit=limit)
                 return attach_envelope(
                     {
@@ -323,7 +369,7 @@ async def artifact_catalog(
                     tracker,
                     summary=f"Catalog browse returned {len(items)} artifacts.",
                 )
-            elif act == "query":
+            elif act in ("query", "search"):
                 eff_intent = (intent or query or "").strip()
                 eff_category = category.strip() if (category and category.strip()) else None
                 if not eff_intent:
@@ -948,17 +994,52 @@ async def process_inspect(
 
         try:
             raw_entries = os.listdir(fd_dir)
+            elevated_links: dict[str, str] | None = None
         except PermissionError:
-            return attach_envelope(
-                {
-                    "status": "PERMISSION_DENIED",
-                    "pid": target_pid,
-                    "capability_tier": capability_tier(),
-                    "error": f"Permiso denegado al inspeccionar descriptores en /proc/{target_pid}/fd.",
-                },
-                tracker,
-                verbosity=verbosity,
-            )
+            prefix = privilege_prefix()
+            if prefix is not None:
+                try:
+                    elev = subprocess.run(
+                        prefix + ["find", str(fd_dir), "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\t%l\n"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=False,
+                    )
+                    if elev.returncode == 0:
+                        elevated_links = {}
+                        for ln in elev.stdout.splitlines():
+                            if "\t" in ln:
+                                fn_part, tgt_part = ln.split("\t", 1)
+                                elevated_links[fn_part.strip()] = tgt_part.strip()
+                        raw_entries = list(elevated_links.keys())
+                    else:
+                        elevated_links = None
+                        raw_entries = []
+                except Exception:
+                    elevated_links = None
+                    raw_entries = []
+            else:
+                elevated_links = None
+                raw_entries = []
+
+            if elevated_links is None:
+                return attach_envelope(
+                    {
+                        "status": "PARTIAL",
+                        "pid": target_pid,
+                        "name": name,
+                        "state": state,
+                        "threads": threads,
+                        "rss_kb": rss_kb,
+                        "capability_tier": capability_tier(),
+                        "fd_access": "restricted",
+                        "error": f"Permiso denegado al inspeccionar descriptores en /proc/{target_pid}/fd (métricas de /proc/{target_pid}/status preservadas).",
+                    },
+                    tracker,
+                    verbosity=verbosity,
+                    summary=f"Process {name} (pid={target_pid}): {rss_kb} KiB RSS, {threads} threads (FD access restricted).",
+                )
         except (FileNotFoundError, ProcessLookupError):
             return attach_envelope(
                 {
@@ -974,11 +1055,14 @@ async def process_inspect(
 
         for entry in sorted_entries:
             fd_num = int(entry) if entry.isdigit() else entry
-            link_path = fd_dir / entry
-            try:
-                target = os.readlink(link_path)
-            except (FileNotFoundError, ProcessLookupError, OSError):
-                target = "[closed/unreachable]"
+            if elevated_links is not None and entry in elevated_links:
+                target = elevated_links[entry] or "[closed/unreachable]"
+            else:
+                link_path = fd_dir / entry
+                try:
+                    target = os.readlink(link_path)
+                except (FileNotFoundError, ProcessLookupError, OSError):
+                    target = "[closed/unreachable]"
 
             if target.startswith("socket:"):
                 dtype = "socket"
@@ -1453,10 +1537,12 @@ async def diagnose_system_crashes(
                 if not shutil.which("journalctl"):
                     unavailable.append("journalctl")
                 else:
-                    journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(limit), "-o", "json"])
+                    fetch_n = max(limit * 4, 20) if is_compact else limit
+                    journal_errs = _safe_run(["journalctl", "-p", "err", "-n", str(fetch_n), "-o", "json"])
                     if journal_errs is None or journal_errs.returncode != 0:
                         unavailable.append("journalctl")
                     else:
+                        dedup_map: dict[tuple[str, str], dict[str, Any]] = {}
                         for line in journal_errs.stdout.splitlines():
                             if line.strip():
                                 try:
@@ -1465,23 +1551,32 @@ async def diagnose_system_crashes(
                                         msg = entry.get("MESSAGE")
                                         if isinstance(msg, list):
                                             msg = bytes(msg).decode("utf-8", errors="replace")
-                                        recent_errors.append(
-                                            {
+                                        unit_str = str(
+                                            entry.get("_SYSTEMD_UNIT")
+                                            or entry.get("SYSLOG_IDENTIFIER")
+                                            or entry.get("_COMM")
+                                            or "unknown"
+                                        )
+                                        msg_str = str(msg)[:300] if msg is not None else ""
+                                        key = (unit_str, msg_str)
+                                        if key in dedup_map:
+                                            dedup_map[key]["occurrences"] = dedup_map[key].get("occurrences", 1) + 1
+                                            dedup_map[key]["timestamp"] = entry.get("__REALTIME_TIMESTAMP")
+                                        else:
+                                            dedup_map[key] = {
                                                 "timestamp": entry.get("__REALTIME_TIMESTAMP"),
-                                                "unit": (
-                                                    entry.get("_SYSTEMD_UNIT")
-                                                    or entry.get("SYSLOG_IDENTIFIER")
-                                                    or entry.get("_COMM")
-                                                ),
+                                                "unit": unit_str,
                                                 "priority": entry.get("PRIORITY"),
                                                 "pid": entry.get("_PID"),
-                                                "message": str(msg)[:300] if msg is not None else "",
+                                                "message": msg_str,
+                                                "occurrences": 1,
                                             }
-                                        )
                                     else:
                                         recent_errors.append(entry)
                                 except Exception as e:
                                     logger.debug("Failed parsing journal error line: %s", e)
+                        if is_compact:
+                            recent_errors = list(dedup_map.values())[-limit:]
 
                 payload = {
                     "status": "DEGRADED" if unavailable else "OK",
@@ -1742,6 +1837,8 @@ async def aep_ctl(
     domain: str = "schema",
     action: str = "schema",
     name: str | None = None,
+    target: str | None = None,
+    args: list[str] | str | None = None,
     verbosity: str = "detail",
     limit: int = 50,
     cursor: int = 0,
@@ -1751,6 +1848,7 @@ async def aep_ctl(
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
     - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
     - `domain`: schema|service|network|storage|package|backup|security|audit.
+    - `name` (alias: `target`, `args`): nombre de servicio, paquete o snapshot.
     - `verbosity`: 'detail' (default) | 'summary' | 'brief' (compacta listeners/mounts/interfaces ahorrando tokens).
     - `limit` y `cursor`: paginación determinista sobre listas extensas.
     Ej: aep_ctl(action="schema") | aep_ctl("network","listeners",verbosity="summary") | aep_ctl("audit","verify").
@@ -1759,6 +1857,12 @@ async def aep_ctl(
     def _run() -> str:
         d = (domain or "schema").strip().lower()
         a = (action or "schema").strip().lower()
+        eff_name = name or target
+        if not eff_name and args:
+            if isinstance(args, list) and args:
+                eff_name = str(args[0])
+            elif isinstance(args, str):
+                eff_name = args
         tracker = RequestTelemetry("aep_ctl", f"{d}.{a}")
         is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
         eff_cursor = max(0, int(cursor or 0))
@@ -1815,12 +1919,12 @@ async def aep_ctl(
                 res_obj = create_backup()
             elif a == "restore":
                 slot = 1
-                if name and name.strip():
+                if eff_name and eff_name.strip():
                     try:
-                        slot = int(name.strip())
+                        slot = int(eff_name.strip())
                     except ValueError:
                         return attach_envelope(
-                            {"status": "ERROR", "error": f"Número de slot inválido: {name}", "valid": "1..5"},
+                            {"status": "ERROR", "error": f"Número de slot inválido: {eff_name}", "valid": "1..5"},
                             tracker,
                             verbosity=verbosity,
                         )
@@ -1830,8 +1934,8 @@ async def aep_ctl(
             elif a in ("auto_recover", "verify_and_auto_recover"):
                 res_obj = verify_and_auto_recover()
             elif a == "verify_integrity":
-                target = Path(name.strip()) if name and name.strip() else None
-                ok, reason, details = verify_database_integrity(target)
+                target_path = Path(eff_name.strip()) if eff_name and eff_name.strip() else None
+                ok, reason, details = verify_database_integrity(target_path)
                 res_obj = {
                     "status": "OK" if ok else "INTEGRITY_FAILED",
                     "valid": ok,
@@ -1839,10 +1943,10 @@ async def aep_ctl(
                     "details": details,
                 }
             elif a == "micro_snapshot":
-                snap_id = name.strip() if name and name.strip() else "default"
+                snap_id = eff_name.strip() if eff_name and eff_name.strip() else "default"
                 res_obj = create_micro_snapshot(snapshot_id=snap_id)
             elif a == "restore_micro_snapshot":
-                snap_id = name.strip() if name and name.strip() else "default"
+                snap_id = eff_name.strip() if eff_name and eff_name.strip() else "default"
                 res_obj = restore_micro_snapshot(snapshot_id=snap_id)
             elif a == "list_micro_snapshots":
                 res_obj = list_micro_snapshots()
@@ -1871,8 +1975,8 @@ async def aep_ctl(
                 verbosity=verbosity,
             )
         cmd = ["python3", str(AEP_CTL), d, a]
-        if name:
-            cmd.append(name)
+        if eff_name:
+            cmd.append(eff_name)
         cmd.append("--json")
         try:
             res = subprocess.run(
@@ -1973,7 +2077,7 @@ async def aep_ctl(
                     ]
                     parsed["count"] = len(real_fs)
                     parsed["filesystems"] = real_fs
-                elif d == "package" and a == "installed" and isinstance(parsed.get("packages"), list):
+                elif d == "package" and a in ("installed", "list") and isinstance(parsed.get("packages"), list):
                     all_pkgs = parsed["packages"]
                     total = parsed.get("count", len(all_pkgs))
                     cap = min(eff_limit, 30) if is_compact else eff_limit
@@ -1983,6 +2087,16 @@ async def aep_ctl(
                     parsed["total_count"] = total
                     parsed["count"] = len(sliced)
                     parsed["packages"] = sliced
+                elif d == "service" and a == "list" and isinstance(parsed.get("services"), list):
+                    all_svcs = parsed["services"]
+                    total = parsed.get("count", len(all_svcs))
+                    cap = min(eff_limit, 25) if is_compact else eff_limit
+                    sliced = all_svcs[eff_cursor : eff_cursor + cap]
+                    truncated = (eff_cursor + len(sliced)) < len(all_svcs)
+                    next_cur = str(eff_cursor + len(sliced)) if truncated else None
+                    parsed["total_count"] = total
+                    parsed["count"] = len(sliced)
+                    parsed["services"] = sliced
 
             return attach_envelope(
                 parsed,
@@ -2046,23 +2160,40 @@ async def visual_inspect(
     viewport_height: int = 800,
     selector: str | None = None,
     full_page: bool = True,
-    verbosity: str = "detail",
+    include_base64: bool = False,
+    verbosity: str = "summary",
     agent_id: str = "default",
 ) -> str:
     """
     [SPEC-OM-5 / HEADLESS DISPLAY] Renderiza una URL (http(s):// o file://) en Chromium
-    headless y captura un screenshot en RAM (/dev/shm), devuelto en base64. Para validar
-    layouts/UI en servidores sin pantalla. FAIL-SOFT si no hay navegador.
+    headless y captura un screenshot en RAM (/dev/shm).
+    - Por defecto (`include_base64=False`, `verbosity='summary'`), guarda el PNG en `/dev/shm/aep_shot_*.png`
+      y devuelve `screenshot_path`, `screenshot_sha256`, `screenshot_bytes`, `title` y `text_excerpt`
+      sin inundar el contexto con >100 KB de base64.
+    - Pasa `include_base64=True` o `verbosity='full'` si requieres el string `screenshot_base64` inline.
+    FAIL-SOFT si no hay navegador.
     """
 
     def _run() -> str:
         tracker = RequestTelemetry("visual_inspect", "render")
+        want_b64 = bool(include_base64 or (verbosity or "").strip().lower() == "full")
         try:
             future = _display_executor.submit(
-                headless_display.visual_inspect, url, viewport_width, viewport_height, selector, full_page
+                headless_display.visual_inspect,
+                url,
+                viewport_width,
+                viewport_height,
+                selector,
+                full_page,
+                want_b64,
             )
             res = future.result(timeout=25)
-            return attach_envelope(res, tracker, verbosity=verbosity)
+            return attach_envelope(
+                res,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Rendered '{res.get('title', url)}' ({res.get('screenshot_bytes', 0)} bytes in /dev/shm).",
+            )
         except concurrent.futures.TimeoutError:
             return attach_envelope(
                 {

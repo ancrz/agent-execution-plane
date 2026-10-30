@@ -278,3 +278,65 @@ def test_deep_omission_battery_v2_zero_fd_leak_and_storage_disks_summary() -> No
         assert bd.get("type") != "loop"
 
 
+def test_deep_omission_battery_v3_polymorphic_dag_and_aliases() -> None:
+    """Polymorphic topos_audit_dag, aep_ctl target/args aliases & service.list, process_inspect(pid=1) graceful handling, and compact discover."""
+    import server
+
+    # 1. Polymorphic topos_audit_dag accepts task dicts and edge lists without Pydantic validation errors
+    dag_dicts = json.loads(
+        asyncio.run(
+            server.topos_audit_dag(
+                tasks=[
+                    {"id": "step_a", "consumes": []},
+                    {"id": "step_b", "consumes": ["step_a"]},
+                ]
+            )
+        )
+    )
+    assert dag_dicts["verdict"] == "APPROVED"
+
+    dag_edges = json.loads(
+        asyncio.run(
+            server.topos_audit_dag(
+                tasks=["step_1", "step_2"],
+                dependencies=[{"from": "step_2", "to": "step_1", "type": "dependency"}],
+            )
+        )
+    )
+    assert dag_edges["verdict"] == "APPROVED"
+
+    # 2. aep_ctl accepts target= alias and supports service.list and package.list
+    pkg_chk = json.loads(
+        asyncio.run(server.aep_ctl(domain="package", action="check", target="python3", verbosity="summary"))
+    )
+    assert pkg_chk["status"] == "OK"
+    assert pkg_chk["package"] == "python3"
+
+    svc_list = json.loads(
+        asyncio.run(server.aep_ctl(domain="service", action="list", limit=5, verbosity="summary"))
+    )
+    assert svc_list["status"] in ("OK", "DEGRADED")
+    if svc_list["status"] == "OK":
+        assert len(svc_list.get("services", [])) <= 5
+
+    # 3. discover(action="capabilities", verbosity="summary") is compact (< 5,500 bytes vs ~7,900 detail) and discover(action="recommend") works
+    cap_sum_raw = asyncio.run(server.discover(action="capabilities", verbosity="summary"))
+    cap_det_raw = asyncio.run(server.discover(action="capabilities", verbosity="detail"))
+    assert len(cap_sum_raw.encode("utf-8")) < len(cap_det_raw.encode("utf-8"))
+    assert len(cap_sum_raw.encode("utf-8")) < 5500
+    rec = json.loads(
+        asyncio.run(server.discover(action="recommend", intent="inspect open file descriptors of process"))
+    )
+    assert rec["status"] == "OK"
+
+    # 4. artifact_catalog accepts action="list" and action="search"
+    cat_list = json.loads(asyncio.run(server.artifact_catalog(action="list", limit=3)))
+    assert cat_list["status"] == "OK"
+
+    # 5. process_inspect(pid=1) returns OK (via sudo -n) or PARTIAL (preserving /proc/1/status)
+    p1 = json.loads(asyncio.run(server.process_inspect(pid=1, limit=5, verbosity="summary")))
+    assert p1["status"] in ("OK", "PARTIAL")
+    assert p1["pid"] == 1
+
+
+

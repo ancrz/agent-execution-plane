@@ -65,10 +65,32 @@ def _need(bin_name: str) -> str | None:
 
 # ------------------------------------------------------------------ dominios
 def domain_service(action: str, name: str | None) -> Any:
-    if not name:
-        fail("Falta <name> del servicio.", usage="aep-ctl service <action> <name> --json")
     if not _need("systemctl"):
         return {"status": "DEGRADED", "message": "systemctl no disponible en este host."}
+    if action == "list":
+        r = _run([
+            "systemctl",
+            "list-units",
+            "--type=service",
+            "--state=running",
+            "--no-pager",
+            "--plain",
+            "--no-legend",
+        ])
+        services = []
+        for ln in r.stdout.splitlines():
+            parts = ln.split(None, 4)
+            if len(parts) >= 4:
+                services.append({
+                    "unit": parts[0],
+                    "load": parts[1],
+                    "active": parts[2],
+                    "sub": parts[3],
+                    "description": parts[4].strip() if len(parts) > 4 else "",
+                })
+        return {"status": "OK", "capability_tier": _tier(), "count": len(services), "services": services}
+    if not name:
+        fail("Falta <name> del servicio.", usage="aep-ctl service <action> <name> --json")
     if action == "status":
         # Lectura de scope de sistema (servicios reales: redis, nginx...). No requiere sudo.
         r = _run(["systemctl", "show", name,
@@ -186,7 +208,7 @@ def domain_storage(action: str) -> Any:
 def domain_package(action: str, name: str | None) -> Any:
     if not _need("dpkg-query"):
         return {"status": "DEGRADED", "message": "dpkg-query no disponible (¿no es Debian/Ubuntu?)."}
-    if action == "installed":
+    if action in ("installed", "list"):
         r = _run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Status}\n"])
         pkgs = []
         for ln in r.stdout.splitlines():

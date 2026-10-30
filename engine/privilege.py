@@ -206,10 +206,10 @@ _CAP_KEYWORDS = {
 # Single Source of Truth for the Control Plane Schema (shared by scripts/aep-ctl and server.py)
 CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
     "service": {
-        "actions": ["status", "start", "stop", "restart"],
-        "arg": "<name>",
+        "actions": ["list", "status", "start", "stop", "restart"],
+        "arg": "[name]",
         "scope": "systemd --user (DIMINISHED) | system (FULL)",
-        "description": "Inspect or mutate systemd service units without interactive pagers.",
+        "description": "List active systemd services or inspect/mutate a specific service unit without interactive pagers.",
     },
     "network": {
         "actions": ["inspect", "routes", "listeners"],
@@ -222,8 +222,8 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "Inspect filesystem byte usage, mount trees, and block devices.",
     },
     "package": {
-        "actions": ["installed", "check", "info"],
-        "arg": "<name>",
+        "actions": ["installed", "list", "check", "info"],
+        "arg": "[name]",
         "description": "Query Debian/Ubuntu dpkg state for installed packages and versions.",
     },
     "backup": {
