@@ -11,10 +11,15 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
+from engine.db import transaction_immediate
+
 logger = logging.getLogger("aep.security")
+
+_AUDIT_LOCK = threading.RLock()
 
 # Expresiones regulares para detección de secretos y credenciales
 _BEARER_RE = re.compile(r"Bearer\s+([A-Za-z0-9_\-\.]+)", re.IGNORECASE)
@@ -141,38 +146,44 @@ def record_audit_event(
     """
     Registra un evento de auditoría criptográfica con encadenamiento de hash SHA-256.
     Aplica sanitize_dict/mask_secrets sobre el payload antes del cómputo criptográfico.
+    Serializado con _AUDIT_LOCK + transaction_immediate para evitar bifurcación de cadena
+    cuando múltiples agentes ejecutan herramientas concurrentemente.
     """
-    _ensure_audit_table(conn)
-
-    # 1. Obtener hash previo del último registro insertado
-    cur = conn.cursor()
-    cur.execute("SELECT entry_hash FROM security_audit_log ORDER BY id DESC LIMIT 1")
-    last_row = cur.fetchone()
-    prev_hash = str(last_row[0]) if last_row and last_row[0] else GENESIS_HASH
-
-    # 2. Sanitizar detalles y estructurar payload determinista
     sanitized_details = sanitize_dict(details) if details is not None else {}
     details_json = json.dumps(sanitized_details, sort_keys=True)
     iso_ts = datetime.now(UTC).isoformat()
     tgt = str(target) if target is not None else ""
 
-    # 3. Cómputo del hash del bloque actual
-    raw_payload = f"{prev_hash}|{iso_ts}|{agent_id}|{tool_name}|{action}|{capability_tier}|{tgt}|{status}|{details_json}"
-    entry_hash = hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
+    def _do_insert() -> tuple[int | None, str, str]:
+        _ensure_audit_table(conn)
+        cur = conn.cursor()
+        cur.execute("SELECT entry_hash FROM security_audit_log ORDER BY id DESC LIMIT 1")
+        last_row = cur.fetchone()
+        prev_hash = str(last_row[0]) if last_row and last_row[0] else GENESIS_HASH
+        raw_payload = (
+            f"{prev_hash}|{iso_ts}|{agent_id}|{tool_name}|{action}|{capability_tier}|{tgt}|{status}|{details_json}"
+        )
+        entry_hash = hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
+        cur.execute(
+            """
+            INSERT INTO security_audit_log (
+                timestamp, agent_id, tool_name, action, capability_tier, target, status, details_json, prev_hash, entry_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (iso_ts, agent_id, tool_name, action, capability_tier, tgt, status, details_json, prev_hash, entry_hash),
+        )
+        return cur.lastrowid, entry_hash, prev_hash
 
-    # 4. Inserción atómica en la tabla
-    cur.execute(
-        """
-        INSERT INTO security_audit_log (
-            timestamp, agent_id, tool_name, action, capability_tier, target, status, details_json, prev_hash, entry_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (iso_ts, agent_id, tool_name, action, capability_tier, tgt, status, details_json, prev_hash, entry_hash),
-    )
+    with _AUDIT_LOCK:
+        if conn.in_transaction:
+            row_id, entry_hash, prev_hash = _do_insert()
+        else:
+            with transaction_immediate(conn):
+                row_id, entry_hash, prev_hash = _do_insert()
 
     return {
         "status": "RECORDED",
-        "id": cur.lastrowid,
+        "id": row_id,
         "entry_hash": entry_hash,
         "prev_hash": prev_hash,
         "timestamp": iso_ts,

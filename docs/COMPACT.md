@@ -1,10 +1,11 @@
 # Context Compaction Guidance — AEP
 
 Preserve:
-- Pipeline Mode: Short (ONT-23 Stage 2: Graphos G2 Record) -> Hermon (Stage 6).
-- Active Intent / Milestone: ONT-23 (Pico-Triad Multi-Agent Concurrency Isolation) — VERIFIED & PROMOTED ✅ (Task #131 Score: 0.9250 TRUST).
-- Core Additions: `engine/kanban.py` (`upsert_build_task` under `transaction_immediate`), `engine/catalog.py` (precomputed embeddings outside write locks), `server.py` (`/dev/shm` slot Go builds + `os.replace`, `playbook_run(action="run")` slot/piping/projection parity), `tests/test_spec_om7_ipc_batch.py` (20 tests, 66 total).
-- Concurrency Verification: 4 concurrent agents / 8 threads tested with zero TOCTOU races, zero build collisions, zero lock-upgrade deadlocks, and zero FD leaks.
-- Quality Gates: 66/66 pytest passed (100%), 0 ruff errors, setup.sh --check HEALTHY (exit 0), 15 FastMCP tools invariant strictly preserved.
-- Readiness & Next Actions: Ready for Hermon (Stage 6) atomic commit and sync.
+- Pipeline Mode: Full / Short (ONT-24 Stage 6: Hermon Commit & Push).
+- Active Intent / Milestone: ONT-24 (Non-Pico Concurrency Protections & Kali Semantic Polish) — VERIFIED & PROMOTED ✅ (Task #132 Score: 0.9500 TRUST).
+- Core Additions: `engine/security.py` (`_AUDIT_LOCK` + `transaction_immediate` preventing SHA-256 forks), `engine/backup.py` (`_SNAPSHOT_LOCK` + `check_same_thread=False` `:memory:` micro-snapshots), `server.py` (`_DocsHolder.lock`, enriched `_INSTRUCTIONS`), `engine/privilege.py` (Rule #7, recipe `WF-6`), `tests/test_spec_om7_ipc_batch.py` (23 tests, 69 total).
+- Concurrency & Schema Integrity: Tested with 8 concurrent threads on security audit log, 4 threads on RAM micro-snapshots, zero race conditions, zero FD leaks (`fd_delta == 0`), zero circular co-dependencies.
+- Mermaid Integrity: 79 Mermaid diagrams across 52 markdown files linted and validated with 0 errors.
+- Quality Gates: 69/69 pytest passed (100%), 0 ruff errors, setup.sh --check HEALTHY (exit 0), 15 FastMCP tools invariant strictly preserved.
+- Readiness & Next Actions: Committed and synchronized with origin/dev and origin/main.
 Drop: raw AEP tool outputs, intermediate debug traces, superseded test execution logs.

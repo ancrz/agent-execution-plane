@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-10-30
+
+### Added
+- **Non-Pico System-Wide Concurrency Hardening (Milestone `ONT-24`)**:
+  - **Audit Ledger Fork Prevention**: Serialized `record_audit_event()` in `engine/security.py` using a re-entrant mutex (`_AUDIT_LOCK`) and `transaction_immediate(conn)` to prevent SHA-256 hash chain forks under parallel multi-agent tool execution.
+  - **Thread-Safe In-Memory RAM Micro-Snapshots**: Wrapped `create_micro_snapshot()`, `restore_micro_snapshot()`, `list_micro_snapshots()`, and `clear_micro_snapshots()` in `engine/backup.py` under `_SNAPSHOT_LOCK` with `check_same_thread=False` `:memory:` SQLite connections, eliminating cross-thread connection exceptions.
+  - **Docs Vectorizer Thread Safety**: Guarded `ManPagesVectorizer` singleton initialization under `_DocsHolder.lock` in `server.py` to prevent race conditions during concurrent `query_system_docs` queries.
+  - **Kali-MCP Semantic Parity & Tactical Playbooks**:
+    - Enriched `server._INSTRUCTIONS` with explicit recipes `WF-1` through `WF-6`, zero-token RAM handoffs, and 9 `aep_ctl` control plane domains.
+    - Added Rule of Engagement #7 ("Zero-Token Multi-Agent RAM Handoff & Collision-Free Concurrency") and recipe `WF-6` in `engine/privilege.py`.
+- **System-Wide Concurrency Verification Battery**:
+  - Added `TestNonPicoSystemWideConcurrency` in `tests/test_spec_om7_ipc_batch.py` validating 8-thread concurrent audit ledger integrity, multi-thread RAM micro-snapshots, and double-checked locking of vectorizer.
+  - Validated all 79 Mermaid diagrams across 52 markdown files with zero syntax or bracket/quote balance errors.
+  - 69/69 total tests passing with 0 errors (`ruff check .` clean, `setup.sh --check` healthy).
+
 ## [0.2.2] - 2026-10-30
 
 ### Added

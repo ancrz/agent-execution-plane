@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -70,19 +71,19 @@ logger = logging.getLogger("aep.server")
 
 _INSTRUCTIONS = """# Agent Execution Plane (AEP) — Tactical Suite & Instructions (EAES-v2)
 
-AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 15 typed JSON-RPC tools (18 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under dual-tier privilege governance:
+AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 15 typed JSON-RPC tools (18 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under dual-tier privilege governance:
 - **FULL** (`root` or passwordless `sudo -n`): system-wide & kernel scope.
 - **DIMINISHED** (unprivileged user): bounded user/self scope with fail-soft JSON fallbacks.
 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
-2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-4`) and canonical calls.
-3. `aep_ctl(action="schema")` -> Returns the complete 8-domain control-plane contract without requiring a dummy domain.
+2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-6`) and canonical calls.
+3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
 ## 2. Complete 15-Tool Suite Map (6 Operational Domains)
 - **Domain 1 — Orientation, Synthesis & In-RAM Execution**:
   1. `discover(use_case="", action="discover"|"capabilities"|"playbook", limit=3, verbosity="summary")`
-  2. `artifact_lint_and_build(action="build"|"catalog"|"select"|"hydrate", name=..., template_name=..., verbosity="summary")` *(1-step build from template: `template_name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard"`)*
+  2. `artifact_lint_and_build(action="build"|"catalog"|"select"|"hydrate", name=..., template_name=..., agent_id=..., verbosity="summary")` *(1-step isolated Go build in `/dev/shm/aep_pool` + atomic `os.replace` & `kanban.upsert_build_task`: `template_name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard"`)*
   3. `artifact_execute_in_ram(name="socket_monitor", args=[], verbosity="summary", limit=25)` *(executes ELF via `memfd_create` with `fd_delta=0`)*
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
 - **Domain 2 — State Governance & Process Introspection**:
@@ -99,12 +100,15 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   12. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit"|"ipc", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
   13. `query_system_docs(query="bwrap ro-bind", ingest_command=None, limit=3, verbosity="summary")` *(offline `sqlite-vec` man-pages)*
   14. `visual_inspect(url="http://localhost:8000", include_base64=False, verbosity="summary")` *(renders in headless Chromium to `/dev/shm/aep_shot_*.png`, returning path + sha256 + text excerpt in ~275 tokens)*
-- **Domain 6 — DAG Workflow Orchestration**:
-  15. `playbook_run(action="run"|"batch"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, steps=[...], select_fields=[...], verbosity="summary")`
+- **Domain 6 — DAG Workflow Orchestration & Ephemeral Batch/Code Mode**:
+  15. `playbook_run(action="run"|"batch"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, steps=[...], return_only="last"|"summary"|"all", select_fields=[...], agent_id=..., verbosity="summary")` *(supports `$prev.*`, `$steps.<id>.*`, `$cache.<key>.*`, `$slot.<key>.*` piping and `store_as` shared RAM handoffs)*
 
-## 3. Rules of Engagement (Token Efficiency & Safety)
-- Always pass `verbosity="summary"` (supported across all 15/15 tools) for 70-98% token savings.
-- Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
+## 3. Rules of Engagement (Token Efficiency, Batching & Multi-Agent Concurrency)
+- **Compact Verbosity**: Always pass `verbosity="summary"` (supported across all 15/15 tools) for 70-98% token savings.
+- **Single-Turn Ephemeral Batch & Field Projection (`Spec OM-7`)**: Chain multi-tool workflows in 1 LLM turn using `playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status","pid","fd_count"])` (also supported on saved playbooks with `action="run"`). Failed step diagnostics (`failed_steps`) are always preserved.
+- **Zero-Token Multi-Agent RAM Handoffs (`/dev/shm/aep_pool`)**: Pass `params={"session_id": "shared-id"}` and `store_as="key"` on steps so collaborating agents (`archon`, `pragma`, `dokimos`, `graphos`, `hermon`) read `$cache.<key>.<field>` directly from `/dev/shm` RAM without re-serializing JSON through the prompt.
+- **Collision-Free Multi-Agent Concurrency**: All 15 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
+- **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
 """
 
 
@@ -120,13 +124,16 @@ template_registry = TemplateRegistry()
 
 class _DocsHolder:
     instance: Any = None
+    lock = threading.Lock()
 
 
 def _get_docs_vectorizer() -> Any:
     if _DocsHolder.instance is None:
-        from engine.docs_vectorizer import ManPagesVectorizer
+        with _DocsHolder.lock:
+            if _DocsHolder.instance is None:
+                from engine.docs_vectorizer import ManPagesVectorizer
 
-        _DocsHolder.instance = ManPagesVectorizer()
+                _DocsHolder.instance = ManPagesVectorizer()
     return _DocsHolder.instance
 
 
@@ -271,7 +278,7 @@ async def discover(
                 tracker,
                 verbosity=verbosity,
                 summary="Kali-style tactical playbook and token-efficiency Rules of Engagement loaded.",
-                next_action="Select a workflow recipe (WF-1..WF-4) or canonical call from quick_reference.",
+                next_action="Select a workflow recipe (WF-1..WF-6) or canonical call from quick_reference.",
             )
         elif act in ("discover", "match", "route", "search", "recommend"):
             if not eff_use_case:
@@ -1994,11 +2001,11 @@ async def aep_ctl(
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
     - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
-    - `domain`: schema|service|network|storage|package|backup|security|audit.
-    - `name` (alias: `target`, `args`): nombre de servicio, paquete o snapshot.
+    - `domain`: schema|service|network|storage|package|backup|security|audit|ipc.
+    - `name` (alias: `target`, `args`): nombre de servicio, paquete, snapshot o session_id IPC.
     - `verbosity`: 'detail' (default) | 'summary' | 'brief' (compacta listeners/mounts/interfaces ahorrando tokens).
     - `limit` y `cursor`: paginación determinista sobre listas extensas.
-    Ej: aep_ctl(action="schema") | aep_ctl("network","listeners",verbosity="summary") | aep_ctl("audit","verify").
+    Ej: aep_ctl(action="schema") | aep_ctl("network","listeners",verbosity="summary") | aep_ctl("ipc","status",verbosity="summary").
     """
 
     def _run() -> str:

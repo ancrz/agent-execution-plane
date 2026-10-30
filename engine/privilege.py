@@ -398,10 +398,11 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
         ],
     },
     "automation": {
-        "when_to_use": "Create or run parameterized multi-tool DAG playbooks validated by ToposGuard.",
+        "when_to_use": "Create or run parameterized multi-tool DAG playbooks, or execute single-turn ephemeral batches with in-RAM variable piping ($prev.*, $steps.<id>.*, $cache.<key>.*) and server-side field projection.",
         "canonical_calls": [
             'playbook_run(action="list")',
-            'playbook_run(action="run", name="system_health_check")',
+            'playbook_run(action="run", name="aep-self-diagnostic", return_only="last", select_fields=["status", "valid", "block_count"])',
+            'playbook_run(action="batch", steps=[{"id": "s1", "tool": "process_inspect", "params": {"pid": 0}, "store_as": "proc"}], return_only="last", select_fields=["status", "pid", "fd_count"])',
         ],
     },
     "system_docs": {
@@ -468,7 +469,8 @@ def tactical_playbook() -> dict[str, Any]:
             "3. SANDBOX ISOLATION: sandbox_run defaults to share_net=False and hides the host workspace. Pass working_dir='/path/to/repo' or ro_paths=['/path'] to mount authorized directories safely.",
             "4. STATE EXTERNALIZATION: Record multi-step work in kanban_board and validate task dependencies with topos_audit_dag before mutating files.",
             "5. SNAPSHOT BEFORE MUTATION: Call aep_ctl(domain='backup', action='micro_snapshot', name='pre_edit') before risky database or catalog changes.",
-            "6. EPHEMERAL PIPELINE BATCHING: Use playbook_run(action='batch', steps=[...], select_fields=[...]) or /dev/shm/aep.sock UNIX socket pool to execute multi-tool chains in a single turn and discard unneeded fields server-side (saving 80-95% tokens).",
+            "6. EPHEMERAL PIPELINE BATCHING: Use playbook_run(action='batch', steps=[...], return_only='last', select_fields=[...]) or /dev/shm/aep.sock UNIX socket pool to execute multi-tool chains in a single turn and discard unneeded fields server-side (saving 80-98% tokens).",
+            "7. ZERO-TOKEN MULTI-AGENT RAM HANDOFF & CONCURRENCY: Share state across agents in /dev/shm/aep_pool using params={'session_id': 'shared'} + store_as='key' and reference $cache.<key>.<field> (or $slot.<key>.<field>). All 15 tools (Pico-Kanban, Pico-Jenkins Go builds, Pico-Ansible playbooks, SHA-256 audit log, and RAM snapshots) are collision-free under concurrent multi-agent execution.",
         ],
         "workflow_recipes": [
             {
@@ -511,22 +513,31 @@ def tactical_playbook() -> dict[str, Any]:
                 "id": "WF-5",
                 "name": "Cloudflare-Style Ephemeral Batch & UNIX Socket Pool",
                 "steps": [
-                    '1. aep_ctl(domain="ipc", action="status") -> Check /dev/shm/aep.sock listener and active pool slots.',
-                    '2. playbook_run(action="batch", steps=[{"id":"s1","tool":"process_inspect","params":{"pid":0}}, {"id":"s2","tool":"topos_audit_dag","params":{"tasks":["t1"],"dependencies":{}}}], return_only="last", select_fields=["status","pid","rss_kb"]) -> Execute multi-step DAG in 1 turn with field projection.',
+                    '1. aep_ctl(domain="ipc", action="status", verbosity="summary") -> Check /dev/shm/aep.sock listener and active pool slots.',
+                    '2. playbook_run(action="batch", steps=[{"id":"s1","tool":"process_inspect","params":{"pid":0}}, {"id":"s2","tool":"topos_audit_dag","params":{"tasks":["t1"],"dependencies":{}}}], return_only="last", select_fields=["status","verdict"]) -> Execute multi-step DAG in 1 turn with server-side field projection.',
+                ],
+            },
+            {
+                "id": "WF-6",
+                "name": "Zero-Token Multi-Agent RAM Handoff & Collision-Free Pico-Triad",
+                "steps": [
+                    '1. Agent A (pragma): playbook_run(action="batch", params={"session_id":"team-1"}, agent_id="pragma", steps=[{"id":"b1","tool":"artifact_lint_and_build","params":{"action":"build","template_name":"mem-stat"},"store_as":"build_out"}]) -> Builds Go ELF in isolated /dev/shm slot and caches output.',
+                    '2. Agent B (dokimos): playbook_run(action="batch", params={"session_id":"team-1"}, agent_id="dokimos", steps=[{"id":"c1","tool":"artifact_execute_in_ram","params":{"name":"$cache.build_out.name"}}, {"id":"c2","tool":"kanban_board","params":{"action":"promote","task_id":"$cache.build_out.kanban_task_id"}}], return_only="last", select_fields=["status","verdict"]) -> Reads Agent A state from /dev/shm RAM and promotes artifact in 1 turn.',
                 ],
             },
         ],
         "quick_reference": {
-            "orient_and_readiness": 'discover(action="capabilities")',
-            "tactical_guide": 'discover(action="playbook")',
+            "orient_and_readiness": 'discover(action="capabilities", verbosity="summary")',
+            "tactical_guide": 'discover(action="playbook", verbosity="summary")',
             "control_plane_schema": 'aep_ctl(action="schema")',
             "compact_listeners": 'aep_ctl(domain="network", action="listeners", verbosity="summary")',
             "compact_mounts": 'aep_ctl(domain="storage", action="mounts", verbosity="summary")',
-            "sandbox_repo_test": 'sandbox_run(command="pytest -q", working_dir="/path/to/repo")',
+            "sandbox_repo_test": 'sandbox_run(command="pytest -q", working_dir="/path/to/repo", verbosity="summary")',
             "ram_micro_snapshot": 'aep_ctl(domain="backup", action="micro_snapshot", name="snap1")',
-            "audit_ledger_verify": 'aep_ctl(domain="audit", action="verify")',
-            "ipc_socket_status": 'aep_ctl(domain="ipc", action="status")',
-            "ephemeral_batch": 'playbook_run(action="batch", steps=[...], return_only="last")',
+            "audit_ledger_verify": 'aep_ctl(domain="audit", action="verify", verbosity="summary")',
+            "ipc_socket_status": 'aep_ctl(domain="ipc", action="status", verbosity="summary")',
+            "ipc_shared_cache": 'aep_ctl(domain="ipc", action="cache", name="team-1")',
+            "ephemeral_batch": 'playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status"])',
         },
         "prerequisites_summary": {
             k: v["installed"] for k, v in prereqs.items()

@@ -19,6 +19,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -42,6 +43,7 @@ CANARY_TOKEN = "aep_canary_v1_active"  # noqa: S105
 
 # Store global para micro-snapshots volátiles en memoria RAM (acotado a FIFO de 2 slots)
 _RAM_MICRO_SNAPSHOTS: dict[str, sqlite3.Connection] = {}
+_SNAPSHOT_LOCK = threading.RLock()
 MAX_RAM_SNAPSHOTS = 2
 
 
@@ -318,38 +320,40 @@ def create_micro_snapshot(
         return {"status": "SOURCE_NOT_FOUND", "error": f"Base de datos {target} no existe"}
 
     t0 = time.perf_counter()
-    src_conn = get_ro_connection(target, row_factory=False)
-    try:
-        mem_conn = sqlite3.connect(":memory:")
-        src_conn.backup(mem_conn)
-    finally:
-        src_conn.close()
-
-    latency_ms = (time.perf_counter() - t0) * 1000
-
-    # Cerrar conexión previa si existía en ese slot
-    if eff_snap_id in _RAM_MICRO_SNAPSHOTS:
+    with _SNAPSHOT_LOCK:
+        src_conn = get_ro_connection(target, row_factory=False)
         try:
-            _RAM_MICRO_SNAPSHOTS.pop(eff_snap_id).close()
-        except (sqlite3.Error, OSError):  # noqa: S110
-            pass
+            mem_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            src_conn.backup(mem_conn)
+        finally:
+            src_conn.close()
 
-    # Evicción FIFO para acotar consumo de RAM a MAX_RAM_SNAPSHOTS
-    while len(_RAM_MICRO_SNAPSHOTS) >= MAX_RAM_SNAPSHOTS:
-        oldest_key = next(iter(_RAM_MICRO_SNAPSHOTS))
-        try:
-            _RAM_MICRO_SNAPSHOTS.pop(oldest_key).close()
-        except (sqlite3.Error, OSError):  # noqa: S110
-            pass
+        latency_ms = (time.perf_counter() - t0) * 1000
 
-    _RAM_MICRO_SNAPSHOTS[eff_snap_id] = mem_conn
+        # Cerrar conexión previa si existía en ese slot
+        if eff_snap_id in _RAM_MICRO_SNAPSHOTS:
+            try:
+                _RAM_MICRO_SNAPSHOTS.pop(eff_snap_id).close()
+            except (sqlite3.Error, OSError):  # noqa: S110
+                pass
+
+        # Evicción FIFO para acotar consumo de RAM a MAX_RAM_SNAPSHOTS
+        while len(_RAM_MICRO_SNAPSHOTS) >= MAX_RAM_SNAPSHOTS:
+            oldest_key = next(iter(_RAM_MICRO_SNAPSHOTS))
+            try:
+                _RAM_MICRO_SNAPSHOTS.pop(oldest_key).close()
+            except (sqlite3.Error, OSError):  # noqa: S110
+                pass
+
+        _RAM_MICRO_SNAPSHOTS[eff_snap_id] = mem_conn
+        active_keys = list(_RAM_MICRO_SNAPSHOTS.keys())
 
     return {
         "status": "SUCCESS",
         "snapshot_id": eff_snap_id,
         "latency_ms": round(latency_ms, 3),
         "in_ram": True,
-        "active_ram_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
+        "active_ram_snapshots": active_keys,
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -366,24 +370,25 @@ def restore_micro_snapshot(
         eff_snap_id = db_path
         db_path = None
 
-    if eff_snap_id not in _RAM_MICRO_SNAPSHOTS:
-        return {
-            "status": "SNAPSHOT_NOT_FOUND",
-            "error": f"Micro-snapshot en RAM '{eff_snap_id}' no encontrado",
-            "active_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
-        }
+    with _SNAPSHOT_LOCK:
+        if eff_snap_id not in _RAM_MICRO_SNAPSHOTS:
+            return {
+                "status": "SNAPSHOT_NOT_FOUND",
+                "error": f"Micro-snapshot en RAM '{eff_snap_id}' no encontrado",
+                "active_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
+            }
 
-    target = Path(db_path or DB_DEFAULT_PATH).resolve()
-    t0 = time.perf_counter()
-    mem_conn = _RAM_MICRO_SNAPSHOTS[eff_snap_id]
+        target = Path(db_path or DB_DEFAULT_PATH).resolve()
+        t0 = time.perf_counter()
+        mem_conn = _RAM_MICRO_SNAPSHOTS[eff_snap_id]
 
-    dst_conn = get_rw_connection(target, row_factory=False)
-    try:
-        mem_conn.backup(dst_conn)
-    finally:
-        dst_conn.close()
+        dst_conn = get_rw_connection(target, row_factory=False)
+        try:
+            mem_conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
 
-    latency_ms = (time.perf_counter() - t0) * 1000
+        latency_ms = (time.perf_counter() - t0) * 1000
 
     return {
         "status": "SUCCESS",
@@ -396,21 +401,23 @@ def restore_micro_snapshot(
 
 def list_micro_snapshots() -> dict[str, Any]:
     """Lista los identificadores de micro-snapshots activos en memoria RAM."""
-    return {
-        "status": "OK",
-        "count": len(_RAM_MICRO_SNAPSHOTS),
-        "active_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
-    }
+    with _SNAPSHOT_LOCK:
+        return {
+            "status": "OK",
+            "count": len(_RAM_MICRO_SNAPSHOTS),
+            "active_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
+        }
 
 
 def clear_micro_snapshots() -> None:
     """Cierra y libera todas las conexiones de micro-snapshots en memoria RAM."""
-    for conn in _RAM_MICRO_SNAPSHOTS.values():
-        try:
-            conn.close()
-        except (sqlite3.Error, OSError):  # noqa: S110
-            pass
-    _RAM_MICRO_SNAPSHOTS.clear()
+    with _SNAPSHOT_LOCK:
+        for conn in _RAM_MICRO_SNAPSHOTS.values():
+            try:
+                conn.close()
+            except (sqlite3.Error, OSError):  # noqa: S110
+                pass
+        _RAM_MICRO_SNAPSHOTS.clear()
 
 
 @contextmanager

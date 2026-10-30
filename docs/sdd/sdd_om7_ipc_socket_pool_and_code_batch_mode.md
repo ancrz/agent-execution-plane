@@ -21,24 +21,24 @@ Spec OM-7 introduces three cohesive kernel and runtime primitives:
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Client Agent (Antigravity / Antigravity Harness)"]
-        A["Agent Turn Plan"] -->|"1 Roundtrip JSON Batch"| B["playbook_run(action='batch')"]
+    subgraph Client ["Multi-Agent Team (Archon / Pragma / Dokimos / Graphos / Hermon)"]
+        A["Agent Turn Plan"] -->|"1 Roundtrip JSON Batch"| B["playbook_run(action='batch' / 'run')"]
     end
 
-    subgraph AEP_Runtime ["AEP FastMCP Server Space"]
-        B --> C["SessionPool (/dev/shm/aep_pool)"]
+    subgraph AEP_Runtime ["AEP FastMCP Server Space (15 Tools)"]
+        B --> C["SessionPool (/dev/shm/aep_pool/slot_0..15)<br/>+ Shared Session Cache (_shared_session_cache)"]
         C --> D["PlaybookStore DAG Validator (ToposGuard)"]
-        D --> E["Step 1: process_inspect"]
-        E -->|"pipe $prev / $steps"| F["Step 2: topos_audit_dag"]
-        F --> G["Field Projection in RAM (project_fields)"]
-        G --> H["Token Savings Telemetry"]
+        D --> E["Step 1 (store_as='s1_out')<br/>Isolated /dev/shm Go Build or Probe"]
+        E -->|"pipe $prev / $steps / $cache / $slot"| F["Step 2: Consumes $cache.s1_out.*"]
+        F --> G["Smart Field Projection in RAM (project_fields)<br/>+ failed_steps Preservation"]
+        G --> H["Token Savings Telemetry (-80% to -98%)"]
     end
 
     subgraph IPC_Daemon ["Shared Memory UNIX Daemon (/dev/shm/aep.sock)"]
-        I["AF_UNIX Socket Mux"] <-->|"Zero-FD Leak Streaming"| B
+        I["AF_UNIX Socket Mux (0.33ms)"] <-->|"Zero-FD Leak Streaming (fd_delta=0)"| B
     end
 
-    H -->|"Projected Payload (-90% Tokens)"| A
+    H -->|"Projected Payload"| A
 ```
 
 ---

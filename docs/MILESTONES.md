@@ -81,6 +81,10 @@ flowchart LR
     M73 --> M74["M74: Milestone ONT-23 Verification 66/66 Tests (Dokimos) ✅"]
     M74 --> M75["M75: Milestone ONT-23 Documentation Rollup & Parity Gate (Graphos G2) ✅"]
     M75 --> M76["M76: Milestone ONT-23 Atomic Commit & Push (Hermon) ✅"]
+    M76 --> M77["M77: Milestone ONT-24 Non-Pico Concurrency Protections (Pragma) ✅"]
+    M77 --> M78["M78: Milestone ONT-24 Verification 69/69 Tests & Mermaid Lint (Dokimos) ✅"]
+    M78 --> M79["M79: Milestone ONT-24 Kali-MCP Semantic Alignment & Rollup (Graphos G2) ✅"]
+    M79 --> M80["M80: Milestone ONT-24 Atomic Commit & Push (Hermon) ✅"]
 ```
 
 ## 2. Milestone Matrix
@@ -111,3 +115,4 @@ flowchart LR
 | **IPC Socket Pool & Ephemeral Batch/Code Mode (ONT-21)** | Spec OM-7: Shared-memory UNIX socket session pool (`/dev/shm/aep.sock`), Cloudflare-style ephemeral batch/code mode, server-side field projection (`fields: list[str]`), `ipc` control plane domain, and SDD documentation. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/ipc_pool.py`, `engine/playbook.py`, `engine/privilege.py`, `server.py`, `scripts/aep-ctl`, `docs/sdd/`, `tests/` | **VERIFIED & PROMOTED (Task 129 Score: 1.0 TRUST, 58/58 Tests) ✅** |
 | **Spec OM-7 Omission Gaps & Cache Piping (ONT-22)** | Resolves GAP-OM22-1 (smart dot-path projection fallbacks), GAP-OM22-2 (`failed_steps` diagnostic preservation), GAP-OM22-3 (multi-agent cross-turn RAM session cache piping `$cache.<key>`), and GAP-OM22-4 (`kanban_board` / `artifact_lint_and_build` whitelist & signature filtering). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/ipc_pool.py`, `server.py`, `engine/playbook.py`, `engine/privilege.py`, `scripts/aep-ctl`, `tests/test_spec_om7_ipc_batch.py`, `README.md` | **VERIFIED & PROMOTED (Task 130 Score: 0.9250 TRUST, 62/62 Tests) ✅** |
 | **Pico-Triad Multi-Agent Concurrency Isolation (ONT-23)** | Resolves GAP-OM23-1 (`/dev/shm` Go build slot isolation + atomic `os.replace`), GAP-OM23-2 (`kanban.upsert_build_task` under `transaction_immediate`), GAP-OM23-3 (`playbook_run(action="run")` slot leasing, piping, projection parity), and GAP-OM23-4 (precomputed vector embeddings outside SQLite write transaction). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/kanban.py`, `engine/catalog.py`, `server.py`, `tests/test_spec_om7_ipc_batch.py`, `README.md` | **VERIFIED & PROMOTED (Task 131 Score: 0.9250 TRUST, 66/66 Tests) ✅** |
+| **Non-Pico Concurrency & Semantic Polish (ONT-24)** | Audit ledger mutex lock (`_AUDIT_LOCK`) + `transaction_immediate` preventing SHA-256 chain forks, thread-safe `:memory:` micro-snapshots (`_SNAPSHOT_LOCK` + `check_same_thread=False`), vectorizer double-checked lock, Kali-MCP semantic parity (`_INSTRUCTIONS`, Rule of Engagement #7, recipe `WF-6`), and zero-error Mermaid validation across all 79 diagrams. | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/security.py`, `engine/backup.py`, `server.py`, `engine/privilege.py`, `tests/test_spec_om7_ipc_batch.py`, `README.md`, `docs/` | **VERIFIED & PROMOTED (Task 132 Score: 0.9500 TRUST, 69/69 Tests) ✅** |

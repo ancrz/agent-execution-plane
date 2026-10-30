@@ -608,3 +608,142 @@ class TestPicoTriadMultiAgentConcurrency:
             assert row is not None
             assert row["version"] == 4
 
+
+# ==============================================================================
+# 9. Milestone ONT-24: Non-Pico Concurrency Protections (Audit & RAM Snapshots)
+# ==============================================================================
+
+class TestNonPicoSystemWideConcurrency:
+    def test_concurrent_audit_ledger_recording_no_forks(self, tmp_path: Path):
+        from engine.db import get_rw_connection
+        from engine.security import record_audit_event, verify_audit_chain
+
+        db_file = tmp_path / "audit_test.db"
+        errors = []
+        recorded_hashes = []
+        lock = threading.Lock()
+
+        # Pre-initialize database
+        with get_rw_connection(db_file) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+
+        def worker(idx: int):
+            try:
+                # Each thread gets its own rw connection to simulate distinct agent processes
+                with get_rw_connection(db_file) as conn:
+                    res = record_audit_event(
+                        conn=conn,
+                        agent_id=f"agent_{idx}",
+                        tool_name="aep_ctl",
+                        action="audit_test",
+                        capability_tier="rwx",
+                        status="OK",
+                        details={"thread_index": idx, "spec": "OM-7"},
+                        target=f"target_{idx}",
+                    )
+                    with lock:
+                        recorded_hashes.append(res["entry_hash"])
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Errors during concurrent audit recording: {errors}"
+        assert len(recorded_hashes) == 8
+        assert len(set(recorded_hashes)) == 8  # All hashes unique
+
+        with get_rw_connection(db_file) as conn:
+            chain_res = verify_audit_chain(conn)
+            assert chain_res["valid"] is True, f"Audit chain verification failed: {chain_res}"
+            assert chain_res["total_verified"] == 8
+            assert chain_res.get("broken_at") is None
+
+    def test_concurrent_in_memory_micro_snapshots_cross_thread(self, tmp_path: Path):
+        from engine.backup import (
+            clear_micro_snapshots,
+            create_micro_snapshot,
+            list_micro_snapshots,
+            restore_micro_snapshot,
+        )
+        from engine.db import get_rw_connection
+
+        db_file = tmp_path / "micro_test.db"
+        with get_rw_connection(db_file) as conn:
+            conn.execute("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
+            conn.execute("INSERT INTO kv VALUES ('initial', 'val_0')")
+
+        clear_micro_snapshots()
+        errors = []
+        lock = threading.Lock()
+
+        def snapshot_worker(idx: int):
+            try:
+                # Concurrent snapshot creation with different snapshot_ids (2 slots max in FIFO)
+                snap_id = f"snap_{idx}"
+                res = create_micro_snapshot(db_path=db_file, snapshot_id=snap_id)
+                assert res["status"] == "SUCCESS"
+                assert res["in_ram"] is True
+
+                # Concurrent list
+                l_res = list_micro_snapshots()
+                assert l_res["status"] == "OK"
+
+                # Concurrent restore to a clone db
+                clone_db = tmp_path / f"clone_{idx}.db"
+                with get_rw_connection(clone_db) as conn:
+                    conn.execute("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
+                r_res = restore_micro_snapshot(db_path=clone_db, snapshot_id=snap_id)
+                assert r_res["status"] == "SUCCESS"
+                assert r_res["restored"] is True
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=snapshot_worker, args=(i,)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Errors in concurrent micro snapshots: {errors}"
+
+        # Test FIFO eviction with 3rd snapshot: exactly one of the previous snapshots is evicted
+        res_3 = create_micro_snapshot(db_path=db_file, snapshot_id="snap_3")
+        assert res_3["status"] == "SUCCESS"
+        l_res_after = list_micro_snapshots()
+        assert l_res_after["count"] == 2
+        assert "snap_3" in l_res_after["active_snapshots"]
+        assert ("snap_0" in l_res_after["active_snapshots"]) ^ ("snap_1" in l_res_after["active_snapshots"])
+
+        clear_micro_snapshots()
+
+    def test_docs_vectorizer_thread_safety(self):
+        holders = []
+        errors = []
+        lock = threading.Lock()
+
+        def get_holder():
+            try:
+                v = server._get_docs_vectorizer()
+                with lock:
+                    holders.append(v)
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=get_holder) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Errors in concurrent _get_docs_vectorizer: {errors}"
+        assert len(holders) == 4
+        # Should either all be the same instance or all None if sqlite-vec is not installed
+        assert len(set(id(h) for h in holders)) == 1
+

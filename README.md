@@ -600,21 +600,22 @@ flowchart TD
 
 ---
 
-## 8. Omarchy Enhancements (5 Distro-Agnostic Specs)
+## 8. Omarchy Enhancements (6 Distro-Agnostic Specs)
 
-Innovations from Omarchy's "Agentic OS" (originally coupled to Arch Linux / Hyprland) decoupled into
-5 **distribution-agnostic** specifications running on Ubuntu.
+Innovations from Omarchy's "Agentic OS" (originally coupled to Arch Linux / Hyprland) and C2/Cloudflare IPC architectures decoupled into
+6 **distribution-agnostic** specifications running on Ubuntu.
 
 ```mermaid
 flowchart TD
-    subgraph OM["Omarchy (Arch/Hyprland) -> Agnostic Specs"]
-        S1["OM-1 · aep_ctl<br/>Unified control plane (JSON)"]
+    subgraph OM["Omarchy & IPC Primitives -> Agnostic Specs"]
+        S1["OM-1 · aep_ctl<br/>Unified control plane (9 JSON domains)"]
         S2["OM-2 · diagnose_system_crashes(action='alerts')<br/>Proactive crash routing (polling)"]
         S3["OM-3 · Skills Hub<br/>symlinks Claude/agy/Codex/Gemini"]
         S4["OM-4 · query_system_docs<br/>Vectorized man-pages (sqlite-vec)"]
         S5["OM-5 · visual_inspect<br/>Headless display (Playwright /dev/shm)"]
+        S7["OM-7 · playbook_run(action='batch') & ipc_pool<br/>/dev/shm/aep.sock + 16-slot RAM Pool + Field Projection"]
     end
-    S1 & S2 & S3 & S4 & S5 --> V["Zero co-dependencies (Topos)<br/>- fail-soft - typed JSON output"]
+    S1 & S2 & S3 & S4 & S5 & S7 --> V["Zero co-dependencies (Topos)<br/>- collision-free multi-agent - typed JSON output"]
 ```
 
 ### Omarchy Distro-Agnostic Specification Matrix
@@ -688,6 +689,10 @@ flowchart TD
      - **Atomic Kanban Upsert**: `kanban.upsert_build_task()` executes task creation and attempt/score progression under a single `transaction_immediate(conn)` transaction, completely eliminating TOCTOU race conditions and duplicate task cards.
      - **Vector Embedding Offloading**: `engine/catalog.py` serializes float32 vector embeddings outside SQLite write transactions, reducing write-lock duration by >95% and eliminating `vec0` primary key contention.
      - **Pico-Ansible Saved Playbook Parity**: `playbook_run(action="run")` provides 100% parity with `action="batch"` (slot leasing, `$prev.*` / `$steps.*` / `$cache.*` reference piping, `failed_steps` retention, and server-side field projection reducing tokens by 94%+).
+  6. **Non-Pico System-Wide Concurrency Hardening**:
+     - **Audit Ledger Fork Prevention**: `engine/security.py` serializes `record_audit_event()` with a re-entrant mutex (`_AUDIT_LOCK`) and `transaction_immediate(conn)` to eliminate race conditions in the SHA-256 hash chain during parallel subagent tool invocations.
+     - **Thread-Safe In-Memory Snapshots**: `engine/backup.py` synchronizes `create_micro_snapshot()`, `restore_micro_snapshot()`, and `list_micro_snapshots()` under `_SNAPSHOT_LOCK` with `check_same_thread=False` `:memory:` connections, allowing cross-thread RAM snapshot manipulation without SQLite driver thread collision.
+     - **Vector Engine Double-Checked Locking**: `server.py` guards `ManPagesVectorizer` singleton initialization under `_DocsHolder.lock` to prevent parallel instantiation races during high-concurrency doc queries.
 - **Control Plane Domain**: Unified under `aep_ctl(domain="ipc", action="status"|"ping"|"lease"|"release"|"reap"|"pool"|"flush"|"metrics"|"cache")` and `./scripts/aep-ctl ipc`.
 
 ---
@@ -704,6 +709,7 @@ flowchart TD
         T3["Universal Skills Hub (Multi-Agent Registry)"]
         T4["query_system_docs(query, limit)"]
         T5["visual_inspect(url, viewport)"]
+        T7["playbook_run(action='batch' / 'run')"]
     end
 
     subgraph Adapters["AEP Engine & Adapter Layer"]
@@ -712,6 +718,7 @@ flowchart TD
         A3["scripts/setup.sh & aep-sync.sh<br/>(Convergent symlink manager)"]
         A4["engine/docs_vectorizer.py<br/>(man page chunking + CPU ONNX embeddings)"]
         A5["engine/headless_display.py<br/>(Playwright Chromium headless)"]
+        A7["engine/ipc_pool.py<br/>(UnixSocketMux + SessionPool in RAM)"]
     end
 
     subgraph OS["Ubuntu / Linux Kernel Primitives"]
@@ -720,6 +727,7 @@ flowchart TD
         OS3["Symlink farm (~/.agents/skills)<br/>Claude - Antigravity - Codex - Gemini"]
         OS4["man pages (MANPAGER=cat)<br/>SQLite: vec_docs (~/.local/share/agent-os/system_docs.db)"]
         OS5["Volatile RAM buffers (/dev/shm)<br/>Ephemeral Base64 screenshots (zero disk I/O)"]
+        OS7["/dev/shm/aep.sock & /dev/shm/aep_pool/<br/>AF_UNIX socket + 16 warm execution slots"]
     end
 
     T1 --> A1 --> OS1
@@ -727,6 +735,7 @@ flowchart TD
     T3 --> A3 --> OS3
     T4 --> A4 --> OS4
     T5 --> A5 --> OS5
+    T7 --> A7 --> OS7
 ```
 
 [↑ Back to top](#top)
@@ -886,7 +895,8 @@ agent-execution-plane/
 │   ├── topos_guard.py              # Topos DAG anti-co-dependency guardian
 │   ├── crash_router.py             # Proactive coredump routing (OM-2)
 │   ├── docs_vectorizer.py          # Ubuntu man page offline vectorizer (OM-4)
-│   └── headless_display.py         # Playwright Chromium in-RAM headless visual capture (OM-5)
+│   ├── headless_display.py         # Playwright Chromium in-RAM headless visual capture (OM-5)
+│   └── ipc_pool.py                 # Shared-memory UNIX socket mux (/dev/shm/aep.sock) & 16-slot session pool (OM-7)
 ├── diagnostic/go/
 │   ├── socket-monitor/main.go      # Static ELF Go probe for /proc/net/tcp
 │   ├── fd-rescuer/main.go          # Static ELF Go probe for /proc/PID/fd
@@ -895,7 +905,8 @@ agent-execution-plane/
 │   ├── test_setup_idempotency.sh   # Automated provisioning idempotency test suite
 │   ├── test_engine_suite.py        # Core engine unit and integration test suite (pytest)
 │   ├── test_primitives_benchmark.py # Latency benchmark suite (RAM snapshot vs disk, Landlock vs bwrap)
-│   └── test_agent_experience_evaluation.py # Agent-facing contract, clean bootstrap, sandbox, telemetry & Kali playbook suite
+│   ├── test_agent_experience_evaluation.py # Agent-facing contract, clean bootstrap, sandbox, telemetry & Kali playbook suite
+│   └── test_spec_om7_ipc_batch.py  # Spec OM-7 IPC socket mux, batch piping, field projection & multi-agent concurrency suite
 ├── schemas/
 │   ├── database.sql                # DDL (artifacts, metrics, crash_events, audit)
 │   └── artifact_contract.cue       # Declarative CUE artifact schemas
@@ -937,7 +948,7 @@ agent-execution-plane/
 | Pico-Kanban (Scoring) | ✅ Operational | Abstract board in `artifacts.db`; promotes artifacts to `reusable` by multidimensional score |
 | Pico-Playbooks (Automation) | ✅ Operational | Orchestrates tools/artifacts into Topos-validated DAGs; E2E execution and confidence scoring |
 | Catalog Discovery | ✅ Operational | `artifact_catalog`: confidence browsing + semantic top-K |
-| Omarchy (5 specs) | ✅ Operational | `aep_ctl` (6 domains), crash routing, skills hub, man-pages, headless Playwright display |
+| Omarchy & IPC (6 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `ipc`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool & batch projection (OM-7) |
 | Dual-Tier Privilege | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (18 capabilities) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |
