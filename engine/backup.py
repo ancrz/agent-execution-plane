@@ -40,8 +40,9 @@ QUARANTINE_DIRNAME = "quarantine"
 CANARY_TABLE = "_aep_canary"
 CANARY_TOKEN = "aep_canary_v1_active"  # noqa: S105
 
-# Store global para micro-snapshots volátiles en memoria RAM
+# Store global para micro-snapshots volátiles en memoria RAM (acotado a FIFO de 2 slots)
 _RAM_MICRO_SNAPSHOTS: dict[str, sqlite3.Connection] = {}
+MAX_RAM_SNAPSHOTS = 2
 
 
 class DatabasePoisonError(Exception):
@@ -301,14 +302,15 @@ def get_quarantine_status(backups_dir: Path | str | None = None) -> dict[str, An
 
 def create_micro_snapshot(
     db_path: Path | str | None = None,
-    snapshot_id: str = "default",
+    snapshot_id: str | None = "default",
 ) -> dict[str, Any]:
     """
     Crea un micro-snapshot volátil en memoria RAM usando la API de backup nativa de SQLite.
     Garantiza latencia sub-milisegundo (<2ms) y cero escrituras en disco.
     """
-    if isinstance(db_path, str) and not db_path.endswith(".db") and not Path(db_path).exists() and snapshot_id == "default":
-        snapshot_id = db_path
+    eff_snap_id = snapshot_id or "default"
+    if isinstance(db_path, str) and not db_path.endswith(".db") and not Path(db_path).exists() and eff_snap_id == "default":
+        eff_snap_id = db_path
         db_path = None
 
     target = Path(db_path or DB_DEFAULT_PATH).resolve()
@@ -326,43 +328,54 @@ def create_micro_snapshot(
     latency_ms = (time.perf_counter() - t0) * 1000
 
     # Cerrar conexión previa si existía en ese slot
-    if snapshot_id in _RAM_MICRO_SNAPSHOTS:
+    if eff_snap_id in _RAM_MICRO_SNAPSHOTS:
         try:
-            _RAM_MICRO_SNAPSHOTS[snapshot_id].close()
+            _RAM_MICRO_SNAPSHOTS.pop(eff_snap_id).close()
         except (sqlite3.Error, OSError):  # noqa: S110
             pass
 
-    _RAM_MICRO_SNAPSHOTS[snapshot_id] = mem_conn
+    # Evicción FIFO para acotar consumo de RAM a MAX_RAM_SNAPSHOTS
+    while len(_RAM_MICRO_SNAPSHOTS) >= MAX_RAM_SNAPSHOTS:
+        oldest_key = next(iter(_RAM_MICRO_SNAPSHOTS))
+        try:
+            _RAM_MICRO_SNAPSHOTS.pop(oldest_key).close()
+        except (sqlite3.Error, OSError):  # noqa: S110
+            pass
+
+    _RAM_MICRO_SNAPSHOTS[eff_snap_id] = mem_conn
 
     return {
         "status": "SUCCESS",
-        "snapshot_id": snapshot_id,
+        "snapshot_id": eff_snap_id,
         "latency_ms": round(latency_ms, 3),
         "in_ram": True,
+        "active_ram_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
 def restore_micro_snapshot(
     db_path: Path | str | None = None,
-    snapshot_id: str = "default",
+    snapshot_id: str | None = "default",
 ) -> dict[str, Any]:
     """
     Restaura un micro-snapshot desde memoria RAM hacia la base de datos destino en disco.
     """
-    if isinstance(db_path, str) and not db_path.endswith(".db") and not Path(db_path).exists() and snapshot_id == "default":
-        snapshot_id = db_path
+    eff_snap_id = snapshot_id or "default"
+    if isinstance(db_path, str) and not db_path.endswith(".db") and not Path(db_path).exists() and eff_snap_id == "default":
+        eff_snap_id = db_path
         db_path = None
 
-    if snapshot_id not in _RAM_MICRO_SNAPSHOTS:
+    if eff_snap_id not in _RAM_MICRO_SNAPSHOTS:
         return {
             "status": "SNAPSHOT_NOT_FOUND",
-            "error": f"Micro-snapshot en RAM '{snapshot_id}' no encontrado",
+            "error": f"Micro-snapshot en RAM '{eff_snap_id}' no encontrado",
+            "active_snapshots": list(_RAM_MICRO_SNAPSHOTS.keys()),
         }
 
     target = Path(db_path or DB_DEFAULT_PATH).resolve()
     t0 = time.perf_counter()
-    mem_conn = _RAM_MICRO_SNAPSHOTS[snapshot_id]
+    mem_conn = _RAM_MICRO_SNAPSHOTS[eff_snap_id]
 
     dst_conn = get_rw_connection(target, row_factory=False)
     try:
@@ -374,7 +387,7 @@ def restore_micro_snapshot(
 
     return {
         "status": "SUCCESS",
-        "snapshot_id": snapshot_id,
+        "snapshot_id": eff_snap_id,
         "latency_ms": round(latency_ms, 3),
         "restored": True,
         "timestamp": datetime.now(UTC).isoformat(),

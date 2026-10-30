@@ -19,12 +19,24 @@ Topos: engine/db.py es dependencia pura (hoja). Cero importaciones de catalog, k
 Fail-soft: todo pragma y carga de extension se ejecuta con degradacion limpia y logging estructurado.
 """
 
+import contextlib
 import logging
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+
+class _ClosingConnection(sqlite3.Connection):
+    """SQLite connection whose context manager (`with conn:`) commits/rolls back AND closes FDs/mmap."""
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            with contextlib.suppress(sqlite3.Error):
+                self.close()
 
 # Import fail-soft de sqlite-vec (extension vectorial).
 try:
@@ -127,7 +139,7 @@ def get_ro_connection(
     """
     resolved_path = Path(db_path).resolve()
     uri_str = f"file:{resolved_path}?mode=ro"
-    conn = sqlite3.connect(uri_str, uri=True)
+    conn = sqlite3.connect(uri_str, uri=True, factory=_ClosingConnection)
     if row_factory:
         conn.row_factory = sqlite3.Row
 
@@ -166,7 +178,7 @@ def get_rw_connection(
     if path_str != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(path_str)
+    conn = sqlite3.connect(path_str, factory=_ClosingConnection)
     conn.isolation_level = None  # Autocommit: permite control explicito de transacciones con BEGIN IMMEDIATE
 
     if row_factory:

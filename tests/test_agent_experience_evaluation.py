@@ -235,3 +235,46 @@ def test_omission_battery_all_15_tools_envelope_and_frame_safety() -> None:
         assert "envelope" in r
         assert "telemetry" in r
 
+
+def test_deep_omission_battery_v2_zero_fd_leak_and_storage_disks_summary() -> None:
+    """SQLite connections close FDs on context exit, micro_snapshot lifecycle is complete, and storage.disks filters loop mounts."""
+    import os
+
+    import server
+
+    # 1. Zero FD leak across 10 consecutive SQLite catalog/kanban operations
+    fd_before = len(os.listdir("/proc/self/fd"))
+    for _ in range(10):
+        asyncio.run(server.artifact_catalog(action="browse", limit=2))
+        asyncio.run(server.kanban_board(action="board", limit=2, verbosity="summary"))
+    fd_after = len(os.listdir("/proc/self/fd"))
+    assert fd_after - fd_before <= 2
+
+    # 2. Full in-RAM micro-snapshot lifecycle via aep_ctl + FIFO bound (MAX_RAM_SNAPSHOTS=2)
+    for idx in range(3):
+        snap = json.loads(
+            asyncio.run(server.aep_ctl(domain="backup", action="micro_snapshot", name=f"snap_{idx}"))
+        )
+        assert snap["status"] == "SUCCESS"
+        assert len(snap["active_ram_snapshots"]) <= 2
+
+    listed = json.loads(
+        asyncio.run(server.aep_ctl(domain="backup", action="list_micro_snapshots"))
+    )
+    assert listed["status"] == "OK"
+    assert listed["count"] <= 2
+
+    cleared = json.loads(
+        asyncio.run(server.aep_ctl(domain="backup", action="clear_micro_snapshots"))
+    )
+    assert cleared["status"] == "OK"
+
+    # 3. storage.disks in summary mode filters out snap loop devices
+    disks = json.loads(
+        asyncio.run(server.aep_ctl(domain="storage", action="disks", verbosity="summary"))
+    )
+    assert disks["status"] == "OK"
+    for bd in disks.get("blockdevices", []):
+        assert bd.get("type") != "loop"
+
+

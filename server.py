@@ -22,13 +22,16 @@ from mcp.server.fastmcp import FastMCP
 
 from engine import headless_display, matcher
 from engine.backup import (
+    clear_micro_snapshots,
     create_backup,
     create_golden_snapshot,
     create_micro_snapshot,
     get_backup_status,
     get_quarantine_status,
+    list_micro_snapshots,
     restore_backup,
     restore_golden_snapshot,
+    restore_micro_snapshot,
     verify_and_auto_recover,
     verify_database_integrity,
 )
@@ -1836,8 +1839,16 @@ async def aep_ctl(
                     "details": details,
                 }
             elif a == "micro_snapshot":
-                snap_id = name.strip() if name and name.strip() else None
+                snap_id = name.strip() if name and name.strip() else "default"
                 res_obj = create_micro_snapshot(snapshot_id=snap_id)
+            elif a == "restore_micro_snapshot":
+                snap_id = name.strip() if name and name.strip() else "default"
+                res_obj = restore_micro_snapshot(snapshot_id=snap_id)
+            elif a == "list_micro_snapshots":
+                res_obj = list_micro_snapshots()
+            elif a == "clear_micro_snapshots":
+                clear_micro_snapshots()
+                res_obj = {"status": "OK", "cleared": True}
             elif a == "golden":
                 res_obj = create_golden_snapshot()
             elif a == "restore_golden":
@@ -1916,6 +1927,16 @@ async def aep_ctl(
                         }
                         for iface in parsed["interfaces"]
                     ]
+                elif d == "network" and a == "routes" and isinstance(parsed.get("routes"), list):
+                    all_routes = parsed["routes"]
+                    total = len(all_routes)
+                    cap = min(eff_limit, 15) if is_compact else eff_limit
+                    sliced = all_routes[eff_cursor : eff_cursor + cap]
+                    truncated = (eff_cursor + len(sliced)) < total
+                    next_cur = str(eff_cursor + len(sliced)) if truncated else None
+                    parsed["total_count"] = total
+                    parsed["count"] = len(sliced)
+                    parsed["routes"] = sliced
                 elif d == "storage" and a == "mounts" and is_compact and isinstance(parsed.get("filesystems"), list):
                     flat: list[dict[str, Any]] = []
                     _flatten_mounts(parsed["filesystems"], flat)
@@ -1931,6 +1952,27 @@ async def aep_ctl(
                         "count": len(sliced),
                         "filesystems": sliced,
                     }
+                elif d == "storage" and a == "disks" and is_compact and isinstance(parsed.get("blockdevices"), list):
+                    raw_devs = parsed["blockdevices"]
+                    loop_cnt = sum(1 for bd in raw_devs if isinstance(bd, dict) and bd.get("type") == "loop")
+                    real_devs = [
+                        bd
+                        for bd in raw_devs
+                        if isinstance(bd, dict) and bd.get("type") != "loop" and bd.get("size") != "0B"
+                    ]
+                    parsed["filtered_loop_devices"] = loop_cnt
+                    parsed["count"] = len(real_devs)
+                    parsed["blockdevices"] = real_devs
+                elif d == "storage" and a == "usage" and is_compact and isinstance(parsed.get("filesystems"), list):
+                    real_fs = [
+                        fs
+                        for fs in parsed["filesystems"]
+                        if isinstance(fs, dict)
+                        and fs.get("source") not in ("none", "efivarfs")
+                        and not str(fs.get("mount", "")).startswith("/run/credentials/")
+                    ]
+                    parsed["count"] = len(real_fs)
+                    parsed["filesystems"] = real_fs
                 elif d == "package" and a == "installed" and isinstance(parsed.get("packages"), list):
                     all_pkgs = parsed["packages"]
                     total = parsed.get("count", len(all_pkgs))
@@ -2367,6 +2409,7 @@ async def playbook_run(
     params_contract: list[dict[str, Any]] | None = None,
     names: list[str] | None = None,
     apply: bool = False,
+    verbosity: str = "summary",
     agent_id: str = "default",
 ) -> str:
     """
@@ -2379,6 +2422,7 @@ async def playbook_run(
     """
     act = (action or "run").strip().lower()
     tracker = RequestTelemetry("playbook_run", act)
+    is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
     effective_vars = vars if vars is not None else (params or {})
     effective_desc = (description or intent_description or "").strip()
     try:
@@ -2387,12 +2431,14 @@ async def playbook_run(
                 return attach_envelope(
                     {"status": "PARAM_ERROR", "error": "Acción 'run' requiere 'name'."},
                     tracker,
+                    verbosity=verbosity,
                 )
             pb = playbook_store.get(name.strip())
             if not pb:
                 return attach_envelope(
                     {"status": "ERROR", "error": f"playbook '{name.strip()}' no existe"},
                     tracker,
+                    verbosity=verbosity,
                 )
 
             try:
@@ -2402,6 +2448,7 @@ async def playbook_run(
                 return attach_envelope(
                     {"status": "PARAM_ERROR", "error": str(e), "contract": pb.get("params_contract") or []},
                     tracker,
+                    verbosity=verbosity,
                 )
 
             v = PlaybookStore.validate_and_order(hydrated_steps)
@@ -2409,13 +2456,14 @@ async def playbook_run(
                 return attach_envelope(
                     {"status": "BLOCKED", "verdict": v.get("verdict"), "logs": v.get("logs")},
                     tracker,
+                    verbosity=verbosity,
                 )
 
             dispatch = _playbook_dispatch()
             results: list[dict[str, Any]] = []
             all_ok = True
             for step in v["ordered_steps"]:
-                tool, step_params = step["tool"], step.get("params", {})
+                tool, step_params = step["tool"], dict(step.get("params", {}))
                 fn = dispatch.get(tool)
                 if fn is None:
                     results.append({"id": step["id"], "tool": tool, "status": "NOT_ALLOWED", "ok": False})
@@ -2424,11 +2472,19 @@ async def playbook_run(
                         break
                     continue
                 try:
+                    if is_compact and "verbosity" not in step_params:
+                        sig = inspect.signature(fn)
+                        if "verbosity" in sig.parameters or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                        ):
+                            step_params["verbosity"] = "summary"
                     raw = fn(**step_params)
                     if inspect.iscoroutine(raw):
                         raw = await raw
                     out = json.loads(raw) if isinstance(raw, str) else raw
                     st = out.get("status", "OK") if isinstance(out, dict) else "OK"
+                    if is_compact and isinstance(out, dict):
+                        out.pop("envelope", None)
                 except Exception as e:
                     st, out = "ERROR", {"error": str(e)}
                 ok = st not in _PLAYBOOK_FAIL
@@ -2448,6 +2504,8 @@ async def playbook_run(
                     "results": results,
                 },
                 tracker,
+                verbosity=verbosity,
+                summary=f"Playbook '{name.strip()}' finished ({len(results)} steps, all_ok={all_ok}).",
             )
 
         elif act == "create":

@@ -220,13 +220,16 @@ def domain_security(action: str, name: str | None) -> Any:
 
 def domain_backup(action: str, name: str | None) -> Any:
     from engine.backup import (
+        clear_micro_snapshots,
         create_backup,
         create_golden_snapshot,
         create_micro_snapshot,
         get_backup_status,
         get_quarantine_status,
+        list_micro_snapshots,
         restore_backup,
         restore_golden_snapshot,
+        restore_micro_snapshot,
         verify_and_auto_recover,
         verify_database_integrity,
     )
@@ -250,8 +253,16 @@ def domain_backup(action: str, name: str | None) -> Any:
         ok, reason, details = verify_database_integrity(target)
         return {"status": "OK" if ok else "INTEGRITY_FAILED", "valid": ok, "reason": reason, "details": details}
     if action == "micro_snapshot":
-        snap_id = name.strip() if name and name.strip() else None
+        snap_id = name.strip() if name and name.strip() else "default"
         return create_micro_snapshot(snapshot_id=snap_id)
+    if action == "restore_micro_snapshot":
+        snap_id = name.strip() if name and name.strip() else "default"
+        return restore_micro_snapshot(snapshot_id=snap_id)
+    if action == "list_micro_snapshots":
+        return list_micro_snapshots()
+    if action == "clear_micro_snapshots":
+        clear_micro_snapshots()
+        return {"status": "OK", "cleared": True}
     if action == "golden":
         return create_golden_snapshot()
     if action == "restore_golden":
