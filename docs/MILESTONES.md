@@ -71,6 +71,11 @@ flowchart LR
     M63 --> M64["M64: Milestone ONT-21 Multi-Gate Verification (Dokimos) ✅"]
     M64 --> M65["M65: Milestone ONT-21 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
     M65 --> M66["M66: Milestone ONT-21 Atomic Release & Version Control Commit (Hermon) ✅"]
+    M66 --> M67["M67: Milestone ONT-22 Omission Gaps & Cache Piping (Orchestrator Inline Plan) ✅"]
+    M67 --> M68["M68: Milestone ONT-22 Execution of Gaps 1-4 & Cache Piping (Pragma) ✅"]
+    M68 --> M69["M69: Milestone ONT-22 Verification 62/62 Tests (Dokimos) ✅"]
+    M69 --> M70["M70: Milestone ONT-22 3-Agent RAM Handoff & Rollup (Graphos G2) ✅"]
+    M70 --> M71["M71: Milestone ONT-22 Atomic Commit & Push (Hermon) ✅"]
 ```
 
 ## 2. Milestone Matrix
@@ -99,3 +104,4 @@ flowchart LR
 | **Self-Evolutionary Suite & Kali Semantics (ONT-15)** | Hermetic clean-install bootstrap, single-source schema (`engine/privilege.py`), bwrap network isolation default (`share_net=False`), request telemetry envelopes, and Kali-MCP tactical playbook (`discover(action="playbook")`). | Archon, Pragma, Dokimos, Graphos, Hermon | `engine/catalog.py`, `engine/kanban.py`, `engine/privilege.py`, `server.py`, `engine/telemetry.py`, `scripts/aep-ctl`, `tests/` | **VERIFIED & PROMOTED (Task 120 Score: 0.950 TRUST) ✅** |
 | **Topos Anti-Cascade Battery & Setup Hardening (ONT-18)** | Prevent SQLite `binary_blob` wipe cascade on setup re-run via `COALESCE` upsert, fix Pueue release regex in `scripts/setup.sh`, Step 8 quoted heredoc probe seeding (`socket_monitor`/`fd_rescuer`), and `setup.sh --check` schema/zero-canary verification. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/catalog.py`, `scripts/setup.sh`, `tests/test_agent_experience_evaluation.py`, `README.md` | **VERIFIED & PROMOTED (Task 122 Score: 0.9940 TRUST, 43/43 Tests) ✅** |
 | **IPC Socket Pool & Ephemeral Batch/Code Mode (ONT-21)** | Spec OM-7: Shared-memory UNIX socket session pool (`/dev/shm/aep.sock`), Cloudflare-style ephemeral batch/code mode, server-side field projection (`fields: list[str]`), `ipc` control plane domain, and SDD documentation. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/ipc_pool.py`, `engine/playbook.py`, `engine/privilege.py`, `server.py`, `scripts/aep-ctl`, `docs/sdd/`, `tests/` | **VERIFIED & PROMOTED (Task 129 Score: 1.0 TRUST, 58/58 Tests) ✅** |
+| **Spec OM-7 Omission Gaps & Cache Piping (ONT-22)** | Resolves GAP-OM22-1 (smart dot-path projection fallbacks), GAP-OM22-2 (`failed_steps` diagnostic preservation), GAP-OM22-3 (multi-agent cross-turn RAM session cache piping `$cache.<key>`), and GAP-OM22-4 (`kanban_board` / `artifact_lint_and_build` whitelist & signature filtering). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/ipc_pool.py`, `server.py`, `engine/playbook.py`, `engine/privilege.py`, `scripts/aep-ctl`, `tests/test_spec_om7_ipc_batch.py`, `README.md` | **VERIFIED & PROMOTED (Task 130 Score: 0.9250 TRUST, 62/62 Tests) ✅** |

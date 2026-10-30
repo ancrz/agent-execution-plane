@@ -69,14 +69,12 @@ class PlaybookStore:
         for i, s in enumerate(steps):
             if not isinstance(s, dict) or "tool" not in s:
                 raise ValueError(f"paso {i} inválido: falta 'tool'")
-            norm.append(
-                {
-                    "id": str(s.get("id") or f"s{i + 1}"),
-                    "tool": str(s["tool"]),
-                    "params": s.get("params") or {},
-                    "depends_on": [str(d) for d in (s.get("depends_on") or [])],
-                }
-            )
+            item = dict(s)
+            item["id"] = str(s.get("id") or f"s{i + 1}")
+            item["tool"] = str(s["tool"])
+            item["params"] = s.get("params") or {}
+            item["depends_on"] = [str(d) for d in (s.get("depends_on") or [])]
+            norm.append(item)
         ids = [s["id"] for s in norm]
         if len(ids) != len(set(ids)):
             raise ValueError("ids de paso duplicados")

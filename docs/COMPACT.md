@@ -1,9 +1,10 @@
 # Context Compaction Guidance — AEP
 
 Preserve:
-- Pipeline Mode: Full (ONT-21 Stage 2: Graphos G2 Record) -> Hermon (Stage 6).
-- Active Intent / Milestone: ONT-21 (Spec OM-7 IPC Socket Pool & Ephemeral Batch/Code Mode) — VERIFIED & PROMOTED ✅ (Task #129 Score: 1.0 TRUST).
-- Core Deliverables: `engine/ipc_pool.py`, `/dev/shm/aep.sock` (0.52ms warm IPC), `playbook_run(action="batch")` with server-side field projection (74.6%–96.98% token savings), `aep_ctl(domain="ipc")`, `docs/sdd/spec_om7_ipc_socket_pool_and_code_mode.md`.
-- Verification Status: 58/58 pytest passed (100%), 0 ruff errors, setup.sh --check HEALTHY (exit 0), 15 FastMCP tools invariant strictly preserved, zero FD leaks (`fd_delta: 0`).
-- Readiness & Next Actions: Ready for Hermon (Stage 6) atomic Conventional Commit and version control sync.
+- Pipeline Mode: Short (ONT-22 Stage 2: Graphos G2 Record) -> Hermon (Stage 6).
+- Active Intent / Milestone: ONT-22 (Spec OM-7 Omission Gap Remediation & Multi-Agent Cache Piping) — VERIFIED & PROMOTED ✅ (Task #130 Score: 0.9250 TRUST).
+- Core Additions: `engine/ipc_pool.py` (smart projection, shared session cache), `engine/playbook.py` (signature inspect, whitelist), `server.py` (`failed_steps` retention, cache wiring), `aep_ctl(domain="ipc", action="cache")`, `tests/test_spec_om7_ipc_batch.py` (16 tests, 62 total).
+- Multi-Agent Verification: 3-agent shared RAM handoff (`pragma` -> `dokimos` -> `graphos`) verified in `/dev/shm` session `ont-22-multi-agent`.
+- Quality Gates: 62/62 pytest passed, 0 ruff errors, setup.sh --check HEALTHY (exit 0), 15 FastMCP tools invariant strictly preserved, zero FD leaks.
+- Readiness & Next Actions: Ready for Hermon (Stage 6) atomic commit and sync.
 Drop: raw AEP tool outputs, intermediate debug traces, superseded test execution logs.

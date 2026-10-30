@@ -300,3 +300,119 @@ class TestFastMcpToolInvariant:
     def test_strictly_15_tools_registered(self):
         tools = server.mcp._tool_manager.list_tools()
         assert len(tools) == 15, f"Expected strictly 15 FastMCP tools, got {len(tools)}: {[t.name for t in tools]}"
+
+
+# ==============================================================================
+# 7. Milestone ONT-22: Spec OM-7 Omission Gap Remediation & Multi-Agent Tests
+# ==============================================================================
+
+class TestSpecOm7OmissionGapsAndMultiAgent:
+    def test_gap_om22_1_smart_projection_fallbacks(self):
+        async def _run():
+            steps = [
+                {"id": "s1", "tool": "process_inspect", "params": {"pid": 0, "limit": 2}},
+            ]
+            # 1. return_only="last" with select_fields
+            res_last = json.loads(await server.playbook_run(
+                action="batch",
+                steps=steps,
+                return_only="last",
+                select_fields=["status", "pid"],
+            ))
+            assert res_last["status"] == "OK"
+            assert "output" in res_last
+            assert isinstance(res_last["output"]["pid"], int) and res_last["output"]["pid"] > 0
+            assert res_last.get("pid") == res_last["output"]["pid"]
+            assert "token_savings_estimate" in res_last
+            assert res_last["token_savings_estimate"]["savings_pct"] >= 50.0
+
+            # 2. return_only="all" with select_fields
+            res_all = json.loads(await server.playbook_run(
+                action="batch",
+                steps=steps,
+                return_only="all",
+                select_fields=["status", "pid"],
+            ))
+            assert res_all["status"] == "OK"
+            assert "results" in res_all
+            assert len(res_all["results"]) == 1
+            assert res_all["results"][0]["id"] == "s1"
+            assert isinstance(res_all["results"][0]["pid"], int) and res_all["results"][0]["pid"] > 0
+            assert "token_savings_estimate" in res_all
+
+        asyncio.run(_run())
+
+    def test_gap_om22_2_failed_steps_diagnostics_preservation(self):
+        async def _run():
+            steps = [
+                {"id": "s1", "tool": "unknown_tool_for_test", "params": {}},
+            ]
+            # Verify field projection never swallows failed_steps
+            res = json.loads(await server.playbook_run(
+                action="batch",
+                steps=steps,
+                select_fields=["status"],
+            ))
+            assert res["status"] == "PARTIAL"
+            assert "failed_steps" in res
+            assert len(res["failed_steps"]) == 1
+            assert res["failed_steps"][0]["id"] == "s1"
+            assert res["failed_steps"][0]["status"] == "NOT_ALLOWED"
+
+        asyncio.run(_run())
+
+    def test_gap_om22_3_cross_agent_cache_piping(self):
+        async def _run():
+            sid = "test-cross-agent-session"
+            # 1. Pragma produces output and stores as pragma_handoff
+            steps_pragma = [
+                {"id": "step1", "tool": "process_inspect", "params": {"pid": 0, "limit": 2}, "store_as": "pragma_handoff"},
+            ]
+            res_pragma = json.loads(await server.playbook_run(
+                action="batch",
+                steps=steps_pragma,
+                vars={"session_id": sid},
+                agent_id="pragma",
+            ))
+            assert res_pragma["status"] == "OK"
+
+            # Verify cache via aep_ctl
+            cache_info = json.loads(await server.aep_ctl(domain="ipc", action="cache", name=sid, agent_id="pragma"))
+            assert cache_info["status"] == "OK"
+            assert "pragma_handoff" in cache_info.get("keys", [])
+
+            # 2. Dokimos reads the cached handoff via $cache.pragma_handoff.pid
+            steps_dokimos = [
+                {"id": "step2", "tool": "process_inspect", "params": {"pid": "$cache.pragma_handoff.pid", "limit": 1}},
+            ]
+            res_dokimos = json.loads(await server.playbook_run(
+                action="batch",
+                steps=steps_dokimos,
+                vars={"session_id": sid},
+                agent_id="dokimos",
+            ))
+            assert res_dokimos["status"] == "OK"
+            assert res_dokimos["results"][0]["output"]["pid"] == res_pragma["results"][0]["output"]["pid"]
+
+        asyncio.run(_run())
+
+    def test_gap_om22_4_playbook_kwarg_filtering_and_kanban(self):
+        async def _run():
+            steps = [
+                {
+                    "id": "step_kb",
+                    "tool": "kanban_board",
+                    "params": {
+                        "action": "board",
+                        "limit": 2,
+                        "extra_param_unknown_1": "abc",
+                        "extra_param_unknown_2": [1, 2, 3],
+                    },
+                },
+            ]
+            res = json.loads(await server.playbook_run(action="batch", steps=steps))
+            assert res["status"] == "OK"
+            assert res["results"][0]["status"] == "OK"
+            assert "lanes" in res["results"][0]["output"]
+
+        asyncio.run(_run())

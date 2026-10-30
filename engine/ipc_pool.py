@@ -126,6 +126,80 @@ class SessionPool:
             }
 
         self._session_map: dict[tuple[str, str], int] = {}
+        self._shared_session_cache: dict[str, dict[str, Any]] = {}
+
+    def cache_set(
+        self,
+        session_id: str,
+        agent_id: str,
+        key: str,
+        value: Any,
+    ) -> dict[str, Any]:
+        """Store key-value in shared session cache and mapped slot state_cache."""
+        sid_str = str(session_id or "default")
+        aid_str = str(agent_id or "default")
+        k_str = str(key).strip()
+        with self._lock:
+            sess_cache = self._shared_session_cache.setdefault(sid_str, {})
+            sess_cache[k_str] = value
+
+            slot_map_key = (sid_str, aid_str)
+            if slot_map_key in self._session_map:
+                slot_id = self._session_map[slot_map_key]
+                slot = self._slots[slot_id]
+                slot["state_cache"][k_str] = value
+                slot["expires_at"] = time.time() + self.lease_ttl_sec
+            else:
+                with contextlib.suppress(RuntimeError, OSError):
+                    slot = self.acquire(sid_str, aid_str)
+                    slot_id = slot["slot_id"]
+                    self._slots[slot_id]["state_cache"][k_str] = value
+
+            return {
+                "status": "OK",
+                "session_id": sid_str,
+                "agent_id": aid_str,
+                "key": k_str,
+                "cached_keys": list(sess_cache.keys()),
+            }
+
+    def cache_get(
+        self,
+        session_id: str,
+        agent_id: str = "default",
+        key: str | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve key-value or all keys from merged session and slot cache."""
+        sid_str = str(session_id or "default")
+        aid_str = str(agent_id or "default")
+        with self._lock:
+            sess_cache = dict(self._shared_session_cache.get(sid_str, {}))
+
+            slot_map_key = (sid_str, aid_str)
+            if slot_map_key in self._session_map:
+                slot_id = self._session_map[slot_map_key]
+                sess_cache.update(self._slots[slot_id]["state_cache"])
+
+            if key is not None:
+                clean_k = str(key).strip()
+                val = sess_cache.get(clean_k)
+                return {
+                    "status": "OK" if clean_k in sess_cache else "NOT_FOUND",
+                    "session_id": sid_str,
+                    "agent_id": aid_str,
+                    "key": clean_k,
+                    "value": val,
+                    "found": clean_k in sess_cache,
+                }
+
+            return {
+                "status": "OK",
+                "session_id": sid_str,
+                "agent_id": aid_str,
+                "cache": sess_cache,
+                "keys": list(sess_cache.keys()),
+                "count": len(sess_cache),
+            }
 
     def acquire(
         self,
@@ -220,6 +294,7 @@ class SessionPool:
 
             if clear_state:
                 slot["state_cache"].clear()
+                self._shared_session_cache.pop(sid_str, None)
                 self._clear_dir(Path(slot["scratch_dir"]))
                 self._session_map.pop(key, None)
                 slot["session_id"] = None
@@ -258,6 +333,8 @@ class SessionPool:
                 slot["reuse_count"] = 0
                 slot["state_cache"].clear()
                 self._clear_dir(Path(slot["scratch_dir"]))
+                if not any(s.get("session_id") == key[0] and s.get("slot_id") != sid for s in self._slots.values()):
+                    self._shared_session_cache.pop(key[0], None)
                 reaped += 1
         return reaped
 
@@ -266,6 +343,7 @@ class SessionPool:
         with self._lock:
             flushed = sum(1 for s in self._slots.values() if s.get("session_id") is not None)
             self._session_map.clear()
+            self._shared_session_cache.clear()
             for slot in self._slots.values():
                 slot["in_use"] = False
                 slot["session_id"] = None
@@ -324,10 +402,10 @@ class SessionPool:
 # -----------------------------------------------------------------------------
 
 _REF_EXACT_PATTERN = re.compile(
-    r"^\$(prev|steps(?:\.([A-Za-z0-9_\-]+))?)(?:\.(.+))?$"
+    r"^\$(prev|(?:steps|cache|slot)(?:\.([A-Za-z0-9_\-]+))?)(?:\.(.+))?$"
 )
 _REF_EMBED_PATTERN = re.compile(
-    r"\$(prev(?:\.[A-Za-z0-9_\-]+)+|steps\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+)*)"
+    r"\$((?:prev|steps|cache|slot)(?:\.[A-Za-z0-9_\-]+)+)"
 )
 
 
@@ -362,19 +440,20 @@ def resolve_step_refs(
     params: Any,
     step_outputs: dict[str, Any],
     prev_output: Any = None,
+    slot_cache: dict[str, Any] | None = None,
 ) -> Any:
     """
-    Recursively resolves variable references ($prev.*, $steps.<id>.*).
+    Recursively resolves variable references ($prev.*, $steps.<id>.*, $cache.<key>.*, $slot.<key>.*).
     PRESERVES native Python types (int, float, list, dict, bool) on exact matches.
     Interpolates inside strings when embedded alongside other text.
     """
     if isinstance(params, dict):
         return {
-            k: resolve_step_refs(v, step_outputs, prev_output)
+            k: resolve_step_refs(v, step_outputs, prev_output, slot_cache=slot_cache)
             for k, v in params.items()
         }
     if isinstance(params, list):
-        return [resolve_step_refs(v, step_outputs, prev_output) for v in params]
+        return [resolve_step_refs(v, step_outputs, prev_output, slot_cache=slot_cache) for v in params]
     if not isinstance(params, str):
         return params
 
@@ -395,6 +474,10 @@ def resolve_step_refs(
             target = step_outputs.get(sub_step_id or "")
             return _get_dot_path(target, dot_path) if dot_path else target
 
+        if root_scope.startswith(("cache", "slot")):
+            target = (slot_cache or {}).get(sub_step_id or "")
+            return _get_dot_path(target, dot_path) if dot_path else target
+
     # 2. Embedded string interpolation
     def _repl(m: re.Match) -> str:
         token = m.group(1)
@@ -408,6 +491,20 @@ def resolve_step_refs(
             sub_path = parts[1] if len(parts) > 1 else ""
             target = step_outputs.get(step_id)
             val = _get_dot_path(target, sub_path)
+            return str(val) if val is not None else m.group(0)
+        if token.startswith("cache."):
+            parts = token[6:].split(".", 1)
+            k = parts[0]
+            sub_path = parts[1] if len(parts) > 1 else ""
+            target = (slot_cache or {}).get(k)
+            val = _get_dot_path(target, sub_path) if sub_path else target
+            return str(val) if val is not None else m.group(0)
+        if token.startswith("slot."):
+            parts = token[5:].split(".", 1)
+            k = parts[0]
+            sub_path = parts[1] if len(parts) > 1 else ""
+            target = (slot_cache or {}).get(k)
+            val = _get_dot_path(target, sub_path) if sub_path else target
             return str(val) if val is not None else m.group(0)
         return m.group(0)
 
@@ -423,6 +520,7 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
     Server-side dot-path field projection (e.g. ['status', 'pid', 'output.total_sockets']).
     Constructs a lightweight dictionary containing ONLY requested fields in RAM
     prior to serialization, reducing response payload sizes by >75-95%.
+    Supports smart fallback resolution for return_only="last" and return_only="all".
     """
     if not select_fields or not isinstance(data, dict):
         return data
@@ -433,9 +531,48 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
         clean_path = str(field_path).strip()
         if not clean_path:
             continue
+        # Direct resolution on data root (preserves existing behavior)
         val = _get_dot_path(data, clean_path)
         if val is not None:
             _set_dot_path(projected, clean_path, val)
+            continue
+
+        # Smart Fallback 1: return_only="last" where "output" is a dictionary
+        output_obj = data.get("output")
+        if isinstance(output_obj, dict):
+            out_val = _get_dot_path(output_obj, clean_path)
+            if out_val is None and isinstance(output_obj.get("telemetry"), dict):
+                out_val = _get_dot_path(output_obj["telemetry"], clean_path)
+            if out_val is not None:
+                _set_dot_path(projected, clean_path, out_val)
+                _set_dot_path(projected, f"output.{clean_path}", out_val)
+                continue
+
+        # Smart Fallback 2: return_only="all" where "results" is a list of steps
+        results_list = data.get("results")
+        if isinstance(results_list, list):
+            for idx, r in enumerate(results_list):
+                if not isinstance(r, dict):
+                    continue
+                step_val = None
+                if isinstance(r.get("output"), dict):
+                    step_val = _get_dot_path(r["output"], clean_path)
+                    if step_val is None and isinstance(r["output"].get("telemetry"), dict):
+                        step_val = _get_dot_path(r["output"]["telemetry"], clean_path)
+                if step_val is None:
+                    step_val = _get_dot_path(r, clean_path)
+
+                if step_val is not None:
+                    if "results" not in projected:
+                        projected["results"] = []
+                    while len(projected["results"]) <= idx:
+                        mr = results_list[len(projected["results"])]
+                        projected["results"].append({
+                            "id": mr.get("id"),
+                            "tool": mr.get("tool"),
+                            "status": mr.get("status"),
+                        })
+                    _set_dot_path(projected["results"][idx], clean_path, step_val)
 
     # If projection ended up completely empty (e.g. unmatched fields), fall back gracefully
     return projected or data

@@ -257,7 +257,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger.",
     },
     "ipc": {
-        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics"],
+        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "cache"],
         "arg": "[session_id]",
         "description": "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management.",
     },

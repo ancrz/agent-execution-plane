@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-44%2F44_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-62%2F62_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -681,9 +681,9 @@ flowchart TD
 - **Architectural Mechanics**:
   1. **Session Pool (`/dev/shm/aep_pool/slot_<id>`)**: Manages up to 16 warm execution slots with 60s TTL, automatic reaping, and thread/async-safe slot leasing.
   2. **UNIX Socket Mux (`/dev/shm/aep.sock`)**: Persistent AF_UNIX daemon with line-delimited JSON framing, 16 MB bounded buffer, and guaranteed zero file descriptor leaks (`fd_delta == 0`).
-  3. **Cloudflare-Style Ephemeral Batching**: Single-turn multi-step pipeline execution supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`).
-  4. **Server-Side Field Projection (`select_fields`)**: Discards verbose JSON metadata directly in RAM prior to network serialization, reducing payload tokens by 80–95%.
-- **Control Plane Domain**: Unified under `aep_ctl(domain="ipc", action="status"|"ping"|"lease"|"release"|"reap"|"pool"|"flush"|"metrics")` and `./scripts/aep-ctl ipc`.
+  3. **Cloudflare-Style Ephemeral Batching**: Single-turn multi-step pipeline execution supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`), multi-agent shared RAM session cache piping (`$cache.<key>`, `$slot.<key>`), and partial error diagnostics preservation (`failed_steps`).
+  4. **Server-Side Field Projection (`select_fields`)**: Discards verbose JSON metadata directly in RAM prior to network serialization, reducing payload tokens by 80–95% with smart dot-path fallback mapping.
+- **Control Plane Domain**: Unified under `aep_ctl(domain="ipc", action="status"|"ping"|"lease"|"release"|"reap"|"pool"|"flush"|"metrics"|"cache")` and `./scripts/aep-ctl ipc`.
 
 ---
 

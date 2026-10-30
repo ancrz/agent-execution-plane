@@ -2125,6 +2125,9 @@ async def aep_ctl(
                     "active_clients": m_st.get("active_clients", 0),
                     "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
                 }
+            elif a == "cache":
+                sid = eff_name.strip() if eff_name and eff_name.strip() else "ctl-default"
+                res_obj = GLOBAL_SESSION_POOL.cache_get(session_id=sid, agent_id=agent_id or "aep-ctl")
             else:
                 res_obj = {"status": "ERROR", "error": f"Acción de ipc desconocida: {a}", "valid": valid_actions}
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
@@ -2674,6 +2677,8 @@ def _playbook_dispatch() -> dict[str, Any]:
         "visual_inspect": visual_inspect,
         "kernel_trace": kernel_trace,
         "topos_audit_dag": topos_audit_dag,
+        "kanban_board": kanban_board,
+        "artifact_lint_and_build": artifact_lint_and_build,
     }
 
 
@@ -2770,12 +2775,12 @@ async def playbook_run(
                         break
                     continue
                 try:
-                    if is_compact and "verbosity" not in step_params:
-                        sig = inspect.signature(fn)
-                        if "verbosity" in sig.parameters or any(
-                            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-                        ):
-                            step_params["verbosity"] = "summary"
+                    sig = inspect.signature(fn)
+                    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                    if not has_var_kw:
+                        step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
+                    if is_compact and "verbosity" not in step_params and ("verbosity" in sig.parameters or has_var_kw):
+                        step_params["verbosity"] = "summary"
                     raw = fn(**step_params)
                     if inspect.iscoroutine(raw):
                         raw = await raw
@@ -2888,6 +2893,7 @@ async def playbook_run(
             prev_output: Any = None
             results: list[dict[str, Any]] = []
             all_ok = True
+            slot_cache_dict = dict(GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("cache", {}))
 
             try:
                 for step in ordered_steps:
@@ -2895,8 +2901,8 @@ async def playbook_run(
                     tool = step.get("tool")
                     step_params = dict(step.get("params", {}))
 
-                    # Resolve variable piping from previous outputs ($prev.*, $steps.<id>.*)
-                    step_params = resolve_step_refs(step_params, step_outputs, prev_output)
+                    # Resolve variable piping from previous outputs (.*, .<id>.*, .*, .*)
+                    step_params = resolve_step_refs(step_params, step_outputs, prev_output, slot_cache=slot_cache_dict)
 
                     fn = dispatch.get(tool)
                     if fn is None:
@@ -2908,12 +2914,12 @@ async def playbook_run(
                         continue
 
                     try:
-                        if is_compact and "verbosity" not in step_params:
-                            sig = inspect.signature(fn)
-                            if "verbosity" in sig.parameters or any(
-                                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-                            ):
-                                step_params["verbosity"] = "summary"
+                        sig = inspect.signature(fn)
+                        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                        if not has_var_kw:
+                            step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
+                        if is_compact and "verbosity" not in step_params and ("verbosity" in sig.parameters or has_var_kw):
+                            step_params["verbosity"] = "summary"
                         raw = fn(**step_params)
                         if inspect.iscoroutine(raw):
                             raw = await raw
@@ -2929,6 +2935,15 @@ async def playbook_run(
                     results.append(step_res)
                     step_outputs[sid] = out
                     prev_output = out
+
+                    if ok:
+                        GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, sid, out)
+                        slot_cache_dict[sid] = out
+                        if step.get("store_as"):
+                            k_as = str(step["store_as"]).strip()
+                            if k_as:
+                                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, k_as, out)
+                                slot_cache_dict[k_as] = out
 
                     if not ok:
                         all_ok = False
@@ -2947,6 +2962,24 @@ async def playbook_run(
                 "steps_run": len(results),
             }
 
+            failed_steps = [
+                {
+                    "id": r["id"],
+                    "tool": r["tool"],
+                    "status": r["status"],
+                    "error": (
+                        (r.get("output") or {}).get("error")
+                        or (r.get("output") or {}).get("message")
+                        if isinstance(r.get("output"), dict)
+                        else str(r.get("output"))
+                    ),
+                }
+                for r in results
+                if not r.get("ok")
+            ]
+            if failed_steps:
+                base_res["failed_steps"] = failed_steps
+
             if ret_mode == "last":
                 base_res["output"] = prev_output
             elif ret_mode == "summary":
@@ -2962,6 +2995,7 @@ async def playbook_run(
                 "reuse_count": slot["reuse_count"],
                 "scratch_dir": str(slot["scratch_dir"]),
                 "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
+                "cached_keys": GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("keys", []),
             }
 
             if select_fields and isinstance(select_fields, list):
@@ -2971,6 +3005,8 @@ async def playbook_run(
                 projected_res = project_fields(base_res, select_fields)
                 if "status" not in projected_res:
                     projected_res["status"] = base_res.get("status", "OK")
+                if failed_steps and "failed_steps" not in projected_res:
+                    projected_res["failed_steps"] = failed_steps
                 proj_json = json.dumps(projected_res)
                 proj_bytes = len(proj_json.encode("utf-8"))
 

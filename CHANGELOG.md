@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-30
+
+### Added
+- **Multi-Agent Shared RAM Cache Piping (`$cache.<key>`)**:
+  - Implemented cross-agent in-memory session cache handoff via `/dev/shm/aep.sock` session pool.
+  - Added `$cache.<key>.<field>` interpolation in `playbook_run(action="batch")`, enabling zero-turn state propagation across independent pipeline agents (`pragma` -> `dokimos` -> `graphos` -> `hermon`).
+  - Added `aep_ctl` `domain="ipc"` `action="cache"` operation for direct RAM session cache inspection and key enumeration.
+- **Batch Tool Whitelist Expansion**:
+  - Added `kanban_board` and `artifact_lint_and_build` to the allowed batch tool whitelist in `server.py`.
+  - Added dynamic signature-based kwarg filtering via `inspect.signature()`, eliminating `TypeError` when callers pass extra context parameters.
+
+### Fixed
+- **Smart Dot-Path Field Projection Fallbacks (GAP-OM22-1)**:
+  - Relaxed strict field path matching in `return_only` and `select_fields` to automatically resolve attributes at the root or under `output` without requiring the `output.` prefix, delivering up to 94% token savings.
+- **Diagnostic Error Preservation (GAP-OM22-2)**:
+  - Guaranteed unconditional preservation of `failed_steps` error telemetry in batch responses even when field projection filters are active, preventing silent failures or masking of root causes.
+
+### Changed
+- Expanded `tests/test_spec_om7_ipc_batch.py` with 4 new omission-gap regression test cases (62/62 total tests passing).
+- Updated `README.md` and CLI tools (`scripts/aep-ctl`) to document RAM cache piping and dot-path fallbacks.
+
 ## [0.2.0] - 2026-10-30
 
 ### Added

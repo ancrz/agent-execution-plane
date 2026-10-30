@@ -354,6 +354,9 @@ def domain_ipc(action: str, name: str | None) -> Any:
             "active_clients": m_st.get("active_clients", 0),
             "socket_path": str(GLOBAL_SOCKET_MUX.socket_path),
         }
+    if action == "cache":
+        sid = name.strip() if name and name.strip() else "ctl-default"
+        return GLOBAL_SESSION_POOL.cache_get(session_id=sid, agent_id="aep-ctl")
     fail(f"Acción de ipc desconocida: {action}", valid=SCHEMA["ipc"]["actions"])
 
 
