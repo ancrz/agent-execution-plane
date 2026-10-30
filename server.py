@@ -58,18 +58,44 @@ from engine.topos_guard import ToposGuard
 
 logger = logging.getLogger("aep.server")
 
-_INSTRUCTIONS = (
-    "AEP (Agent Execution Plane): plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes "
-    "de IA sobre Ubuntu. Transmuta primitivas de herramientas ofensivas (ejecución en RAM, "
-    "sandbox, eBPF, introspección de procesos, forense de crashes) en capacidades agénticas "
-    "gobernadas por privilegio en dos niveles: FULL (root/sudo -n -> alcance de sistema/kernel) "
-    "y DIMINISHED (usuario -> alcance acotado, fail-soft). PRIMERA LLAMADA RECOMENDADA: "
-    '`discover(action="capabilities")` devuelve un manifiesto estilo chmod/777 (r=sensar, w=actuar, '
-    "x=ejecutar por caminos no-tradicionales) y prerrequisitos reales de binarios; "
-    '`discover(action="playbook")` entrega la guía táctica estilo Kali-MCP con recetas, llamadas '
-    "canónicas y reglas de ahorro de tokens (usa `verbosity='summary'` en diagnósticos y "
-    '`aep_ctl(action="schema")` para descubrir contratos sin adivinar).'
-)
+_INSTRUCTIONS = """# Agent Execution Plane (AEP) — Tactical Suite & Instructions (EAES-v2)
+
+AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 15 typed JSON-RPC tools (18 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under dual-tier privilege governance:
+- **FULL** (`root` or passwordless `sudo -n`): system-wide & kernel scope.
+- **DIMINISHED** (unprivileged user): bounded user/self scope with fail-soft JSON fallbacks.
+
+## 1. Recommended First Calls (Zero-Guessing Orientation)
+1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
+2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-4`) and canonical calls.
+3. `aep_ctl(action="schema")` -> Returns the complete 7-domain control-plane contract without requiring a dummy domain.
+
+## 2. Complete 15-Tool Suite Map (6 Operational Domains)
+- **Domain 1 — Orientation, Synthesis & In-RAM Execution**:
+  1. `discover(use_case="", action="discover"|"capabilities"|"playbook", limit=3, verbosity="summary")`
+  2. `artifact_lint_and_build(action="build"|"catalog"|"select"|"hydrate", name=..., template_name=..., verbosity="summary")` *(1-step build from template: `template_name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard"`)*
+  3. `artifact_execute_in_ram(name="socket_monitor", args=[], verbosity="summary", limit=25)` *(executes ELF via `memfd_create` with `fd_delta=0`)*
+  4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
+- **Domain 2 — State Governance & Process Introspection**:
+  5. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
+  6. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
+  7. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
+- **Domain 3 — Isolation & Async Job Queues**:
+  8. `sandbox_run(command="pytest -q", working_dir="/path/to/repo", ro_paths=[], rw_paths=[], share_net=False, verbosity="summary")` *(Bubblewrap jail; auto-resolves `.venv` symlinks)*
+  9. `async_job_dispatch(action="dispatch"|"status"|"inspect"|"log", command=..., task_id=..., verbosity="summary")` *(Pueue background queue)*
+- **Domain 4 — Kernel Observability & Crash Forensics**:
+  10. `diagnose_system_crashes(action="diagnose"|"alerts", limit=5, verbosity="summary")` *(deduplicated systemd errors & coredumps)*
+  11. `kernel_trace(mode="syscall_count"|"file_opens"|"tcp_connect"|"security_open_denials"|"security_landlock_audit"|"security_exec_monitor", duration_sec=2, verbosity="summary")`
+- **Domain 5 — Unified System Control, Man-Pages & Visual Capture**:
+  12. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
+  13. `query_system_docs(query="bwrap ro-bind", ingest_command=None, limit=3, verbosity="summary")` *(offline `sqlite-vec` man-pages)*
+  14. `visual_inspect(url="http://localhost:8000", include_base64=False, verbosity="summary")` *(renders in headless Chromium to `/dev/shm/aep_shot_*.png`, returning path + sha256 + text excerpt in ~275 tokens)*
+- **Domain 6 — DAG Workflow Orchestration**:
+  15. `playbook_run(action="run"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, verbosity="summary")`
+
+## 3. Rules of Engagement (Token Efficiency & Safety)
+- Always pass `verbosity="summary"` (supported across all 15/15 tools) for 70-98% token savings.
+- Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
+"""
 
 
 _display_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="aep_display")

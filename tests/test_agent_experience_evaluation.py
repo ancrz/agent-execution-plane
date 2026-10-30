@@ -446,7 +446,9 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     for st in ("ARCHIVED", "UNARCHIVED", "PRUNED", "DEMOTED", "REEVALUATED", "REINDEXED", "CLEAN"):
         assert infer_severity(st) == "INFO", f"Expected INFO for {st}, got {infer_severity(st)}"
 
-    # Verify all 15 MCP tools accept verbosity uniformly
+    # Verify all 15 MCP tools accept verbosity uniformly and _INSTRUCTIONS exposes the full 15-tool suite map
+    assert "Complete 15-Tool Suite Map" in server._INSTRUCTIONS
+    assert "herramientas ofensivas" not in server._INSTRUCTIONS.lower()
     for tool_name in (
         "discover",
         "artifact_lint_and_build",
@@ -466,6 +468,7 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     ):
         sig = inspect.signature(getattr(server, tool_name))
         assert "verbosity" in sig.parameters, f"{tool_name} must accept 'verbosity'"
+        assert tool_name in server._INSTRUCTIONS, f"{tool_name} must be documented in _INSTRUCTIONS (instructions.md)"
 
     # Verify compact template catalog saves tokens
     cat_detail = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog", verbosity="detail")))
