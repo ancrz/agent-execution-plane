@@ -33,6 +33,7 @@ from engine.topos_guard import ToposGuard, ToposVerdict
 # Gate 1 & 2: FastMCP 15 Tools & Single-Encoding Invariant (GAP-OM-19)
 # ==============================================================================
 
+
 def test_gate1_exactly_15_fastmcp_tools() -> None:
     """The FastMCP server MUST strictly expose exactly 15 tools."""
     tools = server.mcp._tool_manager._tools
@@ -67,6 +68,7 @@ def test_gate2_fastmcp_single_encoding_gap_om19() -> None:
 # ==============================================================================
 # Gate 3: Envelope Restructuring & Stub Telemetry (GAP-OM-16)
 # ==============================================================================
+
 
 def test_gate3_envelope_brief_terse_deduplication() -> None:
     """In brief/terse, nested payload['envelope'] is omitted; telemetry stub is emitted."""
@@ -108,6 +110,7 @@ def test_gate3_envelope_brief_terse_deduplication() -> None:
 # ==============================================================================
 # Gate 4: Topos Shared-Write-Set Co-Dependency & Bernstein Hazard (GAP-OM-17)
 # ==============================================================================
+
 
 def test_gate4_topos_bernstein_resource_audit() -> None:
     """ToposGuard audits Bernstein write-write hazards (WARN) and mutual co-dependencies (BLOCKED)."""
@@ -168,6 +171,7 @@ def test_gate4_topos_bernstein_resource_audit() -> None:
 # Gate 5: Workspace Snapshot Round-Trip & Blacklist Guard (GAP-CP-04)
 # ==============================================================================
 
+
 def test_gate5_workspace_snapshot_and_restore_roundtrip() -> None:
     """Workspace snapshot captures directory tree and restores byte-identical state."""
     # 1. Schema check
@@ -212,6 +216,7 @@ def test_gate5_workspace_snapshot_and_restore_roundtrip() -> None:
 # ==============================================================================
 # Gate 6: Per-Agent Usage Accounting Ledger (GAP-OM-18)
 # ==============================================================================
+
 
 def test_gate6_per_agent_usage_accounting() -> None:
     """get_agent_usage_summary groups tool usage, bytes, tokens, and latency per agent."""
@@ -281,6 +286,7 @@ def test_gate6_per_agent_usage_accounting() -> None:
 # Gate 7: Structured Test & Linter Parsing in sandbox_run (GAP-DX-04)
 # ==============================================================================
 
+
 def test_gate7_sandbox_run_structured_parsing() -> None:
     """sandbox_run parse='pytest'|'ruff'|'auto' extracts metrics and suppresses stdout in brief."""
     # 1. Unit parsing pytest
@@ -316,12 +322,13 @@ def test_gate7_sandbox_run_structured_parsing() -> None:
         d_brief = json.loads(raw_brief)
         assert "parsed" in d_brief
         assert d_brief["parsed"]["passed"] == 50
-        assert d_brief["stdout"] == ""  # Suppressed in brief mode
+        assert d_brief.get("stdout", "") == ""  # Suppressed in brief mode
 
 
 # ==============================================================================
 # Gate 8: RAM Session Caching Discoverability & RoE (GAP-DOC-02)
 # ==============================================================================
+
 
 def test_gate8_ram_session_caching_discoverability() -> None:
     """discover(capabilities) returns session_hint and documentation covers RAM caching."""

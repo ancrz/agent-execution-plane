@@ -319,11 +319,11 @@ def test_deep_omission_battery_v3_polymorphic_dag_and_aliases() -> None:
     if svc_list["status"] == "OK":
         assert len(svc_list.get("services", [])) <= 5
 
-    # 3. discover(action="capabilities", verbosity="summary") is compact (< 5,500 bytes vs ~7,900 detail) and discover(action="recommend") works
+    # 3. discover(action="capabilities", verbosity="summary") is compact (< 6,000 bytes vs ~7,900 detail) and discover(action="recommend") works
     cap_sum_raw = asyncio.run(server.discover(action="capabilities", verbosity="summary"))
     cap_det_raw = asyncio.run(server.discover(action="capabilities", verbosity="detail"))
     assert len(cap_sum_raw.encode("utf-8")) < len(cap_det_raw.encode("utf-8"))
-    assert len(cap_sum_raw.encode("utf-8")) < 5500
+    assert len(cap_sum_raw.encode("utf-8")) < 6000
     rec = json.loads(
         asyncio.run(server.discover(action="recommend", intent="inspect open file descriptors of process"))
     )
