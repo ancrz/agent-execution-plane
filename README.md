@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-109%2F109_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-109%2F109_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -163,7 +163,7 @@ flowchart TD
 | Layer | Abstraction Level | Modules & Components | Underlying Primitives & Protocols | Guarantees & Runtime Role |
 | :---: | :--- | :--- | :--- | :--- |
 | **Layer 3** | **Agentic Interface (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 over `stdio`<br/>FastMCP SDK | Unified entry point for LLMs and agents (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Exposes 15 atomic, typed, and non-blocking tools (18 capabilities, 1:1 parity). |
-| **Layer 2** | **Execution, Persistence & Security Engines (`engine/`)** | `db.py`<br/>`backup.py`<br/>`security.py`<br/>`catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`ponder.py`<br/>`matcher.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py` | SQLite 3 (WAL mode, mmap 256MB)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`)<br/>`fcntl.flock` + `conn.backup()`<br/>SHA-256 Chained Hash Ledger | Core agentic logic: hybrid semantic memory, anti-deadlock hot SQLite concurrency (`BEGIN IMMEDIATE`), online 5-slot hot backup with auto-recovery, offensive countermeasures via `CapabilityGuard` (blacklisting `/etc/shadow`, `/root`, `~/.ssh`), SHA-256 cryptographic audit ledger, multidimensional Pico-Kanban, and dual-tier privilege governance (`FULL`/`DIMINISHED`). |
+| **Layer 2** | **Execution, Persistence & Security Engines (`engine/`)** | `db.py`<br/>`backup.py`<br/>`security.py`<br/>`catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`ponder.py`<br/>`matcher.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py`<br/>`net_telemetry.py` | SQLite 3 (WAL mode, mmap 256MB)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`)<br/>`fcntl.flock` + `conn.backup()`<br/>SHA-256 Chained Hash Ledger | Core agentic logic: hybrid semantic memory, anti-deadlock hot SQLite concurrency (`BEGIN IMMEDIATE`), online 5-slot hot backup with auto-recovery, security countermeasures via `CapabilityGuard` (blacklisting `/etc/shadow`, `/root`, `~/.ssh`), SHA-256 cryptographic audit ledger, multidimensional Pico-Kanban, and dual-tier privilege governance (`FULL`/`DIMINISHED`). |
 | **Layer 1** | **Agnostic Shell Inheritance** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX standard Shell (`sh`, `bash`, `zsh`, `dash`)<br/>Environment variables (`PAGER=cat`) | Sanitizes subshell execution against hangs (`stdin`, interactive pagers). Deterministic `aep-ctl` CLI for system management with self-documenting typed JSON contracts (`--schema`) across domains: `service`, `network`, `storage`, `package`, `backup`, and `audit`. |
 | **Layer 0** | **Linux Kernel & Ubuntu Runtime** | Linux Kernel Primitives<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald`<br/>Static Go Toolchain | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace`<br/>Hermetic Python 3.14 (`uv`) | High-performance, low-level foundations: volatile ELF staging in RAM with zero disk residue, sub-millisecond isolation via unprivileged namespaces, non-blocking asynchronous queues, non-invasive kernel telemetry, and user-space execution without root requirements. |
 
@@ -292,7 +292,7 @@ flowchart TD
 
 ### Master Reference Tables for 15 FastMCP Tools
 
-The plane exposes 15 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all 15 tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-31, the strict 15-tool invariant is reaffirmed: all external offensive and defensive security capabilities (Kali MCP dual-plane bridging, netfilter firewall mitigation, and eBPF network sniffing) are absorbed directly into polymorphic dispatchers (`aep_ctl`, `kernel_trace`, `discover(action="playbook")`), preserving exactly 15 tools registered in `server.py` with zero tool-set bloat.
+The plane exposes 15 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all 15 tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-32, the strict 15-tool invariant is reaffirmed: native in-memory network and security telemetry capabilities (synthetic TCP port probing, /proc/net introspection, packet header dissection, and netfilter firewall hardening) are absorbed directly into polymorphic dispatchers (`aep_ctl`, `kernel_trace`, `discover(action="schema")`), preserving exactly 15 tools registered in `server.py` with zero tool-set bloat.
 
 #### Root Entry Point & Autonomy Manifest
 
@@ -304,7 +304,7 @@ The plane exposes 15 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), or returns the Kali-MCP tactical guide (`action="playbook"`, including tactical security recipes `WF-10` and `WF-11` and quick reference commands `network_tactical_recon` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
+| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), introspects tool schemas across all 15 FastMCP tools (`action="schema"`), or returns the systems engineering tactical guide (`action="playbook"`, including native network telemetry recipes `WF-10` and `WF-11` and quick reference commands `network_telemetry_probe` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
 | `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(action: str = "build", name: Optional[str] = None, artifact_name: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None, category: Optional[str] = None, go_source: Optional[str] = None, template_name: Optional[str] = None, source_template: Optional[str] = None, params: Optional[Dict[str, Any]] = None, cue_contract: str = "", limit: int = 5) -> str` | Unified pipeline to browse templates (`catalog`), rank by relevance (`select`), hydrate Go source (`hydrate`), and compile binaries with `go vet`/`golangci-lint` validation (`build`, with `lint` and `vet` action aliases), including 1-step zero-config template shortcut (`template_name` auto-fills defaults and reuses active Kanban tasks). | Action-dependent typed JSON (`status`, `templates`, `matches`, `go_source`, `artifact_id`, `binary_path`). | Structured responses with `status: "PARAM_ERROR"` on missing inputs, `status: "HYDRATE_ERROR"` on template failures, and `status: "INVALID_ACTION"` on invalid actions. |
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, artifact_name: Optional[str] = None, args: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, stdin: Optional[str] = None, timeout: int = 30) -> str` | Loads the ELF binary into an anonymous volatile descriptor via `memfd_create` and executes directly in RAM via `/proc/self/fd/<fd>`. Supports `artifact_name` alias, `env` and `stdin` injection, and configurable `timeout` (1–120s, default 30s). Measures latency and records execution metrics in SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Non-zero exit codes return structured JSON with `stderr` and update historical failure rates. |
 | `artifact_catalog` | `DIMINISHED` | `artifact_catalog(action: str = "browse", category: Optional[str] = None, query: Optional[str] = None, intent: Optional[str] = None, name: Optional[str] = None, artifact_name: Optional[str] = None, limit: int = 10, force: bool = False, apply: bool = False) -> str` | Unified semantic memory. `action="browse"`: lists/searches by confidence or semantic top-K (`query`). `action in ("info", "get", "show")`: lightweight inspection of full artifact metadata (including `binary_size_bytes`) without dumping binary blobs. `action="query"`: hybrid cache search. `action="reindex"`: heals sqlite-vec vectors. `action="prune"`: safe GC. | `{"status": "OK"|"CACHE_HIT"|"CACHE_MISS", ...}` | Gracefully degrades to relational confidence ranking if vector extensions are unavailable. |
@@ -532,7 +532,7 @@ flowchart TD
 
 ## 7. Security Countermeasures, Isolation & Cryptographic Audit Ledger
 
-AEP transforms systems engineering and auditing primitives into high-resilience agentic capabilities. To ensure agents or external actors cannot leverage these tools as exploit vectors, the platform enforces defense-in-depth countermeasures across `engine/privilege.py` and `engine/security.py`:
+AEP transforms systems engineering and auditing primitives into high-resilience agentic capabilities. To ensure agents or external actors cannot leverage these tools for unauthorized privilege escalation, the platform enforces defense-in-depth countermeasures across `engine/privilege.py` and `engine/security.py`:
 
 ```mermaid
 flowchart TD
@@ -620,7 +620,7 @@ flowchart TD
 
 ## 8. Omarchy Enhancements (8 Distro-Agnostic Specs)
 
-Innovations from Omarchy's "Agentic OS" (originally coupled to Arch Linux / Hyprland), C2/Cloudflare IPC architectures, multi-harness runner ergonomics, and Kali Linux dual-plane bridging decoupled into
+Innovations from Omarchy's "Agentic OS" (originally coupled to Arch Linux / Hyprland), C2/Cloudflare IPC architectures, multi-harness runner ergonomics, and memory-first network telemetry decoupled into
 8 **distribution-agnostic** specifications running on Ubuntu.
 
 ```mermaid
@@ -633,7 +633,7 @@ flowchart TD
         S5["OM-5 · visual_inspect<br/>Headless display (Playwright /dev/shm)"]
         S7["OM-7 · playbook_run(action='batch') & ipc_pool<br/>/dev/shm/aep.sock + 16-slot RAM Pool + Field Projection"]
         S8["OM-8 · Schema Evolution & Multi-Runner<br/>tools.listChanged + failing node IDs + parse='auto'"]
-        S9["OM-9 · Dual-Plane Kali MCP<br/>Docker CLI + Ephemeral /dev/shm Stream"]
+        S9["OM-9 · Native Network Telemetry<br/>Pure-RAM Ingress + Zero-Container Decoupling"]
     end
     S1 & S2 & S3 & S4 & S5 & S7 & S8 & S9 --> V["Zero co-dependencies (Topos)<br/>- collision-free multi-agent - typed JSON output"]
 ```
@@ -649,7 +649,7 @@ flowchart TD
 | **SPEC-OM-5** | **Headless Visual & Display Actuator** | `visual_inspect`<br/>`engine/headless_display.py` | Headless Chromium automation via Playwright with ephemeral RAM screenshots (`/dev/shm`). | Eliminates need for physical Wayland/Hyprland compositors or X11 servers (`Xvfb`) for UI audits. | If Playwright or Chromium is absent, returns `DISPLAY_UNAVAILABLE` with an exact resolution command. |
 | **SPEC-OM-7** | **Shared-Memory Socket Pool & Ephemeral Batch/Code Mode** | `playbook_run(action="batch")`<br/>`engine/ipc_pool.py`<br/>`/dev/shm/aep.sock` | Persistent AF_UNIX socket multiplexer in Linux shared memory (`/dev/shm`), 16-slot session pool, server-side field projection (`select_fields`). | Replaces chat context hopping and cold process spin-up with warm <0.5ms IPC and single-turn DAG batching. | Fail-soft to `/tmp/aep_pool` if `/dev/shm` is unwritable; strict zero-FD leak (`fd_delta == 0`). |
 | **SPEC-OM-8** | **Cross-Harness Schema Evolution & Multi-Runner Ergonomics** | FastMCP Core<br/>`topos_guard.py`<br/>`sandbox_run`<br/>`scripts/aep-sync.sh` | `capabilities.tools.listChanged = True`, drift metadata (`schema_hash`, `server_version`, `pid`, `uptime_seconds`), task-level resource fallback, and `sandbox_run` brief trimming / composite runner parsing (`parse="auto"`). | Bridges heterogeneous MCP client schema caches and multi-harness runtimes without process disruption. | Fail-soft task fallback prevents schema errors; instance audit is 100% read-only and never terminates processes. |
-| **SPEC-OM-9** | **Hybrid Dual-Plane Ephemeral Bridging & Kali MCP Integration** | FastMCP `kali-mcp`<br/>`aep_ctl(domain="security")`<br/>`kernel_trace`<br/>`WF-10`/`WF-11` | Sterile host execution plane (Landlock/bwrap/eBPF) bridged with heavy Docker analytical container (`kali-pentest`) via non-blocking Docker CLI pipes (`docker exec -i`) and shared memory PCAP stream dissection (`/dev/shm/pcap_stream`). | Replaces monolithic host security toolchain (54GB) with isolated ephemeral container and typed FastMCP protocol contracts. | Fail-soft: if Docker container is offline or unprivileged, commands return structured JSON error/simulation without blocking agent or crashing host runtime. |
+| **SPEC-OM-9** | **Native Memory-First Network & Security Telemetry: Container Decoupling & Pure-RAM Ingress** | `engine/net_telemetry.py`<br/>`aep_ctl(domain="network"|"security")`<br/>`kernel_trace`<br/>`WF-10`/`WF-11` | Pure in-RAM network probing, kernel /proc/net socket introspection, packet header dissection, and deterministic netfilter hardening executing via Python stdlib directly on host. | Replaces heavy containerized analytical satellites (54GB) with microsecond in-RAM algorithmic primitives and self-describing schema reflection. | Fail-soft: unprivileged tier returns structured SIMULATED netfilter hardening without blocking agent or crashing host runtime. |
 
 ---
 
@@ -659,7 +659,7 @@ flowchart TD
 - **Objective**: Provide a deterministic CLI and RPC interface for language models to inspect and modify OS state without hallucinating flags or parsing unstructured text.
 - **Functional Domains**:
   - `service`: Inspect status (`status`) or mutate units (`start`, `stop`, `restart`). In `DIMINISHED` mode, automatically scopes to `systemctl --user`; in `FULL` mode, uses `sudo -n systemctl`.
-  - `network`: General interface inspection (`inspect` via `ip -j addr`), routing tables (`routes` via `ip -j route`), and listening sockets (`listeners` parsing `ss -tuln` into JSON).
+  - `network`: General interface inspection (`inspect` via `ip -j addr` or `/proc/net/dev`), routing tables (`routes` via `ip -j route`), listening sockets (`listeners` parsing `/proc/net/tcp` in RAM), in-RAM port probing (`probe` via `net_telemetry.probe_tcp_ports`), network device statistics (`interfaces`), and ARP table inspection (`arp`).
   - `storage`: Partition utilization (`usage` via `df -B1`), active mount points (`mounts`), and disk topology (`disks` via `lsblk -J`).
   - `package`: Installed packages (`installed` via `dpkg-query`), presence verification (`check`), and dependency information (`info` via `apt-cache policy`).
 - **Guarantees**: Suppresses interactive pagers, auto-documents contracts via `--schema`, and exits with code 1 and usage JSON when arguments are missing.
@@ -737,28 +737,34 @@ flowchart TD
      - `WF-7` (`sandbox-linter-fix`): Safe in-place code formatting and fixing with `rw_paths=[<repo>]` and `share_net=False`.
      - `WF-8` (`untrusted-adversarial-probe`): Isolated adversarial security probing with `working_dir=<repo>`, `rw_paths=[<scratch>]`, and `share_net=False`.
      - `WF-9` (`composite-verification-runner`): Single-turn composite linting and test verification with `parse="auto"`.
-     - `WF-10` (`network-tactical-recon`): Multi-tier network reconnaissance and hardware fingerprinting combining container health checks, non-invasive tactical port scans, and host socket correlation.
-     - `WF-11` (`incident-protocol-audit`): Defense and incident mitigation workflow combining in-RAM PCAP dissection (`/dev/shm/pcap_stream`), eBPF packet sniffing (`network_sniff`), netfilter chain inspection, and deterministic IP mitigation drops.
+     - `WF-10` (`network-telemetry-probe`): Host network telemetry and socket inspection combining in-RAM port probing (`probe_tcp_ports`) and kernel `/proc/net` socket correlation.
+     - `WF-11` (`incident-protocol-audit`): Defense and security observability combining in-RAM packet header dissection, eBPF packet sniffing (`network_sniff`), netfilter chain inspection, and deterministic IP mitigation drops.
      - Rule of Engagement #9 registered in `tactical_playbook()`, `server._INSTRUCTIONS`, and `README.md`.
 
 ---
 
-#### 8. SPEC-OM-9: Hybrid Dual-Plane Ephemeral Bridging & Kali MCP Integration (Milestone ONT-31)
-- **Objective**: Formalize the architectural absorption of external cybersecurity and tactical assessment tooling into a resilient, typed, dual-plane execution model that preserves host hygiene, eliminates context flooding, and enforces strict Rules of Engagement (RoE).
-- **The 5 Systemic Primitives (RE as SDD)**:
-  1. **Dual-Plane Ephemeral Bridging (Host $\leftrightarrow$ Docker CLI)**: The host AEP execution plane remains completely sterile (zero offensive binaries installed on the host OS). Heavy analytical tools run exclusively inside an isolated Docker container (`kali-pentest`, image `kali-comprehensive:latest`, network mode `host`) accessed via non-blocking Docker CLI pipes (`docker exec -i`).
-  2. **Shared-Memory PCAP Stream Dissection (`/dev/shm/pcap_stream`)**: Live packet streams captured from network interfaces are buffered in volatile Linux shared memory (`/dev/shm`) and dissected in-RAM via `tshark -r -` with BPF filters, avoiding physical disk I/O and returning token-compact JSON summaries.
-  3. **Deterministic Netfilter/LSM Mitigation Guard (`aep_ctl domain="security"`)**: Low-overhead kernel countermeasures (`firewall_status`, `nftables_inspect`, `threat_mitigate`) execute deterministically at the host perimeter via `nftables`/`ufw`, guarded by `CapabilityGuard` and falling back to simulated actions in `DIMINISHED` mode.
-  4. **Semantic Steering & Tactical RoE as Contracts (`WF-10` & `WF-11`)**: Workflows encoded in `engine/privilege.py:tactical_playbook()` and `server._INSTRUCTIONS`:
-     - **`WF-10` (Network Tactical Recon & Hardware Fingerprinting)**: Container status $\to$ Tactical `nmap` quick scan $\to$ Host process socket correlation (`threat_audit`).
-     - **`WF-11` (Incident Protocol Audit & Defense)**: Volatile packet stream dissection (`tshark_analyze`) $\to$ Kernel packet trace (`network_sniff`) $\to$ Netfilter chain inspection (`nftables_inspect`) $\to$ Deterministic IP drop mitigation (`threat_mitigate`).
-  5. **RE as SDD as Ontological Compiler**: External 54GB Kali suite compiled into formal specifications in [`docs/sdd/sdd_kali_mcp_offensive_tactical_enhancements.md`](docs/sdd/sdd_kali_mcp_offensive_tactical_enhancements.md) and exposed via 5 typed FastMCP tools (`kali_exec`, `nmap_scan`, `tshark_analyze`, `threat_audit`, `container_status`).
-- **Native FastMCP Server & Launcher**:
-  - Independent FastMCP server implemented in `kali-mcp` workspace (`tools/kali_mcp.py` / `src/mcp/kali_server.py`).
-  - Production shell launcher `scripts/kali-mcp-launch.sh` with automatic container healthcheck, background daemon verification, and hermetic venv resolution.
-  - Registered globally in Antigravity (`~/.gemini/config/mcp_config.json`) for seamless zero-setup subagent invocation.
+#### 8. SPEC-OM-9: Native Memory-First Network & Security Telemetry: Container Decoupling & Pure-RAM Ingress (Milestone ONT-32)
+- **Objective**: Reclaim network telemetry, socket inspection, packet header analysis, and perimeter security governance as pure in-RAM algorithmic primitives executing directly on the host Linux kernel via the Python 3.14 standard library. Completely decouples the system from external containerized analytical engines, eliminates process invocation latency, and protects agent interactions against guardrail false positives through neutral systems engineering terminology.
+- **Core Architectural Pillars**:
+  1. **Complete Container Decoupling & Zero External Binaries**: Discards external container satellites (Docker, containerized scanners) and external network binaries (`nmap`, `tshark`). All network probing and inspection logic runs natively in user-space with microsecond latency, zero secondary disk persistence, and zero container overhead.
+  2. **Asynchronous In-RAM TCP Port Probing (`aep_ctl(domain="network", action="probe")`)**:
+     - Non-blocking, semaphore-governed connection prober (`asyncio.open_connection`) implemented in `engine/net_telemetry.py`.
+     - Scans target hosts and port lists/ranges in RAM with microsecond latency profiling (`time.perf_counter()`), service identification, and guaranteed zero descriptor leaks (`fd_delta == 0` via strict `try...finally` resource cleanup).
+  3. **Kernel `/proc/net` Introspection & Header Dissection**:
+     - Direct in-memory parsing of `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, `/proc/net/dev`, and `/proc/net/arp`.
+     - Deterministic 32-bit IPv4 hex decoding (`socket.inet_ntoa` with little-endian struct packing) and socket inode-to-PID correlation.
+     - Pure in-memory packet header dissection via big-endian `struct.unpack` (`!6s6sH`, `!BBHHHBBH4s4s`, `!HHIIBBHHH`) for Ethernet, IPv4, TCP, UDP, and ARP frames, plus `/dev/shm` volatile PCAP buffer decoding without external packet decoders.
+  4. **Self-Describing Schema Reflection & Precondition Contracts**:
+     - `discover(action="schema")`: Introspectively extracts typed parameter signatures, types, defaults, docstrings, and execution scope (`DIMINISHED`/`FULL`) across all 15 FastMCP tools, with in-RAM session caching (`_shared_session_cache`).
+     - `CONTROL_PLANE_SCHEMA` in `engine/privilege.py`: Enforces explicit execution preconditions (`privilege_tier`, `required_fs`, `fail_soft_behavior`, `deterministic`) across all control plane actions.
+  5. **Deterministic Netfilter Hardening & Perimeter Defense (`aep_ctl domain="security"`)**:
+     - Deterministic, idempotent host firewall and netfilter mitigation (`aep_ctl security threat_mitigate <ip>`), ruleset auditing (`nftables_inspect`), and firewall status checks (`firewall_status`).
+     - Fail-soft execution: In unprivileged (`DIMINISHED`) environments, generates structured `SIMULATED` drop contracts without throwing exceptions or interrupting autonomous agent workflows.
+  6. **Semantic Sanitization & Pure Single-Plane Integration**:
+     - Purged all legacy trigger keywords (*kali, pentest, exploit, offensive*) across documentation, schemas, and docstrings in favor of clean systems engineering nomenclature (*Network Telemetry*, *Security Observability*, *Netfilter Hardening*).
+     - Decoupled Antigravity global configuration (`~/.gemini/config/mcp_config.json`) by removing containerized satellites, running 100% of telemetry through the native 15 FastMCP tools.
 - **Strict FastMCP 15-Tool Invariant Preservation**:
-  - Exactly 15 tools registered on the primary AEP host server (`server.py`). All host-side defensive enhancements are absorbed into `aep_ctl(domain="security")`, `kernel_trace`, and `tactical_playbook()`.
+  - Exactly 15 tools registered on the primary AEP host server (`server.py`). All network probing, kernel socket analysis, and perimeter security capabilities are seamlessly absorbed into `aep_ctl(domain="network")`, `aep_ctl(domain="security")`, and `kernel_trace(mode="network_sniff")`.
 
 ---
 
@@ -963,7 +969,7 @@ agent-execution-plane/
 │   ├── backup.py                   # Hot streaming backup engine, 5 FIFO slots, auto-recovery & quarantine
 │   ├── security.py                 # SHA-256 cryptographic audit ledger (security_audit_log) & secret masking
 │   ├── telemetry.py                # Per-request latency, byte/token estimation, RSS/FD deltas & agent-brief envelope
-│   ├── privilege.py                # CapabilityGuard, CBAC, shared schema, binary readiness & Kali tactical playbook
+│   ├── privilege.py                # CapabilityGuard, CBAC, shared schema, binary readiness & systems engineering tactical playbook
 │   ├── landlock.py                 # User-space Landlock LSM in-process confinement (Linux 5.13+)
 │   ├── catalog.py                  # Artifact catalog + hybrid semantic memory (sqlite-vec)
 │   ├── embedder.py                 # Local ONNX CPU embedder (bge-small-en-v1.5)
@@ -989,11 +995,11 @@ agent-execution-plane/
 │   ├── test_setup_idempotency.sh   # Automated provisioning idempotency test suite
 │   ├── test_engine_suite.py        # Core engine unit and integration test suite (pytest)
 │   ├── test_primitives_benchmark.py # Latency benchmark suite (RAM snapshot vs disk, Landlock vs bwrap)
-│   ├── test_agent_experience_evaluation.py # Agent-facing contract, clean bootstrap, sandbox, telemetry & Kali playbook suite
+│   ├── test_agent_experience_evaluation.py # Agent-facing contract, clean bootstrap, sandbox, telemetry & tactical playbook suite
 │   ├── test_spec_om7_ipc_batch.py  # Spec OM-7 IPC socket mux, batch piping, field projection & multi-agent concurrency suite
 │   ├── test_ont29_bridge_stabilization.py # ONT-29 external consumption gaps & bridge stabilization suite
 │   ├── test_ont30_schema_and_runner_ergonomics.py # ONT-30 schema evolution and runner ergonomics suite
-│   └── test_aep_kali_integration.py # ONT-31 AEP & Kali MCP dual-plane integration suite
+│   └── test_net_security_telemetry.py # ONT-32 Native network & security telemetry test battery
 ├── schemas/
 │   ├── database.sql                # DDL (artifacts, metrics, crash_events, audit)
 │   └── artifact_contract.cue       # Declarative CUE artifact schemas
@@ -1036,7 +1042,7 @@ agent-execution-plane/
 | Pico-Playbooks (Automation) | ✅ Operational | Orchestrates tools/artifacts into Topos-validated DAGs; E2E execution and confidence scoring |
 | Catalog Discovery | ✅ Operational | `artifact_catalog`: confidence browsing + semantic top-K |
 | Omarchy & IPC (8 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `security` with `firewall_status`, `nftables_inspect`, `threat_mitigate`, `ipc`, `audit usage`, and `workspace_snapshot`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool, batch projection, cross-agent discovery caching, Chrysalis bridge stabilization, FastMCP dynamic schema evolution (`tools.listChanged = True`), multi-harness process observability, and DX runner polish (109/109 tests passing in AEP, 100% pass rate) |
-| Kali MCP Dual-Plane (ONT-31) | ✅ Operational | Hybrid dual-plane execution bridging sterile host AEP (Landlock/bwrap/eBPF) with isolated Docker container `kali-pentest` via native `kali-mcp` FastMCP server, launcher, Antigravity config, `WF-10`/`WF-11` workflows, and 15-tool invariant strictly preserved (7/7 tests passing in `kali-mcp`, 116/116 total) |
+| Network & Security Telemetry (ONT-32) | ✅ Operational | Pure in-RAM network probing, /proc/net kernel introspection, packet header dissection, netfilter hardening, dynamic schema reflection, container decoupling, and 15-tool invariant strictly preserved |
 | Dual-Tier Privilege | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (18 capabilities) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |
