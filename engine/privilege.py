@@ -216,21 +216,47 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": "[name]",
         "scope": "systemd --user (DIMINISHED) | system (FULL)",
         "description": "List active systemd services or inspect/mutate a specific service unit without interactive pagers.",
+        "preconditions": {
+            "list": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "start": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+            "stop": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+            "restart": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+        },
     },
     "network": {
-        "actions": ["inspect", "routes", "listeners"],
-        "arg": None,
-        "description": "Inspect network interfaces, routing tables, and active TCP/UDP listening sockets.",
+        "actions": ["inspect", "routes", "listeners", "probe", "interfaces", "arp"],
+        "arg": "[target] [ports]",
+        "description": "Inspect network interfaces, routing tables, active TCP/UDP listening sockets, local ARP tables, or probe TCP ports.",
+        "preconditions": {
+            "inspect": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/dev"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "routes": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/route"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "listeners": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/tcp"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "probe": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "interfaces": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/dev"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "arp": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/arp"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+        },
     },
     "storage": {
         "actions": ["usage", "mounts", "disks"],
         "arg": None,
         "description": "Inspect filesystem byte usage, mount trees, and block devices.",
+        "preconditions": {
+            "usage": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "mounts": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "disks": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+        },
     },
     "package": {
         "actions": ["installed", "list", "check", "info"],
         "arg": "[name]",
         "description": "Query Debian/Ubuntu dpkg state for installed packages and versions.",
+        "preconditions": {
+            "installed": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "list": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "check": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "info": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+        },
     },
     "backup": {
         "actions": [
@@ -253,21 +279,47 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         ],
         "arg": "[slot_number|name]",
         "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots (catalog only), workspace snapshots/restores, canary integrity, and quarantine.",
+        "preconditions": {
+            act: {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
+            for act in [
+                "backup", "restore", "status", "backup_status", "auto_recover",
+                "verify_and_auto_recover", "verify_integrity", "micro_snapshot",
+                "restore_micro_snapshot", "list_micro_snapshots", "clear_micro_snapshots",
+                "golden", "restore_golden", "quarantine_status", "workspace_snapshot", "workspace_restore",
+            ]
+        },
     },
     "security": {
         "actions": ["landlock_status", "status", "audit", "verify", "firewall_status", "nftables_inspect", "threat_mitigate"],
         "arg": "[target]",
-        "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, verify audit chain, inspect firewall/nftables rules, and enforce threat mitigation.",
+        "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, verify audit chain, inspect firewall/nftables rules, and enforce deterministic netfilter hardening.",
+        "preconditions": {
+            "landlock_status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "audit": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "verify": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "firewall_status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+            "nftables_inspect": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+            "threat_mitigate": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "SIMULATED", "deterministic": True},
+        },
     },
     "audit": {
         "actions": ["verify", "usage"],
         "arg": "[session_id]",
         "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger or inspect per-agent tool usage summary.",
+        "preconditions": {
+            "verify": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "usage": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+        },
     },
     "ipc": {
         "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"],
         "arg": "[session_id]",
         "description": "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management.",
+        "preconditions": {
+            act: {"privilege_tier": "DIMINISHED", "required_fs": ["/dev/shm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
+            for act in ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"]
+        },
     },
 }
 
@@ -465,11 +517,11 @@ def check_binary_prerequisites() -> dict[str, dict[str, Any]]:
 
 
 def tactical_playbook() -> dict[str, Any]:
-    """Kali-MCP inspired semantic playbook: taxonomic catalog, canonical 1-liners, workflows, and RoE."""
+    """Systems engineering semantic playbook: taxonomic catalog, canonical 1-liners, workflows, and RoE."""
     prereqs = check_binary_prerequisites()
     return {
         "status": "OK",
-        "playbook_version": "EAES-v2-Kali-Semantic",
+        "playbook_version": "EAES-v2-Standard-Telemetry",
         "overview": (
             "Agent Execution Plane (AEP) Tactical Guide. Designed for zero-hallucination, "
             "low-token consumption, and deterministic Linux control. Every tool returns typed JSON "
@@ -562,21 +614,20 @@ def tactical_playbook() -> dict[str, Any]:
             },
             {
                 "id": "WF-10",
-                "name": "Network Tactical Recon & Hardware Fingerprinting (Passive sniffing -> Active probing -> OUI mapping)",
+                "name": "Native Network Telemetry & Port Observability (aep_ctl network probe -> /proc/net/tcp socket inspection)",
                 "steps": [
-                    '1. kali-mcp: container_status() -> Verify kali-pentest container health and host network mode.',
-                    '2. kali-mcp: nmap_scan(target="127.0.0.1", scan_type="quick") -> Non-invasive tactical port and service discovery.',
-                    '3. kali-mcp: threat_audit(category="services") -> Correlate open ports with host process table.',
+                    '1. aep_ctl(domain="network", action="probe", name="127.0.0.1", args="22,80,443") -> Pure in-RAM TCP port probe via asyncio/socket.',
+                    '2. aep_ctl(domain="network", action="listeners", verbosity="summary") -> Direct in-memory /proc/net/tcp socket table inspection.',
+                    '3. aep_ctl(domain="network", action="interfaces", verbosity="summary") -> Kernel /proc/net/dev traffic metrics.',
                 ],
             },
             {
                 "id": "WF-11",
-                "name": "Incident Protocol Audit & Defense (VCS/ARP anomaly detection -> nftables isolation -> frequency hopping)",
+                "name": "Security Observability & Netfilter Hardening (kernel_trace network sniff -> aep_ctl security nftables inspect -> idempotent threat mitigation)",
                 "steps": [
-                    '1. kali-mcp: tshark_analyze(pcap_path="/dev/shm/pcap_stream", filter_bpf="arp or dns", limit=25) -> Dissect live network streams for anomalous packet headers.',
-                    '2. aep: kernel_trace(mode="network_sniff", duration_sec=2) -> Trace low-level network packet ingestion in kernel space.',
-                    '3. aep: aep_ctl(domain="security", action="nftables_inspect") -> Inspect active netfilter rule chains.',
-                    '4. aep: aep_ctl(domain="security", action="threat_mitigate", name="<malicious-ip>") -> Enforce deterministic drop rule at host perimeter.',
+                    '1. kernel_trace(mode="network_sniff", duration_sec=2) -> In-memory packet ingestion and header dissection.',
+                    '2. aep_ctl(domain="security", action="nftables_inspect", verbosity="summary") -> Inspect active netfilter rule chains.',
+                    '3. aep_ctl(domain="security", action="threat_mitigate", name="<target-ip>") -> Enforce deterministic netfilter hardening at host perimeter.',
                 ],
             },
         ],
@@ -596,7 +647,7 @@ def tactical_playbook() -> dict[str, Any]:
             "sandbox_linter_fix": 'sandbox_run(command="ruff check --fix .", working_dir="/path/to/repo", rw_paths=["/path/to/repo"], share_net=False, parse="auto", verbosity="summary")',
             "untrusted_adversarial_probe": 'sandbox_run(command="python3 probe.py", working_dir="/path/to/repo", rw_paths=["/path/to/scratch"], share_net=False, verbosity="summary")',
             "composite_verification": 'sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", parse="auto", verbosity="brief")',
-            "network_tactical_recon": 'nmap_scan(target="127.0.0.1", scan_type="quick", verbosity="summary")',
+            "network_telemetry_probe": 'aep_ctl(domain="network", action="probe", name="127.0.0.1", args="22,80,443", verbosity="summary")',
             "incident_protocol_audit": 'aep_ctl(domain="security", action="nftables_inspect", verbosity="summary")',
         },
         "prerequisites_summary": {k: v["installed"] for k, v in prereqs.items()},
@@ -632,13 +683,13 @@ def capability_manifest() -> dict:
         }
     return {
         "what_is_this": "AEP MCP: plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes de IA. "
-        "Transmuta primitivas de herramientas ofensivas (RAM exec, sandbox, eBPF, "
+        "Gobernanza y ejecución determinista de telemetría de sistemas y observabilidad de seguridad (RAM exec, sandbox, eBPF, "
         "introspección) en capacidades agénticas gobernadas por privilegio.",
         "capability_tier": tier,
         "privilege_mode": privilege_mode(),
         "prerequisites": prereqs,
         "control_plane_domains": list(CONTROL_PLANE_SCHEMA.keys()),
-        "tactical_hint": "Call discover(action='playbook') for Kali-style workflow recipes, canonical 1-liners, and token-saving Rules of Engagement.",
+        "tactical_hint": "Call discover(action='playbook') for systems engineering workflow recipes, canonical 1-liners, and token-saving Rules of Engagement.",
         "legend": {
             "r (4)": "SENSAR — leer estado/telemetría",
             "w (2)": "ACTUAR — mutar estado del sistema",

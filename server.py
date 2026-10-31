@@ -116,7 +116,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Collision-Free Multi-Agent Concurrency**: All 15 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
 - **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
-- **Tactical Security & Incident Workflows (ONT-31)**: Use WF-10 ('Network Tactical Recon & Hardware Fingerprinting' via Kali MCP + AEP) and WF-11 ('Incident Protocol Audit & Defense' with netfilter mitigation and Landlock verification).
+- **Tactical Security & Incident Workflows (ONT-32)**: Use WF-10 ('Native Network Telemetry & Port Observability') and WF-11 ('Security Observability & Netfilter Hardening' with netfilter mitigation and Landlock verification).
 - **Tactical Sandbox Recipes (ONT-30)**: Use `sandbox-linter-fix` (`rw_paths=[<repo>]`) for in-place formatting, `untrusted-adversarial-probe` (`rw_paths=[<scratch>]`) for isolated fuzzing, and `composite-verification-runner` (`parse="auto"`) for unified ruff && pytest in 1 turn.
 """
 
@@ -395,12 +395,13 @@ async def discover(
 ) -> str:
     """
     [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
-    devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico estilo Kali-MCP.
+    devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico de ingeniería de sistemas.
     Soporta auto-caching en RAM (/dev/shm) entre subagentes para mitigar la amnesia de descubrimiento ('Re-Discovery Tax').
     action:
       - 'discover' (default; alias: 'match', 'route', 'search', 'recommend'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
       - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
-      - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida estilo Kali-MCP.
+      - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida de ingeniería de sistemas.
+  - 'schema': reflexión introspectiva de esquemas, parámetros, tipos y condiciones previas para las 15 herramientas FastMCP.
     Parámetros de eficiencia de tokens (Spec OM-7 / Cloudflare Premise):
       - `session_id` / `sid`: espacio de sesión compartido en RAM para reutilizar manifiestos entre agentes.
       - `store_as`: almacena el resultado bajo una clave nombrada en el SessionPool para piping en RAM ($cache.<store_as>).
@@ -505,6 +506,57 @@ async def discover(
                 verbosity=verbosity,
                 summary=f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 18 capabilities).",
                 next_action="Call discover(action='playbook') for tactical workflows or invoke a ready tool.",
+            )
+
+        elif act in ("schema", "tools_schema"):
+            cache_k = "discover_schema"
+            cached_entry = GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent, key=cache_k)
+            is_hit = bool(cached_entry.get("status") == "OK" and cached_entry.get("value"))
+
+            if is_hit and not force_refresh:
+                payload = dict(cached_entry["value"])
+                source = "ram_session_cache"
+                cache_status = "CACHED"
+            else:
+                tools_meta = {}
+                for tname, tool_obj in mcp._tool_manager._tools.items():
+                    tools_meta[tname] = {
+                        "name": tname,
+                        "description": tool_obj.description or "",
+                        "parameters": tool_obj.parameters or {},
+                        "privilege_tier": "FULL" if tname == "kernel_trace" else "DIMINISHED",
+                        "scope": "kernel" if tname == "kernel_trace" else "system/user",
+                    }
+                preconds = {
+                    domain: d_val.get("preconditions", {})
+                    for domain, d_val in CONTROL_PLANE_SCHEMA.items()
+                }
+                payload = {
+                    "status": "OK",
+                    "tools_count": len(tools_meta),
+                    "tools": tools_meta,
+                    "preconditions": preconds,
+                    "control_plane_domains": list(CONTROL_PLANE_SCHEMA.keys()),
+                }
+                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, cache_k, payload)
+                source = "system"
+                cache_status = "FRESH"
+
+            payload["cache_status"] = cache_status
+            payload["source"] = source
+            payload["session_id"] = eff_sid
+
+            if select_fields and isinstance(select_fields, list):
+                payload = project_fields(payload, select_fields)
+                if "status" not in payload:
+                    payload["status"] = "OK"
+
+            return attach_envelope(
+                payload,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Tools schema reflection loaded ({source}, {payload.get('tools_count', 15)} tools, {len(payload.get('control_plane_domains', []))} domains).",
+                next_action="Invoke ready tool with verified schema parameters.",
             )
 
         elif act in ("playbook", "tactical_guide"):
@@ -2865,23 +2917,56 @@ async def aep_ctl(
                         tracker,
                         verbosity=verbosity,
                     )
-                prefix = privilege_prefix()
-                if prefix is None:
-                    res_obj = {
-                        "status": "SIMULATED",
-                        "target": eff_name,
-                        "simulated_rule": f"nft add rule inet filter input ip saddr {eff_name} drop",
-                        "message": "Tier is DIMINISHED. Netfilter rule simulated.",
-                    }
-                else:
-                    r = subprocess.run(prefix + ["nft", "add", "rule", "inet", "filter", "input", "ip", "saddr", eff_name, "drop"], capture_output=True, text=True, check=False)
-                    if r.returncode == 0:
-                        res_obj = {"status": "OK", "target": eff_name, "mitigated": True, "rule": f"drop ip saddr {eff_name}"}
-                    else:
-                        res_obj = {"status": "DEGRADED", "target": eff_name, "message": r.stderr.strip()[:200]}
+                from engine import net_telemetry
+                res_obj = net_telemetry.enforce_netfilter_mitigation(eff_name, rule_action="drop")
             else:
                 res_obj = get_landlock_status()
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
+
+        elif d == "network":
+            import asyncio
+
+            from engine import net_telemetry
+
+            if a == "probe":
+                target_host = eff_name or "127.0.0.1"
+                parsed_ports = None
+                if args:
+                    candidate_items = args if isinstance(args, list) else str(args).split(",")
+                    collected = []
+                    for raw_item in candidate_items:
+                        item = str(raw_item).strip()
+                        if not item:
+                            continue
+                        if "-" in item:
+                            try:
+                                p_start, p_end = map(int, item.split("-", 1))
+                                collected.extend(range(p_start, p_end + 1))
+                            except ValueError:
+                                pass
+                        else:
+                            try:
+                                collected.append(int(item))
+                            except ValueError:
+                                pass
+                    if collected:
+                        parsed_ports = collected
+                res_obj = asyncio.run(net_telemetry.probe_tcp_ports(target_host, parsed_ports))
+                return attach_envelope(res_obj, tracker, verbosity=verbosity)
+            elif a == "interfaces":
+                devs = net_telemetry.parse_proc_net_dev()
+                if devs:
+                    res_obj = {"status": "OK", "count": len(devs), "interfaces": devs}
+                    return attach_envelope(res_obj, tracker, verbosity=verbosity)
+            elif a == "arp":
+                arps = net_telemetry.parse_proc_net_arp()
+                res_obj = {"status": "OK", "count": len(arps), "arp": arps}
+                return attach_envelope(res_obj, tracker, verbosity=verbosity)
+            elif a == "listeners":
+                socks = net_telemetry.parse_proc_net_sockets("tcp")
+                if socks:
+                    res_obj = {"status": "OK", "count": len(socks), "listeners": socks}
+                    return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         elif d == "backup":
             if a == "backup":
@@ -3266,7 +3351,7 @@ async def visual_inspect(
 
 
 _BPFTRACE_MODES = {
-    # eBPF (rootkit/sniffer ofensivo) -> observabilidad de kernel no-invasiva.
+    # eBPF kernel observability & packet telemetry.
     "syscall_count": "tracepoint:raw_syscalls:sys_enter {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
     "file_opens": "tracepoint:syscalls:sys_enter_openat {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
     "tcp_connect": "kprobe:tcp_connect {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
@@ -3334,6 +3419,23 @@ async def kernel_trace(
             )
         prefix = privilege_prefix()
         if prefix is None:
+            if eff_mode == "network_sniff":
+                pcap_shm = Path("/dev/shm/pcap_stream")
+                if pcap_shm.exists():
+                    from engine import net_telemetry
+                    dissected = net_telemetry.dissect_shm_pcap_buffer(pcap_shm, limit=eff_limit)
+                    return attach_envelope(
+                        {
+                            "status": "OK",
+                            "capability_tier": "DIMINISHED",
+                            "mode": eff_mode,
+                            "pcap_dissection": dissected,
+                            "message": "In-memory packet header dissection from /dev/shm/pcap_stream",
+                        },
+                        tracker,
+                        verbosity=verbosity,
+                        summary=f"Dissected {dissected.get('count', 0)} packet headers in-RAM.",
+                    )
             return attach_envelope(
                 {
                     "status": "DEGRADED",
@@ -3387,17 +3489,23 @@ async def kernel_trace(
                 truncated = True
             ordered_counts = dict(sorted_items)
 
+            trace_data = {
+                "status": "OK",
+                "capability_tier": "FULL",
+                "mode": eff_mode,
+                "duration_sec": clamped_dur,
+                "privilege_mode": pmode,
+                "total_processes": total_procs,
+                "total_events": total_events,
+                "counts": ordered_counts,
+            }
+            if eff_mode == "network_sniff":
+                pcap_shm = Path("/dev/shm/pcap_stream")
+                if pcap_shm.exists():
+                    from engine import net_telemetry
+                    trace_data["pcap_dissection"] = net_telemetry.dissect_shm_pcap_buffer(pcap_shm, limit=eff_limit)
             return attach_envelope(
-                {
-                    "status": "OK",
-                    "capability_tier": "FULL",
-                    "mode": eff_mode,
-                    "duration_sec": clamped_dur,
-                    "privilege_mode": pmode,
-                    "total_processes": total_procs,
-                    "total_events": total_events,
-                    "counts": ordered_counts,
-                },
+                trace_data,
                 tracker,
                 verbosity=verbosity,
                 truncated=truncated,
