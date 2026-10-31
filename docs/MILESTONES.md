@@ -50,9 +50,9 @@ flowchart LR
     M42 --> M43["M43: Milestone ONT-13 Documentation Sync & Baseline Compaction (Graphos G2) ✅"]
     M43 --> M44["M44: Milestone ONT-13 Atomic Release & Version Control Commit (Hermon) ✅"]
     M44 --> M45["M45: Milestone ONT-14 Public GitHub Release Plan Formulation (Archon) ✅"]
-    M45 --> M46["M46: Milestone ONT-14 Baseline Weave & Task 115 SYNTHESIZED (Graphos G1) 🔵"]
-    M46 --> M47["M47: Milestone ONT-14 Topos Structural & Compliance Audit (Ontos) ⏳"]
-    M47 --> M48["M48: Milestone ONT-14 Implementation of License, EDR Warning & Git Hardening (Pragma) ⏳"]
+    M45 --> M46["M46: Milestone ONT-14 Baseline Weave & Task 115 SYNTHESIZED (Graphos G1) ✅"]
+    M46 --> M47["M47: Milestone ONT-14 Topos Structural & Compliance Audit (Ontos) ✅"]
+    M47 --> M48["M48: Milestone ONT-14 Implementation of License, EDR Warning & Git Hardening (Pragma) ✅"]
     M48 --> M49["M49: Milestone ONT-14 Multi-Gate Verification Pre-Deploy (Dokimos) ✅"]
     M49 --> M50["M50: Milestone ONT-14 Documentation Rollup & Verification Record (Graphos G2) ✅"]
     M50 --> M51["M51: Milestone ONT-14 GitHub Repository Creation, Remote Sync & Release (Hermon) ✅"]
@@ -116,3 +116,39 @@ flowchart LR
 | **Spec OM-7 Omission Gaps & Cache Piping (ONT-22)** | Resolves GAP-OM22-1 (smart dot-path projection fallbacks), GAP-OM22-2 (`failed_steps` diagnostic preservation), GAP-OM22-3 (multi-agent cross-turn RAM session cache piping `$cache.<key>`), and GAP-OM22-4 (`kanban_board` / `artifact_lint_and_build` whitelist & signature filtering). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/ipc_pool.py`, `server.py`, `engine/playbook.py`, `engine/privilege.py`, `scripts/aep-ctl`, `tests/test_spec_om7_ipc_batch.py`, `README.md` | **VERIFIED & PROMOTED (Task 130 Score: 0.9250 TRUST, 62/62 Tests) ✅** |
 | **Pico-Triad Multi-Agent Concurrency Isolation (ONT-23)** | Resolves GAP-OM23-1 (`/dev/shm` Go build slot isolation + atomic `os.replace`), GAP-OM23-2 (`kanban.upsert_build_task` under `transaction_immediate`), GAP-OM23-3 (`playbook_run(action="run")` slot leasing, piping, projection parity), and GAP-OM23-4 (precomputed vector embeddings outside SQLite write transaction). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/kanban.py`, `engine/catalog.py`, `server.py`, `tests/test_spec_om7_ipc_batch.py`, `README.md` | **VERIFIED & PROMOTED (Task 131 Score: 0.9250 TRUST, 66/66 Tests) ✅** |
 | **Non-Pico Concurrency & Semantic Polish (ONT-24)** | Audit ledger mutex lock (`_AUDIT_LOCK`) + `transaction_immediate` preventing SHA-256 chain forks, thread-safe `:memory:` micro-snapshots (`_SNAPSHOT_LOCK` + `check_same_thread=False`), vectorizer double-checked lock, Kali-MCP semantic parity (`_INSTRUCTIONS`, Rule of Engagement #7, recipe `WF-6`), and zero-error Mermaid validation across all 79 diagrams. | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/security.py`, `engine/backup.py`, `server.py`, `engine/privilege.py`, `tests/test_spec_om7_ipc_batch.py`, `README.md`, `docs/` | **VERIFIED & PROMOTED (Task 132 Score: 0.9500 TRUST, 69/69 Tests) ✅** |
+
+---
+
+## 3. Canonical Context Anchors & Architecture Artifacts
+
+This section provides permanent physical context anchors to prevent hallucination and maintain zero-drift continuity across context compactions and LLM agent sessions.
+
+| Milestone | Architecture & SDD Anchor | Strategic Plan & Execution Report | Verification Report & Test Suite | Core Modules & Infrastructure |
+| :---: | :--- | :--- | :--- | :--- |
+| **ONT-09** | [Hybrid SQLite Architecture](../README.md#2-architecture-overview) | [feature_mmap_hybrid_sqlite.md](pipeline/feature_20261024_115500_mmap_hybrid_sqlite_ram_persistence.md) | [verification_mmap_hybrid_sqlite.md](pipeline/verification_report_20261024_123000_mmap_hybrid_sqlite_ram_persistence.md) | [`engine/db.py`](../engine/db.py), [`engine/catalog.py`](../engine/catalog.py) |
+| **ONT-10** | [Ruff SAST & Concurrency Model](../README.md#7-security--privilege-model) | [feature_code_modernization.md](pipeline/feature_20261024_171500_code_modernization_and_concurrency_optimization.md) | [verification_code_modernization.md](pipeline/verification_report_20261024_182500_code_modernization_and_concurrency_optimization.md) | [`engine/db.py`](../engine/db.py), [`server.py`](../server.py) |
+| **ONT-11** | [Database Resilience & Backup Pool](../README.md#4-resilience-anti-poisoning--backup-engine) | [feature_backup_restore.md](pipeline/feature_20261025_031500_backup_restore_and_offensive_countermeasures.md) | [verification_backup_restore.md](pipeline/verification_report_20261025_035500_backup_restore_and_offensive_countermeasures.md) | [`engine/backup.py`](../engine/backup.py), [`engine/security.py`](../engine/security.py) |
+| **ONT-12** | [Zero-Dependency Setup & Tooling](../README.md#1-installation--zero-dependency-setup) | [feature_autonomous_setup.md](pipeline/feature_20261025_051500_autonomous_setup_updater_and_python314_migration.md) | [verification_autonomous_setup.md](pipeline/verification_report_20261025_054000_autonomous_setup_updater_and_python314_migration.md) | [`scripts/setup.sh`](../scripts/setup.sh), [`scripts/aep-sync.sh`](../scripts/aep-sync.sh) |
+| **ONT-13** | [SDD Linux Primitives & Quarantine](sdd/sdd_linux_primitives_and_anti_poisoning.md) | [feature_re_as_sdd_landlock.md](pipeline/feature_20261025_144500_re_as_sdd_landlock_ebpf_and_anti_poisoning_backups.md) | [verification_re_as_sdd_landlock.md](pipeline/verification_report_20261025_154500_re_as_sdd_landlock_ebpf_and_anti_poisoning_backups.md) | [`engine/landlock.py`](../engine/landlock.py), [`engine/backup.py`](../engine/backup.py) |
+| **ONT-14** | [Public GitHub Release & License](../README.md#11-license--compliance) | [feature_github_release.md](pipeline/feature_20261028_235800_prepare_and_publish_github_repository_public_release.md) | [verification_github_release.md](pipeline/verification_report_20261028_235900_github_release_pre_deploy.md) | [`LICENSE`](../LICENSE), [`.gitignore`](../.gitignore), [`.gitattributes`](../.gitattributes) |
+| **ONT-15** | [EAES & Kali Ergonomics](reports/2026-10-30_aep_agent_experience_evaluation.md) | [feature_self_evolutionary_suite.md](pipeline/feature_20261030_013500_self_evolutionary_suite_and_kali_semantics.md) | [`tests/test_agent_experience_evaluation.py`](../tests/test_agent_experience_evaluation.py) | [`engine/privilege.py`](../engine/privilege.py), [`server.py`](../server.py) |
+| **ONT-18** | [Topos Anti-Cascade Specification](../README.md#topos-integrity-protocol) | [feature_ont18_anti_cascade.md](pipeline/feature_20261030_065200_ont18_topos_anti_cascade_battery_and_setup_hardening.md) | [verification_ont18_anti_cascade.md](pipeline/verification_report_20261030_072500_ont18_topos_anti_cascade_battery_and_setup_hardening.md) | [`engine/catalog.py`](../engine/catalog.py), [`scripts/setup.sh`](../scripts/setup.sh) |
+| **ONT-21** | [SDD OM-7 UNIX Socket Pool & Batch](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [feature_ont21_ipc_pool.md](pipeline/feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md) | [verification_ont21_ipc_pool.md](pipeline/verification_report_20261030_154500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md) | [`engine/ipc_pool.py`](../engine/ipc_pool.py), [`server.py`](../server.py) |
+| **ONT-22** | [Omission Gaps & Cache Piping SDD](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md#multi-agent-shared-ram-cache-piping) | [execution_report_ont22.md](pipeline/execution_report_20261030_173000_ont22_spec_om7_omission_gap_remediation.md) | [verification_report_ont22.md](pipeline/verification_report_20261030_174000_ont22_spec_om7_omission_gap_remediation.md) | [`engine/ipc_pool.py`](../engine/ipc_pool.py), [`engine/playbook.py`](../engine/playbook.py) |
+| **ONT-23** | [Pico-Triad Multi-Agent Isolation](../README.md#5-pico-triad-multi-agent-concurrency-isolation) | [execution_report_ont23.md](pipeline/execution_report_20261030_190000_ont23_pico_triad_concurrency_isolation.md) | [verification_report_ont23.md](pipeline/verification_report_20261030_193000_ont23_pico_triad_concurrency.md) | [`engine/kanban.py`](../engine/kanban.py), [`engine/catalog.py`](../engine/catalog.py) |
+| **ONT-24** | [Non-Pico Concurrency Hardening](../README.md#6-non-pico-system-wide-concurrency-hardening) | [execution_report_ont24.md](pipeline/execution_report_20261030_210000_ont24_non_pico_concurrency_and_kali_semantics.md) | [verification_report_ont24.md](pipeline/verification_report_20261030_211500_ont24_non_pico_concurrency_and_kali_semantics.md) | [`engine/security.py`](../engine/security.py), [`engine/backup.py`](../engine/backup.py), [`server.py`](../server.py) |
+
+---
+
+## 4. Master Context Anchors Directory
+
+- **FastMCP Stdio Core**: [`server.py`](../server.py) (15 polymorphic tools, strict zero-bloat invariant)
+- **Security & RBAC Guard**: [`engine/privilege.py`](../engine/privilege.py) (18 capabilities, dual-tier Unix chmod 777 semantics)
+- **Shared-Memory IPC & Batch Engine**: [`engine/ipc_pool.py`](../engine/ipc_pool.py) (`/dev/shm/aep.sock`, 16-slot session pool)
+- **Cryptographic Audit Ledger**: [`engine/security.py`](../engine/security.py) (SHA-256 chained tamper-evident audit log)
+- **ACID Database & Anti-Poisoning Backups**: [`engine/backup.py`](../engine/backup.py), [`engine/db.py`](../engine/db.py) (5-slot rotation, quarantine, volatile RAM snapshots)
+- **Pico Tooling Suite**: [`engine/kanban.py`](../engine/kanban.py) (Pico-Kanban), [`engine/catalog.py`](../engine/catalog.py) (Pico-Jenkins), [`engine/playbook.py`](../engine/playbook.py) (Pico-Ansible)
+- **Linux Kernel LSM Sandbox**: [`engine/landlock.py`](../engine/landlock.py) (ABI v1-v4 unprivileged Landlock sandboxing)
+- **Deterministic Control CLI**: [`scripts/aep-ctl`](../scripts/aep-ctl) (9 domains, typed JSON contracts)
+- **Multi-Agent Ecosystem Sync**: [`scripts/aep-sync.sh`](../scripts/aep-sync.sh) (Claude Code, agy, Codex, Gemini)
+- **Comprehensive Test Suite**: [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py), [`tests/test_agent_experience_evaluation.py`](../tests/test_agent_experience_evaluation.py), [`tests/test_engine_suite.py`](../tests/test_engine_suite.py)
