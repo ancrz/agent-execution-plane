@@ -5,7 +5,7 @@ Covers all remediated product contracts from the Agent Experience Evaluation:
 2. Unified CLI & MCP control-plane schema including `audit` and `aep_ctl(action="schema")` (promoted from xfail -> PASS).
 3. Bubblewrap sandbox isolation by default + explicit `working_dir`/`ro_paths`/`rw_paths` + `share_net=False` + `CapabilityGuard` blacklist enforcement.
 4. Compact `verbosity="summary"` / `"brief"` modes, pagination cursors, and per-request telemetry (`output_bytes`, `estimated_tokens`, `rss_delta_kb`, `fd_delta`).
-5. Real binary prerequisite readiness and Kali-MCP style semantic playbook (`discover(action="playbook")`) & intent precision.
+5. Real binary prerequisite readiness and systems engineering tactical playbook (`discover(action="playbook")`) & intent precision.
 """
 
 from __future__ import annotations
@@ -163,8 +163,8 @@ def test_compact_summary_and_telemetry_attribution() -> None:
     assert "telemetry" in proc_sum
 
 
-def test_discover_binary_readiness_and_kali_tactical_playbook() -> None:
-    """discover exposes binary prerequisites, Kali-style tactical playbook, and intent precision."""
+def test_discover_binary_readiness_and_tactical_playbook() -> None:
+    """discover exposes binary prerequisites, systems engineering tactical playbook, and intent precision."""
     import server
 
     caps = json.loads(asyncio.run(server.discover(action="capabilities")))
@@ -176,7 +176,7 @@ def test_discover_binary_readiness_and_kali_tactical_playbook() -> None:
 
     playbook = json.loads(asyncio.run(server.discover(action="playbook")))
     assert playbook["status"] == "OK"
-    assert playbook["playbook_version"] == "EAES-v2-Kali-Semantic"
+    assert playbook["playbook_version"] == "EAES-v2-Standard-Telemetry"
     assert len(playbook["rules_of_engagement"]) >= 5
     assert len(playbook["workflow_recipes"]) >= 4
 
