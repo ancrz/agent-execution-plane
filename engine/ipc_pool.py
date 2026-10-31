@@ -436,6 +436,28 @@ def _get_dot_path(data: Any, path_str: str) -> Any:
     return curr
 
 
+def _resolve_target_field(target: Any, dot_path: str) -> Any:
+    """
+    Resolves dot_path against target, with automatic transparent fallback
+    unwrapping for 'output' and 'data' envelopes if not found on root.
+    """
+    if not dot_path:
+        return target
+    val = _get_dot_path(target, dot_path)
+    if val is not None:
+        return val
+    if isinstance(target, dict):
+        if "output" in target and isinstance(target["output"], dict):
+            val = _get_dot_path(target["output"], dot_path)
+            if val is not None:
+                return val
+        if "data" in target and isinstance(target["data"], dict):
+            val = _get_dot_path(target["data"], dot_path)
+            if val is not None:
+                return val
+    return None
+
+
 def resolve_step_refs(
     params: Any,
     step_outputs: dict[str, Any],
@@ -468,43 +490,43 @@ def resolve_step_refs(
 
         if root_scope == "prev":
             target = prev_output
-            return _get_dot_path(target, dot_path) if dot_path else target
+            return _resolve_target_field(target, dot_path)
 
         if root_scope.startswith("steps"):
             target = step_outputs.get(sub_step_id or "")
-            return _get_dot_path(target, dot_path) if dot_path else target
+            return _resolve_target_field(target, dot_path)
 
         if root_scope.startswith(("cache", "slot")):
             target = (slot_cache or {}).get(sub_step_id or "")
-            return _get_dot_path(target, dot_path) if dot_path else target
+            return _resolve_target_field(target, dot_path)
 
     # 2. Embedded string interpolation
     def _repl(m: re.Match) -> str:
         token = m.group(1)
         if token.startswith("prev"):
             sub_path = token[4:].lstrip(".")
-            val = _get_dot_path(prev_output, sub_path)
+            val = _resolve_target_field(prev_output, sub_path)
             return str(val) if val is not None else m.group(0)
         if token.startswith("steps."):
             parts = token[6:].split(".", 1)
             step_id = parts[0]
             sub_path = parts[1] if len(parts) > 1 else ""
             target = step_outputs.get(step_id)
-            val = _get_dot_path(target, sub_path)
+            val = _resolve_target_field(target, sub_path)
             return str(val) if val is not None else m.group(0)
         if token.startswith("cache."):
             parts = token[6:].split(".", 1)
             k = parts[0]
             sub_path = parts[1] if len(parts) > 1 else ""
             target = (slot_cache or {}).get(k)
-            val = _get_dot_path(target, sub_path) if sub_path else target
+            val = _resolve_target_field(target, sub_path)
             return str(val) if val is not None else m.group(0)
         if token.startswith("slot."):
             parts = token[5:].split(".", 1)
             k = parts[0]
             sub_path = parts[1] if len(parts) > 1 else ""
             target = (slot_cache or {}).get(k)
-            val = _get_dot_path(target, sub_path) if sub_path else target
+            val = _resolve_target_field(target, sub_path)
             return str(val) if val is not None else m.group(0)
         return m.group(0)
 

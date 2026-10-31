@@ -853,4 +853,73 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
+    def test_gap_om07_topos_audit_dag_remediation_and_cycle_and_deps_alias(self):
+        async def _run():
+            # Test cyclic DAG with 'deps' alias
+            r_cyclic = json.loads(await server.topos_audit_dag(
+                tasks=["t1", "t2", "t3"],
+                deps={"t1": ["t2"], "t2": ["t3"], "t3": ["t1"]},
+            ))
+            assert r_cyclic["status"] == "BLOCKED"
+            assert "cycle" in r_cyclic
+            assert r_cyclic["cycle"] == ["t1", "t2", "t3", "t1"]
+            assert "remediation" in r_cyclic
+            assert len(r_cyclic["remediation"]) >= 2
+
+            # Test valid DAG with 'dependencies'
+            r_valid = json.loads(await server.topos_audit_dag(
+                tasks=["t1", "t2"],
+                dependencies={"t1": ["t2"]},
+            ))
+            assert r_valid["status"] == "APPROVED"
+
+        asyncio.run(_run())
+
+    def test_gap_om08_ipc_pool_dot_path_unwrapping(self):
+        from engine.ipc_pool import _resolve_target_field, resolve_step_refs
+        envelope_data = {
+            "s1": {
+                "output": {
+                    "task_id": 999,
+                    "state": "BACKLOG",
+                }
+            },
+            "s2": {
+                "data": {
+                    "token": "secret_abc",
+                }
+            }
+        }
+        # Direct key access via _resolve_target_field
+        assert _resolve_target_field(envelope_data["s1"], "output.task_id") == 999
+        # Transparent unwrapping through output
+        assert _resolve_target_field(envelope_data["s1"], "task_id") == 999
+        assert _resolve_target_field(envelope_data["s1"], "state") == "BACKLOG"
+        # Transparent unwrapping through data
+        assert _resolve_target_field(envelope_data["s2"], "token") == "secret_abc"
+        # Non-existent key returns None
+        assert _resolve_target_field(envelope_data["s1"], "non_existent") is None
+
+        # Test through resolve_step_refs piping ($steps.s1.task_id without .output.)
+        resolved = resolve_step_refs({"id": "$steps.s1.task_id", "status": "$steps.s1.state"}, envelope_data)
+        assert resolved["id"] == 999
+        assert resolved["status"] == "BACKLOG"
+
+    def test_gap_om09_diagnose_system_crashes_apport_and_status_ok(self):
+        async def _run():
+            r = json.loads(await server.diagnose_system_crashes(action="diagnose", limit=5))
+            # System status should be OK if journalctl or apport provides telemetry
+            assert r["status"] == "OK"
+            assert "recent_coredumps" in r
+            assert isinstance(r["recent_coredumps"], list)
+            assert "recent_systemd_errors" in r
+            assert isinstance(r["recent_systemd_errors"], list)
+            if r["recent_coredumps"]:
+                c0 = r["recent_coredumps"][0]
+                assert "source" in c0
+                assert "file" in c0
+                assert "size_bytes" in c0
+
+        asyncio.run(_run())
+
 

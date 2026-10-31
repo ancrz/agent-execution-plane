@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-10-30
+
+### Added
+- **Topos DAG Actionable Remediations & Alias (`GAP-OM-07`)**:
+  - Enhanced `topos_audit_dag` in `server.py` to return structured actionable guidance (`remediation: list[str]`) and cyclic dependency trail (`cycle: list[str]`) when detecting co-dependencies, guiding multi-agent recovery without human escalation.
+  - Added native `deps` alias alongside `dependencies`, eliminating parametric mismatch gaps during polymorphic DAG invocations.
+- **Transparent Output & Data Unwrapping in Variable Piping (`GAP-OM-08`)**:
+  - Implemented `_resolve_target_field()` in `engine/ipc_pool.py` for `resolve_step_refs()`, allowing seamless variable piping (`$steps.<id>.<field>` and `$prev.<field>`) without requiring manual `.output.` or `.data.` traversal while strictly preserving root-level object precision in `_get_dot_path()` and `project_fields()`.
+- **Apport System Crash Recovery & Robust Status (`GAP-OM-09`)**:
+  - Added native Debian/Ubuntu Apport crash report inspection (`/var/crash/*.crash`) in `diagnose_system_crashes` when `coredumpctl` is not present, extracting executable path, signal, date, and crash payload sizes with low-overhead header reads.
+  - Refactored forensic system health calculation: retains `status: "OK"` if either systemd journal errors or Apport/coredump telemetry is successfully gathered, preventing false `DEGRADED` statuses on standard Debian/Ubuntu desktop and server environments.
+- **Comprehensive Test Suite Expansion**:
+  - Added `test_gap_om07_topos_audit_dag_remediation_and_cycle_and_deps_alias`, `test_gap_om08_ipc_pool_dot_path_unwrapping`, and `test_gap_om09_diagnose_system_crashes_apport_and_status_ok` to `tests/test_spec_om7_ipc_batch.py` (78/78 tests passing at 100%).
+
 ## [0.2.4] - 2026-10-30
 
 ### Added

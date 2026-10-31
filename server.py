@@ -65,7 +65,7 @@ from engine.privilege import (
 from engine.security import mask_pueue_output, record_audit_event, verify_audit_chain
 from engine.telemetry import RequestTelemetry, attach_envelope
 from engine.template_registry import TemplateRegistry
-from engine.topos_guard import ToposGuard
+from engine.topos_guard import ToposGuard, ToposVerdict
 
 logger = logging.getLogger("aep.server")
 
@@ -155,13 +155,14 @@ async def aep_capabilities(**kw: Any) -> str:
 async def topos_audit_dag(
     tasks: list[Any],
     dependencies: dict[str, list[str]] | list[dict[str, Any]] | None = None,
+    deps: dict[str, list[str]] | list[dict[str, Any]] | None = None,
     verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
     """
     [TOPOS INTEGRITY PROTOCOL] Audita un grafo de tareas antes de su despacho.
     Detecta co-dependencias circulares (A <-> B) que bloquearían al agente.
-    Soporta tanto `tasks: list[str]` + `dependencies: dict[str, list[str]]` como
+    Soporta tanto `tasks: list[str]` + `dependencies: dict[str, list[str]]` (o `deps=...`) como
     objetos de tarea `tasks=[{"id": "A", "consumes": ["B"]}]` o listas de aristas
     `dependencies=[{"from": "A", "to": "B"}]`.
     Retorna APPROVED o BLOCKED con el camino de remediación.
@@ -169,6 +170,7 @@ async def topos_audit_dag(
 
     def _run() -> str:
         tracker = RequestTelemetry("topos_audit_dag", "audit")
+        effective_deps = dependencies if dependencies is not None else deps
         norm_tasks: list[str] = []
         norm_deps: dict[str, list[str]] = {}
 
@@ -186,15 +188,15 @@ async def topos_audit_dag(
                     else:
                         norm_deps.setdefault(tid, [])
 
-        if isinstance(dependencies, dict):
-            for k, v in dependencies.items():
+        if isinstance(effective_deps, dict):
+            for k, v in effective_deps.items():
                 key = str(k)
                 if key not in norm_tasks:
                     norm_tasks.append(key)
                 if isinstance(v, list):
                     norm_deps.setdefault(key, []).extend(str(dep) for dep in v if dep)
-        elif isinstance(dependencies, list):
-            for edge in dependencies:
+        elif isinstance(effective_deps, list):
+            for edge in effective_deps:
                 if isinstance(edge, dict):
                     src = str(edge.get("from") or edge.get("source") or edge.get("task") or "")
                     dst = str(edge.get("to") or edge.get("target") or edge.get("depends_on") or "")
@@ -209,8 +211,36 @@ async def topos_audit_dag(
                             norm_deps.setdefault(dst, []).append(src)
 
         verdict, logs = ToposGuard.audit_task_dag(norm_tasks, norm_deps)
+        payload: dict[str, Any] = {
+            "status": verdict,
+            "verdict": verdict,
+            "details": logs,
+        }
+        if verdict == ToposVerdict.BLOCKED:
+            remediation: list[str] = [
+                "Descomponga la co-dependencia eliminando la arista circular o extrayendo una interfaz o evento común.",
+                "Aplique inversión de dependencias: separe contratos compartidos en un tercer módulo independiente.",
+            ]
+            cycle_str = ""
+            for log_line in logs:
+                if "[" in log_line and "]" in log_line:
+                    cycle_str = log_line[log_line.find("[") + 1 : log_line.find("]")]
+                    break
+            if cycle_str:
+                payload["cycle"] = cycle_str.split(" -> ")
+                remediation.append(f"Rompa el ciclo específico [{cycle_str}] modificando una de las tareas del camino.")
+
+            payload["remediation"] = remediation
+            return attach_envelope(
+                payload,
+                tracker,
+                verbosity=verbosity,
+                summary=f"DAG audit verdict: BLOCKED (Ciclo detectado: {cycle_str or 'circular'}).",
+                next_action="Revisar 'remediation' y desacoplar dependencias circulares antes de despachar tareas.",
+            )
+
         return attach_envelope(
-            {"status": verdict, "verdict": verdict, "details": logs},
+            payload,
             tracker,
             verbosity=verbosity,
             summary=f"DAG audit verdict: {verdict} ({len(norm_tasks)} tasks).",
@@ -1837,9 +1867,7 @@ async def diagnose_system_crashes(
                 unavailable = []
                 recent_coredumps = []
 
-                if not shutil.which("coredumpctl"):
-                    unavailable.append("coredumpctl")
-                else:
+                if shutil.which("coredumpctl"):
                     coredumps_raw = _safe_run(["coredumpctl", "list", "--json=short", "-n", str(limit)])
                     if coredumps_raw is None:
                         unavailable.append("coredumpctl")
@@ -1867,6 +1895,44 @@ async def diagnose_system_crashes(
                         or not coredumps_raw.stdout.strip()
                     ):
                         recent_coredumps = []
+                    else:
+                        unavailable.append("coredumpctl")
+                else:
+                    # Fallback para sistemas Debian/Ubuntu basados en Apport (/var/crash)
+                    crash_dir = Path("/var/crash")
+                    if crash_dir.is_dir():
+                        try:
+                            crash_files = sorted(
+                                [p for p in crash_dir.glob("*.crash") if p.is_file()],
+                                key=lambda p: p.stat().st_mtime,
+                                reverse=True,
+                            )
+                            for cf in crash_files[:limit]:
+                                entry: dict[str, Any] = {
+                                    "source": "apport",
+                                    "file": cf.name,
+                                    "size_bytes": cf.stat().st_size,
+                                    "time": int(cf.stat().st_mtime),
+                                    "exe": None,
+                                    "sig": None,
+                                    "date": None,
+                                }
+                                with contextlib.suppress(Exception):
+                                    with cf.open("r", encoding="utf-8", errors="replace") as f:
+                                        header_block = f.read(4096)
+                                        for line in header_block.splitlines():
+                                            if line.startswith("ExecutablePath:"):
+                                                entry["exe"] = line.split(":", 1)[1].strip()
+                                            elif line.startswith("Signal:"):
+                                                entry["sig"] = line.split(":", 1)[1].strip()
+                                            elif line.startswith("Date:"):
+                                                entry["date"] = line.split(":", 1)[1].strip()
+                                if not entry["exe"]:
+                                    entry["exe"] = cf.stem.replace("_", "/")
+                                recent_coredumps.append(entry)
+                        except Exception as e:
+                            logger.debug("Failed reading /var/crash: %s", e)
+                            unavailable.append("coredumpctl (no /var/crash access)")
                     else:
                         unavailable.append("coredumpctl")
 
@@ -1915,8 +1981,12 @@ async def diagnose_system_crashes(
                         if is_compact:
                             recent_errors = list(dedup_map.values())[-limit:]
 
+                # Estado OK si al menos una fuente de telemetría forense (journalctl o coredumps/apport) funcionó
+                has_journal = "journalctl" not in unavailable
+                has_crashes = bool(recent_coredumps) or shutil.which("coredumpctl") is not None
+                is_degraded = not has_journal and not has_crashes
                 payload = {
-                    "status": "DEGRADED" if unavailable else "OK",
+                    "status": "DEGRADED" if is_degraded else "OK",
                     "capability_tier": capability_tier(),
                     "scope": "system" if prefix else "user",
                     "verbosity": "summary" if is_compact else "detail",

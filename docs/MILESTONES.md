@@ -85,6 +85,11 @@ flowchart LR
     M77 --> M78["M78: Milestone ONT-24 Verification 69/69 Tests & Mermaid Lint (Dokimos) ✅"]
     M78 --> M79["M79: Milestone ONT-24 Kali-MCP Semantic Alignment & Rollup (Graphos G2) ✅"]
     M79 --> M80["M80: Milestone ONT-24 Atomic Commit & Push (Hermon) ✅"]
+    M80 --> M81["M81: Milestone ONT-25 Omission Gaps Remediation (Pragma) ✅"]
+    M81 --> M82["M82: Milestone ONT-25 Verification 75/75 Tests (Dokimos) ✅"]
+    M82 --> M83["M83: Milestone ONT-26 Advanced Omission Gaps Loop (Pragma) ✅"]
+    M83 --> M84["M84: Milestone ONT-26 Multi-Gate Verification 78/78 Tests (Dokimos) ✅"]
+    M84 --> M85["M85: Milestone ONT-26 Documentation & Commit (Hermon) ✅"]
 ```
 
 ## 2. Milestone Matrix
@@ -117,6 +122,7 @@ flowchart LR
 | **Pico-Triad Multi-Agent Concurrency Isolation (ONT-23)** | Resolves GAP-OM23-1 (`/dev/shm` Go build slot isolation + atomic `os.replace`), GAP-OM23-2 (`kanban.upsert_build_task` under `transaction_immediate`), GAP-OM23-3 (`playbook_run(action="run")` slot leasing, piping, projection parity), and GAP-OM23-4 (precomputed vector embeddings outside SQLite write transaction). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/kanban.py`, `engine/catalog.py`, `server.py`, `tests/test_spec_om7_ipc_batch.py`, `README.md` | **VERIFIED & PROMOTED (Task 131 Score: 0.9250 TRUST, 66/66 Tests) ✅** |
 | **Non-Pico Concurrency & Semantic Polish (ONT-24)** | Audit ledger mutex lock (`_AUDIT_LOCK`) + `transaction_immediate` preventing SHA-256 chain forks, thread-safe `:memory:` micro-snapshots (`_SNAPSHOT_LOCK` + `check_same_thread=False`), vectorizer double-checked lock, Kali-MCP semantic parity (`_INSTRUCTIONS`, Rule of Engagement #7, recipe `WF-6`), and zero-error Mermaid validation across all 79 diagrams. | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `engine/security.py`, `engine/backup.py`, `server.py`, `engine/privilege.py`, `tests/test_spec_om7_ipc_batch.py`, `README.md`, `docs/` | **VERIFIED & PROMOTED (Task 132 Score: 0.9500 TRUST, 69/69 Tests) ✅** |
 | **Omission Gaps Remediation (ONT-25)** | Full resolution of 6 omission gaps across 15 tools: GAP-OM-01 (Go lint/vet action in `artifact_lint_and_build`), GAP-OM-02 (`process_inspect` name/filter search), GAP-OM-03 (`artifact_execute_in_ram` env & stdin injection), GAP-OM-04 (`sandbox_run` env injection), GAP-OM-05 (`kanban_board` add/move aliases), and GAP-OM-06 (`async_job_dispatch` compact status pagination cutting tokens by 97.4%). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `server.py`, `tests/test_spec_om7_ipc_batch.py` | **VERIFIED & PROMOTED (Task 133 Score: 0.9500 TRUST, 75/75 Tests) ✅** |
+| **Advanced Gaps & Precision Remediation (ONT-26)** | Iterative remediation loop: GAP-OM-07 (`topos_audit_dag` structured remediation, cycle extraction & `deps` alias), GAP-OM-08 (`_resolve_target_field` transparent output/data unwrapping in piping), and GAP-OM-09 (`diagnose_system_crashes` Apport `/var/crash` fallback & status OK). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/ipc_pool.py`, `tests/test_spec_om7_ipc_batch.py` | **VERIFIED & PROMOTED (Task 134 Score: 1.0 TRUST, 78/78 Tests) ✅** |
 
 ---
 
@@ -139,6 +145,7 @@ This section provides permanent physical context anchors to prevent hallucinatio
 | **ONT-23** | [Pico-Triad Multi-Agent Isolation](../README.md#5-pico-triad-multi-agent-concurrency-isolation) | [execution_report_ont23.md](pipeline/execution_report_20261030_190000_ont23_pico_triad_concurrency_isolation.md) | [verification_report_ont23.md](pipeline/verification_report_20261030_193000_ont23_pico_triad_concurrency.md) | [`engine/kanban.py`](../engine/kanban.py), [`engine/catalog.py`](../engine/catalog.py) |
 | **ONT-24** | [Non-Pico Concurrency Hardening](../README.md#6-non-pico-system-wide-concurrency-hardening) | [execution_report_ont24.md](pipeline/execution_report_20261030_210000_ont24_non_pico_concurrency_and_kali_semantics.md) | [verification_report_ont24.md](pipeline/verification_report_20261030_211500_ont24_non_pico_concurrency_and_kali_semantics.md) | [`engine/security.py`](../engine/security.py), [`engine/backup.py`](../engine/backup.py), [`server.py`](../server.py) |
 | **ONT-25** | [Omission Gaps Remediation SDD](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [aep_battery_and_omission_audit_report.md](../../../brain/efdbc8e5-f4fc-4ce1-9109-6ecce9ffe78b/aep_battery_and_omission_audit_report.md) | [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py#L750) | [`server.py`](../server.py), [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py) |
+| **ONT-26** | [Precision Omission Gaps SDD](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [aep_omission_gaps_mitigation_battery_report.md](../../../brain/efdbc8e5-f4fc-4ce1-9109-6ecce9ffe78b/aep_omission_gaps_mitigation_battery_report.md) | [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py#L855) | [`server.py`](../server.py), [`engine/ipc_pool.py`](../engine/ipc_pool.py) |
 
 ---
 
