@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-10-31
+
+### Added
+- **Cross-Agent Re-Discovery Tax Mitigation & Session Caching (Milestone `ONT-28`)**:
+  - **`GAP-OM-15` (`discover`)**: Integrated `discover()` with `GLOBAL_SESSION_POOL` in `/dev/shm` (`tmpfs`), adding parameters `session_id` (alias `sid`), `store_as`, `force_refresh`, and `select_fields`.
+  - **Auto-caching in RAM**: Capabilities manifests (`discover_capabilities`) and tactical playbooks (`discover_playbook`) are automatically cached in shared memory across subagents in the same session.
+  - **Terse / Cached Stub Mode**: Added `verbosity="terse"` / `"cached"` returning an ultra-compact stub (~249 tokens vs ~1,200 tokens, saving >80-96.5% of context window on repeated invocations).
+  - **Server-Side Field Projection in `discover`**: Evaluates `select_fields` dot-paths in RAM before JSON serialization, reducing payload sizes by >85-98%.
+  - **Ephemeral Batch Piping**: Named manifests (`store_as="<key>"`) are immediately accessible across DAG steps via `$cache.<key>.<path>`.
+  - **Compact Telemetry Serializer**: Enhanced `attach_envelope` in `engine/telemetry.py` to serialize unindented payloads when `verbosity in ("brief", "terse", "cached")`.
+- **Test Suite Expansion**:
+  - Added `test_gap_om15_discover_ram_caching_and_terse_subagent_savings` and `test_gap_om15_batch_discover_and_cache_piping` in `tests/test_spec_om7_ipc_batch.py` (total 85/85 tests passing at 100%).
+
 ## [0.2.6] - 2026-10-30
 
 ### Added

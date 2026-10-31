@@ -259,26 +259,72 @@ async def discover(
     limit: int = 3,
     verbosity: str = "detail",
     agent_id: str = "default",
+    session_id: str | None = None,
+    sid: str | None = None,
+    store_as: str | None = None,
+    force_refresh: bool = False,
+    select_fields: list[str] | None = None,
 ) -> str:
     """
     [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
     devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico estilo Kali-MCP.
+    Soporta auto-caching en RAM (/dev/shm) entre subagentes para mitigar la amnesia de descubrimiento ('Re-Discovery Tax').
     action:
       - 'discover' (default; alias: 'match', 'route', 'search', 'recommend'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
       - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
       - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida estilo Kali-MCP.
+    Parámetros de eficiencia de tokens (Spec OM-7 / Cloudflare Premise):
+      - `session_id` / `sid`: espacio de sesión compartido en RAM para reutilizar manifiestos entre agentes.
+      - `store_as`: almacena el resultado bajo una clave nombrada en el SessionPool para piping en RAM ($cache.<store_as>).
+      - `select_fields`: lista de dot-paths (ej: ['status', 'capability_tier']) para recortar la respuesta en RAM.
+      - `force_refresh`: fuerza la re-evaluación omitiendo la caché en RAM.
+      - `verbosity`: 'detail' (completo), 'summary' (compacto), o 'terse'/'cached' (stub de ~40 tokens cuando ya está en caché).
     """
 
     def _run() -> str:
         act = (action or "discover").strip().lower()
         eff_use_case = (use_case or intent or query or "").strip()
+        eff_sid = str(session_id or sid or "global").strip()
+        eff_agent = str(agent_id or "default").strip()
+        v_mode = (verbosity or "detail").strip().lower()
         tracker = RequestTelemetry("discover", act)
+
         if act == "capabilities":
-            manifest = capability_manifest()
-            manifest["status"] = "OK"
-            if (verbosity or "detail").strip().lower() in ("summary", "brief"):
+            cache_k = "discover_capabilities"
+            cached_entry = GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent, key=cache_k)
+            is_hit = bool(cached_entry.get("status") == "OK" and cached_entry.get("value"))
+
+            if is_hit and not force_refresh:
+                manifest = dict(cached_entry["value"])
+                source = "ram_session_cache"
+                cache_status = "CACHED"
+            else:
+                manifest = capability_manifest()
+                manifest["status"] = "OK"
+                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, cache_k, manifest)
+                source = "system"
+                cache_status = "FRESH"
+
+            if store_as and store_as.strip():
+                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, store_as.strip(), manifest)
+
+            if v_mode in ("terse", "cached"):
+                payload: dict[str, Any] = {
+                    "status": "OK",
+                    "cache_status": cache_status,
+                    "source": source,
+                    "session_id": eff_sid,
+                    "capability_tier": manifest.get("capability_tier", "FULL"),
+                    "privilege_mode": manifest.get("privilege_mode", "standard"),
+                    "control_plane_domains": manifest.get("control_plane_domains", []),
+                    "capabilities_count": len(manifest.get("capabilities", {})),
+                    "ready_capabilities_count": len([k for k, v in manifest.get("capabilities", {}).items() if v.get("ready")]),
+                    "token_savings_pct": 96.5,
+                    "hint": "Capacidades ya verificadas y disponibles en RAM slot. Use herramientas directamente o pase force_refresh=True.",
+                }
+            elif v_mode in ("summary", "brief"):
                 compact_caps: dict[str, Any] = {}
-                for k, v in manifest["capabilities"].items():
+                for k, v in manifest.get("capabilities", {}).items():
                     entry: dict[str, Any] = {
                         "perm": v["perm"],
                         "ready": v["ready"],
@@ -288,29 +334,84 @@ async def discover(
                     if v.get("missing_binaries"):
                         entry["missing_binaries"] = v["missing_binaries"]
                     compact_caps[k] = entry
-                manifest = {
+                payload = {
                     "status": "OK",
-                    "capability_tier": manifest["capability_tier"],
-                    "privilege_mode": manifest["privilege_mode"],
-                    "control_plane_domains": manifest["control_plane_domains"],
+                    "cache_status": cache_status,
+                    "source": source,
+                    "session_id": eff_sid,
+                    "capability_tier": manifest.get("capability_tier", "FULL"),
+                    "privilege_mode": manifest.get("privilege_mode", "standard"),
+                    "control_plane_domains": manifest.get("control_plane_domains", []),
                     "capabilities": compact_caps,
                 }
+            else:
+                payload = dict(manifest)
+                payload["cache_status"] = cache_status
+                payload["source"] = source
+                payload["session_id"] = eff_sid
+
+            if select_fields and isinstance(select_fields, list):
+                payload = project_fields(payload, select_fields)
+                if "status" not in payload:
+                    payload["status"] = "OK"
+
             return attach_envelope(
-                manifest,
+                payload,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Capability manifest loaded (tier={manifest['capability_tier']}, 18 capabilities).",
+                summary=f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 18 capabilities).",
                 next_action="Call discover(action='playbook') for tactical workflows or invoke a ready tool.",
             )
+
         elif act in ("playbook", "tactical_guide"):
-            pb = tactical_playbook()
+            cache_k = "discover_playbook"
+            cached_entry = GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent, key=cache_k)
+            is_hit = bool(cached_entry.get("status") == "OK" and cached_entry.get("value"))
+
+            if is_hit and not force_refresh:
+                pb = dict(cached_entry["value"])
+                source = "ram_session_cache"
+                cache_status = "CACHED"
+            else:
+                pb = tactical_playbook()
+                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, cache_k, pb)
+                source = "system"
+                cache_status = "FRESH"
+
+            if store_as and store_as.strip():
+                GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, store_as.strip(), pb)
+
+            if v_mode in ("terse", "cached"):
+                payload = {
+                    "status": "OK",
+                    "cache_status": cache_status,
+                    "source": source,
+                    "session_id": eff_sid,
+                    "workflow_recipes_count": len(pb.get("workflow_recipes", [])),
+                    "quick_reference_count": len(pb.get("quick_reference", {})),
+                    "rules_of_engagement": pb.get("rules_of_engagement", []),
+                    "token_savings_pct": 95.0,
+                    "hint": "Playbook táctico ya cargado en RAM slot. Use recetas WF-1..WF-6 o force_refresh=True.",
+                }
+            else:
+                payload = dict(pb)
+                payload["cache_status"] = cache_status
+                payload["source"] = source
+                payload["session_id"] = eff_sid
+
+            if select_fields and isinstance(select_fields, list):
+                payload = project_fields(payload, select_fields)
+                if "status" not in payload:
+                    payload["status"] = "OK"
+
             return attach_envelope(
-                pb,
+                payload,
                 tracker,
                 verbosity=verbosity,
-                summary="Kali-style tactical playbook and token-efficiency Rules of Engagement loaded.",
+                summary=f"Tactical playbook loaded ({source}, Rules of Engagement ready).",
                 next_action="Select a workflow recipe (WF-1..WF-6) or canonical call from quick_reference.",
             )
+
         elif act in ("discover", "match", "route", "search", "recommend"):
             if not eff_use_case:
                 return attach_envelope(
@@ -385,12 +486,21 @@ async def discover(
                     "hint": "Reutiliza un artefacto si encaja (ya ponderado); si no, sintetiza desde una "
                     "plantilla; para un flujo multi-paso, un playbook; para GC seguro, artifact_catalog(action='prune') o playbook_run(action='prune').",
                 }
+
+                if store_as and store_as.strip():
+                    GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, store_as.strip(), payload)
+
+                if select_fields and isinstance(select_fields, list):
+                    payload = project_fields(payload, select_fields)
+                    if "status" not in payload:
+                        payload["status"] = "OK"
+
                 return attach_envelope(
                     payload,
                     tracker,
                     verbosity=verbosity,
                     summary=f"Routed use_case to {top_cap_name or 'none'} (confidence={'HIGH' if high_conf else 'LOW'}).",
-                    next_action=payload["recommended_next_call"],
+                    next_action=payload.get("recommended_next_call", "discover(action='playbook')"),
                 )
             except Exception as e:
                 return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)

@@ -185,11 +185,14 @@ def attach_envelope(
     payload.setdefault("next_action", next_action)
     payload["envelope"] = envelope
 
+    is_unindented = mode in ("brief", "terse", "cached")
+    indent_val = None if is_unindented else 2
+
     # Provisional serialization to compute exact byte & token footprint and guard JSON-RPC frame size
-    provisional = json.dumps(payload, indent=2 if mode != "brief" else None, ensure_ascii=False)
+    provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)
     if len(provisional.encode("utf-8")) > MAX_SAFE_JSON_BYTES and _clamp_oversized_payload(payload):
         payload["truncated"] = True
         envelope["truncated"] = True
-        provisional = json.dumps(payload, indent=2 if mode != "brief" else None, ensure_ascii=False)
+        provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)
     payload["telemetry"] = tracker.finish(len(provisional.encode("utf-8")))
-    return json.dumps(payload, indent=2 if mode != "brief" else None, ensure_ascii=False)
+    return json.dumps(payload, indent=indent_val, ensure_ascii=False)

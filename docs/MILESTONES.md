@@ -93,6 +93,7 @@ flowchart LR
     M85 --> M86["M86: Milestone ONT-27 Anti-Cascade 5-Loop Stabilization (Pragma) ✅"]
     M86 --> M87["M87: Milestone ONT-27 Multi-Gate Verification 83/83 Tests (Dokimos) ✅"]
     M87 --> M88["M88: Milestone ONT-27 Systemic Convergence & Final Release (Hermon) ✅"]
+    M88 --> M89["M89: Milestone ONT-28 Re-Discovery Tax Mitigation & RAM Session Caching (Pragma/Dokimos/Hermon) ✅"]
 ```
 
 ## 2. Milestone Matrix
@@ -127,6 +128,7 @@ flowchart LR
 | **Omission Gaps Remediation (ONT-25)** | Full resolution of 6 omission gaps across 15 tools: GAP-OM-01 (Go lint/vet action in `artifact_lint_and_build`), GAP-OM-02 (`process_inspect` name/filter search), GAP-OM-03 (`artifact_execute_in_ram` env & stdin injection), GAP-OM-04 (`sandbox_run` env injection), GAP-OM-05 (`kanban_board` add/move aliases), and GAP-OM-06 (`async_job_dispatch` compact status pagination cutting tokens by 97.4%). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `server.py`, `tests/test_spec_om7_ipc_batch.py` | **VERIFIED & PROMOTED (Task 133 Score: 0.9500 TRUST, 75/75 Tests) ✅** |
 | **Advanced Gaps & Precision Remediation (ONT-26)** | Iterative remediation loop: GAP-OM-07 (`topos_audit_dag` structured remediation, cycle extraction & `deps` alias), GAP-OM-08 (`_resolve_target_field` transparent output/data unwrapping in piping), and GAP-OM-09 (`diagnose_system_crashes` Apport `/var/crash` fallback & status OK). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/ipc_pool.py`, `tests/test_spec_om7_ipc_batch.py` | **VERIFIED & PROMOTED (Task 134 Score: 1.0 TRUST, 78/78 Tests) ✅** |
 | **Topos Anti-Cascade 5-Loop Stabilization (ONT-27)** | Systemic 5-loop audit: GAP-OM-10 (`sandbox_run` list command/cmd alias & fail-soft), GAP-OM-11 (`artifact_catalog` info/get action & metadata query), GAP-OM-12 (`artifact_execute_in_ram` artifact_name alias & configurable timeout 1-120s), GAP-OM-13 (`query_system_docs` q alias), and GAP-OM-14 (`aep_ctl` ipc stats alias & security audit action). | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/catalog.py`, `engine/privilege.py`, `tests/test_spec_om7_ipc_batch.py` | **VERIFIED & PROMOTED (Task 135 Score: 1.0 TRUST, 83/83 Tests) ✅** |
+| **Re-Discovery Tax Mitigation & RAM Session Caching (ONT-28)** | Resolves GAP-OM-15: Auto-caching in shared RAM (`tmpfs` `/dev/shm`) for `discover(action="capabilities"|"playbook")`, `session_id`/`sid` multi-agent sharing, `store_as` named RAM slots, server-side field projection (`select_fields`), and `verbosity="terse"` stub mode slashing payload by >96.5% (~249 tokens vs ~1,200 tokens) across collaborating subagents. | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `server.py`, `engine/telemetry.py`, `tests/test_spec_om7_ipc_batch.py` | **VERIFIED & PROMOTED (Task 136 Score: 1.0 TRUST, 85/85 Tests) ✅** |
 
 ---
 
@@ -151,6 +153,7 @@ This section provides permanent physical context anchors to prevent hallucinatio
 | **ONT-25** | [Omission Gaps Remediation SDD](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [aep_battery_and_omission_audit_report.md](../../../brain/efdbc8e5-f4fc-4ce1-9109-6ecce9ffe78b/aep_battery_and_omission_audit_report.md) | [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py#L750) | [`server.py`](../server.py), [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py) |
 | **ONT-26** | [Precision Omission Gaps SDD](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [aep_omission_gaps_mitigation_battery_report.md](../../../brain/efdbc8e5-f4fc-4ce1-9109-6ecce9ffe78b/aep_omission_gaps_mitigation_battery_report.md) | [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py#L855) | [`server.py`](../server.py), [`engine/ipc_pool.py`](../engine/ipc_pool.py) |
 | **ONT-27** | [Anti-Cascade 5-Loop SDD](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [aep_omission_gaps_mitigation_battery_report.md](../../../brain/efdbc8e5-f4fc-4ce1-9109-6ecce9ffe78b/aep_omission_gaps_mitigation_battery_report.md) | [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py#L930) | [`server.py`](../server.py), [`engine/catalog.py`](../engine/catalog.py), [`engine/privilege.py`](../engine/privilege.py) |
+| **ONT-28** | [Re-Discovery Tax Mitigation & RAM Session Caching](sdd/sdd_om7_ipc_socket_pool_and_code_batch_mode.md) | [aep_omission_gaps_mitigation_battery_report.md](../../../brain/efdbc8e5-f4fc-4ce1-9109-6ecce9ffe78b/aep_omission_gaps_mitigation_battery_report.md) | [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py#L990) | [`server.py`](../server.py), [`engine/telemetry.py`](../engine/telemetry.py), [`engine/ipc_pool.py`](../engine/ipc_pool.py) |
 
 ---
 

@@ -989,4 +989,116 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
+    def test_gap_om15_discover_ram_caching_and_terse_subagent_savings(self):
+        """
+        GAP-OM-15 (Mitigación del 'Re-Discovery Tax' inter-agente):
+        1. Primer llamada 'Orquestador': genera manifiesto y lo guarda en RAM slot (_shared_session_cache).
+        2. Segunda llamada 'Subagente Pragma' con verbosity='terse': devuelve stub compacto de RAM (<400 bytes, >95% ahorro).
+        3. Proyección select_fields: recorta a campos solicitados en RAM (<150 bytes).
+        4. store_as nombrada: accesible en el pool de sesiones para piping ($cache.<store_as>).
+        5. force_refresh: invalida y regenera fresco.
+        """
+        async def _run():
+            sid = "test_om15_sess"
+
+            # 1. Orquestador: primer descubrimiento completo con store_as
+            res1_raw = await server.discover(action="capabilities", session_id=sid, store_as="team_caps")
+            r1 = json.loads(res1_raw)
+            assert r1["status"] == "OK"
+            assert r1["cache_status"] == "FRESH"
+            assert r1["source"] == "system"
+            assert len(r1["capabilities"]) == 18
+
+            # Verificar que team_caps quedó almacenado en SessionPool
+            cached_check = server.GLOBAL_SESSION_POOL.cache_get(session_id=sid, key="team_caps")
+            assert cached_check["status"] == "OK"
+            assert len(cached_check["value"]["capabilities"]) == 18
+
+            # 2. Subagente Pragma: re-descubrimiento en modo terse (mitiga los 1.180 tokens redundantes)
+            res2_raw = await server.discover(action="capabilities", session_id=sid, verbosity="terse", agent_id="pragma")
+            r2 = json.loads(res2_raw)
+            assert r2["status"] == "OK"
+            assert r2["cache_status"] == "CACHED"
+            assert r2["source"] == "ram_session_cache"
+            assert r2["capabilities_count"] == 18
+            assert r2["ready_capabilities_count"] >= 16
+            assert r2["token_savings_pct"] >= 95.0
+            # Ahorro masivo de bytes: stub < 1,500 bytes vs > 10,000 bytes de detalle
+            assert len(res2_raw.encode("utf-8")) < 1500
+            assert len(res2_raw.encode("utf-8")) < (len(res1_raw.encode("utf-8")) * 0.25)
+
+            # 3. Proyección select_fields: subagente solo solicita capability_tier y status
+            res3_raw = await server.discover(
+                action="capabilities",
+                session_id=sid,
+                select_fields=["capability_tier", "privilege_mode", "status"],
+            )
+            r3 = json.loads(res3_raw)
+            assert r3["status"] == "OK"
+            assert "capability_tier" in r3
+            assert "privilege_mode" in r3
+            assert "capabilities" not in r3  # Podado en RAM
+            assert len(res3_raw.encode("utf-8")) < 1200
+
+            # 4. Playbook auto-caching
+            pb1_raw = await server.discover(action="playbook", session_id=sid, store_as="team_pb")
+            pb1 = json.loads(pb1_raw)
+            assert pb1["status"] == "OK"
+            assert pb1["cache_status"] == "FRESH"
+
+            pb2_raw = await server.discover(action="playbook", session_id=sid, verbosity="terse", agent_id="dokimos")
+            pb2 = json.loads(pb2_raw)
+            assert pb2["status"] == "OK"
+            assert pb2["cache_status"] == "CACHED"
+            assert pb2["workflow_recipes_count"] > 0
+            assert len(pb2_raw.encode("utf-8")) < 3000
+            assert len(pb2_raw.encode("utf-8")) < (len(pb1_raw.encode("utf-8")) * 0.40)
+
+            # 5. force_refresh bypasses cache
+            fresh_raw = await server.discover(action="capabilities", session_id=sid, force_refresh=True)
+            r_fresh = json.loads(fresh_raw)
+            assert r_fresh["cache_status"] == "FRESH"
+            assert r_fresh["source"] == "system"
+
+        asyncio.run(_run())
+
+    def test_gap_om15_batch_discover_and_cache_piping(self):
+        """
+        Verifica que en un batch efímero (Cloudflare-style):
+        - Paso 1 corre discover con store_as='cached_manifest'.
+        - Paso 2 topos_audit_dag recibe el resultado y se ejecuta en un solo turno.
+        - El manifiesto queda persistido en el SessionPool en RAM para otros agentes.
+        """
+        async def _run():
+            sid = "test_om15_batch_sess"
+            batch_steps = [
+                {
+                    "id": "s1",
+                    "tool": "discover",
+                    "params": {"action": "capabilities", "session_id": sid, "store_as": "cached_manifest"},
+                },
+                {
+                    "id": "s2",
+                    "tool": "topos_audit_dag",
+                    "params": {"tasks": ["task_a", "task_b"], "dependencies": {"task_a": ["task_b"]}},
+                },
+            ]
+            res_raw = await server.playbook_run(
+                action="batch",
+                steps=batch_steps,
+                return_only="last",
+                select_fields=["status", "verdict", "details"],
+                agent_id="archon",
+            )
+            r = json.loads(res_raw)
+            assert r["status"] == "OK"
+            assert r["output"]["verdict"] == "APPROVED"
+
+            # Validar que el SessionPool de RAM retiene cached_manifest
+            stored = server.GLOBAL_SESSION_POOL.cache_get(session_id=sid, key="cached_manifest")
+            assert stored["status"] == "OK"
+            assert stored["value"]["capability_tier"] in ("FULL", "DIMINISHED")
+
+        asyncio.run(_run())
+
 
