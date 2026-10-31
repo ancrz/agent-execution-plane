@@ -83,7 +83,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
-2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-9`) and canonical calls.
+2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-9`, `WF-10..WF-11`) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
 ## 2. Complete 15-Tool Suite Map (6 Operational Domains)
@@ -101,7 +101,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   9. `async_job_dispatch(action="dispatch"|"status"|"inspect"|"log", command=..., task_id=..., verbosity="summary")` *(Pueue background queue)*
 - **Domain 4 — Kernel Observability & Crash Forensics**:
   10. `diagnose_system_crashes(action="diagnose"|"alerts", limit=5, verbosity="summary")` *(deduplicated systemd errors & coredumps)*
-  11. `kernel_trace(mode="syscall_count"|"file_opens"|"tcp_connect"|"security_open_denials"|"security_landlock_audit"|"security_exec_monitor", duration_sec=2, verbosity="summary")`
+  11. `kernel_trace(mode="syscall_count"|"file_opens"|"tcp_connect"|"security_open_denials"|"security_landlock_audit"|"security_exec_monitor"|"network_sniff"|"security_audit"|"tcp_listeners", duration_sec=2, verbosity="summary")`
 - **Domain 5 — Unified System Control, Man-Pages & Visual Capture**:
   12. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit"|"ipc", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
   13. `query_system_docs(query="bwrap ro-bind", ingest_command=None, limit=3, verbosity="summary")` *(offline `sqlite-vec` man-pages)*
@@ -116,6 +116,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Collision-Free Multi-Agent Concurrency**: All 15 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
 - **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
+- **Tactical Security & Incident Workflows (ONT-31)**: Use WF-10 ('Network Tactical Recon & Hardware Fingerprinting' via Kali MCP + AEP) and WF-11 ('Incident Protocol Audit & Defense' with netfilter mitigation and Landlock verification).
 - **Tactical Sandbox Recipes (ONT-30)**: Use `sandbox-linter-fix` (`rw_paths=[<repo>]`) for in-place formatting, `untrusted-adversarial-probe` (`rw_paths=[<scratch>]`) for isolated fuzzing, and `composite-verification-runner` (`parse="auto"`) for unified ruff && pytest in 1 turn.
 """
 
@@ -2829,6 +2830,55 @@ async def aep_ctl(
                     res_obj = verify_audit_chain(conn)
                     if "status" not in res_obj:
                         res_obj["status"] = "OK" if res_obj.get("valid") else "INTEGRITY_FAILED"
+            elif a == "firewall_status":
+                if shutil.which("ufw"):
+                    r = subprocess.run(["ufw", "status"], capture_output=True, text=True, check=False)
+                    res_obj = {
+                        "status": "OK",
+                        "backend": "ufw",
+                        "active": "active" in r.stdout.lower(),
+                        "stdout": r.stdout.strip()[:300],
+                    }
+                elif shutil.which("nft"):
+                    res_obj = {
+                        "status": "OK",
+                        "backend": "nftables",
+                        "active": True,
+                    }
+                else:
+                    res_obj = {"status": "OK", "backend": "none", "active": False, "message": "Neither ufw nor nftables utility found"}
+            elif a == "nftables_inspect":
+                if not shutil.which("nft"):
+                    res_obj = {"status": "DEGRADED", "message": "nft binary not found"}
+                else:
+                    prefix = privilege_prefix() or []
+                    r = subprocess.run(prefix + ["nft", "list", "ruleset"], capture_output=True, text=True, check=False)
+                    if r.returncode == 0:
+                        lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+                        res_obj = {"status": "OK", "rules_count": len(lines), "ruleset": lines[:50]}
+                    else:
+                        res_obj = {"status": "DEGRADED", "message": "nftables unprivileged or not configured", "stderr": r.stderr.strip()[:200]}
+            elif a == "threat_mitigate":
+                if not eff_name:
+                    return attach_envelope(
+                        {"status": "ERROR", "error": "Falta <target_ip> para threat_mitigate"},
+                        tracker,
+                        verbosity=verbosity,
+                    )
+                prefix = privilege_prefix()
+                if prefix is None:
+                    res_obj = {
+                        "status": "SIMULATED",
+                        "target": eff_name,
+                        "simulated_rule": f"nft add rule inet filter input ip saddr {eff_name} drop",
+                        "message": "Tier is DIMINISHED. Netfilter rule simulated.",
+                    }
+                else:
+                    r = subprocess.run(prefix + ["nft", "add", "rule", "inet", "filter", "input", "ip", "saddr", eff_name, "drop"], capture_output=True, text=True, check=False)
+                    if r.returncode == 0:
+                        res_obj = {"status": "OK", "target": eff_name, "mitigated": True, "rule": f"drop ip saddr {eff_name}"}
+                    else:
+                        res_obj = {"status": "DEGRADED", "target": eff_name, "message": r.stderr.strip()[:200]}
             else:
                 res_obj = get_landlock_status()
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
@@ -3223,6 +3273,9 @@ _BPFTRACE_MODES = {
     "security_open_denials": "tracepoint:syscalls:sys_exit_openat /args->ret < 0/ {{ @[comm, args->ret] = count(); }} interval:s:{d} {{ exit(); }}",
     "security_landlock_audit": "tracepoint:syscalls:sys_enter_landlock_restrict_self {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
     "security_exec_monitor": "tracepoint:syscalls:sys_enter_execve {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "network_sniff": "kprobe:netif_receive_skb {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "security_audit": "tracepoint:syscalls:sys_enter_capget {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
+    "tcp_listeners": "kprobe:inet_csk_listen_start {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
 }
 
 _BPFTRACE_MODE_ALIASES = {
@@ -3235,6 +3288,10 @@ _BPFTRACE_MODE_ALIASES = {
     "landlock": "security_landlock_audit",
     "exec": "security_exec_monitor",
     "execve": "security_exec_monitor",
+    "sniff": "network_sniff",
+    "network": "network_sniff",
+    "audit": "security_audit",
+    "listeners": "tcp_listeners",
 }
 
 
@@ -3253,7 +3310,7 @@ async def kernel_trace(
     Requiere nivel FULL (sudo -n disponible); degrada limpiamente a DIMINISHED si no hay root.
     `mode` (alias `probe`): 'syscall_count' (alias 'syscalls'), 'file_opens' ('opens'),
     'tcp_connect' ('tcp'), 'security_open_denials' ('denials'),
-    'security_landlock_audit' ('landlock'), 'security_exec_monitor' ('exec').
+    'security_landlock_audit' ('landlock'), 'security_exec_monitor' ('exec'), 'network_sniff' ('sniff'/'network'), 'security_audit' ('audit'), 'tcp_listeners' ('listeners').
     Ordena resultados de mayor a menor actividad y trunca a `limit` en modo `summary`.
     """
 

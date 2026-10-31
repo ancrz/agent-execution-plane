@@ -255,9 +255,9 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots (catalog only), workspace snapshots/restores, canary integrity, and quarantine.",
     },
     "security": {
-        "actions": ["landlock_status", "status", "audit", "verify"],
-        "arg": None,
-        "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, and verify audit chain.",
+        "actions": ["landlock_status", "status", "audit", "verify", "firewall_status", "nftables_inspect", "threat_mitigate"],
+        "arg": "[target]",
+        "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, verify audit chain, inspect firewall/nftables rules, and enforce threat mitigation.",
     },
     "audit": {
         "actions": ["verify", "usage"],
@@ -560,6 +560,25 @@ def tactical_playbook() -> dict[str, Any]:
                     '1. sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", share_net=False, parse="auto", verbosity="brief") -> Executes chained linter and test runner in a single turn, emitting composite parsed metrics (ruff violations + pytest counts/failures) without token bloat.',
                 ],
             },
+            {
+                "id": "WF-10",
+                "name": "Network Tactical Recon & Hardware Fingerprinting (Passive sniffing -> Active probing -> OUI mapping)",
+                "steps": [
+                    '1. kali-mcp: container_status() -> Verify kali-pentest container health and host network mode.',
+                    '2. kali-mcp: nmap_scan(target="127.0.0.1", scan_type="quick") -> Non-invasive tactical port and service discovery.',
+                    '3. kali-mcp: threat_audit(category="services") -> Correlate open ports with host process table.',
+                ],
+            },
+            {
+                "id": "WF-11",
+                "name": "Incident Protocol Audit & Defense (VCS/ARP anomaly detection -> nftables isolation -> frequency hopping)",
+                "steps": [
+                    '1. kali-mcp: tshark_analyze(pcap_path="/dev/shm/pcap_stream", filter_bpf="arp or dns", limit=25) -> Dissect live network streams for anomalous packet headers.',
+                    '2. aep: kernel_trace(mode="network_sniff", duration_sec=2) -> Trace low-level network packet ingestion in kernel space.',
+                    '3. aep: aep_ctl(domain="security", action="nftables_inspect") -> Inspect active netfilter rule chains.',
+                    '4. aep: aep_ctl(domain="security", action="threat_mitigate", name="<malicious-ip>") -> Enforce deterministic drop rule at host perimeter.',
+                ],
+            },
         ],
         "quick_reference": {
             "orient_and_readiness": 'discover(action="capabilities", verbosity="summary")',
@@ -577,6 +596,8 @@ def tactical_playbook() -> dict[str, Any]:
             "sandbox_linter_fix": 'sandbox_run(command="ruff check --fix .", working_dir="/path/to/repo", rw_paths=["/path/to/repo"], share_net=False, parse="auto", verbosity="summary")',
             "untrusted_adversarial_probe": 'sandbox_run(command="python3 probe.py", working_dir="/path/to/repo", rw_paths=["/path/to/scratch"], share_net=False, verbosity="summary")',
             "composite_verification": 'sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", parse="auto", verbosity="brief")',
+            "network_tactical_recon": 'nmap_scan(target="127.0.0.1", scan_type="quick", verbosity="summary")',
+            "incident_protocol_audit": 'aep_ctl(domain="security", action="nftables_inspect", verbosity="summary")',
         },
         "prerequisites_summary": {k: v["installed"] for k, v in prereqs.items()},
     }

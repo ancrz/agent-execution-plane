@@ -237,6 +237,46 @@ def domain_security(action: str, name: str | None) -> Any:
 
     if action in ("landlock_status", "status"):
         return get_landlock_status()
+    if action == "firewall_status":
+        if _need("ufw"):
+            r = _run(["ufw", "status"])
+            return {
+                "status": "OK",
+                "backend": "ufw",
+                "active": "active" in r.stdout.lower(),
+                "stdout": r.stdout.strip()[:300],
+            }
+        if _need("nft"):
+            return {
+                "status": "OK",
+                "backend": "nftables",
+                "active": True,
+            }
+        return {"status": "OK", "backend": "none", "active": False, "message": "Neither ufw nor nftables utility found"}
+    if action == "nftables_inspect":
+        if not _need("nft"):
+            return {"status": "DEGRADED", "message": "nft binary not found"}
+        prefix = _sudo_prefix() or []
+        r = _run(prefix + ["nft", "list", "ruleset"])
+        if r.returncode == 0:
+            lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+            return {"status": "OK", "rules_count": len(lines), "ruleset": lines[:50]}
+        return {"status": "DEGRADED", "message": "nftables unprivileged or not configured", "stderr": r.stderr.strip()[:200]}
+    if action == "threat_mitigate":
+        if not name:
+            fail("Falta <target_ip> para threat_mitigate", usage="aep-ctl security threat_mitigate <ip> --json")
+        prefix = _sudo_prefix()
+        if prefix is None:
+            return {
+                "status": "SIMULATED",
+                "target": name,
+                "simulated_rule": f"nft add rule inet filter input ip saddr {name} drop",
+                "message": "Tier is DIMINISHED. Netfilter rule simulated.",
+            }
+        r = _run(prefix + ["nft", "add", "rule", "inet", "filter", "input", "ip", "saddr", name, "drop"])
+        if r.returncode == 0:
+            return {"status": "OK", "target": name, "mitigated": True, "rule": f"drop ip saddr {name}"}
+        return {"status": "DEGRADED", "target": name, "message": r.stderr.strip()[:200]}
     fail(f"Acción de security desconocida: {action}", valid=SCHEMA["security"]["actions"])
 
 
