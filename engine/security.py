@@ -81,7 +81,10 @@ def sanitize_dict(data: Any, max_depth: int = 10) -> Any:
     if isinstance(data, dict):
         sanitized = {}
         for k, v in data.items():
-            if _SENSITIVE_KEY_RE.search(str(k)):
+            k_str = str(k).lower()
+            if k_str in ("estimated_tokens", "tokens", "token_count", "token_savings_pct", "total_tokens") or k_str.endswith("_tokens"):
+                sanitized[k] = sanitize_dict(v, max_depth - 1)
+            elif _SENSITIVE_KEY_RE.search(str(k)):
                 sanitized[k] = "[MASKED]"
             else:
                 sanitized[k] = sanitize_dict(v, max_depth - 1)
@@ -267,4 +270,104 @@ def verify_audit_chain(conn: sqlite3.Connection) -> dict[str, Any]:
         "count": len(rows),
         "latest_hash": expected_prev,
         "message": f"Cadena de auditoría verificada íntegra con {len(rows)} bloques encadenados.",
+    }
+
+
+def get_agent_usage_summary(conn: sqlite3.Connection, session_id: str | None = None) -> dict[str, Any]:
+    """
+    Agrega el consumo de herramientas de AEP agrupado por agent_id y tool_name.
+    Devuelve calls, bytes, tokens y latencia total y por herramienta.
+    Llama a _ensure_audit_table(conn) antes de ejecutar la consulta.
+    """
+    _ensure_audit_table(conn)
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT agent_id, tool_name, action, status, details_json
+        FROM security_audit_log
+        ORDER BY id ASC
+        """
+    )
+    rows = cur.fetchall()
+
+    agents: dict[str, dict[str, Any]] = {}
+    total_calls = 0
+
+    for r in rows:
+        aid = str(r[0] or "default")
+        tname = str(r[1] or "unknown")
+        act = str(r[2] or "default")
+        st = str(r[3] or "OK")
+        raw_det = r[4] or "{}"
+
+        try:
+            det = json.loads(raw_det) if isinstance(raw_det, str) else dict(raw_det)
+        except Exception:  # noqa: BLE001
+            det = {}
+
+        if session_id:
+            sid = det.get("session_id")
+            if not sid or str(sid) != str(session_id):
+                continue
+
+        total_calls += 1
+        if aid not in agents:
+            agents[aid] = {
+                "calls": 0,
+                "bytes": 0,
+                "tokens": 0,
+                "latency_ms": 0.0,
+                "status_counts": {},
+                "tools": {},
+            }
+
+        a_data = agents[aid]
+        a_data["calls"] += 1
+        a_data["status_counts"][st] = a_data["status_counts"].get(st, 0) + 1
+
+        def _to_int(val: Any) -> int:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
+
+        def _to_float(val: Any) -> float:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 0.0
+
+        b = _to_int(det.get("output_bytes") or det.get("bytes"))
+        tok = _to_int(det.get("estimated_tokens") or det.get("tokens"))
+        if not tok and b:
+            tok = max(1, round(b / 4))
+        lat = _to_float(det.get("latency_ms"))
+
+        a_data["bytes"] += b
+        a_data["tokens"] += tok
+        a_data["latency_ms"] = round(a_data["latency_ms"] + lat, 2)
+
+        if tname not in a_data["tools"]:
+            a_data["tools"][tname] = {
+                "calls": 0,
+                "bytes": 0,
+                "tokens": 0,
+                "latency_ms": 0.0,
+                "actions": {},
+            }
+
+        t_data = a_data["tools"][tname]
+        t_data["calls"] += 1
+        t_data["bytes"] += b
+        t_data["tokens"] += tok
+        t_data["latency_ms"] = round(t_data["latency_ms"] + lat, 2)
+        t_data["actions"][act] = t_data["actions"].get(act, 0) + 1
+
+    return {
+        "status": "OK",
+        "session_id": session_id,
+        "total_calls": total_calls,
+        "agent_count": len(agents),
+        "agents": agents,
     }

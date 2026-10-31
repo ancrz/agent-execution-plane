@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -30,12 +31,14 @@ from engine.backup import (
     create_backup,
     create_golden_snapshot,
     create_micro_snapshot,
+    create_workspace_snapshot,
     get_backup_status,
     get_quarantine_status,
     list_micro_snapshots,
     restore_backup,
     restore_golden_snapshot,
     restore_micro_snapshot,
+    restore_workspace_snapshot,
     verify_and_auto_recover,
     verify_database_integrity,
 )
@@ -63,7 +66,7 @@ from engine.privilege import (
     privilege_prefix,
     tactical_playbook,
 )
-from engine.security import mask_pueue_output, record_audit_event, verify_audit_chain
+from engine.security import get_agent_usage_summary, mask_pueue_output, record_audit_event, verify_audit_chain
 from engine.telemetry import RequestTelemetry, attach_envelope
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard, ToposVerdict
@@ -110,6 +113,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Zero-Token Multi-Agent RAM Handoffs (`/dev/shm/aep_pool`)**: Pass `params={"session_id": "shared-id"}` and `store_as="key"` on steps so collaborating agents (`archon`, `pragma`, `dokimos`, `graphos`, `hermon`) read `$cache.<key>.<field>` directly from `/dev/shm` RAM without re-serializing JSON through the prompt.
 - **Collision-Free Multi-Agent Concurrency**: All 15 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
 - **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
+- **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
 """
 
 
@@ -152,11 +156,12 @@ async def aep_capabilities(**kw: Any) -> str:
     return await discover(action="capabilities", **kw)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def topos_audit_dag(
     tasks: list[Any],
     dependencies: dict[str, list[str]] | list[dict[str, Any]] | None = None,
     deps: dict[str, list[str]] | list[dict[str, Any]] | None = None,
+    resources: dict[str, dict[str, Any]] | None = None,
     verbosity: str = "detail",
     agent_id: str = "default",
 ) -> str:
@@ -211,12 +216,30 @@ async def topos_audit_dag(
                         if etype in ("codependency", "co-dependency", "bidirectional"):
                             norm_deps.setdefault(dst, []).append(src)
 
-        verdict, logs = ToposGuard.audit_task_dag(norm_tasks, norm_deps)
+        verdict, logs = ToposGuard.audit_task_dag(norm_tasks, norm_deps, resources=resources)
+        edges: list[dict[str, str]] = []
+        for src, dlist in norm_deps.items():
+            for dst in dlist:
+                is_codep = src in norm_deps.get(dst, [])
+                edges.append({
+                    "source": src,
+                    "target": dst,
+                    "type": "co-dependency" if is_codep else "dependency",
+                })
         payload: dict[str, Any] = {
             "status": verdict,
             "verdict": verdict,
             "details": logs,
+            "edges": edges,
         }
+        if verdict == ToposVerdict.WARN:
+            return attach_envelope(
+                payload,
+                tracker,
+                verbosity=verbosity,
+                summary=f"DAG audit verdict: WARN ({len(norm_tasks)} tasks, hazards detected).",
+                next_action="Revisar advertencias sobre recursos compartidos y declarar contratos de sincronización.",
+            )
         if verdict == ToposVerdict.BLOCKED:
             remediation: list[str] = [
                 "Descomponga la co-dependencia eliminando la arista circular o extrayendo una interfaz o evento común.",
@@ -250,7 +273,7 @@ async def topos_audit_dag(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def discover(
     use_case: str = "",
     action: str = "discover",
@@ -349,6 +372,8 @@ async def discover(
                 payload["cache_status"] = cache_status
                 payload["source"] = source
                 payload["session_id"] = eff_sid
+
+            payload["session_hint"] = "Pass session_id and verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."
 
             if select_fields and isinstance(select_fields, list):
                 payload = project_fields(payload, select_fields)
@@ -518,7 +543,7 @@ async def discover(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def artifact_catalog(
     action: str = "browse",
     category: str | None = None,
@@ -681,7 +706,7 @@ async def artifact_catalog(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def artifact_lint_and_build(
     action: str = "build",
     name: str | None = None,
@@ -1071,7 +1096,7 @@ async def artifact_lint_and_build(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def artifact_execute_in_ram(
     name: str | None = None,
     artifact_name: str | None = None,
@@ -1337,7 +1362,7 @@ async def artifact_execute_in_ram(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def process_inspect(
     pid: int = 0,
     name: str | None = None,
@@ -1764,7 +1789,7 @@ def _compact_pueue_payload(raw_json_str: str, *, limit: int = 15, is_compact: bo
     return {"status": "OK", "data": data}, False
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def async_job_dispatch(
     action: str = "dispatch",
     command: str | None = None,
@@ -1986,7 +2011,7 @@ async def async_job_dispatch(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def diagnose_system_crashes(
     action: str = "diagnose",
     limit: int = 5,
@@ -2188,10 +2213,66 @@ async def diagnose_system_crashes(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+def _parse_runner_output(raw_text: str, command: str, mode: str | None) -> dict[str, Any] | None:
+    """Parsea la salida de pytest/ruff a formato estructurado (GAP-DX-04). Fail-soft si no coincide."""
+    if not mode:
+        return None
+    m = str(mode).strip().lower()
+    eff_mode = m
+    if m == "auto":
+        cmd_lower = command.lower()
+        if "pytest" in cmd_lower or "test" in cmd_lower or "passed in" in raw_text:
+            eff_mode = "pytest"
+        elif "ruff" in cmd_lower or "checks passed" in raw_text:
+            eff_mode = "ruff"
+        else:
+            eff_mode = "pytest"
+
+    try:
+        if eff_mode == "pytest":
+            p_m = re.search(r"(\d+)\s+passed", raw_text)
+            f_m = re.search(r"(\d+)\s+failed", raw_text)
+            e_m = re.search(r"(\d+)\s+error", raw_text)
+            s_m = re.search(r"(\d+)\s+skipped", raw_text)
+            d_m = re.search(r"in\s+([\d\.]+)\s*s", raw_text)
+
+            passed = int(p_m.group(1)) if p_m else 0
+            failed = int(f_m.group(1)) if f_m else 0
+            errors = int(e_m.group(1)) if e_m else 0
+            skipped = int(s_m.group(1)) if s_m else 0
+            duration_s = float(d_m.group(1)) if d_m else 0.0
+
+            if p_m or f_m or e_m or s_m or "pytest" in raw_text or "passed" in raw_text:
+                return {
+                    "tool": "pytest",
+                    "passed": passed,
+                    "failed": failed,
+                    "errors": errors,
+                    "skipped": skipped,
+                    "duration_s": duration_s,
+                    "total": passed + failed + errors + skipped,
+                }
+        elif eff_mode == "ruff":
+            v_m = re.search(r"Found\s+(\d+)\s+error", raw_text)
+            fix_m = re.search(r"\((\d+)\s+fixable", raw_text)
+            if "All checks passed" in raw_text:
+                return {"tool": "ruff", "violations": 0, "fixable": 0}
+            elif v_m:
+                return {
+                    "tool": "ruff",
+                    "violations": int(v_m.group(1)),
+                    "fixable": int(fix_m.group(1)) if fix_m else 0,
+                }
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return None
+
+
+@mcp.tool(structured_output=False)
 async def sandbox_run(
     command: str | list[str] | None = None,
     cmd: str | list[str] | None = None,
+    parse: str | None = None,
     share_net: bool = False,
     working_dir: str | None = None,
     ro_paths: list[str] | None = None,
@@ -2403,18 +2484,23 @@ async def sandbox_run(
                 if len(err_str) > 4000:
                     err_str = err_str[-4000:]
                     truncated = True
+            parsed_result = _parse_runner_output(res.stdout + "\n" + res.stderr, effective_cmd, parse)
+            is_brief = (verbosity or "detail").strip().lower() in ("brief", "terse")
+            res_payload: dict[str, Any] = {
+                "status": st,
+                "agent_id": agent_id,
+                "exit_code": res.returncode,
+                "share_net": share_net,
+                "working_dir": resolved_wd,
+                "ro_mounts": mounted_ro,
+                "rw_mounts": mounted_rw,
+                "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
+                "stderr": ("" if (is_brief and parsed_result is not None and res.returncode == 0) else err_str),
+            }
+            if parsed_result is not None:
+                res_payload["parsed"] = parsed_result
             return attach_envelope(
-                {
-                    "status": st,
-                    "agent_id": agent_id,
-                    "exit_code": res.returncode,
-                    "share_net": share_net,
-                    "working_dir": resolved_wd,
-                    "ro_mounts": mounted_ro,
-                    "rw_mounts": mounted_rw,
-                    "stdout": out_str,
-                    "stderr": err_str,
-                },
+                res_payload,
                 tracker,
                 verbosity=verbosity,
                 truncated=truncated,
@@ -2446,7 +2532,7 @@ def _flatten_mounts(nodes: list[dict[str, Any]], out: list[dict[str, Any]]) -> N
             _flatten_mounts(children, out)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def aep_ctl(
     domain: str = "schema",
     action: str = "schema",
@@ -2579,15 +2665,27 @@ async def aep_ctl(
                 res_obj = restore_golden_snapshot()
             elif a == "quarantine_status":
                 res_obj = get_quarantine_status()
+            elif a == "workspace_snapshot":
+                target_path = target or (args[0] if isinstance(args, list) and args else (args if isinstance(args, str) else None)) or "."
+                snap_name = eff_name if eff_name and eff_name != target_path else None
+                res_obj = create_workspace_snapshot(path=target_path, name=snap_name)
+            elif a == "workspace_restore":
+                target_path = target or (args[0] if isinstance(args, list) and args else (args if isinstance(args, str) else None)) or "."
+                snap_name = eff_name if eff_name and eff_name != target_path else None
+                res_obj = restore_workspace_snapshot(path=target_path, name=snap_name)
             else:
                 res_obj = {"status": "ERROR", "error": f"Acción de backup desconocida: {a}", "valid": valid_actions}
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         elif d == "audit":
-            with catalog._get_ro_conn() as conn:
-                res_obj = verify_audit_chain(conn)
-                if "status" not in res_obj:
-                    res_obj["status"] = "OK" if res_obj.get("valid") else "INTEGRITY_FAILED"
+            if a == "usage":
+                with catalog._get_ro_conn() as conn:
+                    res_obj = get_agent_usage_summary(conn, session_id=eff_name)
+            else:
+                with catalog._get_ro_conn() as conn:
+                    res_obj = verify_audit_chain(conn)
+                    if "status" not in res_obj:
+                        res_obj["status"] = "OK" if res_obj.get("valid") else "INTEGRITY_FAILED"
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         elif d == "ipc":
@@ -2790,7 +2888,7 @@ async def check_crash_alerts(resolve_after_report: bool = False) -> str:
     return await diagnose_system_crashes(action="alerts", resolve_after_report=resolve_after_report)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def query_system_docs(
     query: str | None = None,
     q: str | None = None,
@@ -2837,7 +2935,7 @@ async def query_system_docs(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def visual_inspect(
     url: str,
     viewport_width: int = 1280,
@@ -2917,7 +3015,7 @@ _BPFTRACE_MODE_ALIASES = {
 }
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def kernel_trace(
     mode: str = "syscall_count",
     duration_sec: int = 3,
@@ -3031,7 +3129,7 @@ async def kernel_trace(
     return await anyio.to_thread.run_sync(_run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def kanban_board(
     action: str = "board",
     include_archived: bool = False,
@@ -3215,7 +3313,7 @@ _PLAYBOOK_FAIL = {
 }
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def playbook_run(
     action: str = "run",
     name: str | None = None,

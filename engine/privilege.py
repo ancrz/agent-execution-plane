@@ -242,9 +242,11 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
             "golden",
             "restore_golden",
             "quarantine_status",
+            "workspace_snapshot",
+            "workspace_restore",
         ],
         "arg": "[slot_number|name]",
-        "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots, canary integrity, and quarantine.",
+        "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots (catalog only), workspace snapshots/restores, canary integrity, and quarantine.",
     },
     "security": {
         "actions": ["landlock_status", "status", "audit", "verify"],
@@ -252,9 +254,9 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, and verify audit chain.",
     },
     "audit": {
-        "actions": ["verify"],
-        "arg": None,
-        "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger.",
+        "actions": ["verify", "usage"],
+        "arg": "[session_id]",
+        "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger or inspect per-agent tool usage summary.",
     },
     "ipc": {
         "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"],
@@ -471,6 +473,7 @@ def tactical_playbook() -> dict[str, Any]:
             "5. SNAPSHOT BEFORE MUTATION: Call aep_ctl(domain='backup', action='micro_snapshot', name='pre_edit') before risky database or catalog changes.",
             "6. EPHEMERAL PIPELINE BATCHING: Use playbook_run(action='batch', steps=[...], return_only='last', select_fields=[...]) or /dev/shm/aep.sock UNIX socket pool to execute multi-tool chains in a single turn and discard unneeded fields server-side (saving 80-98% tokens).",
             "7. ZERO-TOKEN MULTI-AGENT RAM HANDOFF & CONCURRENCY: Share state across agents in /dev/shm/aep_pool using params={'session_id': 'shared'} + store_as='key' and reference $cache.<key>.<field> (or $slot.<key>.<field>). All 15 tools (Pico-Kanban, Pico-Jenkins Go builds, Pico-Ansible playbooks, SHA-256 audit log, and RAM snapshots) are collision-free under concurrent multi-agent execution.",
+            "8. MULTI-AGENT RAM CAPABILITY CACHING (GAP-DOC-02): Subagents must call discover(action='capabilities', session_id='<shared-id>', verbosity='terse') to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).",
         ],
         "workflow_recipes": [
             {
@@ -538,6 +541,7 @@ def tactical_playbook() -> dict[str, Any]:
             "ipc_socket_status": 'aep_ctl(domain="ipc", action="status", verbosity="summary")',
             "ipc_shared_cache": 'aep_ctl(domain="ipc", action="cache", name="team-1")',
             "ephemeral_batch": 'playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status"])',
+            "terse_cached_capabilities": 'discover(action="capabilities", session_id="team-1", verbosity="terse")',
         },
         "prerequisites_summary": {
             k: v["installed"] for k, v in prereqs.items()

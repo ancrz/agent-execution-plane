@@ -902,3 +902,207 @@ def verify_and_auto_recover(
 def get_backup_status(backups_dir: Path | str | None = None) -> dict[str, Any]:
     """Devuelve el estado actual de las copias de seguridad."""
     return BackupEngine(backups_dir=backups_dir).get_backup_status()
+
+
+# ==============================================================================
+# Workspace Snapshots (GAP-CP-04)
+# ==============================================================================
+
+MAX_WORKSPACE_SNAPSHOT_BYTES = 50 * 1024 * 1024  # 50MB cap
+
+
+def create_workspace_snapshot(path: Path | str, name: str | None = None) -> dict[str, Any]:
+    """
+    Crea un snapshot de workspace de archivos usando git stash refs o COW tarball en RAM.
+    Capped a 50MB para evitar saturación de memoria. Valida blacklist con CapabilityGuard.
+    """
+    import subprocess
+    import tarfile
+
+    from engine.privilege import CapabilityGuard
+
+    p = Path(path).expanduser().resolve()
+    if CapabilityGuard.is_path_blacklisted(str(p)):
+        return {
+            "status": "PERMISSION_DENIED",
+            "error": f"Acceso denegado: la ruta '{p}' está restringida por CapabilityGuard.",
+            "target": str(p),
+        }
+
+    if not p.exists() or not p.is_dir():
+        return {
+            "status": "NOT_FOUND",
+            "error": f"La ruta de workspace '{p}' no existe o no es un directorio.",
+            "target": str(p),
+        }
+
+    eff_name = (name or f"snap_{int(time.time())}").strip()
+    is_git = (p / ".git").is_dir()
+    git_stash_sha = None
+
+    if is_git:
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(p), "stash", "create", f"aep_snap_{eff_name}"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            if out:
+                git_stash_sha = out
+            else:
+                git_stash_sha = subprocess.check_output(
+                    ["git", "-C", str(p), "rev-parse", "HEAD"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+
+            if git_stash_sha:
+                subprocess.run(
+                    ["git", "-C", str(p), "update-ref", f"refs/aep_snapshots/{eff_name}", git_stash_sha],
+                    check=False,
+                    capture_output=True,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Git stash snapshot fallback: %s", e)
+
+    # Comprobar límite de 50MB sumando tamaño de archivos excluyendo .git
+    total_bytes = 0
+    for root, dirs, files in os.walk(p):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        for f in files:
+            fp = Path(root) / f
+            try:
+                total_bytes += fp.stat().st_size
+                if total_bytes > MAX_WORKSPACE_SNAPSHOT_BYTES:
+                    return {
+                        "status": "QUOTA_EXCEEDED",
+                        "error": "El workspace excede el límite de 50MB para snapshots (detectados >50MB).",
+                        "target": str(p),
+                        "total_bytes": total_bytes,
+                    }
+            except (OSError, FileNotFoundError):
+                continue
+
+    snap_dir = Path("/dev/shm/aep_pool/snapshots")
+    try:
+        snap_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        snap_dir = Path.home() / ".local" / "share" / "agent-os" / "snapshots"
+        snap_dir.mkdir(parents=True, exist_ok=True)
+
+    archive_path = snap_dir / f"{eff_name}.tar.gz"
+    try:
+        with tarfile.open(archive_path, "w:gz") as tar:
+            for item in p.iterdir():
+                if item.name == ".git":
+                    continue
+                tar.add(item, arcname=item.name)
+        archive_size = archive_path.stat().st_size
+    except Exception as e:  # noqa: BLE001
+        return {
+            "status": "ERROR",
+            "error": f"Error al crear tarball de snapshot: {e}",
+            "target": str(p),
+        }
+
+    return {
+        "status": "SUCCESS",
+        "name": eff_name,
+        "target": str(p),
+        "is_git": is_git,
+        "git_stash_sha": git_stash_sha,
+        "archive_path": str(archive_path),
+        "archive_size_bytes": archive_size,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+
+def restore_workspace_snapshot(path: Path | str, name: str | None = None) -> dict[str, Any]:
+    """
+    Restaura un snapshot de workspace hacia el directorio especificado.
+    Valida blacklist con CapabilityGuard.
+    """
+    import subprocess
+    import tarfile
+
+    from engine.privilege import CapabilityGuard
+
+    p = Path(path).expanduser().resolve()
+    if CapabilityGuard.is_path_blacklisted(str(p)):
+        return {
+            "status": "PERMISSION_DENIED",
+            "error": f"Acceso denegado: la ruta '{p}' está restringida por CapabilityGuard.",
+            "target": str(p),
+        }
+
+    if not p.exists() or not p.is_dir():
+        return {
+            "status": "NOT_FOUND",
+            "error": f"La ruta de workspace '{p}' no existe o no es un directorio.",
+            "target": str(p),
+        }
+
+    eff_name = (name or "default").strip()
+    snap_dir = Path("/dev/shm/aep_pool/snapshots")
+    archive_path = snap_dir / f"{eff_name}.tar.gz"
+    if not archive_path.exists():
+        fallback_dir = Path.home() / ".local" / "share" / "agent-os" / "snapshots"
+        archive_path = fallback_dir / f"{eff_name}.tar.gz"
+
+    is_git = (p / ".git").is_dir()
+
+    if archive_path.exists():
+        try:
+            for item in p.iterdir():
+                if item.name == ".git":
+                    continue
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            with tarfile.open(archive_path, "r:gz") as tar:
+                tar.extractall(path=p)  # noqa: S202
+            return {
+                "status": "SUCCESS",
+                "name": eff_name,
+                "target": str(p),
+                "restored": True,
+                "restored_from": str(archive_path),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        except Exception as e:  # noqa: BLE001
+            return {"status": "ERROR", "error": f"Error al restaurar tarball: {e}", "target": str(p)}
+
+    if is_git:
+        try:
+            ref_sha = subprocess.check_output(
+                ["git", "-C", str(p), "rev-parse", f"refs/aep_snapshots/{eff_name}"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            subprocess.run(
+                ["git", "-C", str(p), "checkout", ref_sha, "--", "."],
+                check=True,
+                capture_output=True,
+            )
+            return {
+                "status": "SUCCESS",
+                "name": eff_name,
+                "target": str(p),
+                "restored": True,
+                "restored_from_git_ref": ref_sha,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        except Exception as e:  # noqa: BLE001
+            return {
+                "status": "SNAPSHOT_NOT_FOUND",
+                "error": f"No se encontró snapshot '{eff_name}' ni archivo ni referencia git: {e}",
+                "target": str(p),
+            }
+
+    return {
+        "status": "SNAPSHOT_NOT_FOUND",
+        "error": f"No se encontró snapshot '{eff_name}' en {snap_dir}.",
+        "target": str(p),
+    }

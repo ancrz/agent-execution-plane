@@ -291,17 +291,26 @@ def domain_backup(action: str, name: str | None) -> Any:
         return restore_golden_snapshot()
     if action == "quarantine_status":
         return get_quarantine_status()
+    if action == "workspace_snapshot":
+        from engine.backup import create_workspace_snapshot
+        return create_workspace_snapshot(path=name or ".")
+    if action == "workspace_restore":
+        from engine.backup import restore_workspace_snapshot
+        return restore_workspace_snapshot(path=name or ".")
     fail(f"Acción de backup desconocida: {action}", valid=SCHEMA["backup"]["actions"])
 
 
 def domain_audit(action: str, name: str | None) -> Any:
     from engine.catalog import ArtifactCatalog
-    from engine.security import verify_audit_chain
+    from engine.security import get_agent_usage_summary, verify_audit_chain
 
+    cat = ArtifactCatalog()
     if action == "verify":
-        cat = ArtifactCatalog()
         with cat._get_ro_conn() as conn:
             return verify_audit_chain(conn)
+    if action == "usage":
+        with cat._get_ro_conn() as conn:
+            return get_agent_usage_summary(conn, session_id=name)
     fail(f"Acción de audit desconocida: {action}", valid=SCHEMA["audit"]["actions"])
 
 

@@ -98,6 +98,7 @@ def infer_severity(status: str) -> str:
         "UNSUPPORTED",
         "DISPLAY_UNAVAILABLE",
         "HOLD",
+        "WARN",
     ):
         return "WARN"
     return "ERROR"
@@ -110,7 +111,7 @@ def _clamp_oversized_payload(payload: dict[str, Any], max_bytes: int = MAX_SAFE_
     """Prevent MCP stdio JSON-RPC line-buffer overflows by clamping huge nested lists/strings in-place."""
     clamped = False
     for k, v in list(payload.items()):
-        if k in ("envelope", "telemetry"):
+        if k in ("envelope", "telemetry", "t"):
             continue
         if isinstance(v, str) and len(v) > 32_000 and k != "screenshot_base64":
             payload[k] = v[-32_000:]
@@ -139,6 +140,7 @@ def attach_envelope(
     next_action: str | None = None,
     truncated: bool | None = None,
     cursor: str | None = None,
+    telemetry: bool | None = None,
 ) -> str:
     """Attach telemetry and normalized agent-brief envelope fields while preserving existing keys."""
     mode = (verbosity or "detail").strip().lower()
@@ -169,6 +171,16 @@ def attach_envelope(
         else:
             next_action = "Proceed with the next step in the agent workflow."
 
+    is_unindented = mode in ("brief", "terse", "cached")
+    indent_val = None if is_unindented else 2
+
+    payload.setdefault("status", status_val)
+    payload.setdefault("severity", sev)
+    payload.setdefault("summary", summary)
+    payload.setdefault("next_action", next_action)
+    if evidence is not None:
+        payload.setdefault("evidence", evidence)
+
     envelope: dict[str, Any] = {
         "status": status_val,
         "severity": sev,
@@ -180,19 +192,40 @@ def attach_envelope(
     if evidence is not None:
         envelope["evidence"] = evidence
 
-    payload.setdefault("severity", sev)
-    payload.setdefault("summary", summary)
-    payload.setdefault("next_action", next_action)
-    payload["envelope"] = envelope
-
-    is_unindented = mode in ("brief", "terse", "cached")
-    indent_val = None if is_unindented else 2
+    # In summary and detail: preserve payload['envelope'] for backward compatibility.
+    # In brief, terse, cached: omit nested payload['envelope'] completely.
+    if not is_unindented:
+        payload["envelope"] = envelope
+    elif "envelope" in payload:
+        payload.pop("envelope", None)
 
     # Provisional serialization to compute exact byte & token footprint and guard JSON-RPC frame size
     provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)
     if len(provisional.encode("utf-8")) > MAX_SAFE_JSON_BYTES and _clamp_oversized_payload(payload):
         payload["truncated"] = True
-        envelope["truncated"] = True
+        if not is_unindented:
+            envelope["truncated"] = True
         provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)
-    payload["telemetry"] = tracker.finish(len(provisional.encode("utf-8")))
+
+    prov_bytes = len(provisional.encode("utf-8"))
+    elapsed_ms = round((time.perf_counter_ns() - tracker.start_ns) / 1_000_000, 2)
+    estimated_tokens = max(1, round(prov_bytes / 4))
+
+    # Telemetry configuration:
+    if is_unindented:
+        if telemetry is True:
+            payload["telemetry"] = tracker.finish(prov_bytes)
+        elif telemetry is False:
+            payload.pop("telemetry", None)
+            payload.pop("t", None)
+        else:
+            payload["t"] = {"ms": elapsed_ms, "tok": estimated_tokens}
+            payload.pop("telemetry", None)
+    else:
+        if telemetry is not False:
+            payload["telemetry"] = tracker.finish(prov_bytes)
+        else:
+            payload.pop("telemetry", None)
+            payload.pop("t", None)
+
     return json.dumps(payload, indent=indent_val, ensure_ascii=False)
