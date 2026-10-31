@@ -125,6 +125,17 @@ run_check() {
         DEGRADED=1
     fi
 
+    # 3.1. golangci-lint Static Analyzer
+    local LINT_BIN
+    LINT_BIN="$(command -v golangci-lint 2>/dev/null || echo "$HOME/.local/bin/golangci-lint")"
+    if [[ -x "$LINT_BIN" ]]; then
+        local LINT_VER
+        LINT_VER="$("$LINT_BIN" --version 2>/dev/null || echo "present")"
+        echo -e "[PASS] golangci-lint: $LINT_VER ($LINT_BIN)"
+    else
+        echo -e "[WARN] golangci-lint: not installed (artifact_lint_and_build will fallback to go vet)"
+    fi
+
     # 4. Go Static Diagnostic Probes
     local PROBE_DIR="$HOME/.local/share/agent-os/bin"
     if [[ -x "$PROBE_DIR/socket-monitor" ]] && [[ -x "$PROBE_DIR/fd-rescuer" ]]; then
@@ -378,8 +389,24 @@ if command -v go &>/dev/null || [[ -x "$HOME/.local/bin/go" ]]; then
     CGO_ENABLED=0 "$GO_CMD" build -ldflags="-s -w" -o "$HOME/.local/share/agent-os/bin/fd-rescuer" "$FD_SRC"
     chmod +x "$HOME/.local/share/agent-os/bin/socket-monitor" "$HOME/.local/share/agent-os/bin/fd-rescuer"
     log_success "Sondas Go pre-compiladas estáticamente en ~/.local/share/agent-os/bin/"
+
+    # 4.1. golangci-lint Provisioning (Idempotent user-space linter)
+    log_step "Verificando linter estático golangci-lint..."
+    if ! command -v golangci-lint &>/dev/null && [[ ! -x "$HOME/.local/bin/golangci-lint" ]]; then
+        log_step "golangci-lint ausente; instalando binario oficial en ~/.local/bin..."
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/.local/bin" v1.61.0 2>/dev/null || {
+            curl -sSL "https://github.com/golangci/golangci-lint/releases/download/v1.61.0/golangci-lint-1.61.0-linux-amd64.tar.gz" -o "$TMP_DIR/golangci-lint.tar.gz" 2>/dev/null && \
+            tar -C "$TMP_DIR" -xzf "$TMP_DIR/golangci-lint.tar.gz" 2>/dev/null && \
+            mv "$TMP_DIR/golangci-lint-1.61.0-linux-amd64/golangci-lint" "$HOME/.local/bin/golangci-lint" && \
+            chmod +x "$HOME/.local/bin/golangci-lint"
+        } || log_warn "No se pudo auto-instalar golangci-lint; artifact_lint_and_build usará go vet."
+    fi
+    if command -v golangci-lint &>/dev/null || [[ -x "$HOME/.local/bin/golangci-lint" ]]; then
+        LINT_CMD="$(command -v golangci-lint || echo "$HOME/.local/bin/golangci-lint")"
+        log_success "golangci-lint disponible: $($LINT_CMD --version 2>/dev/null || echo 'ok')"
+    fi
 else
-    log_warn "Golang no disponible; sondas Go omitidas."
+    log_warn "Golang no disponible; sondas Go y golangci-lint omitidos."
 fi
 
 # -----------------------------------------------------------------------------
