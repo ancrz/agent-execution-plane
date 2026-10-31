@@ -247,9 +247,9 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots, canary integrity, and quarantine.",
     },
     "security": {
-        "actions": ["landlock_status", "status"],
+        "actions": ["landlock_status", "status", "audit", "verify"],
         "arg": None,
-        "description": "Check Linux Landlock LSM kernel ABI support and self-confinement readiness.",
+        "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, and verify audit chain.",
     },
     "audit": {
         "actions": ["verify"],
@@ -257,7 +257,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger.",
     },
     "ipc": {
-        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "cache"],
+        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"],
         "arg": "[session_id]",
         "description": "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management.",
     },

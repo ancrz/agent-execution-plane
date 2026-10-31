@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -411,6 +412,8 @@ async def discover(
 async def artifact_catalog(
     action: str = "browse",
     category: str | None = None,
+    name: str | None = None,
+    artifact_name: str | None = None,
     query: str | None = None,
     intent: str | None = None,
     limit: int = 10,
@@ -424,6 +427,7 @@ async def artifact_catalog(
     auto-indexar (sqlite-vec) y podar (GC seguro) el catálogo de artefactos.
     action:
       - 'browse' (default): lista/busca artefactos (con `query` -> top-K semántico; sin `query` -> ranking por confianza).
+      - 'info' (o 'get', 'show'): inspecciona los metadatos completos de un artefacto específico (requiere `name` o `artifact_name`).
       - 'query': busca un artefacto validado para `intent` (o `query`) y `category` -> CACHE_HIT / CACHE_MISS.
       - 'reindex': sana el índice vectorial sqlite-vec (force=True re-embebe todos) y devuelve cobertura antes/después.
       - 'prune': poda destructiva segura de artefactos degradados (reusable=0), protegiendo plantillas base (apply=False -> DRY_RUN).
@@ -518,6 +522,37 @@ async def artifact_catalog(
                     },
                     tracker,
                 )
+            elif act in ("info", "get", "show"):
+                target_name = (name or artifact_name or query or intent or "").strip()
+                if not target_name:
+                    return attach_envelope(
+                        {
+                            "status": "PARAM_ERROR",
+                            "error": "Acción 'info' requiere el parámetro 'name' (o 'artifact_name'/'query').",
+                        },
+                        tracker,
+                    )
+                art_meta = catalog.get_artifact(name=target_name)
+                if not art_meta:
+                    return attach_envelope(
+                        {
+                            "status": "NOT_FOUND",
+                            "error": f"Artefacto '{target_name}' no encontrado en el catálogo.",
+                            "target": target_name,
+                        },
+                        tracker,
+                        summary=f"Artifact '{target_name}' not found.",
+                    )
+                return attach_envelope(
+                    {
+                        "status": "OK",
+                        "artifact": art_meta,
+                        **art_meta,
+                    },
+                    tracker,
+                    verbosity=verbosity,
+                    summary=f"Artifact info: {art_meta.get('name')} v{art_meta.get('version')} (success: {art_meta.get('success_rate')}).",
+                )
             elif act == "prune":
                 protect = {t["name"] for t in template_registry.catalog()} | {"socket_monitor", "fd_rescuer"}
                 return attach_envelope(catalog.prune(protect=protect, apply=apply), tracker)
@@ -525,8 +560,8 @@ async def artifact_catalog(
                 return attach_envelope(
                     {
                         "status": "INVALID_ACTION",
-                        "error": f"Acción '{action}' no reconocida. Acciones válidas: 'browse', 'query', 'reindex', 'prune'.",
-                        "valid_actions": ["browse", "query", "reindex", "prune"],
+                        "error": f"Acción '{action}' no reconocida. Acciones válidas: 'browse', 'query', 'info', 'reindex', 'prune'.",
+                        "valid_actions": ["browse", "query", "info", "reindex", "prune"],
                     },
                     tracker,
                 )
@@ -928,10 +963,12 @@ async def artifact_lint_and_build(
 
 @mcp.tool()
 async def artifact_execute_in_ram(
-    name: str,
+    name: str | None = None,
+    artifact_name: str | None = None,
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
     stdin: str | None = None,
+    timeout: int = 30,
     verbosity: str = "summary",
     limit: int = 25,
     agent_id: str = "default",
@@ -939,21 +976,36 @@ async def artifact_execute_in_ram(
     """
     [CAMINO A / MEMFD EXECUTION] Carga un binario Go del catálogo o de bin/
     y lo inyecta directamente en memoria RAM vía memfd_create sin tocar almacenamiento secundario.
+    - `name` / `artifact_name`: nombre del binario a ejecutar en RAM.
     - `args`: argumentos de línea de comandos para el binario.
     - `env`: variables de entorno inyectadas al proceso efímero (GAP-OM-03).
     - `stdin`: texto suministrado como entrada estándar al proceso efímero (GAP-OM-03).
+    - `timeout`: tiempo máximo de ejecución en segundos (default 30s, acotado entre 1 y 120s).
     - `verbosity`: 'summary' (default, trunca colecciones extensas a `limit`) | 'detail'.
     """
 
     def _run() -> str:
-        tracker = RequestTelemetry("artifact_execute_in_ram", f"exec:{name}")
+        eff_name = (name or artifact_name or "").strip()
+        if not eff_name:
+            tracker_init = RequestTelemetry("artifact_execute_in_ram", "exec:unknown")
+            return attach_envelope(
+                {
+                    "status": "PARAM_ERROR",
+                    "error": "Debe proporcionar el parámetro 'name' (o 'artifact_name') del artefacto a ejecutar.",
+                },
+                tracker_init,
+                verbosity=verbosity,
+            )
+
+        tracker = RequestTelemetry("artifact_execute_in_ram", f"exec:{eff_name}")
         cmd_args = args or []
         is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
         eff_limit = max(1, int(limit or 25))
+        eff_timeout = max(1, min(int(timeout or 30), 120))
 
         # 1. Validación de autorización y blacklist
         try:
-            CapabilityGuard.verify_action(agent_id, "cap_ram_exec", "ram_exec", target=name)
+            CapabilityGuard.verify_action(agent_id, "cap_ram_exec", "ram_exec", target=eff_name)
         except PermissionDenied as e:
             try:
                 with catalog._get_rw_conn() as conn:
@@ -964,8 +1016,8 @@ async def artifact_execute_in_ram(
                         action="ram_exec",
                         capability_tier=capability_tier(),
                         status="BLOCKED",
-                        details={"name": name, "reason": e.message},
-                        target=name,
+                        details={"name": eff_name, "reason": e.message},
+                        target=eff_name,
                     )
             except Exception as log_err:
                 logger.debug("Failed recording audit event: %s", log_err)
@@ -974,7 +1026,7 @@ async def artifact_execute_in_ram(
                     "status": "PERMISSION_DENIED",
                     "agent_id": agent_id,
                     "error": e.message,
-                    "target": name,
+                    "target": eff_name,
                 },
                 tracker,
                 verbosity=verbosity,
@@ -991,7 +1043,7 @@ async def artifact_execute_in_ram(
                             action="ram_exec",
                             capability_tier=capability_tier(),
                             status="BLOCKED",
-                            details={"name": name, "reason": "Restricted path in arguments", "arg": arg},
+                            details={"name": eff_name, "reason": "Restricted path in arguments", "arg": arg},
                             target=arg,
                         )
                 except Exception as log_err:
@@ -1008,7 +1060,7 @@ async def artifact_execute_in_ram(
                     verbosity=verbosity,
                 )
 
-        resolved_name = name
+        resolved_name = eff_name
         bin_file = TEMP_BIN_DIR / resolved_name
         elf_bytes: bytes | None = None
         if bin_file.exists():
@@ -1078,7 +1130,7 @@ async def artifact_execute_in_ram(
                     pass_fds=(fd,),
                     stdin=subprocess.DEVNULL if run_input is None else None,
                     close_fds=True,
-                    timeout=30,
+                    timeout=eff_timeout,
                     check=False,
                 )
             except subprocess.TimeoutExpired:
@@ -1088,7 +1140,7 @@ async def artifact_execute_in_ram(
                     {
                         "status": "TIMEOUT",
                         "agent_id": agent_id,
-                        "error": f"Artefacto '{resolved_name}' excedió el timeout de 30s (posible proceso daemonizado con descriptores abiertos).",
+                        "error": f"Artefacto '{resolved_name}' excedió el timeout de {eff_timeout}s (posible proceso daemonizado con descriptores abiertos).",
                     },
                     tracker,
                     verbosity=verbosity,
@@ -2028,7 +2080,8 @@ async def diagnose_system_crashes(
 
 @mcp.tool()
 async def sandbox_run(
-    command: str,
+    command: str | list[str] | None = None,
+    cmd: str | list[str] | None = None,
     share_net: bool = False,
     working_dir: str | None = None,
     ro_paths: list[str] | None = None,
@@ -2041,6 +2094,7 @@ async def sandbox_run(
     """
     [BUBBLEWRAP SANDBOX] Ejecuta comandos en un sandbox efímero con bwrap
     aislando el sistema de archivos contra efectos secundarios destructivos.
+    - command / cmd: string o lista de argumentos (ej: 'ls -la' o ['ls', '-la']).
     - Por defecto oculta el workspace del host y desactiva red (`share_net=False`).
     - `working_dir`: monta el directorio en modo solo-lectura (salvo que esté en `rw_paths`) y hace `--chdir`.
     - `ro_paths` / `rw_paths`: montajes explícitos validados contra `CapabilityGuard.is_path_blacklisted()`.
@@ -2049,6 +2103,29 @@ async def sandbox_run(
 
     def _run() -> str:
         tracker = RequestTelemetry("sandbox_run", "exec")
+        raw_cmd = command if command is not None else cmd
+        if not raw_cmd:
+            return attach_envelope(
+                {
+                    "status": "PARAM_ERROR",
+                    "error": "Debe proporcionar el parámetro 'command' (o 'cmd') a ejecutar.",
+                },
+                tracker,
+            )
+        if isinstance(raw_cmd, list):
+            effective_cmd = shlex.join(str(c) for c in raw_cmd)
+        else:
+            effective_cmd = str(raw_cmd).strip()
+
+        if not effective_cmd:
+            return attach_envelope(
+                {
+                    "status": "PARAM_ERROR",
+                    "error": "El comando proporcionado no puede estar vacío.",
+                },
+                tracker,
+            )
+
         eff_ro = list(ro_paths or [])
         eff_rw = list(rw_paths or [])
         resolved_wd: str | None = None
@@ -2193,7 +2270,7 @@ async def sandbox_run(
             "--",
             "sh",
             "-c",
-            command,
+            effective_cmd,
         ])
 
         try:
@@ -2338,7 +2415,13 @@ async def aep_ctl(
             )
 
         if d == "security":
-            res_obj = get_landlock_status()
+            if a in ("audit", "verify"):
+                with catalog._get_ro_conn() as conn:
+                    res_obj = verify_audit_chain(conn)
+                    if "status" not in res_obj:
+                        res_obj["status"] = "OK" if res_obj.get("valid") else "INTEGRITY_FAILED"
+            else:
+                res_obj = get_landlock_status()
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         elif d == "backup":
@@ -2393,6 +2476,8 @@ async def aep_ctl(
         elif d == "audit":
             with catalog._get_ro_conn() as conn:
                 res_obj = verify_audit_chain(conn)
+                if "status" not in res_obj:
+                    res_obj["status"] = "OK" if res_obj.get("valid") else "INTEGRITY_FAILED"
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         elif d == "ipc":
@@ -2425,7 +2510,7 @@ async def aep_ctl(
             elif a == "flush":
                 flushed = GLOBAL_SESSION_POOL.flush()
                 res_obj = {"status": "OK", "flushed_count": flushed}
-            elif a == "metrics":
+            elif a in ("metrics", "stats"):
                 p_st = GLOBAL_SESSION_POOL.status()
                 m_st = GLOBAL_SOCKET_MUX.status()
                 res_obj = {
@@ -2597,7 +2682,8 @@ async def check_crash_alerts(resolve_after_report: bool = False) -> str:
 
 @mcp.tool()
 async def query_system_docs(
-    query: str,
+    query: str | None = None,
+    q: str | None = None,
     limit: int = 3,
     ingest_command: str | None = None,
     source: str | None = None,
@@ -2607,21 +2693,33 @@ async def query_system_docs(
     """
     [SPEC-OM-4 / DOCS VECTORIZER] Memoria semántica local de man-pages (sqlite-vec).
     Devuelve la sintaxis exacta de herramientas del sistema sin alucinar ni navegar la web.
-    `ingest_command`: ingiere la man-page de un comando extra on-demand antes de consultar.
+    - `query` / `q`: consulta en lenguaje natural o comando del sistema.
+    - `ingest_command`: ingiere la man-page de un comando extra on-demand antes de consultar.
     """
 
     def _run() -> str:
+        eff_query = (query or q or "").strip()
         tracker = RequestTelemetry("query_system_docs", source or "man")
+        if not eff_query:
+            return attach_envelope(
+                {
+                    "status": "PARAM_ERROR",
+                    "error": "Debe proporcionar el parámetro 'query' (o 'q') a consultar.",
+                },
+                tracker,
+                verbosity=verbosity,
+            )
+
         try:
             dv = _get_docs_vectorizer()
             if ingest_command:
                 dv.ingest_command(ingest_command)
-            res = dv.query(query, limit)
+            res = dv.query(eff_query, limit)
             return attach_envelope(
                 res,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Retrieved {len(res.get('results', []))} doc chunks for query '{query[:40]}'.",
+                summary=f"Retrieved {len(res.get('results', []))} doc chunks for query '{eff_query[:40]}'.",
             )
         except Exception as e:
             return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)

@@ -922,4 +922,71 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
+    def test_gap_om10_sandbox_run_list_command_and_cmd_alias(self):
+        async def _run():
+            # 1. list command
+            r1 = json.loads(await server.sandbox_run(command=["echo", "list_ok"]))
+            assert r1["status"] == "SUCCESS"
+            assert "list_ok" in r1["stdout"]
+
+            # 2. cmd alias
+            r2 = json.loads(await server.sandbox_run(cmd="echo alias_ok"))
+            assert r2["status"] == "SUCCESS"
+            assert "alias_ok" in r2["stdout"]
+
+            # 3. empty param error
+            r3 = json.loads(await server.sandbox_run())
+            assert r3["status"] == "PARAM_ERROR"
+
+        asyncio.run(_run())
+
+    def test_gap_om11_artifact_catalog_info_action_and_name_param(self):
+        async def _run():
+            r = json.loads(await server.artifact_catalog(action="info", name="socket_monitor"))
+            assert r["status"] == "OK"
+            assert "artifact" in r
+            assert r["name"] == "socket_monitor"
+            assert "binary_size_bytes" in r["artifact"]
+            assert r["artifact"]["binary_size_bytes"] > 0
+
+            r_nf = json.loads(await server.artifact_catalog(action="info", name="non_existent_art_xyz"))
+            assert r_nf["status"] == "NOT_FOUND"
+
+        asyncio.run(_run())
+
+    def test_gap_om12_artifact_execute_in_ram_alias_and_timeout(self):
+        async def _run():
+            r = json.loads(await server.artifact_execute_in_ram(
+                artifact_name="socket_monitor",
+                timeout=20,
+            ))
+            assert r["status"] == "SUCCESS"
+            assert r["name"] == "socket_monitor"
+            assert "total_sockets" in r["output"] or "sockets" in r["output"]
+
+        asyncio.run(_run())
+
+    def test_gap_om13_query_system_docs_q_alias(self):
+        async def _run():
+            r = json.loads(await server.query_system_docs(q="ip", limit=1))
+            assert r["status"] == "OK"
+            assert "results" in r
+            assert len(r["results"]) > 0
+
+        asyncio.run(_run())
+
+    def test_gap_om14_aep_ctl_ipc_stats_and_security_audit(self):
+        async def _run():
+            # 1. ipc stats alias
+            r1 = json.loads(await server.aep_ctl(domain="ipc", action="stats"))
+            assert r1["status"] == "OK"
+            assert "idle_slots" in r1
+
+            # 2. security audit alias
+            r2 = json.loads(await server.aep_ctl(domain="security", action="audit"))
+            assert r2["status"] == "OK"
+            assert r2.get("valid") is True
+
+        asyncio.run(_run())
+
 

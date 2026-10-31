@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-10-30
+
+### Added
+- **Topos Anti-Cascade 5-Loop Stabilization (Milestone `ONT-27`)**:
+  - **`GAP-OM-10` (`sandbox_run`)**: Added support for argument lists (`command: str | list[str]`) automatically joined with `shlex.join` for safe `sh -c` invocation, alias `cmd: str | list[str]`, and fail-soft `PARAM_ERROR` validation avoiding Pydantic schema validation crashes.
+  - **`GAP-OM-11` (`artifact_catalog`)**: Implemented `get_artifact()` in `engine/catalog.py` and exposed `action in ("info", "get", "show")` with `name` and `artifact_name` parameters in `artifact_catalog`, providing lightweight inspection of full artifact metadata (including `binary_size_bytes`) without dumping binary blobs.
+  - **`GAP-OM-12` (`artifact_execute_in_ram`)**: Exposed configurable execution `timeout: int = 30` (bounded 1-120s) and added `artifact_name` parameter alias alongside `name`.
+  - **`GAP-OM-13` (`query_system_docs`)**: Added standard natural query alias `q: str | None = None` alongside `query`.
+  - **`GAP-OM-14` (`aep_ctl`)**: Added `"stats"` alias for `ipc` domain metrics, and exposed `"audit"` / `"verify"` actions under `domain="security"` mapping directly to cryptographic SHA-256 ledger verification.
+- **Test Suite Expansion**:
+  - Added unit and integration tests `test_gap_om10_sandbox_run_list_command_and_cmd_alias` through `test_gap_om14_aep_ctl_ipc_stats_and_security_audit` (total 83/83 tests passing at 100%).
+
 ## [0.2.5] - 2026-10-30
 
 ### Added

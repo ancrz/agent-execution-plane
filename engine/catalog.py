@@ -402,6 +402,32 @@ class ArtifactCatalog:
             logger.debug("Failed recording execution by name for %s: %s", name, e)
             return False
 
+    def get_artifact(self, name: str | None = None, artifact_id: int | None = None) -> dict[str, Any] | None:
+        """Recupera los metadatos completos de un artefacto (sin el binary_blob) por nombre o id."""
+        try:
+            with self._get_ro_conn() as conn:
+                if artifact_id is not None:
+                    row = conn.execute(
+                        "SELECT id, name, category, intent_description, intent_hash, version, success_rate, "
+                        "execution_count, avg_latency_ms, reusable, promotion_score, created_at, "
+                        "LENGTH(binary_blob) as binary_size_bytes FROM artifacts WHERE id = ?",
+                        (artifact_id,),
+                    ).fetchone()
+                elif name:
+                    row = conn.execute(
+                        "SELECT id, name, category, intent_description, intent_hash, version, success_rate, "
+                        "execution_count, avg_latency_ms, reusable, promotion_score, created_at, "
+                        "LENGTH(binary_blob) as binary_size_bytes FROM artifacts WHERE name = ? "
+                        "ORDER BY version DESC LIMIT 1",
+                        (name.strip(),),
+                    ).fetchone()
+                else:
+                    return None
+                return dict(row) if row else None
+        except (sqlite3.Error, OSError) as e:
+            logger.debug("Failed retrieving artifact metadata: %s", e)
+            return None
+
     def list_artifacts(self, category: str | None = None) -> list[dict[str, Any]]:
         with self._get_ro_conn() as conn:
             if category:
