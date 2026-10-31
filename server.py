@@ -530,6 +530,8 @@ async def artifact_lint_and_build(
       - 'build' (default): Compila Go estático (CGO_ENABLED=0), ejecuta análisis estático (go vet + golangci-lint)
         y lo registra en el catálogo. Soporta ATAJO DE 1 PASO: si no se provee go_source pero sí template_name
         (o source_template), hidrata la plantilla automáticamente antes de compilar.
+      - 'lint' (o 'vet'): Ejecuta análisis estático puro (go vet + golangci-lint) sobre 'go_source'
+        o la plantilla hidratada sin compilar ni alterar el catálogo (GAP-OM-01).
       - 'catalog': Tabla descriptiva de plantillas base disponibles con capacidades, tags y redundancias.
       - 'select': Rankea plantillas por relevancia a 'intent' mediante scoring multi-señal (BM25F + jaccard + fuzzy).
       - 'hydrate': Instancia una plantilla Go con 'params', generando el código fuente final.
@@ -599,6 +601,99 @@ async def artifact_lint_and_build(
                     tracker,
                     verbosity=verbosity,
                 )
+
+            if act in ("lint", "vet"):
+                effective_src = (go_source or "").strip()
+                art_src_tpl = (source_template or template_name or "").strip()
+                if not effective_src:
+                    if art_src_tpl:
+                        try:
+                            contract = template_registry.get_contract(art_src_tpl)
+                            effective_src = hydrator.hydrate(art_src_tpl, params or {}, contract=contract)
+                        except Exception as he:
+                            return attach_envelope(
+                                {
+                                    "status": "HYDRATE_ERROR",
+                                    "error": f"Error al auto-hidratar la plantilla '{art_src_tpl}': {str(he)}",
+                                },
+                                tracker,
+                            )
+                    else:
+                        return attach_envelope(
+                            {
+                                "status": "PARAM_ERROR",
+                                "error": "Debe proporcionar 'go_source' o 'template_name'/'source_template' para ejecutar el linting.",
+                            },
+                            tracker,
+                        )
+
+                eff_agent = agent_id or "default"
+                slot = GLOBAL_SESSION_POOL.acquire(session_id="pico-jenkins-lint", agent_id=eff_agent)
+                scratch_base = Path(slot["scratch_dir"])
+                lint_dir = scratch_base / f"lint_{uuid.uuid4().hex[:8]}"
+                try:
+                    lint_dir.mkdir(parents=True, exist_ok=True)
+                except OSError:
+                    lint_dir = Path(tempfile.mkdtemp(prefix="lint_"))
+
+                try:
+                    src_file = lint_dir / "main.go"
+                    src_file.write_text(effective_src, encoding="utf-8")
+
+                    # 1. Validación estática con go vet
+                    vet_res = subprocess.run(
+                        ["go", "vet", str(src_file)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if vet_res.returncode != 0:
+                        return attach_envelope(
+                            {
+                                "status": "LINT_ERROR",
+                                "lint_passed": False,
+                                "vet_passed": False,
+                                "error": vet_res.stderr.strip(),
+                                "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
+                            },
+                            tracker,
+                            verbosity=verbosity,
+                        )
+
+                    # 2. golangci-lint ADVISORY
+                    lint_warnings: list[str] = []
+                    try:
+                        gcl = subprocess.run(
+                            ["golangci-lint", "run", str(src_file)],
+                            capture_output=True,
+                            text=True,
+                            cwd=str(lint_dir),
+                            timeout=30,
+                            check=False,
+                        )
+                        if gcl.returncode != 0:
+                            out = (gcl.stdout or gcl.stderr or "").strip()
+                            if out:
+                                lint_warnings = out.splitlines()[:20]
+                    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+                        logger.debug("golangci-lint advisory run failed or unavailable: %s", e)
+                        lint_warnings = []
+
+                    return attach_envelope(
+                        {
+                            "status": "OK",
+                            "lint_passed": True,
+                            "vet_passed": True,
+                            "lint_warnings": lint_warnings,
+                            "summary": "Análisis estático completado con éxito (0 errores de go vet).",
+                            "source_lines": len(effective_src.splitlines()),
+                        },
+                        tracker,
+                        verbosity=verbosity,
+                    )
+                finally:
+                    shutil.rmtree(lint_dir, ignore_errors=True)
+                    GLOBAL_SESSION_POOL.release("pico-jenkins-lint", eff_agent, clear_state=False)
 
             if act == "build":
                 art_src_tpl = (source_template or template_name or "").strip()
@@ -790,8 +885,8 @@ async def artifact_lint_and_build(
             return attach_envelope(
                 {
                     "status": "INVALID_ACTION",
-                    "error": f"Acción '{action}' no reconocida. Acciones válidas: 'build', 'catalog', 'select', 'hydrate'.",
-                    "valid_actions": ["build", "catalog", "select", "hydrate"],
+                    "error": f"Acción '{action}' no reconocida. Acciones válidas: 'build', 'lint', 'vet', 'catalog', 'select', 'hydrate'.",
+                    "valid_actions": ["build", "lint", "vet", "catalog", "select", "hydrate"],
                 },
                 tracker,
             )
@@ -805,6 +900,8 @@ async def artifact_lint_and_build(
 async def artifact_execute_in_ram(
     name: str,
     args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    stdin: str | None = None,
     verbosity: str = "summary",
     limit: int = 25,
     agent_id: str = "default",
@@ -812,6 +909,9 @@ async def artifact_execute_in_ram(
     """
     [CAMINO A / MEMFD EXECUTION] Carga un binario Go del catálogo o de bin/
     y lo inyecta directamente en memoria RAM vía memfd_create sin tocar almacenamiento secundario.
+    - `args`: argumentos de línea de comandos para el binario.
+    - `env`: variables de entorno inyectadas al proceso efímero (GAP-OM-03).
+    - `stdin`: texto suministrado como entrada estándar al proceso efímero (GAP-OM-03).
     - `verbosity`: 'summary' (default, trunca colecciones extensas a `limit`) | 'detail'.
     """
 
@@ -932,13 +1032,21 @@ async def artifact_execute_in_ram(
             os.write(fd, elf_bytes)
             os.lseek(fd, 0, os.SEEK_SET)
 
+            sub_env = os.environ.copy()
+            if env and isinstance(env, dict):
+                for k, v in env.items():
+                    sub_env[str(k)] = str(v)
+
+            run_input = stdin if stdin is not None else None
             try:
                 res = subprocess.run(
                     [f"/proc/self/fd/{fd}"] + cmd_args,
                     capture_output=True,
                     text=True,
+                    input=run_input,
+                    env=sub_env,
                     pass_fds=(fd,),
-                    stdin=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL if run_input is None else None,
                     close_fds=True,
                     timeout=30,
                     check=False,
@@ -1040,6 +1148,8 @@ async def artifact_execute_in_ram(
 @mcp.tool()
 async def process_inspect(
     pid: int = 0,
+    name: str | None = None,
+    filter: str | None = None,
     limit: int = 100,
     verbosity: str = "detail",
     agent_id: str = "default",
@@ -1047,14 +1157,92 @@ async def process_inspect(
     """
     [INTROSPECCIÓN DE PROCESOS] Inspecciona el estado, descriptores de archivo abiertos
     (/proc/PID/fd) y telemetría de recursos (RSS delta, FD delta) de un proceso.
-    pid: 0 para auto-inspección del propio servidor (self); >0 para un PID específico.
-    limit: número máximo de descriptores detallados en la lista (default 100; 15 en modo summary).
-    verbosity: 'detail' (default) | 'summary' | 'brief' (compacta descriptores y ahorra tokens).
+    - pid: 0 para auto-inspección del propio servidor (self); >0 para un PID específico.
+    - name / filter: Filtra y busca procesos por nombre o línea de comandos (GAP-OM-02).
+    - limit: número máximo de descriptores o procesos retornados (default 100; 15 en modo summary).
+    - verbosity: 'detail' (default) | 'summary' | 'brief' (compacta descriptores y ahorra tokens).
     Salida JSON tipada clasificando descriptores (socket, pipe, device, anon_inode, file).
     Fail-soft: devuelve NOT_FOUND o PERMISSION_DENIED sin lanzar excepciones.
     """
 
     def _run() -> str:
+        is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
+        query = (name or filter or "").strip().lower()
+        if query:
+            tracker = RequestTelemetry("process_inspect", f"filter:{query}")
+            matches: list[dict[str, Any]] = []
+            try:
+                for entry in os.scandir("/proc"):
+                    if not entry.name.isdigit():
+                        continue
+                    p_id = int(entry.name)
+                    if p_id == os.getpid():
+                        continue
+                    p_dir = Path(entry.path)
+                    p_comm = ""
+                    p_cmd = ""
+                    try:
+                        cf = p_dir / "comm"
+                        if cf.exists():
+                            p_comm = cf.read_text(encoding="utf-8", errors="replace").strip()
+                        cmdf = p_dir / "cmdline"
+                        if cmdf.exists():
+                            p_cmd = cmdf.read_text(encoding="utf-8", errors="replace").replace("\x00", " ").strip()
+                    except (PermissionError, FileNotFoundError, ProcessLookupError):
+                        continue
+                    if query in p_comm.lower() or query in p_cmd.lower():
+                        p_rss = 0
+                        p_state = ""
+                        sf = p_dir / "status"
+                        if sf.exists():
+                            with contextlib.suppress(Exception):
+                                for status_line in sf.read_text(encoding="utf-8", errors="replace").splitlines():
+                                    if status_line.startswith("State:"):
+                                        p_state = status_line.split(":", 1)[1].strip()
+                                    elif status_line.startswith("VmRSS:"):
+                                        parts = status_line.split(":", 1)[1].strip().split()
+                                        if parts:
+                                            p_rss = int(parts[0])
+                        matches.append({
+                            "pid": p_id,
+                            "name": p_comm,
+                            "cmdline": p_cmd[:120],
+                            "state": p_state,
+                            "rss_kb": p_rss,
+                        })
+            except Exception as e:
+                logger.debug("Failed scanning /proc: %s", e)
+
+            matches.sort(key=lambda m: m.get("rss_kb", 0), reverse=True)
+            eff_limit = max(1, int(limit or 15)) if is_compact else max(1, int(limit or 100))
+            truncated = len(matches) > eff_limit
+            sliced = matches[:eff_limit]
+
+            if not matches:
+                return attach_envelope(
+                    {
+                        "status": "NOT_FOUND",
+                        "filter": query,
+                        "matches_count": 0,
+                        "message": f"No se encontraron procesos activos que coincidan con '{query}'.",
+                    },
+                    tracker,
+                    verbosity=verbosity,
+                )
+
+            return attach_envelope(
+                {
+                    "status": "OK",
+                    "filter": query,
+                    "total_matches": len(matches),
+                    "processes": sliced,
+                },
+                tracker,
+                verbosity=verbosity,
+                truncated=truncated,
+                summary=f"Found {len(matches)} processes matching '{query}'.",
+            )
+
         tracker = RequestTelemetry("process_inspect", f"pid:{pid}")
         target_pid = os.getpid() if pid <= 0 else pid
         proc_dir = Path(f"/proc/{target_pid}")
@@ -1073,10 +1261,10 @@ async def process_inspect(
         comm_file = proc_dir / "comm"
         status_file = proc_dir / "status"
 
-        name = "unknown"
+        proc_comm = "unknown"
         if comm_file.exists():
             try:
-                name = comm_file.read_text(encoding="utf-8", errors="replace").strip()
+                proc_comm = comm_file.read_text(encoding="utf-8", errors="replace").strip()
             except Exception as e:
                 logger.debug("Failed reading comm for pid %s: %s", target_pid, e)
 
@@ -1110,7 +1298,7 @@ async def process_inspect(
                 {
                     "status": "OK",
                     "pid": target_pid,
-                    "name": name,
+                    "name": proc_comm,
                     "state": state,
                     "threads": threads,
                     "rss_kb": rss_kb,
@@ -1227,7 +1415,7 @@ async def process_inspect(
         res_data: dict[str, Any] = {
             "status": "OK",
             "pid": target_pid,
-            "name": name,
+            "name": proc_comm,
             "state": state,
             "threads": threads,
             "rss_kb": rss_kb,
@@ -1242,7 +1430,7 @@ async def process_inspect(
             res_data,
             tracker,
             verbosity=verbosity,
-            summary=f"Process {name} (pid={target_pid}): {rss_kb} KiB RSS, {threads} threads, {fd_count} open FDs.",
+            summary=f"Process {proc_comm} (pid={target_pid}): {rss_kb} KiB RSS, {threads} threads, {fd_count} open FDs.",
             truncated=truncated,
             cursor=str(eff_limit) if truncated else None,
         )
@@ -1331,7 +1519,8 @@ def _compact_pueue_payload(raw_json_str: str, *, limit: int = 15, is_compact: bo
             all_tasks: dict[str, Any] = data["tasks"]
             total_tasks = len(all_tasks)
             sorted_keys = sorted(all_tasks.keys(), key=lambda k: int(k) if str(k).isdigit() else -1, reverse=True)
-            sliced_keys = sorted_keys[: max(1, limit)]
+            eff_max = min(limit, 5) if (is_compact and limit == 15) else max(1, limit)
+            sliced_keys = sorted_keys[:eff_max]
             truncated = total_tasks > len(sliced_keys)
             compact_tasks: dict[str, Any] = {}
             for k in sliced_keys:
@@ -1339,13 +1528,21 @@ def _compact_pueue_payload(raw_json_str: str, *, limit: int = 15, is_compact: bo
                 if isinstance(t, dict):
                     t_clean = {tk: tv for tk, tv in t.items() if tk != "envs"}
                     if is_compact:
+                        raw_st = t_clean.get("status", {})
+                        if isinstance(raw_st, dict):
+                            st_name = next(iter(raw_st.keys()), "Unknown")
+                            sub = raw_st.get(st_name, {})
+                            res_val = sub.get("result", "") if isinstance(sub, dict) else ""
+                            status_repr = f"{st_name} ({res_val})" if res_val else st_name
+                        else:
+                            status_repr = str(raw_st)
+
                         t_clean = {
                             "id": t_clean.get("id"),
                             "label": t_clean.get("label"),
-                            "command": t_clean.get("command"),
-                            "path": t_clean.get("path"),
+                            "command": (t_clean.get("command") or "")[:100],
                             "group": t_clean.get("group"),
-                            "status": t_clean.get("status"),
+                            "status": status_repr,
                         }
                     compact_tasks[k] = t_clean
                 else:
@@ -1766,6 +1963,7 @@ async def sandbox_run(
     working_dir: str | None = None,
     ro_paths: list[str] | None = None,
     rw_paths: list[str] | None = None,
+    env: dict[str, str] | None = None,
     timeout: int = 60,
     verbosity: str = "detail",
     agent_id: str = "default",
@@ -1776,6 +1974,7 @@ async def sandbox_run(
     - Por defecto oculta el workspace del host y desactiva red (`share_net=False`).
     - `working_dir`: monta el directorio en modo solo-lectura (salvo que esté en `rw_paths`) y hace `--chdir`.
     - `ro_paths` / `rw_paths`: montajes explícitos validados contra `CapabilityGuard.is_path_blacklisted()`.
+    - `env`: variables de entorno explícitas inyectadas al sandbox vía `--setenv` (GAP-OM-04).
     """
 
     def _run() -> str:
@@ -1909,6 +2108,10 @@ async def sandbox_run(
                 "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
                 "--setenv", "GOCACHE", "/tmp/.gocache",
             ])
+
+        if env and isinstance(env, dict):
+            for k, v in env.items():
+                bwrap_cmd.extend(["--setenv", str(k), str(v)])
 
         if resolved_wd:
             bwrap_cmd.extend(["--chdir", resolved_wd])
@@ -2576,8 +2779,8 @@ async def kanban_board(
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
     action:
       - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED). En modo `summary`, muestra hasta `limit` tareas recientes por lane.
-      - 'create' (o 'task_create'): crea una tarea atómica en BACKLOG (requiere `title`).
-      - 'advance': mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
+      - 'create' (o 'task_create', 'add'): crea una tarea atómica en BACKLOG (requiere `title`).
+      - 'advance' (o 'move'): mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
       - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
       - 'demote': degrada explícitamente un artefacto a reusable=0 (requiere `artifact_name`).
       - 'reevaluate': re-pondera artefactos reusables y degrada solo los que tienen fallo demostrado.
@@ -2612,7 +2815,7 @@ async def kanban_board(
                     truncated=truncated,
                     summary=f"Kanban board loaded (counts={res.get('counts', {})}).",
                 )
-            elif act in ("create", "task_create"):
+            elif act in ("create", "task_create", "add"):
                 if not (title or "").strip():
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'title'."},
@@ -2620,10 +2823,10 @@ async def kanban_board(
                     )
                 res = kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id)
                 return attach_envelope(res, tracker)
-            elif act == "advance":
+            elif act in ("advance", "move"):
                 if task_id is None or not (to_state or "").strip():
                     return attach_envelope(
-                        {"status": "PARAM_ERROR", "error": "Acción 'advance' requiere 'task_id' y 'to_state'."},
+                        {"status": "PARAM_ERROR", "error": "Acción 'advance'/'move' requiere 'task_id' y 'to_state'."},
                         tracker,
                     )
                 return attach_envelope(
@@ -2674,7 +2877,9 @@ async def kanban_board(
                         "valid_actions": [
                             "board",
                             "create",
+                            "add",
                             "advance",
+                            "move",
                             "promote",
                             "demote",
                             "reevaluate",

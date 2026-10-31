@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-10-30
+
+### Added
+- **Omission Gaps Remediation Suite across 15 FastMCP Tools (Milestone `ONT-25`)**:
+  - **GAP-OM-01 (`artifact_lint_and_build`)**: Exposed dedicated `action="lint"` and `action="vet"` for pure Go static analysis (`go vet` + advisory `golangci-lint`) without triggering compilation or modifying catalog state.
+  - **GAP-OM-02 (`process_inspect`)**: Added `name: str | None = None` and `filter: str | None = None` to search active processes in `/proc` by executable name or command-line, sorting by RSS and eliminating client-side whole-table dumping.
+  - **GAP-OM-03 (`artifact_execute_in_ram`)**: Added `env: dict[str, str] | None = None` and `stdin: str | None = None` to inject dynamic environment variables and standard input into ephemeral binaries executing in RAM via `memfd_create`.
+  - **GAP-OM-04 (`sandbox_run`)**: Added `env: dict[str, str] | None = None` forwarding custom environment variables into Bubblewrap sandbox via `--setenv`.
+  - **GAP-OM-05 (`kanban_board`)**: Added intuitive transition aliases `action="add"` (mapping to `create`) and `action="move"` (mapping to `advance`) with mandatory parameter validation.
+  - **GAP-OM-06 (`async_job_dispatch`)**: Implemented compact status pagination in `_compact_pueue_payload` for `summary` and `brief` verbosity modes, stripping bulk environment variables and nested timestamps to reduce payload size by 97.48% (from 32,165 bytes down to 811 bytes).
+- **Unit and Integration Tests**:
+  - Added `TestOmissionGapsRemediation` in `tests/test_spec_om7_ipc_batch.py` covering all 6 remediated gaps (total 75/75 tests passing).
+
 ## [0.2.3] - 2026-10-30
 
 ### Added

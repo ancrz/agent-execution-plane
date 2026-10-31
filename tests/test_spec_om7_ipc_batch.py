@@ -747,3 +747,110 @@ class TestNonPicoSystemWideConcurrency:
         # Should either all be the same instance or all None if sqlite-vec is not installed
         assert len(set(id(h) for h in holders)) == 1
 
+
+# ==============================================================================
+# 9. Omission Gaps Remediation Suite (ONT-25)
+# ==============================================================================
+
+class TestOmissionGapsRemediation:
+    def test_gap_om01_artifact_lint_and_vet_actions(self):
+        async def _run():
+            src_valid = 'package main\nimport "fmt"\nfunc main() { fmt.Println("Lint Passed") }\n'
+            # 1. lint action
+            r1 = json.loads(await server.artifact_lint_and_build(action="lint", go_source=src_valid))
+            assert r1["status"] == "OK"
+            assert r1["lint_passed"] is True
+
+            # 2. vet action (alias)
+            r2 = json.loads(await server.artifact_lint_and_build(action="vet", go_source=src_valid))
+            assert r2["status"] == "OK"
+            assert r2["vet_passed"] is True
+
+            # 3. lint error detection
+            src_err = 'package main\nimport "fmt"\nfunc main() { fmt.Printf("%d", "str") }\n'
+            r3 = json.loads(await server.artifact_lint_and_build(action="lint", go_source=src_err))
+            assert r3["status"] == "LINT_ERROR"
+            assert r3["lint_passed"] is False
+
+        asyncio.run(_run())
+
+    def test_gap_om02_process_inspect_name_and_filter(self):
+        async def _run():
+            r1 = json.loads(await server.process_inspect(name="python"))
+            assert r1["status"] == "OK"
+            assert r1["total_matches"] > 0
+            assert "processes" in r1
+
+            r2 = json.loads(await server.process_inspect(filter="non_existent_daemon_xyz_123"))
+            assert r2["status"] == "NOT_FOUND"
+
+        asyncio.run(_run())
+
+    def test_gap_om03_artifact_execute_in_ram_env_and_stdin(self):
+        async def _run():
+            go_src = (
+                'package main\n'
+                'import ("bufio"; "fmt"; "os"; "strings")\n'
+                'func main() {\n'
+                '    flag := os.Getenv("AEP_TEST_FLAG")\n'
+                '    reader := bufio.NewReader(os.Stdin)\n'
+                '    line, _ := reader.ReadString(\'\\n\')\n'
+                '    fmt.Printf("FLAG=%s|STDIN=%s", flag, strings.TrimSpace(line))\n'
+                '}\n'
+            )
+            b = json.loads(await server.artifact_lint_and_build(
+                action="build",
+                name="env_stdin_test_tool",
+                intent="Test env and stdin",
+                category="test",
+                go_source=go_src,
+            ))
+            assert b["status"] == "SUCCESS"
+
+            r = json.loads(await server.artifact_execute_in_ram(
+                name="env_stdin_test_tool",
+                env={"AEP_TEST_FLAG": "PASSED_VALUE"},
+                stdin="input_data\n",
+            ))
+            assert r["status"] == "SUCCESS"
+            assert "FLAG=PASSED_VALUE|STDIN=input_data" in r.get("output", "")
+
+        asyncio.run(_run())
+
+    def test_gap_om04_sandbox_run_env_injection(self):
+        async def _run():
+            r = json.loads(await server.sandbox_run(
+                command='echo "KEY=$TEST_ENV_KEY"',
+                env={"TEST_ENV_KEY": "INSIDE_SANDBOX_OK"},
+            ))
+            assert r["status"] == "SUCCESS"
+            assert "KEY=INSIDE_SANDBOX_OK" in r.get("stdout", "")
+
+        asyncio.run(_run())
+
+    def test_gap_om05_kanban_board_add_and_move_aliases(self):
+        async def _run():
+            # add alias
+            r_add = json.loads(await server.kanban_board(action="add", title="Test Add Alias Task"))
+            assert r_add["status"] == "OK"
+            tid = r_add["task_id"]
+
+            # move alias
+            r_move = json.loads(await server.kanban_board(action="move", task_id=tid, to_state="SYNTHESIZED"))
+            assert r_move["status"] == "OK"
+            assert r_move["state"] == "SYNTHESIZED"
+
+        asyncio.run(_run())
+
+    def test_gap_om06_async_job_dispatch_compact_status_pagination(self):
+        async def _run():
+            r = json.loads(await server.async_job_dispatch(action="status", verbosity="summary"))
+            assert r["status"] == "OK"
+            assert r["count"] <= 5
+            assert r.get("truncated") is True
+            telem = r.get("telemetry", {})
+            assert telem.get("output_bytes", 0) < 4000
+
+        asyncio.run(_run())
+
+
