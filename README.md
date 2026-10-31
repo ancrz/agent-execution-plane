@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-99%2F99_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-109%2F109_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -56,9 +56,9 @@
    - [Tamper-Evident SHA-256 Audit Chain](#tamper-evident-sha-256-audit-chain)
    - [In-Process Sandboxing via Landlock LSM](#in-process-sandboxing-via-landlock-lsm)
    - [eBPF Security Observability](#ebpf-security-observability)
-8. [Omarchy Enhancements (7 Distro-Agnostic Specs)](#8-omarchy-enhancements-7-distro-agnostic-specs)
+8. [Omarchy Enhancements (8 Distro-Agnostic Specs)](#8-omarchy-enhancements-8-distro-agnostic-specs)
    - [Omarchy Distro-Agnostic Specification Matrix](#omarchy-distro-agnostic-specification-matrix)
-   - [Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-7)](#detailed-technical-specifications-spec-om-1-to-spec-om-7)
+   - [Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-9)](#detailed-technical-specifications-spec-om-1-to-spec-om-9)
    - [Architecture and Data Flow of Omarchy Enhancements](#architecture-and-data-flow-of-omarchy-enhancements)
 9. [Two-Tier Privilege Model + Manifest](#9-two-tier-privilege-model--manifest)
 10. [Auto-Plug: Atomic MCP Self-Management](#10-auto-plug-atomic-mcp-self-management)
@@ -292,7 +292,7 @@ flowchart TD
 
 ### Master Reference Tables for 15 FastMCP Tools
 
-The plane exposes 15 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all 15 tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses.
+The plane exposes 15 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all 15 tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-31, the strict 15-tool invariant is reaffirmed: all external offensive and defensive security capabilities (Kali MCP dual-plane bridging, netfilter firewall mitigation, and eBPF network sniffing) are absorbed directly into polymorphic dispatchers (`aep_ctl`, `kernel_trace`, `discover(action="playbook")`), preserving exactly 15 tools registered in `server.py` with zero tool-set bloat.
 
 #### Root Entry Point & Autonomy Manifest
 
@@ -304,7 +304,7 @@ The plane exposes 15 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), or returns the Kali-MCP tactical guide (`action="playbook"`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
+| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), or returns the Kali-MCP tactical guide (`action="playbook"`, including tactical security recipes `WF-10` and `WF-11` and quick reference commands `network_tactical_recon` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
 | `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(action: str = "build", name: Optional[str] = None, artifact_name: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None, category: Optional[str] = None, go_source: Optional[str] = None, template_name: Optional[str] = None, source_template: Optional[str] = None, params: Optional[Dict[str, Any]] = None, cue_contract: str = "", limit: int = 5) -> str` | Unified pipeline to browse templates (`catalog`), rank by relevance (`select`), hydrate Go source (`hydrate`), and compile binaries with `go vet`/`golangci-lint` validation (`build`, with `lint` and `vet` action aliases), including 1-step zero-config template shortcut (`template_name` auto-fills defaults and reuses active Kanban tasks). | Action-dependent typed JSON (`status`, `templates`, `matches`, `go_source`, `artifact_id`, `binary_path`). | Structured responses with `status: "PARAM_ERROR"` on missing inputs, `status: "HYDRATE_ERROR"` on template failures, and `status: "INVALID_ACTION"` on invalid actions. |
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, artifact_name: Optional[str] = None, args: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, stdin: Optional[str] = None, timeout: int = 30) -> str` | Loads the ELF binary into an anonymous volatile descriptor via `memfd_create` and executes directly in RAM via `/proc/self/fd/<fd>`. Supports `artifact_name` alias, `env` and `stdin` injection, and configurable `timeout` (1–120s, default 30s). Measures latency and records execution metrics in SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Non-zero exit codes return structured JSON with `stderr` and update historical failure rates. |
 | `artifact_catalog` | `DIMINISHED` | `artifact_catalog(action: str = "browse", category: Optional[str] = None, query: Optional[str] = None, intent: Optional[str] = None, name: Optional[str] = None, artifact_name: Optional[str] = None, limit: int = 10, force: bool = False, apply: bool = False) -> str` | Unified semantic memory. `action="browse"`: lists/searches by confidence or semantic top-K (`query`). `action in ("info", "get", "show")`: lightweight inspection of full artifact metadata (including `binary_size_bytes`) without dumping binary blobs. `action="query"`: hybrid cache search. `action="reindex"`: heals sqlite-vec vectors. `action="prune"`: safe GC. | `{"status": "OK"|"CACHE_HIT"|"CACHE_MISS", ...}` | Gracefully degrades to relational confidence ranking if vector extensions are unavailable. |
@@ -328,13 +328,13 @@ The plane exposes 15 RPC tools organized across operational domains plus the roo
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
 | `diagnose_system_crashes` | `FULL` / `DIMINISHED` | `diagnose_system_crashes(action: str = "diagnose", limit: int = 5, resolve_after_report: bool = False) -> str` | Unified crash forensics: `action="diagnose"` inspects coredumps, journalctl errors, and Apport `/var/crash` files; `action="alerts"` (alias `"check"`) polls proactive crash alerts from `crash_events` without disruption. | `{"status": "OK"|"DEGRADED", "scope": "system"|"user", ...}` / `{"status": "OK", "new_crashes_synced": int, "alerts": [...]}` | Isolated execution (`stdin=DEVNULL`, `close_fds=True`, `timeout=15`). Degrades to `DEGRADED` if systemd utilities are absent. |
-| `kernel_trace` | `FULL` | `kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str` | Non-invasive kernel tracing via `bpftrace` (`syscall_count`, `file_opens`, `tcp_connect`, `security_open_denials`, `security_landlock_audit`, `security_exec_monitor`). Bounded duration (1–30s). | `{"status": "OK", "capability_tier": "FULL", "mode": str, "duration_sec": int, "counts": {...}}` | Requires `CAP_BPF` / `sudo -n`. When called in `DIMINISHED`, returns `status: "DEGRADED"` with prerequisite instructions. |
+| `kernel_trace` | `FULL` | `kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str` | Non-invasive kernel tracing via `bpftrace` (`syscall_count`, `file_opens`, `tcp_connect`, `security_open_denials`, `security_landlock_audit`, `security_exec_monitor`, and under Milestone ONT-31: `network_sniff` [kprobe:netif_receive_skb], `security_audit` [tracepoint:capget], `tcp_listeners` [kprobe:inet_csk_listen_start]). Bounded duration (1–30s). | `{"status": "OK", "capability_tier": "FULL", "mode": str, "duration_sec": int, "counts": {...}}` | Requires `CAP_BPF` / `sudo -n`. When called in `DIMINISHED`, returns `status: "DEGRADED"` with prerequisite instructions. |
 
 #### Domain 5: System Management & Omarchy Primitives (4 Tools)
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str = "schema", action: str = "schema", name: Optional[str] = None, target: Optional[str] = None, args: Optional[Any] = None, verbosity: str = "detail", limit: int = 50, cursor: int = 0) -> str` | Unified deterministic control plane across 9 domains: `service` (including `service.list`), `network`, `storage`, `package` (including `package.list`), `backup` (catalog micro-snapshots plus full `workspace_snapshot` and `workspace_restore` with 50MB cap and `CapabilityGuard` path blacklisting), `security` (SHA-256 ledger `audit` and `verify`), `audit` (tamper verification and per-`agent_id` tool/token/latency accounting ledger via `action="usage"`), `ipc` (persistent UNIX socket daemon `/dev/shm/aep.sock`, session pool leasing, and `stats` alias), and `schema`. Supports `target` and `args` parameter aliases. `verbosity="summary"` compacts large outputs by 70–85% with pagination (`limit`/`cursor`), single-encoding, envelope deduplication, and per-request token/RSS/FD telemetry. | Standardized domain-dependent typed JSON (`status`, `domains`, `listeners`, `filesystems`, `packages`, `usage`, `envelope`, `telemetry`). | Invalid domains or actions return `status: "ERROR"` with `valid` alternatives from `CONTROL_PLANE_SCHEMA`. |
+| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str = "schema", action: str = "schema", name: Optional[str] = None, target: Optional[str] = None, args: Optional[Any] = None, verbosity: str = "detail", limit: int = 50, cursor: int = 0) -> str` | Unified deterministic control plane across 9 domains: `service` (including `service.list`), `network`, `storage`, `package` (including `package.list`), `backup` (catalog micro-snapshots plus full `workspace_snapshot` and `workspace_restore` with 50MB cap and `CapabilityGuard` path blacklisting), `security` (SHA-256 ledger `audit` and `verify`), `audit` (tamper verification and per-`agent_id` tool/token/latency accounting ledger via `action="usage"`), `ipc` (persistent UNIX socket daemon `/dev/shm/aep.sock`, session pool leasing, and `stats` alias), and `schema`. Under Milestone ONT-31, expanded `domain="security"` with active netfilter/firewall countermeasures: `firewall_status` (queries ufw or nft), `nftables_inspect` (lists active nft ruleset), and `threat_mitigate` (enforces deterministic `nft add rule inet filter input ip saddr <ip> drop`, with SIMULATED fallback in DIMINISHED mode). Supports `target` and `args` parameter aliases. `verbosity="summary"` compacts large outputs by 70–85% with pagination (`limit`/`cursor`), single-encoding, envelope deduplication, and per-request token/RSS/FD telemetry. | Standardized domain-dependent typed JSON (`status`, `domains`, `listeners`, `filesystems`, `packages`, `usage`, `envelope`, `telemetry`). | Invalid domains or actions return `status: "ERROR"` with `valid` alternatives from `CONTROL_PLANE_SCHEMA`. |
 | `query_system_docs` | `DIMINISHED` | `query_system_docs(query: str = "", q: Optional[str] = None, limit: int = 3, ingest_command: Optional[str] = None) -> str` | Offline semantic vectorizer of Ubuntu `man` pages on `system_docs.db` (`sqlite-vec`). Resolves exact syntax in <5 ms without web lookups. Supports `q` query alias. `ingest_command` allows on-demand ingestion. | `{"status": "OK", "query": str, "results": [{"command": str, "section": str, "distance": float, "chunk_text": str}]}` | Lazy loader. Degrades gracefully with actionable instructions if vector dependencies are missing. |
 | `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True, include_base64: bool = False, verbosity: str = "summary") -> str` | Renders local (`file://`) or remote URLs in headless Chromium via Playwright offloaded to a thread worker. Uses compact volatile RAM (`/dev/shm`) screenshot mode by default (`include_base64=False`, `verbosity="summary"`, `-98.9%` token footprint with `screenshot_path`, `screenshot_sha256`, and `text_excerpt`). | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_path": str, "screenshot_sha256": str, "text_excerpt": str}` | Returns `status: "DISPLAY_UNAVAILABLE"` if Playwright/Chromium is absent or on timeout (25s). |
 | `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: Union[List[str], List[Dict[str, Any]]], dependencies: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, deps: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, resources: Optional[Dict[str, Any]] = None) -> str` | Guardian of the Topos Integrity Protocol. Features polymorphic DAG input support (`tasks` as `list[str]` or `list[dict]`, `dependencies`/`deps` as `dict` or edge `list[dict]`) and shared state resource auditing (`resources`). Under Milestone ONT-30 (`GAP-DX-05`), provides resilient task-level resource fallback: when `resources` is omitted or unpassable by schema-cached clients, automatically parses task dictionaries for `writes`/`write`, `reads`/`read`, and `contract` definitions to extract resource sets and execute Bernstein hazard detection without schema errors. Executes topological sorting, cycle detection, Bernstein condition write-set hazard detection (`ToposVerdict.WARN` on uncoordinated writers without contract), and shared mutable state co-dependency checking (`ToposVerdict.BLOCKED` on mutual reader/writer coupling without an interface node). Populates edge relationship classifications (`dependency`, `interdependency`, `co-dependency`) while strictly preserving the 2-tuple return contract. | Approved: `{"verdict": "APPROVED", "details": [...], "edges": [...]}`<br/>Warn: `{"verdict": "WARN", "hazards": [...], "details": [...]}`<br/>Blocked: `{"verdict": "BLOCKED", "cycle": [...], "remediation": [...], "details": [...]}` | Deterministic in-memory algorithm with zero external dependencies and zero I/O operations. |
@@ -589,9 +589,27 @@ flowchart TD
 - **Static Go Diagnostic Probe (`diagnostic/go/landlock-guard`)**: Hermetic ELF probe compiled with `CGO_ENABLED=0` using Go standard library `syscall.Syscall6` to verify confinement without external modules.
 
 ### eBPF Security Observability (`kernel_trace`)
-- **Active Intrusion Detection**: Features curated eBPF tracepoint modes (inspired by Tetragon and Falco) to detect unauthorized file descriptor manipulation or access attempts to blacklisted files (`security_open_denials`, `security_landlock_audit`, `security_exec_monitor`).
+- **Active Intrusion Detection & Network Sniffing**: Features curated eBPF tracepoint and kprobe modes (inspired by Tetragon, Falco, and Cilium) to detect unauthorized file descriptor manipulation, access attempts to blacklisted files, network packet ingestion, and capability checks:
+  - `security_open_denials`: Audits rejected `openat` attempts (`sys_exit_openat < 0`).
+  - `security_landlock_audit`: Audits Landlock LSM self-confinement invocations (`sys_enter_landlock_restrict_self`).
+  - `security_exec_monitor`: Audits executable invocations (`sys_enter_execve`).
+  - `network_sniff` (alias `sniff`, `network`): Low-overhead kernel-space tracing of network packet ingress via `kprobe:netif_receive_skb` without user-space pcap socket overhead.
+  - `security_audit` (alias `audit`): Audits capability inspection and query attempts via `tracepoint:syscalls:sys_enter_capget`.
+  - `tcp_listeners` (alias `listeners`): Detects socket binding and active listening socket initialization via `kprobe:inet_csk_listen_start`.
+
+### Netfilter & Firewall Mitigation (`aep_ctl security`)
+- **Deterministic Perimeter Defense**: Non-interactive firewall status inspection, ruleset audits, and instant threat mitigation drops:
 
 ```bash
+# Inspect host firewall status (ufw or nftables backend detection)
+./scripts/aep-ctl security firewall_status
+
+# Inspect active netfilter ruleset (rule count and active chains)
+./scripts/aep-ctl security nftables_inspect
+
+# Enforce deterministic netfilter drop rule against malicious IP
+./scripts/aep-ctl security threat_mitigate 192.168.1.100
+
 # Inspect Landlock LSM status and supported kernel ABI version
 ./scripts/aep-ctl security landlock-status
 ```
@@ -600,10 +618,10 @@ flowchart TD
 
 ---
 
-## 8. Omarchy Enhancements (7 Distro-Agnostic Specs)
+## 8. Omarchy Enhancements (8 Distro-Agnostic Specs)
 
-Innovations from Omarchy's "Agentic OS" (originally coupled to Arch Linux / Hyprland), C2/Cloudflare IPC architectures, and multi-harness runner ergonomics decoupled into
-7 **distribution-agnostic** specifications running on Ubuntu.
+Innovations from Omarchy's "Agentic OS" (originally coupled to Arch Linux / Hyprland), C2/Cloudflare IPC architectures, multi-harness runner ergonomics, and Kali Linux dual-plane bridging decoupled into
+8 **distribution-agnostic** specifications running on Ubuntu.
 
 ```mermaid
 flowchart TD
@@ -615,8 +633,9 @@ flowchart TD
         S5["OM-5 · visual_inspect<br/>Headless display (Playwright /dev/shm)"]
         S7["OM-7 · playbook_run(action='batch') & ipc_pool<br/>/dev/shm/aep.sock + 16-slot RAM Pool + Field Projection"]
         S8["OM-8 · Schema Evolution & Multi-Runner<br/>tools.listChanged + failing node IDs + parse='auto'"]
+        S9["OM-9 · Dual-Plane Kali MCP<br/>Docker CLI + Ephemeral /dev/shm Stream"]
     end
-    S1 & S2 & S3 & S4 & S5 & S7 & S8 --> V["Zero co-dependencies (Topos)<br/>- collision-free multi-agent - typed JSON output"]
+    S1 & S2 & S3 & S4 & S5 & S7 & S8 & S9 --> V["Zero co-dependencies (Topos)<br/>- collision-free multi-agent - typed JSON output"]
 ```
 
 ### Omarchy Distro-Agnostic Specification Matrix
@@ -630,6 +649,7 @@ flowchart TD
 | **SPEC-OM-5** | **Headless Visual & Display Actuator** | `visual_inspect`<br/>`engine/headless_display.py` | Headless Chromium automation via Playwright with ephemeral RAM screenshots (`/dev/shm`). | Eliminates need for physical Wayland/Hyprland compositors or X11 servers (`Xvfb`) for UI audits. | If Playwright or Chromium is absent, returns `DISPLAY_UNAVAILABLE` with an exact resolution command. |
 | **SPEC-OM-7** | **Shared-Memory Socket Pool & Ephemeral Batch/Code Mode** | `playbook_run(action="batch")`<br/>`engine/ipc_pool.py`<br/>`/dev/shm/aep.sock` | Persistent AF_UNIX socket multiplexer in Linux shared memory (`/dev/shm`), 16-slot session pool, server-side field projection (`select_fields`). | Replaces chat context hopping and cold process spin-up with warm <0.5ms IPC and single-turn DAG batching. | Fail-soft to `/tmp/aep_pool` if `/dev/shm` is unwritable; strict zero-FD leak (`fd_delta == 0`). |
 | **SPEC-OM-8** | **Cross-Harness Schema Evolution & Multi-Runner Ergonomics** | FastMCP Core<br/>`topos_guard.py`<br/>`sandbox_run`<br/>`scripts/aep-sync.sh` | `capabilities.tools.listChanged = True`, drift metadata (`schema_hash`, `server_version`, `pid`, `uptime_seconds`), task-level resource fallback, and `sandbox_run` brief trimming / composite runner parsing (`parse="auto"`). | Bridges heterogeneous MCP client schema caches and multi-harness runtimes without process disruption. | Fail-soft task fallback prevents schema errors; instance audit is 100% read-only and never terminates processes. |
+| **SPEC-OM-9** | **Hybrid Dual-Plane Ephemeral Bridging & Kali MCP Integration** | FastMCP `kali-mcp`<br/>`aep_ctl(domain="security")`<br/>`kernel_trace`<br/>`WF-10`/`WF-11` | Sterile host execution plane (Landlock/bwrap/eBPF) bridged with heavy Docker analytical container (`kali-pentest`) via non-blocking Docker CLI pipes (`docker exec -i`) and shared memory PCAP stream dissection (`/dev/shm/pcap_stream`). | Replaces monolithic host security toolchain (54GB) with isolated ephemeral container and typed FastMCP protocol contracts. | Fail-soft: if Docker container is offline or unprivileged, commands return structured JSON error/simulation without blocking agent or crashing host runtime. |
 
 ---
 
@@ -717,7 +737,28 @@ flowchart TD
      - `WF-7` (`sandbox-linter-fix`): Safe in-place code formatting and fixing with `rw_paths=[<repo>]` and `share_net=False`.
      - `WF-8` (`untrusted-adversarial-probe`): Isolated adversarial security probing with `working_dir=<repo>`, `rw_paths=[<scratch>]`, and `share_net=False`.
      - `WF-9` (`composite-verification-runner`): Single-turn composite linting and test verification with `parse="auto"`.
+     - `WF-10` (`network-tactical-recon`): Multi-tier network reconnaissance and hardware fingerprinting combining container health checks, non-invasive tactical port scans, and host socket correlation.
+     - `WF-11` (`incident-protocol-audit`): Defense and incident mitigation workflow combining in-RAM PCAP dissection (`/dev/shm/pcap_stream`), eBPF packet sniffing (`network_sniff`), netfilter chain inspection, and deterministic IP mitigation drops.
      - Rule of Engagement #9 registered in `tactical_playbook()`, `server._INSTRUCTIONS`, and `README.md`.
+
+---
+
+#### 8. SPEC-OM-9: Hybrid Dual-Plane Ephemeral Bridging & Kali MCP Integration (Milestone ONT-31)
+- **Objective**: Formalize the architectural absorption of external cybersecurity and tactical assessment tooling into a resilient, typed, dual-plane execution model that preserves host hygiene, eliminates context flooding, and enforces strict Rules of Engagement (RoE).
+- **The 5 Systemic Primitives (RE as SDD)**:
+  1. **Dual-Plane Ephemeral Bridging (Host $\leftrightarrow$ Docker CLI)**: The host AEP execution plane remains completely sterile (zero offensive binaries installed on the host OS). Heavy analytical tools run exclusively inside an isolated Docker container (`kali-pentest`, image `kali-comprehensive:latest`, network mode `host`) accessed via non-blocking Docker CLI pipes (`docker exec -i`).
+  2. **Shared-Memory PCAP Stream Dissection (`/dev/shm/pcap_stream`)**: Live packet streams captured from network interfaces are buffered in volatile Linux shared memory (`/dev/shm`) and dissected in-RAM via `tshark -r -` with BPF filters, avoiding physical disk I/O and returning token-compact JSON summaries.
+  3. **Deterministic Netfilter/LSM Mitigation Guard (`aep_ctl domain="security"`)**: Low-overhead kernel countermeasures (`firewall_status`, `nftables_inspect`, `threat_mitigate`) execute deterministically at the host perimeter via `nftables`/`ufw`, guarded by `CapabilityGuard` and falling back to simulated actions in `DIMINISHED` mode.
+  4. **Semantic Steering & Tactical RoE as Contracts (`WF-10` & `WF-11`)**: Workflows encoded in `engine/privilege.py:tactical_playbook()` and `server._INSTRUCTIONS`:
+     - **`WF-10` (Network Tactical Recon & Hardware Fingerprinting)**: Container status $\to$ Tactical `nmap` quick scan $\to$ Host process socket correlation (`threat_audit`).
+     - **`WF-11` (Incident Protocol Audit & Defense)**: Volatile packet stream dissection (`tshark_analyze`) $\to$ Kernel packet trace (`network_sniff`) $\to$ Netfilter chain inspection (`nftables_inspect`) $\to$ Deterministic IP drop mitigation (`threat_mitigate`).
+  5. **RE as SDD as Ontological Compiler**: External 54GB Kali suite compiled into formal specifications in [`docs/sdd/sdd_kali_mcp_offensive_tactical_enhancements.md`](docs/sdd/sdd_kali_mcp_offensive_tactical_enhancements.md) and exposed via 5 typed FastMCP tools (`kali_exec`, `nmap_scan`, `tshark_analyze`, `threat_audit`, `container_status`).
+- **Native FastMCP Server & Launcher**:
+  - Independent FastMCP server implemented in `kali-mcp` workspace (`tools/kali_mcp.py` / `src/mcp/kali_server.py`).
+  - Production shell launcher `scripts/kali-mcp-launch.sh` with automatic container healthcheck, background daemon verification, and hermetic venv resolution.
+  - Registered globally in Antigravity (`~/.gemini/config/mcp_config.json`) for seamless zero-setup subagent invocation.
+- **Strict FastMCP 15-Tool Invariant Preservation**:
+  - Exactly 15 tools registered on the primary AEP host server (`server.py`). All host-side defensive enhancements are absorbed into `aep_ctl(domain="security")`, `kernel_trace`, and `tactical_playbook()`.
 
 ---
 
@@ -939,13 +980,20 @@ agent-execution-plane/
 │   ├── socket-monitor/main.go      # Static ELF Go probe for /proc/net/tcp
 │   ├── fd-rescuer/main.go          # Static ELF Go probe for /proc/PID/fd
 │   └── landlock-guard/main.go      # Static ELF Go probe for Landlock LSM confinement verification
+├── docs/
+│   └── sdd/
+│       ├── sdd_linux_primitives_and_anti_poisoning.md # ONT-13 Landlock LSM & anti-poisoning SDD
+│       ├── sdd_om7_ipc_socket_pool_and_code_batch_mode.md # ONT-21 UNIX socket pool & batch SDD
+│       └── sdd_kali_mcp_offensive_tactical_enhancements.md # ONT-31 Kali MCP dual-plane SDD
 ├── tests/
 │   ├── test_setup_idempotency.sh   # Automated provisioning idempotency test suite
 │   ├── test_engine_suite.py        # Core engine unit and integration test suite (pytest)
 │   ├── test_primitives_benchmark.py # Latency benchmark suite (RAM snapshot vs disk, Landlock vs bwrap)
 │   ├── test_agent_experience_evaluation.py # Agent-facing contract, clean bootstrap, sandbox, telemetry & Kali playbook suite
 │   ├── test_spec_om7_ipc_batch.py  # Spec OM-7 IPC socket mux, batch piping, field projection & multi-agent concurrency suite
-│   └── test_ont29_bridge_stabilization.py # ONT-29 external consumption gaps & bridge stabilization suite
+│   ├── test_ont29_bridge_stabilization.py # ONT-29 external consumption gaps & bridge stabilization suite
+│   ├── test_ont30_schema_and_runner_ergonomics.py # ONT-30 schema evolution and runner ergonomics suite
+│   └── test_aep_kali_integration.py # ONT-31 AEP & Kali MCP dual-plane integration suite
 ├── schemas/
 │   ├── database.sql                # DDL (artifacts, metrics, crash_events, audit)
 │   └── artifact_contract.cue       # Declarative CUE artifact schemas
@@ -987,7 +1035,8 @@ agent-execution-plane/
 | Pico-Kanban (Scoring) | ✅ Operational | Abstract board in `artifacts.db`; promotes artifacts to `reusable` by multidimensional score |
 | Pico-Playbooks (Automation) | ✅ Operational | Orchestrates tools/artifacts into Topos-validated DAGs; E2E execution and confidence scoring |
 | Catalog Discovery | ✅ Operational | `artifact_catalog`: confidence browsing + semantic top-K |
-| Omarchy & IPC (7 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `ipc`, `audit usage`, and `workspace_snapshot`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool, batch projection, cross-agent discovery caching, Chrysalis bridge stabilization, FastMCP dynamic schema evolution (`tools.listChanged = True`), multi-harness process observability (`pid`/`uptime`/`aep-sync.sh --audit`), and DX runner polish (99/99 tests passing) |
+| Omarchy & IPC (8 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `security` with `firewall_status`, `nftables_inspect`, `threat_mitigate`, `ipc`, `audit usage`, and `workspace_snapshot`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool, batch projection, cross-agent discovery caching, Chrysalis bridge stabilization, FastMCP dynamic schema evolution (`tools.listChanged = True`), multi-harness process observability, and DX runner polish (109/109 tests passing in AEP, 100% pass rate) |
+| Kali MCP Dual-Plane (ONT-31) | ✅ Operational | Hybrid dual-plane execution bridging sterile host AEP (Landlock/bwrap/eBPF) with isolated Docker container `kali-pentest` via native `kali-mcp` FastMCP server, launcher, Antigravity config, `WF-10`/`WF-11` workflows, and 15-tool invariant strictly preserved (7/7 tests passing in `kali-mcp`, 116/116 total) |
 | Dual-Tier Privilege | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (18 capabilities) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |

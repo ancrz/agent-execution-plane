@@ -1,11 +1,12 @@
-# Context Compaction Guidance — AEP (Milestone ONT-30)
+# Context Compaction Guidance — AEP (Milestone ONT-31 Verified)
 
 **Preserve**:
-- Pipeline Mode: Full Pipeline (Stage 2 Graphos G2 Final Record -> Routing to Hermon Stage 6).
-- Completed Milestone: ONT-30 ("AEP Cross-Harness Schema Evolution & Multi-Runner Ergonomics") — VERIFIED ✅ (99/99 tests passed, 100% gates, 0 Ruff errors).
-- Key Changes: FastMCP listChanged=True, drift metadata (schema_hash, server_version, pid, uptime), topos_audit_dag task-level resource fallback, aep-sync.sh --audit, sandbox_run brief trimming / composite parse="auto", playbook recipes WF-7 to WF-9.
-- Open Defects: None (Gate 4 LOGIC_ERROR resolved via ceiling update < 6000 bytes).
-- Next Actions: (1) Hermon Stage 6 atomic git commit; (2) Pre-commit hook validation; (3) Remote push to origin/dev.
+- Pipeline Mode: Full Pipeline (Dokimos Stage 5 VERIFIED ✅ -> Graphos G2 Baseline Refresh -> Hermon Stage 6 Release).
+- Target Milestone: ONT-31 ("RE as SDD: Kali MCP Offensive/Defensive Primitives & Native Antigravity Integration") — VERIFIED & PROMOTED.
+- Core Files: `server.py`, `engine/privilege.py`, `scripts/aep-ctl`, `tests/test_aep_kali_integration.py`, `docs/sdd/sdd_kali_mcp_offensive_tactical_enhancements.md`, `README.md`, `docs/MILESTONES.md`.
+- Quality Status: 109/109 AEP core + 7/7 Kali MCP = 116 tests passing (100%), 0 failures, 0 regressions, 0 open defects.
+- Architectural Invariants: Exactly 15 FastMCP tools preserved; zero host attack tool pollution; hybrid dual-plane container isolation.
+- Next Actions: Hermon Stage 6 atomic release commit, tag & push authorization.
 
 **Drop**:
-- Verbose test runs, raw stdout/stderr logs, intermediate defect traces, and superseded planning drafts.
+- Superseded intermediate test outputs, raw execution traces, superseded pipeline state.
