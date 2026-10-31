@@ -56,7 +56,6 @@ def privilege_mode() -> str:
     return "sudo-n" if sudo_n_available() else "unprivileged"
 
 
-
 # Constantes de capacidades
 CAP_RAM_EXEC = "ram_execution"
 CAP_EPHEMERAL_SANDBOX = "ephemeral_sandbox"
@@ -76,6 +75,7 @@ CAP_AUTOMATION = "automation"
 CAP_SYSTEM_DOCS = "system_docs"
 CAP_BACKUP_ADMIN = "backup_admin"
 CAP_AUDIT_READ = "audit_read"
+
 
 def capability_tier() -> str:
     """FULL si hay root o escalada disponible; DIMINISHED en caso contrario."""
@@ -165,7 +165,13 @@ _CAPABILITIES = {
         ["playbook_run"],
         "Pico-Playbooks: orquestación de flujos DAG, ejecución, listado, creación y poda segura (playbook_run: action='run'|'create'|'list'|'prune')",
     ),
-    "backup_admin": (4, 6, "system", ["aep_ctl"], "Gestión de copias de seguridad y rotación de backups (aep-ctl backup)"),
+    "backup_admin": (
+        4,
+        6,
+        "system",
+        ["aep_ctl"],
+        "Gestión de copias de seguridad y rotación de backups (aep-ctl backup)",
+    ),
     "audit_read": (4, 4, "self", ["aep_ctl"], "Inspección y verificación de la cadena de auditoría criptográfica"),
     "system_docs": (
         4,
@@ -305,7 +311,7 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
         "when_to_use": "Execute untrusted commands, linters, or repository test suites inside an isolated Bubblewrap namespace jail.",
         "canonical_calls": [
             'sandbox_run(command="pytest -q", working_dir="/path/to/repo", ro_paths=["/path/to/repo"], share_net=False)',
-            'sandbox_run(command="python3 -c \'print(42)\'")',
+            "sandbox_run(command=\"python3 -c 'print(42)'\")",
         ],
     },
     "async_dispatch": {
@@ -329,7 +335,7 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
         "when_to_use": "Inspect open file descriptors (/proc/PID/fd), sockets, pipes, threads, and RSS memory delta of AEP or target PIDs.",
         "canonical_calls": [
             'process_inspect(pid=0, limit=25, verbosity="summary")',
-            'process_inspect(pid=1234, limit=50)',
+            "process_inspect(pid=1234, limit=50)",
         ],
     },
     "ram_execution": {
@@ -444,7 +450,11 @@ def check_binary_prerequisites() -> dict[str, dict[str, Any]]:
         status[b] = {"installed": bool(found), "path": found}
 
     # Check Chromium / Playwright availability for visual_inspect
-    pw_browsers = list((Path.home() / ".cache" / "ms-playwright").glob("chromium*")) if (Path.home() / ".cache" / "ms-playwright").exists() else []
+    pw_browsers = (
+        list((Path.home() / ".cache" / "ms-playwright").glob("chromium*"))
+        if (Path.home() / ".cache" / "ms-playwright").exists()
+        else []
+    )
     sys_browser = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
     browser_path = sys_browser or (str(pw_browsers[0]) if pw_browsers else None)
     status["chromium_or_playwright"] = {
@@ -474,6 +484,7 @@ def tactical_playbook() -> dict[str, Any]:
             "6. EPHEMERAL PIPELINE BATCHING: Use playbook_run(action='batch', steps=[...], return_only='last', select_fields=[...]) or /dev/shm/aep.sock UNIX socket pool to execute multi-tool chains in a single turn and discard unneeded fields server-side (saving 80-98% tokens).",
             "7. ZERO-TOKEN MULTI-AGENT RAM HANDOFF & CONCURRENCY: Share state across agents in /dev/shm/aep_pool using params={'session_id': 'shared'} + store_as='key' and reference $cache.<key>.<field> (or $slot.<key>.<field>). All 15 tools (Pico-Kanban, Pico-Jenkins Go builds, Pico-Ansible playbooks, SHA-256 audit log, and RAM snapshots) are collision-free under concurrent multi-agent execution.",
             "8. MULTI-AGENT RAM CAPABILITY CACHING (GAP-DOC-02): Subagents must call discover(action='capabilities', session_id='<shared-id>', verbosity='terse') to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).",
+            "9. TACTICAL SANDBOX RECIPES (ONT-30): Use sandbox-linter-fix (rw_paths=[<repo>]) for in-place formatting, untrusted-adversarial-probe (rw_paths=[<scratch>]) for isolated fuzzing, and composite-verification-runner (parse='auto') for unified ruff && pytest in 1 turn.",
         ],
         "workflow_recipes": [
             {
@@ -482,7 +493,7 @@ def tactical_playbook() -> dict[str, Any]:
                 "steps": [
                     '1. discover(action="capabilities") -> Verify tier, binary readiness, and permissions.',
                     '2. aep_ctl(action="schema") -> Inspect unified control-plane contract.',
-                    '3. topos_audit_dag(tasks=[...], dependencies={...}) -> Verify zero circular co-dependencies.',
+                    "3. topos_audit_dag(tasks=[...], dependencies={...}) -> Verify zero circular co-dependencies.",
                     '4. aep_ctl(domain="audit", action="verify") -> Verify SHA-256 security ledger integrity.',
                 ],
             },
@@ -528,6 +539,27 @@ def tactical_playbook() -> dict[str, Any]:
                     '2. Agent B (dokimos): playbook_run(action="batch", params={"session_id":"team-1"}, agent_id="dokimos", steps=[{"id":"c1","tool":"artifact_execute_in_ram","params":{"name":"$cache.build_out.name"}}, {"id":"c2","tool":"kanban_board","params":{"action":"promote","task_id":"$cache.build_out.kanban_task_id"}}], return_only="last", select_fields=["status","verdict"]) -> Reads Agent A state from /dev/shm RAM and promotes artifact in 1 turn.',
                 ],
             },
+            {
+                "id": "WF-7",
+                "name": "In-Place Linter Auto-Fix with Read-Write Sandbox (sandbox-linter-fix)",
+                "steps": [
+                    '1. sandbox_run(command="ruff format . && ruff check --fix .", working_dir="/path/to/repo", rw_paths=["/path/to/repo"], share_net=False, parse="auto", verbosity="summary") -> Formats and auto-fixes repo in place while isolating network and sensitive host directories.',
+                ],
+            },
+            {
+                "id": "WF-8",
+                "name": "Untrusted Adversarial Probe & Isolated Fuzzing (untrusted-adversarial-probe)",
+                "steps": [
+                    '1. sandbox_run(command="python3 fuzzer.py", working_dir="/path/to/repo", ro_paths=["/path/to/repo"], rw_paths=["/path/to/scratch"], share_net=False, verbosity="summary") -> Executes adversarial or untrusted probes with read-only source repo, scratch-only write capability, and disabled network.',
+                ],
+            },
+            {
+                "id": "WF-9",
+                "name": "Composite Single-Turn Linter & Test Verification (composite-verification-runner)",
+                "steps": [
+                    '1. sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", share_net=False, parse="auto", verbosity="brief") -> Executes chained linter and test runner in a single turn, emitting composite parsed metrics (ruff violations + pytest counts/failures) without token bloat.',
+                ],
+            },
         ],
         "quick_reference": {
             "orient_and_readiness": 'discover(action="capabilities", verbosity="summary")',
@@ -542,10 +574,11 @@ def tactical_playbook() -> dict[str, Any]:
             "ipc_shared_cache": 'aep_ctl(domain="ipc", action="cache", name="team-1")',
             "ephemeral_batch": 'playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status"])',
             "terse_cached_capabilities": 'discover(action="capabilities", session_id="team-1", verbosity="terse")',
+            "sandbox_linter_fix": 'sandbox_run(command="ruff check --fix .", working_dir="/path/to/repo", rw_paths=["/path/to/repo"], share_net=False, parse="auto", verbosity="summary")',
+            "untrusted_adversarial_probe": 'sandbox_run(command="python3 probe.py", working_dir="/path/to/repo", rw_paths=["/path/to/scratch"], share_net=False, verbosity="summary")',
+            "composite_verification": 'sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", parse="auto", verbosity="brief")',
         },
-        "prerequisites_summary": {
-            k: v["installed"] for k, v in prereqs.items()
-        },
+        "prerequisites_summary": {k: v["installed"] for k, v in prereqs.items()},
     }
 
 
@@ -645,7 +678,7 @@ class CapabilityGuard:
             for b in cls.PATH_BLACKLIST:
                 if resolved_str == b or resolved_str.startswith(b + "/"):
                     return True
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return False
         return False
 

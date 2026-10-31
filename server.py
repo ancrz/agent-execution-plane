@@ -24,6 +24,7 @@ from typing import Any
 
 import anyio
 from mcp.server.fastmcp import FastMCP
+from mcp.server.lowlevel.server import NotificationOptions
 
 from engine import headless_display, matcher
 from engine.backup import (
@@ -71,6 +72,7 @@ from engine.telemetry import RequestTelemetry, attach_envelope
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard, ToposVerdict
 
+SERVER_START_TIME = time.time()
 logger = logging.getLogger("aep.server")
 
 _INSTRUCTIONS = """# Agent Execution Plane (AEP) — Tactical Suite & Instructions (EAES-v2)
@@ -81,7 +83,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
-2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-6`) and canonical calls.
+2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-9`) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
 ## 2. Complete 15-Tool Suite Map (6 Operational Domains)
@@ -114,11 +116,29 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Collision-Free Multi-Agent Concurrency**: All 15 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
 - **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
+- **Tactical Sandbox Recipes (ONT-30)**: Use `sandbox-linter-fix` (`rw_paths=[<repo>]`) for in-place formatting, `untrusted-adversarial-probe` (`rw_paths=[<scratch>]`) for isolated fuzzing, and `composite-verification-runner` (`parse="auto"`) for unified ruff && pytest in 1 turn.
 """
 
 
 _display_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="aep_display")
 mcp = FastMCP("Agent-Execution-Plane", instructions=_INSTRUCTIONS)
+
+# Advertise capabilities.tools.listChanged = True to notify clients of schema changes (GAP-DX-05)
+_orig_create_init_options = mcp._mcp_server.create_initialization_options
+
+
+def _create_initialization_options(
+    notification_options: NotificationOptions | None = None,
+    experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+) -> Any:
+    if notification_options is None:
+        notification_options = NotificationOptions(tools_changed=True)
+    else:
+        notification_options.tools_changed = True
+    return _orig_create_init_options(notification_options, experimental_capabilities)
+
+
+mcp._mcp_server.create_initialization_options = _create_initialization_options
 catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
 crash_router = CrashRouter()
@@ -147,6 +167,43 @@ PROJECT_DIR = Path(__file__).resolve().parent
 TEMP_BIN_DIR = Path.home() / ".local" / "share" / "agent-os" / "bin"
 AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _get_git_commit() -> str:
+    """Fail-soft retrieval of git HEAD short commit hash (Directive OM-1)."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(Path(__file__).resolve().parent),
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return "unknown"
+
+
+def _get_schema_hash() -> str:
+    """Compute deterministic SHA-256 fingerprint across all 15 FastMCP registered tool schemas (Directive OM-1)."""
+    try:
+        import hashlib
+
+        tools = getattr(mcp, "_tool_manager", None)
+        tool_dict = getattr(tools, "_tools", {}) if tools else {}
+        items = []
+        for name in sorted(tool_dict.keys()):
+            t = tool_dict[name]
+            params = getattr(t, "parameters", {})
+            desc = getattr(t, "description", "") or ""
+            items.append(f"{name}:{desc}:{json.dumps(params, sort_keys=True)}")
+        serialized = ";".join(items)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    except Exception:
+        return "unknown"
 
 
 async def aep_capabilities(**kw: Any) -> str:
@@ -216,22 +273,69 @@ async def topos_audit_dag(
                         if etype in ("codependency", "co-dependency", "bidirectional"):
                             norm_deps.setdefault(dst, []).append(src)
 
-        verdict, logs = ToposGuard.audit_task_dag(norm_tasks, norm_deps, resources=resources)
+        effective_resources = dict(resources) if resources else {}
+        if not effective_resources:
+            extracted_res: dict[str, dict[str, Any]] = {}
+            for item in tasks or []:
+                if isinstance(item, dict):
+                    tid = str(item.get("id") or item.get("name") or item.get("task") or item.get("module") or "")
+                    if not tid:
+                        continue
+                    w_raw = item.get("writes") or item.get("write") or []
+                    w_list = (
+                        [str(w_raw)]
+                        if isinstance(w_raw, (str, Path))
+                        else [str(w) for w in w_raw if w]
+                        if isinstance(w_raw, list)
+                        else []
+                    )
+                    r_raw = item.get("reads") or item.get("read") or []
+                    r_list = (
+                        [str(r_raw)]
+                        if isinstance(r_raw, (str, Path))
+                        else [str(r) for r in r_raw if r]
+                        if isinstance(r_raw, list)
+                        else []
+                    )
+                    contract = item.get("contract")
+
+                    for w in w_list:
+                        res_entry = extracted_res.setdefault(w, {"writers": [], "readers": [], "contract": None})
+                        if tid not in res_entry["writers"]:
+                            res_entry["writers"].append(tid)
+                        if contract and not res_entry["contract"]:
+                            res_entry["contract"] = contract
+
+                    for r in r_list:
+                        res_entry = extracted_res.setdefault(r, {"writers": [], "readers": [], "contract": None})
+                        if tid not in res_entry["readers"]:
+                            res_entry["readers"].append(tid)
+                        if contract and not res_entry["contract"]:
+                            res_entry["contract"] = contract
+
+            if extracted_res:
+                effective_resources = extracted_res
+
+        verdict, logs = ToposGuard.audit_task_dag(norm_tasks, norm_deps, resources=effective_resources or None)
         edges: list[dict[str, str]] = []
         for src, dlist in norm_deps.items():
             for dst in dlist:
                 is_codep = src in norm_deps.get(dst, [])
-                edges.append({
-                    "source": src,
-                    "target": dst,
-                    "type": "co-dependency" if is_codep else "dependency",
-                })
+                edges.append(
+                    {
+                        "source": src,
+                        "target": dst,
+                        "type": "co-dependency" if is_codep else "dependency",
+                    }
+                )
         payload: dict[str, Any] = {
             "status": verdict,
             "verdict": verdict,
             "details": logs,
             "edges": edges,
         }
+        if effective_resources:
+            payload["resources"] = effective_resources
         if verdict == ToposVerdict.WARN:
             return attach_envelope(
                 payload,
@@ -341,7 +445,9 @@ async def discover(
                     "privilege_mode": manifest.get("privilege_mode", "standard"),
                     "control_plane_domains": manifest.get("control_plane_domains", []),
                     "capabilities_count": len(manifest.get("capabilities", {})),
-                    "ready_capabilities_count": len([k for k, v in manifest.get("capabilities", {}).items() if v.get("ready")]),
+                    "ready_capabilities_count": len(
+                        [k for k, v in manifest.get("capabilities", {}).items() if v.get("ready")]
+                    ),
                     "token_savings_pct": 96.5,
                     "hint": "Capacidades ya verificadas y disponibles en RAM slot. Use herramientas directamente o pase force_refresh=True.",
                 }
@@ -352,8 +458,9 @@ async def discover(
                         "perm": v["perm"],
                         "ready": v["ready"],
                         "tools": v["tools"],
-                        "canonical_call": v["canonical_calls"][0] if v.get("canonical_calls") else None,
                     }
+                    if v.get("canonical_calls"):
+                        entry["canonical_call"] = v["canonical_calls"][0]
                     if v.get("missing_binaries"):
                         entry["missing_binaries"] = v["missing_binaries"]
                     compact_caps[k] = entry
@@ -373,7 +480,18 @@ async def discover(
                 payload["source"] = source
                 payload["session_id"] = eff_sid
 
-            payload["session_hint"] = "Pass session_id and verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."
+            caps_meta = {
+                "server_version": "v0.2.8",
+                "git_commit": _get_git_commit(),
+                "schema_hash": _get_schema_hash(),
+                "pid": os.getpid(),
+                "process_start_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(SERVER_START_TIME)),
+                "uptime_seconds": round(time.time() - SERVER_START_TIME, 2),
+            }
+            payload.update(caps_meta)
+            payload["session_hint"] = (
+                "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."
+            )
 
             if select_fields and isinstance(select_fields, list):
                 payload = project_fields(payload, select_fields)
@@ -434,7 +552,7 @@ async def discover(
                 tracker,
                 verbosity=verbosity,
                 summary=f"Tactical playbook loaded ({source}, Rules of Engagement ready).",
-                next_action="Select a workflow recipe (WF-1..WF-6) or canonical call from quick_reference.",
+                next_action="Select a workflow recipe (WF-1..WF-9) or canonical call from quick_reference.",
             )
 
         elif act in ("discover", "match", "route", "search", "recommend"):
@@ -478,7 +596,9 @@ async def discover(
                     "use_case": eff_use_case,
                     "match_status": "MATCHED" if high_conf else "NO_HIGH_CONFIDENCE_MATCH",
                     "confidence": "HIGH" if high_conf else "LOW",
-                    "recommended_next_call": rec_calls[0] if (high_conf and rec_calls) else 'discover(action="playbook")',
+                    "recommended_next_call": rec_calls[0]
+                    if (high_conf and rec_calls)
+                    else 'discover(action="playbook")',
                     "suggested_capability": [
                         {
                             "capability": c["name"],
@@ -584,11 +704,7 @@ async def artifact_catalog(
                             "reusable": it.get("reusable"),
                             "execution_count": it.get("execution_count"),
                             "success_rate": it.get("success_rate"),
-                            **(
-                                {"semantic_distance": it["semantic_distance"]}
-                                if "semantic_distance" in it
-                                else {}
-                            ),
+                            **({"semantic_distance": it["semantic_distance"]} if "semantic_distance" in it else {}),
                         }
                         for it in items
                     ]
@@ -1405,7 +1521,7 @@ async def process_inspect(
                         cmdf = p_dir / "cmdline"
                         if cmdf.exists():
                             p_cmd = cmdf.read_text(encoding="utf-8", errors="replace").replace("\x00", " ").strip()
-                    except (PermissionError, FileNotFoundError, ProcessLookupError):
+                    except PermissionError, FileNotFoundError, ProcessLookupError:
                         continue
                     if query in p_comm.lower() or query in p_cmd.lower():
                         p_rss = 0
@@ -1420,13 +1536,15 @@ async def process_inspect(
                                         parts = status_line.split(":", 1)[1].strip().split()
                                         if parts:
                                             p_rss = int(parts[0])
-                        matches.append({
-                            "pid": p_id,
-                            "name": p_comm,
-                            "cmdline": p_cmd[:120],
-                            "state": p_state,
-                            "rss_kb": p_rss,
-                        })
+                        matches.append(
+                            {
+                                "pid": p_id,
+                                "name": p_comm,
+                                "cmdline": p_cmd[:120],
+                                "state": p_state,
+                                "rss_kb": p_rss,
+                            }
+                        )
             except Exception as e:
                 logger.debug("Failed scanning /proc: %s", e)
 
@@ -1585,7 +1703,7 @@ async def process_inspect(
                     verbosity=verbosity,
                     summary=f"Process {name} (pid={target_pid}): {rss_kb} KiB RSS, {threads} threads (FD access restricted).",
                 )
-        except (FileNotFoundError, ProcessLookupError):
+        except FileNotFoundError, ProcessLookupError:
             return attach_envelope(
                 {
                     "status": "NOT_FOUND",
@@ -1606,7 +1724,7 @@ async def process_inspect(
                 link_path = fd_dir / entry
                 try:
                     target = os.readlink(link_path)
-                except (FileNotFoundError, ProcessLookupError, OSError):
+                except FileNotFoundError, ProcessLookupError, OSError:
                     target = "[closed/unreachable]"
 
             if target.startswith("socket:"):
@@ -1640,6 +1758,9 @@ async def process_inspect(
             "summary_by_type": summary_by_type,
             "descriptors": reported_descriptors,
         }
+        if target_pid == os.getpid():
+            res_data["process_start_time"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(SERVER_START_TIME))
+            res_data["uptime_seconds"] = round(time.time() - SERVER_START_TIME, 2)
         if truncated:
             res_data["truncated"] = True
 
@@ -1721,7 +1842,9 @@ def _ensure_pueue_daemon() -> str | None:
     return pueue_bin
 
 
-def _compact_pueue_payload(raw_json_str: str, *, limit: int = 15, is_compact: bool = True) -> tuple[dict[str, Any], bool]:
+def _compact_pueue_payload(
+    raw_json_str: str, *, limit: int = 15, is_compact: bool = True
+) -> tuple[dict[str, Any], bool]:
     """Sanitize and compact pueue status/log JSON, stripping multi-megabyte `envs` dicts."""
     masked = mask_pueue_output(raw_json_str)
     try:
@@ -1878,7 +2001,7 @@ async def async_job_dispatch(
                 out = res.stdout.strip()
                 try:
                     tid = int(out.split()[-1])
-                except (IndexError, ValueError):
+                except IndexError, ValueError:
                     tid = out
 
                 return attach_envelope(
@@ -2048,7 +2171,7 @@ async def diagnose_system_crashes(
                             timeout=15,
                             check=False,
                         )
-                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                    except FileNotFoundError, subprocess.TimeoutExpired:
                         return None
 
                 unavailable = []
@@ -2213,56 +2336,89 @@ async def diagnose_system_crashes(
     return await anyio.to_thread.run_sync(_run)
 
 
+def _parse_pytest_output(raw_text: str) -> dict[str, Any] | None:
+    p_m = re.search(r"(\d+)\s+passed", raw_text)
+    f_m = re.search(r"(\d+)\s+failed", raw_text)
+    e_m = re.search(r"(\d+)\s+error", raw_text)
+    s_m = re.search(r"(\d+)\s+skipped", raw_text)
+    d_m = re.search(r"in\s+([\d\.]+)\s*s", raw_text)
+
+    passed = int(p_m.group(1)) if p_m else 0
+    failed = int(f_m.group(1)) if f_m else 0
+    errors = int(e_m.group(1)) if e_m else 0
+    skipped = int(s_m.group(1)) if s_m else 0
+    duration_s = float(d_m.group(1)) if d_m else 0.0
+
+    if p_m or f_m or e_m or s_m or "pytest" in raw_text or "passed" in raw_text:
+        res: dict[str, Any] = {
+            "tool": "pytest",
+            "passed": passed,
+            "failed": failed,
+            "errors": errors,
+            "skipped": skipped,
+            "duration_s": duration_s,
+            "total": passed + failed + errors + skipped,
+        }
+        # Directive OM-3: Extract failing test node IDs into parsed["failures"]
+        failures: list[str] = []
+        f1 = re.findall(r"^FAILED\s+([^\s]+)", raw_text, re.MULTILINE)
+        f2 = re.findall(r"(?:FAILED|ERROR)\s+([^\s:]+::[^\s\n]+)", raw_text)
+        for node in f1 + f2:
+            clean_node = node.split(" - ")[0].strip()
+            if clean_node and clean_node not in failures:
+                failures.append(clean_node)
+        if failures:
+            res["failures"] = failures
+            res["failing_nodes"] = failures
+        return res
+    return None
+
+
+def _parse_ruff_output(raw_text: str) -> dict[str, Any] | None:
+    v_m = re.search(r"Found\s+(\d+)\s+error", raw_text)
+    fix_m = re.search(r"\((\d+)\s+fixable", raw_text)
+    if "All checks passed" in raw_text:
+        return {"tool": "ruff", "violations": 0, "fixable": 0}
+    elif v_m:
+        return {
+            "tool": "ruff",
+            "violations": int(v_m.group(1)),
+            "fixable": int(fix_m.group(1)) if fix_m else 0,
+        }
+    return None
+
+
 def _parse_runner_output(raw_text: str, command: str, mode: str | None) -> dict[str, Any] | None:
-    """Parsea la salida de pytest/ruff a formato estructurado (GAP-DX-04). Fail-soft si no coincide."""
+    """Parsea la salida de pytest/ruff a formato estructurado (GAP-DX-04 & ONT-30). Fail-soft si no coincide."""
     if not mode:
         return None
     m = str(mode).strip().lower()
-    eff_mode = m
-    if m == "auto":
-        cmd_lower = command.lower()
-        if "pytest" in cmd_lower or "test" in cmd_lower or "passed in" in raw_text:
-            eff_mode = "pytest"
-        elif "ruff" in cmd_lower or "checks passed" in raw_text:
-            eff_mode = "ruff"
-        else:
-            eff_mode = "pytest"
-
     try:
-        if eff_mode == "pytest":
-            p_m = re.search(r"(\d+)\s+passed", raw_text)
-            f_m = re.search(r"(\d+)\s+failed", raw_text)
-            e_m = re.search(r"(\d+)\s+error", raw_text)
-            s_m = re.search(r"(\d+)\s+skipped", raw_text)
-            d_m = re.search(r"in\s+([\d\.]+)\s*s", raw_text)
-
-            passed = int(p_m.group(1)) if p_m else 0
-            failed = int(f_m.group(1)) if f_m else 0
-            errors = int(e_m.group(1)) if e_m else 0
-            skipped = int(s_m.group(1)) if s_m else 0
-            duration_s = float(d_m.group(1)) if d_m else 0.0
-
-            if p_m or f_m or e_m or s_m or "pytest" in raw_text or "passed" in raw_text:
+        if m in ("auto", "composite"):
+            p_res = _parse_pytest_output(raw_text)
+            r_res = _parse_ruff_output(raw_text)
+            if p_res is not None and r_res is not None:
                 return {
-                    "tool": "pytest",
-                    "passed": passed,
-                    "failed": failed,
-                    "errors": errors,
-                    "skipped": skipped,
-                    "duration_s": duration_s,
-                    "total": passed + failed + errors + skipped,
+                    "tool": "composite",
+                    "ruff": r_res,
+                    "pytest": p_res,
                 }
-        elif eff_mode == "ruff":
-            v_m = re.search(r"Found\s+(\d+)\s+error", raw_text)
-            fix_m = re.search(r"\((\d+)\s+fixable", raw_text)
-            if "All checks passed" in raw_text:
-                return {"tool": "ruff", "violations": 0, "fixable": 0}
-            elif v_m:
+            if m == "composite":
                 return {
-                    "tool": "ruff",
-                    "violations": int(v_m.group(1)),
-                    "fixable": int(fix_m.group(1)) if fix_m else 0,
+                    "tool": "composite",
+                    "ruff": r_res or {"tool": "ruff", "violations": 0, "fixable": 0},
+                    "pytest": p_res or {"tool": "pytest", "passed": 0, "failed": 0, "total": 0},
                 }
+            cmd_lower = command.lower()
+            if "ruff" in cmd_lower and r_res is not None:
+                return r_res
+            if ("pytest" in cmd_lower or "test" in cmd_lower) and p_res is not None:
+                return p_res
+            return p_res or r_res
+        elif m == "pytest":
+            return _parse_pytest_output(raw_text)
+        elif m == "ruff":
+            return _parse_ruff_output(raw_text)
     except Exception:  # noqa: BLE001, S110
         pass
     return None
@@ -2372,40 +2528,42 @@ async def sandbox_run(
         ]
         if share_net:
             bwrap_cmd.append("--share-net")
-        bwrap_cmd.extend([
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--ro-bind",
-            "/bin",
-            "/bin",
-            "--ro-bind",
-            "/lib",
-            "/lib",
-            "--ro-bind-try",
-            "/lib64",
-            "/lib64",
-            "--ro-bind-try",
-            "/etc/ssl",
-            "/etc/ssl",
-            "--ro-bind-try",
-            "/etc/pki",
-            "/etc/pki",
-            "--ro-bind-try",
-            "/etc/resolv.conf",
-            "/etc/resolv.conf",
-            "--ro-bind-try",
-            "/etc/hosts",
-            "/etc/hosts",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--tmpfs",
-            "/tmp",
-            "--tmpfs",
-            "/dev/shm",
-        ])
+        bwrap_cmd.extend(
+            [
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--ro-bind",
+                "/bin",
+                "/bin",
+                "--ro-bind",
+                "/lib",
+                "/lib",
+                "--ro-bind-try",
+                "/lib64",
+                "/lib64",
+                "--ro-bind-try",
+                "/etc/ssl",
+                "/etc/ssl",
+                "--ro-bind-try",
+                "/etc/pki",
+                "/etc/pki",
+                "--ro-bind-try",
+                "/etc/resolv.conf",
+                "/etc/resolv.conf",
+                "--ro-bind-try",
+                "/etc/hosts",
+                "/etc/hosts",
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--tmpfs",
+                "/tmp",
+                "--tmpfs",
+                "/dev/shm",
+            ]
+        )
 
         mounted_ro: list[str] = []
         mounted_rw: list[str] = []
@@ -2437,15 +2595,31 @@ async def sandbox_run(
         # Provide writable ephemeral HOME/XDG and tool cache directories on /tmp tmpfs inside the sandbox
         host_home = str(Path.home().resolve())
         if host_home not in mounted_rw:
-            bwrap_cmd.extend([
-                "--setenv", "HOME", "/tmp",
-                "--setenv", "XDG_CACHE_HOME", "/tmp/.cache",
-                "--setenv", "XDG_DATA_HOME", "/tmp/.local/share",
-                "--setenv", "RUFF_CACHE_DIR", "/tmp/.ruff_cache",
-                "--setenv", "PYTEST_ADDOPTS", "-o cache_dir=/tmp/.pytest_cache",
-                "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
-                "--setenv", "GOCACHE", "/tmp/.gocache",
-            ])
+            bwrap_cmd.extend(
+                [
+                    "--setenv",
+                    "HOME",
+                    "/tmp",
+                    "--setenv",
+                    "XDG_CACHE_HOME",
+                    "/tmp/.cache",
+                    "--setenv",
+                    "XDG_DATA_HOME",
+                    "/tmp/.local/share",
+                    "--setenv",
+                    "RUFF_CACHE_DIR",
+                    "/tmp/.ruff_cache",
+                    "--setenv",
+                    "PYTEST_ADDOPTS",
+                    "-o cache_dir=/tmp/.pytest_cache",
+                    "--setenv",
+                    "PYTHONDONTWRITEBYTECODE",
+                    "1",
+                    "--setenv",
+                    "GOCACHE",
+                    "/tmp/.gocache",
+                ]
+            )
 
         if env and isinstance(env, dict):
             for k, v in env.items():
@@ -2454,15 +2628,17 @@ async def sandbox_run(
         if resolved_wd:
             bwrap_cmd.extend(["--chdir", resolved_wd])
 
-        bwrap_cmd.extend([
-            "--cap-drop",
-            "ALL",
-            "--die-with-parent",
-            "--",
-            "sh",
-            "-c",
-            effective_cmd,
-        ])
+        bwrap_cmd.extend(
+            [
+                "--cap-drop",
+                "ALL",
+                "--die-with-parent",
+                "--",
+                "sh",
+                "-c",
+                effective_cmd,
+            ]
+        )
 
         try:
             res = subprocess.run(
@@ -2486,19 +2662,38 @@ async def sandbox_run(
                     truncated = True
             parsed_result = _parse_runner_output(res.stdout + "\n" + res.stderr, effective_cmd, parse)
             is_brief = (verbosity or "detail").strip().lower() in ("brief", "terse")
-            res_payload: dict[str, Any] = {
-                "status": st,
-                "agent_id": agent_id,
-                "exit_code": res.returncode,
-                "share_net": share_net,
-                "working_dir": resolved_wd,
-                "ro_mounts": mounted_ro,
-                "rw_mounts": mounted_rw,
-                "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
-                "stderr": ("" if (is_brief and parsed_result is not None and res.returncode == 0) else err_str),
-            }
-            if parsed_result is not None:
-                res_payload["parsed"] = parsed_result
+            if is_brief and parse is not None:
+                res_payload: dict[str, Any] = {
+                    "status": st,
+                    "exit_code": res.returncode,
+                }
+                if parsed_result is not None:
+                    res_payload["parsed"] = parsed_result
+                if res.returncode != 0:
+                    failures = []
+                    if isinstance(parsed_result, dict):
+                        failures = parsed_result.get("failures") or parsed_result.get("failing_nodes") or []
+                    if failures:
+                        res_payload["failures"] = failures
+                        res_payload["failing_nodes"] = failures
+                    if out_str:
+                        res_payload["stdout_tail"] = out_str[-1000:].strip()
+                    if err_str:
+                        res_payload["stderr_tail"] = err_str[-1000:].strip()
+            else:
+                res_payload = {
+                    "status": st,
+                    "agent_id": agent_id,
+                    "exit_code": res.returncode,
+                    "share_net": share_net,
+                    "working_dir": resolved_wd,
+                    "ro_mounts": mounted_ro,
+                    "rw_mounts": mounted_rw,
+                    "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
+                    "stderr": ("" if (is_brief and parsed_result is not None and res.returncode == 0) else err_str),
+                }
+                if parsed_result is not None:
+                    res_payload["parsed"] = parsed_result
             return attach_envelope(
                 res_payload,
                 tracker,
@@ -2515,18 +2710,36 @@ async def sandbox_run(
 def _flatten_mounts(nodes: list[dict[str, Any]], out: list[dict[str, Any]]) -> None:
     """Flatten nested findmnt JSON tree into a flat list of mount records."""
     _VIRTUAL_FS = {
-        "cgroup2", "cgroup", "proc", "sysfs", "nsfs", "mqueue", "hugetlbfs",
-        "tracefs", "debugfs", "securityfs", "pstore", "bpf", "configfs",
-        "fusectl", "autofs", "devpts", "devtmpfs", "efivarfs", "binfmt_misc",
+        "cgroup2",
+        "cgroup",
+        "proc",
+        "sysfs",
+        "nsfs",
+        "mqueue",
+        "hugetlbfs",
+        "tracefs",
+        "debugfs",
+        "securityfs",
+        "pstore",
+        "bpf",
+        "configfs",
+        "fusectl",
+        "autofs",
+        "devpts",
+        "devtmpfs",
+        "efivarfs",
+        "binfmt_misc",
     }
     for n in nodes:
         fstype = n.get("fstype", "")
         if fstype not in _VIRTUAL_FS:
-            out.append({
-                "target": n.get("target"),
-                "source": n.get("source"),
-                "fstype": fstype,
-            })
+            out.append(
+                {
+                    "target": n.get("target"),
+                    "source": n.get("source"),
+                    "fstype": fstype,
+                }
+            )
         children = n.get("children")
         if isinstance(children, list):
             _flatten_mounts(children, out)
@@ -2666,11 +2879,19 @@ async def aep_ctl(
             elif a == "quarantine_status":
                 res_obj = get_quarantine_status()
             elif a == "workspace_snapshot":
-                target_path = target or (args[0] if isinstance(args, list) and args else (args if isinstance(args, str) else None)) or "."
+                target_path = (
+                    target
+                    or (args[0] if isinstance(args, list) and args else (args if isinstance(args, str) else None))
+                    or "."
+                )
                 snap_name = eff_name if eff_name and eff_name != target_path else None
                 res_obj = create_workspace_snapshot(path=target_path, name=snap_name)
             elif a == "workspace_restore":
-                target_path = target or (args[0] if isinstance(args, list) and args else (args if isinstance(args, str) else None)) or "."
+                target_path = (
+                    target
+                    or (args[0] if isinstance(args, list) and args else (args if isinstance(args, str) else None))
+                    or "."
+                )
                 snap_name = eff_name if eff_name and eff_name != target_path else None
                 res_obj = restore_workspace_snapshot(path=target_path, name=snap_name)
             else:
@@ -2795,7 +3016,9 @@ async def aep_ctl(
                             "operstate": iface.get("operstate"),
                             "mtu": iface.get("mtu"),
                             "addresses": [
-                                ai.get("local") for ai in iface.get("addr_info", []) if isinstance(ai, dict) and ai.get("local")
+                                ai.get("local")
+                                for ai in iface.get("addr_info", [])
+                                if isinstance(ai, dict) and ai.get("local")
                             ],
                         }
                         for iface in parsed["interfaces"]
@@ -3395,11 +3618,13 @@ async def playbook_run(
             prev_output: Any = None
             results: list[dict[str, Any]] = []
             all_ok = True
-            slot_cache_dict = dict(GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("cache", {}))
+            slot_cache_dict = dict(
+                GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("cache", {})
+            )
 
             try:
                 for step in v["ordered_steps"]:
-                    sid = str(step.get("id", f"s{len(results)+1}"))
+                    sid = str(step.get("id", f"s{len(results) + 1}"))
                     tool = step.get("tool")
                     step_params = dict(step.get("params", {}))
 
@@ -3422,7 +3647,11 @@ async def playbook_run(
                         has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
                         if not has_var_kw:
                             step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
-                        if is_compact and "verbosity" not in step_params and ("verbosity" in sig.parameters or has_var_kw):
+                        if (
+                            is_compact
+                            and "verbosity" not in step_params
+                            and ("verbosity" in sig.parameters or has_var_kw)
+                        ):
                             step_params["verbosity"] = "summary"
                         raw = fn(**step_params)
                         if inspect.iscoroutine(raw):
@@ -3474,8 +3703,7 @@ async def playbook_run(
                     "tool": r["tool"],
                     "status": r["status"],
                     "error": (
-                        (r.get("output") or {}).get("error")
-                        or (r.get("output") or {}).get("message")
+                        (r.get("output") or {}).get("error") or (r.get("output") or {}).get("message")
                         if isinstance(r.get("output"), dict)
                         else str(r.get("output"))
                     ),
@@ -3490,8 +3718,7 @@ async def playbook_run(
                 base_res["output"] = prev_output
             elif ret_mode == "summary":
                 base_res["steps_summary"] = [
-                    {"id": r["id"], "tool": r["tool"], "status": r["status"], "ok": r["ok"]}
-                    for r in results
+                    {"id": r["id"], "tool": r["tool"], "status": r["status"], "ok": r["ok"]} for r in results
                 ]
             else:  # "all"
                 base_res["results"] = results
@@ -3631,11 +3858,13 @@ async def playbook_run(
             prev_output: Any = None
             results: list[dict[str, Any]] = []
             all_ok = True
-            slot_cache_dict = dict(GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("cache", {}))
+            slot_cache_dict = dict(
+                GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent).get("cache", {})
+            )
 
             try:
                 for step in ordered_steps:
-                    sid = str(step.get("id", f"s{len(results)+1}"))
+                    sid = str(step.get("id", f"s{len(results) + 1}"))
                     tool = step.get("tool")
                     step_params = dict(step.get("params", {}))
 
@@ -3659,7 +3888,11 @@ async def playbook_run(
                         has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
                         if not has_var_kw:
                             step_params = {k: v for k, v in step_params.items() if k in sig.parameters}
-                        if is_compact and "verbosity" not in step_params and ("verbosity" in sig.parameters or has_var_kw):
+                        if (
+                            is_compact
+                            and "verbosity" not in step_params
+                            and ("verbosity" in sig.parameters or has_var_kw)
+                        ):
                             step_params["verbosity"] = "summary"
                         raw = fn(**step_params)
                         if inspect.iscoroutine(raw):
@@ -3709,8 +3942,7 @@ async def playbook_run(
                     "tool": r["tool"],
                     "status": r["status"],
                     "error": (
-                        (r.get("output") or {}).get("error")
-                        or (r.get("output") or {}).get("message")
+                        (r.get("output") or {}).get("error") or (r.get("output") or {}).get("message")
                         if isinstance(r.get("output"), dict)
                         else str(r.get("output"))
                     ),
@@ -3725,8 +3957,7 @@ async def playbook_run(
                 base_res["output"] = prev_output
             elif ret_mode == "summary":
                 base_res["steps_summary"] = [
-                    {"id": r["id"], "tool": r["tool"], "status": r["status"], "ok": r["ok"]}
-                    for r in results
+                    {"id": r["id"], "tool": r["tool"], "status": r["status"], "ok": r["ok"]} for r in results
                 ]
             else:  # "all"
                 base_res["results"] = results

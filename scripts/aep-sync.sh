@@ -157,8 +157,58 @@ PY
     ok "Auto-plug completado en $n cliente(s). (Las sesiones activas aplican al reiniciar.)"
 }
 
+audit_running_instances() {
+    log "Auditando instancias activas de AEP..."
+    local head_ct; head_ct="$(git -C "$PROJECT_ROOT" log -1 --format=%ct 2>/dev/null || echo 0)"
+    local pids; pids="$(pgrep -f "python.*server\.py" 2>/dev/null || true)"
+    if [[ -z "$pids" ]]; then
+        ok "No hay instancias obsoletas de AEP en ejecución."
+        return 0
+    fi
+
+    local current_pid=$$
+    local found_count=0
+    for pid in $pids; do
+        if [[ "$pid" == "$current_pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+            continue
+        fi
+
+        found_count=$((found_count + 1))
+        local ppid; ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || echo 0)"
+        local parent_cmd; parent_cmd="$(ps -o comm= -p "$ppid" 2>/dev/null || ps -o args= -p "$ppid" 2>/dev/null || echo "unknown")"
+        
+        local harness="CLI/Other"
+        if echo "$parent_cmd" | grep -qi "claude"; then
+            harness="Claude Code"
+        elif echo "$parent_cmd" | grep -qi -E "agy|antigravity|language_server"; then
+            harness="Antigravity"
+        elif echo "$parent_cmd" | grep -qi "codex"; then
+            harness="Codex"
+        elif echo "$parent_cmd" | grep -qi "gemini"; then
+            harness="Gemini CLI"
+        fi
+
+        local proc_mtime; proc_mtime="$(stat -c %Y "/proc/$pid" 2>/dev/null || echo 0)"
+        if [[ "$head_ct" -gt 0 && "$proc_mtime" -gt 0 && "$proc_mtime" -lt "$head_ct" ]]; then
+            warn "Instancia activa AEP (PID $pid, Harness: $harness, PPID $ppid) iniciada antes del último commit ($proc_mtime < $head_ct). Puede servir bytecode obsoleto. Reinicie la sesión del harness."
+        else
+            log "Instancia AEP (PID $pid, Harness: $harness, PPID $ppid) activa."
+        fi
+    done
+    if [[ "$found_count" -eq 0 ]]; then
+        ok "No hay instancias secundarias de AEP en ejecución."
+    fi
+    return 0
+}
+
 sync_once() {
-    if validate; then register; else err "Sync abortado: no se enchufa un server inválido."; return 1; fi
+    if validate; then
+        register
+        audit_running_instances || true
+    else
+        err "Sync abortado: no se enchufa un server inválido."
+        return 1
+    fi
 }
 
 watch_mode() {
@@ -177,9 +227,10 @@ watch_mode() {
 
 case "${1:-}" in
     --check)       validate ;;
+    --audit)       audit_running_instances ;;
     --watch)       watch_mode ;;
     --with-claude) AEP_PLUG_CLAUDE=1 sync_once ;;
     --no-claude)   AEP_PLUG_CLAUDE=0 sync_once ;;
     "")            sync_once ;;
-    *)             err "Uso: aep-sync.sh [--check|--watch|--with-claude|--no-claude]"; exit 2 ;;
+    *)             err "Uso: aep-sync.sh [--check|--audit|--watch|--with-claude|--no-claude]"; exit 2 ;;
 esac
