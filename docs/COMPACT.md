@@ -1,12 +1,12 @@
-# Context Compaction Guidance — AEP (Milestone ONT-32 Verified)
+# Context Compaction Guidance — AEP (Milestone ONT-33 Verified)
 
 **Preserve**:
-- Pipeline Mode: Full Pipeline (Dokimos Stage 5 VERIFIED ✅ -> Graphos G2 Baseline Refresh -> Hermon Stage 6 Release).
-- Target Milestone: ONT-32 ("Native Memory-First Network & Security Telemetry") — VERIFIED & PROMOTED.
-- Core Files: `engine/net_telemetry.py`, `server.py`, `engine/privilege.py`, `scripts/aep-ctl`, `tests/test_net_security_telemetry.py`, `README.md`, `docs/MILESTONES.md`.
-- Quality Status: 109/109 tests passing repository-wide (100%), 0 failures, 0 regressions, 8/8 ONT-32 gates certified.
-- Architectural Invariants: Exactly 15 FastMCP tools preserved; zero container/Docker dependencies; pure in-RAM operations; sanitized semantics.
-- Next Actions: Hermon Stage 6 atomic release commit, version tag & push authorization.
+- Pipeline State: Full Pipeline (Archon ✅ -> Graphos G1 ✅ -> Ontos ✅ -> Pragma ✅ -> Dokimos ✅ -> Graphos G2 ✅ -> Hermon Stage 6 ⏳).
+- Active Milestone: ONT-33 ("Predictive Privilege-Aware Setup Pipeline & Chmod Graceful Degradation Matrix") — VERIFIED & PROMOTED ✅.
+- Quality Status: 117/117 tests passed (100%), 0 regressions, 8/8 gates passed, Ruff SAST 0 errors.
+- Invariants: FastMCP 15 tools strictly preserved (len(_tools) == 15); 4 chmod tiers (7rwx, 6rw-, 5r-x, 4r--); zero sudo prompt hangs.
+- Modified Files: engine/privilege.py, scripts/setup.sh, scripts/aep-ctl, server.py, tests/test_privilege_degradation.py, README.md, docs/MILESTONES.md.
+- Next Actions: Hermon (Stage 6) atomic commit on dev branch & handoff.
 
 **Drop**:
-- Superseded intermediate test outputs, raw execution traces, superseded pipeline state.
+- Intermediate shell traces, verbose test run outputs, superseded pipeline drafts.

@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-109%2F109_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-117%2F117_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -60,7 +60,7 @@
    - [Omarchy Distro-Agnostic Specification Matrix](#omarchy-distro-agnostic-specification-matrix)
    - [Detailed Technical Specifications (SPEC-OM-1 to SPEC-OM-9)](#detailed-technical-specifications-spec-om-1-to-spec-om-9)
    - [Architecture and Data Flow of Omarchy Enhancements](#architecture-and-data-flow-of-omarchy-enhancements)
-9. [Two-Tier Privilege Model + Manifest](#9-two-tier-privilege-model--manifest)
+9. [Four-Tier Chmod Privilege & Graceful Degradation Matrix](#9-four-tier-chmod-privilege--graceful-degradation-matrix)
 10. [Auto-Plug: Atomic MCP Self-Management](#10-auto-plug-atomic-mcp-self-management)
 11. [Shell-Agnostic Environment](#11-shell-agnostic-environment)
 12. [Clean-Slate Installation, Health Audit & Autonomous Updater](#12-clean-slate-installation-health-audit--autonomous-updater)
@@ -813,35 +813,100 @@ flowchart TD
 
 ---
 
-## 9. Two-Tier Privilege Model + Manifest
+## 9. Four-Tier Chmod Privilege & Graceful Degradation Matrix
 
-Privileged tools operate under two tiers (least-privilege by default). `aep_capabilities()`
-returns a **self-describing manifest modeled after `chmod`/777** allowing the consuming AI to
-understand its immediate execution boundaries.
+AEP establishes a **4-tier Unix chmod octal model** (`7rwx`, `6rw-`, `5r-x`, `4r--`) paired with a
+non-blocking predictive prober (`sudo -n true` with `<=3s` timeout and process-level caching via `_PrivilegeCache`).
+This architecture completely eliminates interactive password prompt hangs on `stdin` while guaranteeing
+graceful fail-soft degradation across all **15 FastMCP tools** and **8 `aep_ctl` control-plane domains**.
 
 ```mermaid
 flowchart TD
-    Start["euid == 0?"] -->|yes| Full["FULL (direct-root)"]
-    Start -->|no| Sudo{"sudo -n available?"}
-    Sudo -->|yes| FullE["FULL (sudo-n) - bounded escalation"]
-    Sudo -->|no| Dim["DIMINISHED - user-space scope, fail-soft"]
-    Full & FullE --> Scope["Scope: self -> system -> kernel"]
-    Dim --> ScopeD["Scope: self (complete autonomous baseline)"]
+    Start["euid == 0?"] -->|yes| T7["Tier 7rwx (direct-root)"]
+    Start -->|no| Sudo{"sudo -n true (timeout <= 3s)?"}
+    Sudo -->|yes| T7E["Tier 7rwx (sudo-n escalation)"]
+    Sudo -->|no| Ws{"Workspace & /dev/shm writable?"}
+    Ws -->|yes| T6["Tier 6rw- (unprivileged host user rw)"]
+    Ws -->|no| Ex{"Exec permitted (/proc/self/exe or sh)?"}
+    Ex -->|yes| T5["Tier 5r-x (restricted / container ro-exec)"]
+    Ex -->|no| T4["Tier 4r-- (auditor / observer ro)"]
+
+    T7 & T7E --> S7["Scope: self -> system -> kernel<br/>(Full eBPF, apt, systemd system, netfilter drop)"]
+    T6 --> S6["Scope: self -> systemd user -> RAM exec<br/>(Pueue user, memfd, bwrap user ns, SQLite RW)"]
+    T5 --> S5["Scope: self in-RAM isolated exec<br/>(RO bind mount, template browse, query, lint)"]
+    T4 --> S4["Scope: self read-only audit<br/>(pure in-RAM verification, docs, audit verify, zero exec)"]
 ```
 
-**Capability Codes** (repurposed rwx triad): `r`=SENSE, `w`=ACT, `x`=EXECUTE via non-traditional paths.
+### 9.1 The 4 Unix Chmod Octal Tiers
 
-| octal | perm | meaning |
-| :---: | :---: | :--- |
-| 7 | `rwx` | sense + act + execute |
-| 6 | `rw-` | sense + act |
-| 5 | `r-x` | sense + execute |
-| 4 | `r--` | sense only |
-| 0 | `---` | no access (requires FULL) |
+The Unix permission triad (`rwx`) is repurposed to represent agent operational authority:
+- **`r` (4) = SENSE**: Non-invasive inspection of system state, configuration, and telemetry.
+- **`w` (2) = ACT**: Mutating host state, modifying SQLite databases, or writing to disk.
+- **`x` (1) = EXECUTE**: Running binaries via non-traditional paths (anonymous RAM execution, kernel probes, sandboxed child processes).
 
-> Autonomous operation is fully functional in **DIMINISHED** mode; the **FULL** tier only broadens
-> `kernel_observability` (`0->4`) and `service_control` (`4->6`). Privilege expands capability, but is
-> never a prerequisite for baseline autonomy.
+| Octal | Permissions | Classification | Operational Environment & Capabilities |
+| :---: | :---: | :--- | :--- |
+| **7** | `rwx` | **Root / Full Sudo** | Direct root (`euid == 0`) or verified passwordless escalation (`sudo -n true`). Full eBPF kernel tracing (`CAP_BPF`), systemd system unit control, system-wide `apt-get` packages, raw socket packet capture, and host netfilter enforcement. |
+| **6** | `rw-` | **Standard User RW** | Standard developer workstation or unprivileged server account. Full read-write workspace and `/dev/shm`, anonymous in-RAM execution (`memfd_create`), SQLite WAL transactions, user-scope systemd units (`systemctl --user`), user Pueue dispatch, and user-namespace Bubblewrap sandboxing. |
+| **5** | `r-x` | **Restricted / RO-Exec** | Sandboxed container runtime, ephemeral CI runner, or read-only workspace mount. In-RAM anonymous execution and Python evaluation permitted; template inspection and static linting active; host filesystem mutation blocked. |
+| **4** | `r--` | **Auditor / RO-Observer** | Strict security compliance auditor or zero-execution monitoring node. 100% read-only; execution and filesystem mutation disabled. Pure in-RAM graph verification (`topos_audit_dag`), documentation search (`query_system_docs`), SHA-256 audit ledger validation (`aep_ctl audit verify`), and metadata querying. |
+| **0** | `---` | **No Access** | Subsystem requires elevated privileges (`7rwx`) not granted in the active tier. |
+
+> **Autonomy Invariant**: Autonomous agent operation is fully functional across all tiers. Privilege expands scope
+> from `self` to `system` and `kernel`, but is **never a prerequisite for baseline autonomy**. Even in `4r--`,
+> graph verification and audit inspection execute with zero exceptions.
+
+### 9.2 Predictive Probing & CLI Flags (`setup.sh`)
+
+To eliminate headless process hangs, `scripts/setup.sh` and `engine/privilege.py` execute predictive probing before invoking any privileged command:
+- **Zero Sudo Hang Guarantee**: Probes `sudo -n true` with a strict `timeout 3s`. If sudo requires interactive password entry or times out, the engine safely flags escalation as unavailable and immediately adopts tier `6rw-`.
+- **Process-Level Caching**: `_PrivilegeCache` memoizes detection results, ensuring sub-microsecond subsequent checks (`get_effective_chmod_tier()`) with `_PrivilegeCache.reset()` available for test isolation.
+- **Predictive CLI Flags in `scripts/setup.sh`**:
+  ```bash
+  # Output strictly the single-line detected chmod octal string:
+  ./scripts/setup.sh --tier
+  # Output: 7rwx
+
+  # Inspect predictive degradation plan across all subsystems without mutating host state:
+  ./scripts/setup.sh --predict
+  ```
+
+### 9.3 FastMCP 15 Polymorphic Tools Graceful Degradation Matrix
+
+Every tool in the canonical FastMCP suite (`len(_tools) == 15`) adapts its behavior deterministically to the detected tier, returning structured fail-soft responses rather than throwing unhandled exceptions:
+
+| Tool Name | Tier `7rwx` (Root / Full Sudo) | Tier `6rw-` (User RW / Standard) | Tier `5r-x` (Restricted / RO-Exec) | Tier `4r--` (Auditor / RO-Observer) |
+| :--- | :--- | :--- | :--- | :--- |
+| `topos_audit_dag` | Full graph audit & resource hazard check | Full graph audit & resource hazard check | Full graph audit & resource hazard check | Full graph audit (pure in-RAM verification) |
+| `discover` | Full capability & schema reflection (`7rwx`) | Full capability & schema reflection (`6rw-`) | Reflects `5r-x` tier & read-only tools | Reflects `4r--` tier & auditor mode |
+| `artifact_catalog` | Full RW indexing, query, and pruning | Full RW indexing, query, and safe GC | Read-only query & template browse | Read-only query (metadata inspection only) |
+| `artifact_lint_and_build` | Full build, hydrate, vet, & compile in RAM | User-space compile in `/dev/shm` / tmpfs | Template inspection & syntax linting | Template inspection (build disabled) |
+| `artifact_execute_in_ram` | Execute in anonymous RAM (`memfd_create`) | Execute in anonymous RAM (`memfd_create`) | Execute in anonymous RAM (isolated) | Disabled (`status: PERMISSION_DENIED`) |
+| `process_inspect` | Inspect all system PIDs, FDs, and sockets | Inspect user-owned PIDs and AEP self | Inspect self PID and open FDs | Inspect self PID memory footprint only |
+| `async_job_dispatch` | Dispatch to Pueue system/user daemon | Dispatch to Pueue user daemon | Synchronous in-RAM fallback execution | Status inspection only (dispatch disabled) |
+| `diagnose_system_crashes` | Inspect `/var/crash` & system journal | Inspect user coredumps & user journal | Inspect local user crash logs | Read-only crash alert inspection |
+| `sandbox_run` | Full Bubblewrap jail (`--cap-drop ALL`) | User namespace Bubblewrap jail | Read-only mounted Bubblewrap jail | Disabled or dry-run mock (`parse="auto"`) |
+| `aep_ctl` | Full control across all 8 domains | User-scope control across 8 domains | Read-only queries across 8 domains | Auditor inspection across 8 domains |
+| `query_system_docs` | Full in-RAM semantic vector man search | Full in-RAM semantic vector man search | Full in-RAM semantic vector search | Full in-RAM semantic vector search |
+| `visual_inspect` | Full headless Chromium screenshot (`/dev/shm`) | User headless Chromium screenshot | Headless screenshot if display exists | Degrades to `DISPLAY_UNAVAILABLE` fail-soft |
+| `kernel_trace` | Full eBPF tracing (`CAP_BPF` / root) | Degrades to in-RAM `/proc/net` telemetry | Degrades to in-RAM `/proc/net` telemetry | Degrades to in-RAM `/proc/net` telemetry |
+| `kanban_board` | Full task creation, promotion, & archive | Full task creation, promotion, & archive | Read-only board inspection | Read-only board inspection |
+| `playbook_run` | Full DAG orchestration & batch execution | Full DAG orchestration & batch execution | Validation & dry-run planning | Validation & static DAG check only |
+
+### 9.4 Control Plane 8 Domains Graceful Degradation Matrix (`aep_ctl`)
+
+The control plane (`scripts/aep-ctl` and FastMCP `aep_ctl`) shares `CONTROL_PLANE_SCHEMA` as the single source of truth across all 8 functional domains:
+
+| Domain | Tier `7rwx` (Root / Full Sudo) | Tier `6rw-` (User RW / Standard) | Tier `5r-x` (Restricted / RO-Exec) | Tier `4r--` (Auditor / RO-Observer) |
+| :--- | :--- | :--- | :--- | :--- |
+| `service` | Mutate system units (`systemctl start/stop`) | Mutate user units (`systemctl --user`) | Read-only unit status (`systemctl status`) | Read-only unit status (`status: DEGRADED`) |
+| `network` | Raw packet sniff, netfilter drop, probe | Port probe, `/proc/net` sockets, ARP | Port probe, `/proc/net` sockets, ARP | Cached socket table inspection |
+| `storage` | Mount table control, device inspection, `df` | User mount inspection, workspace `df` | User mount inspection, workspace `df` | Summary disk usage inspection |
+| `package` | Query & install packages via `apt-get` | Inspect `$PATH` binaries & user venvs | Inspect `$PATH` binaries & user venvs | Static toolchain report |
+| `backup` | 5-slot FIFO hot backups & RAM snapshots | 5-slot FIFO hot backups & RAM snapshots | Read-only backup integrity verification | Read-only backup integrity verification |
+| `audit` | Append to SHA-256 chain & verify integrity | Append to SHA-256 chain & verify integrity | Read-only SHA-256 chain verification | Read-only SHA-256 chain verification |
+| `ipc` | Manage `/dev/shm/aep.sock` pool & reap | Manage `/dev/shm/aep.sock` pool & reap | Client batch execution over socket | Read-only session pool telemetry |
+| `security` | Enforce host netfilter drops via nftables | Simulated threat mitigation contracts | Simulated threat mitigation contracts | Read-only firewall status report |
 
 [↑ Back to top](#top)
 
@@ -920,13 +985,19 @@ bootstrapper, continuous updater, and non-destructive health auditor.
 ```bash
 cd /path/to/agent-execution-plane
 
-# 1. Full Idempotent User-Space Installation
+# 1. Full Idempotent User-Space Installation (auto-detects tier, falls back cleanly)
 ./scripts/setup.sh
 
-# 2. Read-Only System Health Audit (zero disk mutations, exit 0/1)
+# 2. Predictive Privilege Probing & Degradation Plan (100% read-only, zero sudo hangs)
+./scripts/setup.sh --predict
+
+# 3. Direct Chmod Octal String Output (7rwx, 6rw-, 5r-x, 4r--)
+./scripts/setup.sh --tier
+
+# 4. Read-Only System Health Audit calibrated to detected tier (exit 0/1)
 ./scripts/setup.sh --check
 
-# 3. Autonomous Updater (uv self update, venv upgrade & probe recompilation)
+# 5. Autonomous Updater (uv self update, venv upgrade & probe recompilation)
 ./scripts/setup.sh --update
 ```
 
