@@ -24,17 +24,34 @@ from typing import Any
 logger = logging.getLogger("aep.privilege")
 
 
+TIER_7RWX = "7rwx"
+TIER_6RW = "6rw-"
+TIER_5RX = "5r-x"
+TIER_4R = "4r--"
+ALL_TIERS = (TIER_7RWX, TIER_6RW, TIER_5RX, TIER_4R)
+TIER_OCTALS = {TIER_7RWX: 7, TIER_6RW: 6, TIER_5RX: 5, TIER_4R: 4}
+
+
 class _PrivilegeCache:
     sudo_n: bool | None = None
+    tier_info: dict[str, Any] | None = None
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset cached privilege and tier evaluations (Ontos Advisory 2)."""
+        cls.sudo_n = None
+        cls.tier_info = None
 
 
 def sudo_n_available() -> bool:
-    """¿Hay sudo sin contraseña (escalada no-interactiva)? Resultado cacheado por proceso."""
+    """¿Hay sudo sin contraseña (escalada no-interactiva)? Resultado cacheado por proceso (timeout <= 3s)."""
     if _PrivilegeCache.sudo_n is None:
         try:
             _PrivilegeCache.sudo_n = (
                 bool(shutil.which("sudo"))
-                and subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=5, check=False).returncode == 0
+                and subprocess.run(
+                    ["sudo", "-n", "true"], capture_output=True, timeout=3, check=False
+                ).returncode == 0
             )
         except (subprocess.SubprocessError, OSError) as e:
             logger.debug("sudo -n check failed: %s", e)
@@ -42,18 +59,113 @@ def sudo_n_available() -> bool:
     return _PrivilegeCache.sudo_n
 
 
+def detect_chmod_tier(workspace_path: Path | str | None = None) -> dict[str, Any]:
+    """
+    Determina predictivamente el nivel chmod del entorno actual (7rwx, 6rw-, 5r-x, 4r--).
+    Garantiza cero bloqueos interactivos (sudo -n <= 3s timeout) y evaluación jerárquica.
+    """
+    forced = os.environ.get("AEP_FORCE_TIER") or os.environ.get("AEP_CHMOD_TIER")
+    if forced and forced in ALL_TIERS:
+        octal = TIER_OCTALS[forced]
+        mode_map = {
+            TIER_7RWX: "forced-root",
+            TIER_6RW: "forced-user-rw",
+            TIER_5RX: "forced-ro-exec",
+            TIER_4R: "forced-auditor-ro",
+        }
+        return {
+            "tier": forced,
+            "octal": octal,
+            "mode": mode_map.get(forced, "forced"),
+            "is_root": forced == TIER_7RWX,
+            "sudo_n": forced == TIER_7RWX,
+            "workspace_writable": forced in (TIER_7RWX, TIER_6RW),
+            "exec_permitted": forced in (TIER_7RWX, TIER_6RW, TIER_5RX),
+            "probe_flags": {
+                "forced": True,
+                "euid": 0 if forced == TIER_7RWX else 1000,
+                "sudo_n": forced == TIER_7RWX,
+                "workspace_w_ok": forced in (TIER_7RWX, TIER_6RW),
+                "dev_shm_w_ok": forced in (TIER_7RWX, TIER_6RW, TIER_5RX),
+            },
+            "degradation_plan": {
+                "system_services": "MUTATE_SYSTEM" if octal == 7 else ("USER_SCOPE" if octal == 6 else "READ_ONLY"),
+                "ebpf_tracing": "FULL" if octal == 7 else "FALLBACK_PROC_NET",
+                "sandbox": "FULL" if octal in (7, 6) else ("RO_BIND" if octal == 5 else "DISABLED"),
+                "build_synthesis": "FULL" if octal in (7, 6) else ("LINT_ONLY" if octal == 5 else "DISABLED"),
+                "ram_execution": "FULL" if octal in (7, 6, 5) else "DISABLED",
+            },
+        }
+
+    is_root = os.geteuid() == 0
+    can_sudo = False if is_root else sudo_n_available()
+
+    ws = Path(workspace_path).resolve() if workspace_path else Path(__file__).resolve().parent.parent
+    ws_w_ok = os.access(ws, os.W_OK)
+    shm_w_ok = os.access(Path("/dev/shm"), os.W_OK) if Path("/dev/shm").exists() else False
+    exec_ok = os.access(Path("/proc/self/exe"), os.X_OK) or bool(shutil.which("python3") or shutil.which("sh"))
+
+    if is_root or can_sudo:
+        tier = TIER_7RWX
+        mode = "direct-root" if is_root else "sudo-n"
+    elif ws_w_ok and shm_w_ok:
+        tier = TIER_6RW
+        mode = "unprivileged-rw"
+    elif exec_ok:
+        tier = TIER_5RX
+        mode = "restricted-ro-exec"
+    else:
+        tier = TIER_4R
+        mode = "auditor-ro"
+
+    octal = TIER_OCTALS[tier]
+
+    return {
+        "tier": tier,
+        "octal": octal,
+        "mode": mode,
+        "is_root": is_root,
+        "sudo_n": can_sudo,
+        "workspace_writable": ws_w_ok,
+        "exec_permitted": exec_ok,
+        "probe_flags": {
+            "forced": False,
+            "euid": os.geteuid(),
+            "sudo_n": can_sudo,
+            "workspace_w_ok": ws_w_ok,
+            "dev_shm_w_ok": shm_w_ok,
+        },
+        "degradation_plan": {
+            "system_services": "MUTATE_SYSTEM" if octal == 7 else ("USER_SCOPE" if octal == 6 else "READ_ONLY"),
+            "ebpf_tracing": "FULL" if octal == 7 else "FALLBACK_PROC_NET",
+            "sandbox": "FULL" if octal in (7, 6) else ("RO_BIND" if octal == 5 else "DISABLED"),
+            "build_synthesis": "FULL" if octal in (7, 6) else ("LINT_ONLY" if octal == 5 else "DISABLED"),
+            "ram_execution": "FULL" if octal in (7, 6, 5) else "DISABLED",
+        },
+    }
+
+
+def get_effective_chmod_tier(workspace_path: Path | str | None = None, force_refresh: bool = False) -> dict[str, Any]:
+    """Devuelve información estructurada del nivel chmod con caché a nivel de proceso."""
+    if _PrivilegeCache.tier_info is None or force_refresh:
+        _PrivilegeCache.tier_info = detect_chmod_tier(workspace_path)
+    return _PrivilegeCache.tier_info
+
+
 def privilege_prefix() -> list[str] | None:
     """[] si ya es root; ['sudo','-n'] si se puede escalar; None si no hay vía (DIMINISHED)."""
-    if os.geteuid() == 0:
-        return []
-    return ["sudo", "-n"] if sudo_n_available() else None
+    eff = get_effective_chmod_tier()
+    if eff["tier"] == TIER_7RWX:
+        if eff.get("is_root") or os.geteuid() == 0:
+            return []
+        return ["sudo", "-n"]
+    return None
 
 
 def privilege_mode() -> str:
-    """Etiqueta del modo efectivo: direct-root | sudo-n | unprivileged."""
-    if os.geteuid() == 0:
-        return "direct-root"
-    return "sudo-n" if sudo_n_available() else "unprivileged"
+    """Etiqueta del modo efectivo: direct-root | sudo-n | unprivileged-rw | restricted-ro-exec | auditor-ro."""
+    eff = get_effective_chmod_tier()
+    return eff["mode"]
 
 
 # Constantes de capacidades
@@ -78,8 +190,9 @@ CAP_AUDIT_READ = "audit_read"
 
 
 def capability_tier() -> str:
-    """FULL si hay root o escalada disponible; DIMINISHED en caso contrario."""
-    return "FULL" if privilege_prefix() is not None else "DIMINISHED"
+    """FULL si hay root o escalada disponible (7rwx); DIMINISHED en caso contrario (6rw-, 5r-x, 4r--)."""
+    eff = get_effective_chmod_tier()
+    return "FULL" if eff["tier"] == TIER_7RWX else "DIMINISHED"
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +320,154 @@ _CAP_KEYWORDS = {
     "backup_admin": "backup restore recover rotation hot snapshot sqlite wal quarantine golden micro_snapshot copia seguridad restaurar",
     "audit_read": "audit log security chain cryptographic hash ledger tamper verify verificar auditoria cadena criptografica",
     "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando",
+}
+
+# ---------------------------------------------------------------------------
+# Matriz de Degradación Elegante Chmod de 4 Niveles (ONT-33)
+# ---------------------------------------------------------------------------
+CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
+    "tools": {
+        "topos_audit_dag": {
+            TIER_7RWX: "Full graph audit & resource hazard check",
+            TIER_6RW: "Full graph audit & resource hazard check",
+            TIER_5RX: "Full graph audit & resource hazard check",
+            TIER_4R: "Full graph audit (pure in-RAM verification)",
+        },
+        "discover": {
+            TIER_7RWX: "Full capability & schema reflection (7rwx)",
+            TIER_6RW: "Full capability & schema reflection (6rw-)",
+            TIER_5RX: "Reflects 5r-x tier & read-only tools",
+            TIER_4R: "Reflects 4r-- tier & auditor mode",
+        },
+        "artifact_catalog": {
+            TIER_7RWX: "Full RW indexing, query, and pruning",
+            TIER_6RW: "Full RW indexing, query, and safe GC",
+            TIER_5RX: "Read-only query & template browse",
+            TIER_4R: "Read-only query (metadata inspection only)",
+        },
+        "artifact_lint_and_build": {
+            TIER_7RWX: "Full build, hydrate, vet, & compile in RAM",
+            TIER_6RW: "User-space compile in /dev/shm / tmpfs",
+            TIER_5RX: "Template inspection & syntax linting",
+            TIER_4R: "Template inspection (build disabled)",
+        },
+        "artifact_execute_in_ram": {
+            TIER_7RWX: "Execute in anonymous RAM (memfd_create)",
+            TIER_6RW: "Execute in anonymous RAM (memfd_create)",
+            TIER_5RX: "Execute in anonymous RAM (isolated)",
+            TIER_4R: "Disabled (status: PERMISSION_DENIED)",
+        },
+        "process_inspect": {
+            TIER_7RWX: "Inspect all system PIDs, FDs, and sockets",
+            TIER_6RW: "Inspect user-owned PIDs and AEP self",
+            TIER_5RX: "Inspect self PID and open FDs",
+            TIER_4R: "Inspect self PID memory footprint only",
+        },
+        "async_job_dispatch": {
+            TIER_7RWX: "Dispatch to Pueue system/user daemon",
+            TIER_6RW: "Dispatch to Pueue user daemon",
+            TIER_5RX: "Synchronous in-RAM fallback execution",
+            TIER_4R: "Status inspection only (dispatch disabled)",
+        },
+        "diagnose_system_crashes": {
+            TIER_7RWX: "Inspect /var/crash & system journal",
+            TIER_6RW: "Inspect user coredumps & user journal",
+            TIER_5RX: "Inspect local user crash logs",
+            TIER_4R: "Read-only crash alert inspection",
+        },
+        "sandbox_run": {
+            TIER_7RWX: "Full Bubblewrap jail (--cap-drop ALL)",
+            TIER_6RW: "User namespace Bubblewrap jail",
+            TIER_5RX: "Read-only mounted Bubblewrap jail",
+            TIER_4R: "Disabled or dry-run mock (parse='auto')",
+        },
+        "aep_ctl": {
+            TIER_7RWX: "Full control across all 8 domains",
+            TIER_6RW: "User-scope control across 8 domains",
+            TIER_5RX: "Read-only queries across 8 domains",
+            TIER_4R: "Auditor inspection across 8 domains",
+        },
+        "query_system_docs": {
+            TIER_7RWX: "Full in-RAM semantic vector man-page search",
+            TIER_6RW: "Full in-RAM semantic vector man-page search",
+            TIER_5RX: "Full in-RAM semantic vector search",
+            TIER_4R: "Full in-RAM semantic vector search",
+        },
+        "visual_inspect": {
+            TIER_7RWX: "Full headless Chromium screenshot (/dev/shm)",
+            TIER_6RW: "User headless Chromium screenshot",
+            TIER_5RX: "Headless screenshot if display exists",
+            TIER_4R: "Degrades to DISPLAY_UNAVAILABLE fail-soft",
+        },
+        "kernel_trace": {
+            TIER_7RWX: "Full eBPF tracing (CAP_BPF / root)",
+            TIER_6RW: "Degrades to in-RAM /proc/net telemetry",
+            TIER_5RX: "Degrades to in-RAM /proc/net telemetry",
+            TIER_4R: "Degrades to in-RAM /proc/net telemetry",
+        },
+        "kanban_board": {
+            TIER_7RWX: "Full task creation, promotion, & archive",
+            TIER_6RW: "Full task creation, promotion, & archive",
+            TIER_5RX: "Read-only board inspection",
+            TIER_4R: "Read-only board inspection",
+        },
+        "playbook_run": {
+            TIER_7RWX: "Full DAG orchestration & batch execution",
+            TIER_6RW: "Full DAG orchestration & batch execution",
+            TIER_5RX: "Validation & dry-run planning",
+            TIER_4R: "Validation & static DAG check only",
+        },
+    },
+    "domains": {
+        "service": {
+            TIER_7RWX: "Mutate system units (systemctl start/stop)",
+            TIER_6RW: "Mutate user units (systemctl --user)",
+            TIER_5RX: "Read-only unit status (systemctl status)",
+            TIER_4R: "Read-only unit status (status: DEGRADED)",
+        },
+        "network": {
+            TIER_7RWX: "Raw packet sniff, netfilter drop, probe",
+            TIER_6RW: "Port probe, /proc/net sockets, ARP",
+            TIER_5RX: "Port probe, /proc/net sockets, ARP",
+            TIER_4R: "Cached socket table inspection",
+        },
+        "storage": {
+            TIER_7RWX: "Mount table control, device inspection, df",
+            TIER_6RW: "User mount inspection, workspace df",
+            TIER_5RX: "User mount inspection, workspace df",
+            TIER_4R: "Summary disk usage inspection",
+        },
+        "package": {
+            TIER_7RWX: "Query & install packages via apt-get",
+            TIER_6RW: "Inspect $PATH binaries & user venvs",
+            TIER_5RX: "Inspect $PATH binaries & user venvs",
+            TIER_4R: "Static toolchain report",
+        },
+        "backup": {
+            TIER_7RWX: "5-slot FIFO hot backups & RAM snapshots",
+            TIER_6RW: "5-slot FIFO hot backups & RAM snapshots",
+            TIER_5RX: "Read-only backup integrity verification",
+            TIER_4R: "Read-only backup integrity verification",
+        },
+        "audit": {
+            TIER_7RWX: "Append to SHA-256 chain & verify integrity",
+            TIER_6RW: "Append to SHA-256 chain & verify integrity",
+            TIER_5RX: "Read-only SHA-256 chain verification",
+            TIER_4R: "Read-only SHA-256 chain verification",
+        },
+        "ipc": {
+            TIER_7RWX: "Manage /dev/shm/aep.sock pool & reap",
+            TIER_6RW: "Manage /dev/shm/aep.sock pool & reap",
+            TIER_5RX: "Client batch execution over socket",
+            TIER_4R: "Read-only session pool telemetry",
+        },
+        "security": {
+            TIER_7RWX: "Enforce host netfilter drops via nftables",
+            TIER_6RW: "Simulated threat mitigation contracts",
+            TIER_5RX: "Simulated threat mitigation contracts",
+            TIER_4R: "Read-only firewall status report",
+        },
+    },
 }
 
 # Single Source of Truth for the Control Plane Schema (shared by scripts/aep-ctl and server.py)
@@ -656,6 +917,7 @@ def tactical_playbook() -> dict[str, Any]:
 
 def capability_manifest() -> dict:
     """Manifiesto de autonomía en primera vista para la IA que consume el MCP."""
+    eff_tier_info = get_effective_chmod_tier()
     tier = capability_tier()
     idx = 1 if tier == "FULL" else 0
     prereqs = check_binary_prerequisites()
@@ -686,7 +948,10 @@ def capability_manifest() -> dict:
         "Gobernanza y ejecución determinista de telemetría de sistemas y observabilidad de seguridad (RAM exec, sandbox, eBPF, "
         "introspección) en capacidades agénticas gobernadas por privilegio.",
         "capability_tier": tier,
+        "effective_chmod_tier": eff_tier_info["tier"],
+        "chmod_octal": eff_tier_info["octal"],
         "privilege_mode": privilege_mode(),
+        "degradation_matrix": CHMOD_DEGRADATION_MATRIX,
         "prerequisites": prereqs,
         "control_plane_domains": list(CONTROL_PLANE_SCHEMA.keys()),
         "tactical_hint": "Call discover(action='playbook') for systems engineering workflow recipes, canonical 1-liners, and token-saving Rules of Engagement.",
@@ -808,3 +1073,35 @@ class CapabilityGuard:
                 "capability": capability,
                 "action": action,
             }
+
+if __name__ == "__main__":
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(
+        description="AEP Predictive Privilege Prober & Chmod Degradation Matrix"
+    )
+    parser.add_argument(
+        "--tier",
+        action="store_true",
+        help="Output strictly the detected chmod octal string (7rwx, 6rw-, 5r-x, 4r--)",
+    )
+    parser.add_argument(
+        "--matrix",
+        action="store_true",
+        help="Output the full Chmod Graceful Degradation Matrix",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output formatted JSON",
+    )
+    args = parser.parse_args()
+
+    eff = get_effective_chmod_tier()
+    if args.tier:
+        print(eff["tier"])
+    elif args.matrix:
+        print(json.dumps(CHMOD_DEGRADATION_MATRIX, indent=2))
+    else:
+        print(json.dumps(eff, indent=2))

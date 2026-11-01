@@ -29,7 +29,9 @@ show_help() {
 Usage: ./scripts/setup.sh [OPTIONS]
 
 Options:
-  --check               Execute 100% read-only health audit of all components
+  --tier                Output strictly the detected chmod octal string (7rwx, 6rw-, 5r-x, 4r--).
+  --predict, --plan     Display predictive privilege degradation plan without mutating system.
+  --check               Execute 100% read-only health audit calibrated to current privilege tier
                         (NO file modifications, exits 0 if healthy, 1 if degraded).
   --update, --upgrade   Update self-provisioned toolchains, venv dependencies,
                         and recompile probes.
@@ -42,11 +44,122 @@ HELP
 }
 
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# STEP 0: Predictive Privilege Probing & Chmod Octal Detection (ONT-33)
+# -----------------------------------------------------------------------------
+detect_tier() {
+    if [[ -n "${AEP_FORCE_TIER:-}" ]]; then
+        echo "$AEP_FORCE_TIER"
+        return 0
+    fi
+    if [[ -n "${AEP_CHMOD_TIER:-}" ]]; then
+        echo "$AEP_CHMOD_TIER"
+        return 0
+    fi
+
+    local PY_CMD=""
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+        PY_CMD="$PROJECT_ROOT/.venv/bin/python"
+    elif command -v python3 &>/dev/null; then
+        PY_CMD="python3"
+    fi
+
+    if [[ -n "$PY_CMD" ]]; then
+        local DETECTED
+        DETECTED=$(PYTHONPATH="$PROJECT_ROOT" "$PY_CMD" -m engine.privilege --tier 2>/dev/null || echo "")
+        if [[ "$DETECTED" =~ ^(7rwx|6rw-|5r-x|4r--)$ ]]; then
+            echo "$DETECTED"
+            return 0
+        fi
+    fi
+
+    if [[ $EUID -eq 0 ]]; then
+        echo "7rwx"
+        return 0
+    fi
+
+    if command -v sudo &>/dev/null; then
+        if timeout 3 sudo -n true 2>/dev/null; then
+            echo "7rwx"
+            return 0
+        fi
+    fi
+
+    if [[ -w "$PROJECT_ROOT" ]] && [[ -w "${HOME:-/tmp}" ]]; then
+        echo "6rw-"
+        return 0
+    fi
+
+    if [[ -x "/proc/self/exe" ]] || command -v sh &>/dev/null; then
+        echo "5r-x"
+        return 0
+    fi
+
+    echo "4r--"
+}
+
+run_predict() {
+    local TIER
+    TIER="$(detect_tier)"
+    echo "=========================================================="
+    echo "  AEP Predictive Privilege Probing & Degradation Matrix"
+    echo "=========================================================="
+    echo "Detected Chmod Tier: $TIER"
+    case "$TIER" in
+        7rwx)
+            echo "Operational Authority: Root / Passwordless Sudo (Full System & Kernel Scope)"
+            echo "Package Provisioner: System Package Manager (apt-get) + User-Space Fallbacks"
+            echo "Sandboxing Posture: Full Bubblewrap Namespace Jail (--cap-drop ALL)"
+            echo "Service Control: Systemd System Unit Mutation (systemctl)"
+            echo "Observability: Full eBPF Tracing (CAP_BPF)"
+            ;;
+        6rw-)
+            echo "Operational Authority: Standard Host User (Read-Write Workspace & RAM Exec)"
+            echo "Package Provisioner: Autonomous User-Space Hermetic Binaries (~/.local/bin)"
+            echo "Sandboxing Posture: User Namespace Bubblewrap Jail"
+            echo "Service Control: Systemd User Unit Scope (systemctl --user)"
+            echo "Observability: In-RAM /proc/net Socket Table Telemetry"
+            ;;
+        5r-x)
+            echo "Operational Authority: Restricted Container / CI Runner (Read-Only Workspace)"
+            echo "Package Provisioner: In-Memory / Ephemeral Staging (No Host Disk Mutation)"
+            echo "Sandboxing Posture: Read-Only Mounted Sandbox Bind"
+            echo "Service Control: Read-Only Service Status Inspection"
+            echo "Observability: Pure In-Memory Socket Telemetry"
+            ;;
+        4r--)
+            echo "Operational Authority: Auditor / Observer (Strict Read-Only Inspection)"
+            echo "Package Provisioner: Disabled (Auditor Mode)"
+            echo "Sandboxing Posture: Execution Disabled / Dry-Run Mock"
+            echo "Service Control: Static Service Report Only"
+            echo "Observability: Cached Telemetry & Ledger Audit Only"
+            ;;
+    esac
+    echo "----------------------------------------------------------"
+    echo "FastMCP 15-Tool Degradation Posture:"
+    echo "  - topos_audit_dag: ACTIVE (Pure In-RAM DAG Verification)"
+    echo "  - discover: ACTIVE (Reflects $TIER & Capabilities)"
+    echo "  - aep_ctl: ACTIVE (8 Domains Fail-Soft Degradation)"
+    echo "  - artifact_execute_in_ram: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED (Auditor Mode)" || echo "ACTIVE (memfd_create)" )"
+    echo "  - sandbox_run: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED / DRY-RUN" || echo "ACTIVE (Fail-Soft)" )"
+    echo "  - kernel_trace: $( [[ "$TIER" == "7rwx" ]] && echo "ACTIVE (eBPF)" || echo "DEGRADED (In-RAM /proc/net Telemetry)" )"
+    echo "=========================================================="
+    return 0
+}
+
 # DIR-ONT-01: Flag Short-Circuit for --check (100% Read-Only)
 # -----------------------------------------------------------------------------
 MODE="setup"
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --tier)
+            detect_tier
+            exit 0
+            ;;
+        --predict|--plan)
+            run_predict
+            exit 0
+            ;;
         --check)
             MODE="check"
             shift
@@ -69,8 +182,11 @@ done
 
 run_check() {
     local DEGRADED=0
+    local DETECTED_TIER
+    DETECTED_TIER="$(detect_tier)"
     echo "=========================================================="
     echo "  AEP System Health & Read-Only Audit (--check)"
+    echo "  Detected Privilege Tier: $DETECTED_TIER"
     echo "=========================================================="
 
     # 1. uv package manager
@@ -267,10 +383,12 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 # -----------------------------------------------------------------------------
 export PATH="$HOME/.local/bin:$HOME/.local/share/go/bin:$HOME/.local/share/agent-os/bin:$PATH"
 
+SETUP_TIER="$(detect_tier)"
 echo "=========================================================="
 echo "  Agent Execution Plane (AEP) — Setup & Tooling Provisioner"
-echo "  Mode: $MODE"
+echo "  Mode: $MODE | Detected Chmod Tier: $SETUP_TIER"
 echo "=========================================================="
+log_step "Paso 0: Sondeo predictivo de privilegios completado (Tier: $SETUP_TIER)."
 
 # -----------------------------------------------------------------------------
 # 1. Base Directories & Omarchy Skills Hub
@@ -346,7 +464,7 @@ fi
 log_step "Verificando compilador Golang..."
 if ! command -v go &>/dev/null && [[ ! -x "$HOME/.local/bin/go" ]]; then
     log_step "Golang ausente; intentando instalación..."
-    if sudo -n true 2>/dev/null; then
+    if [[ "$SETUP_TIER" == "7rwx" ]] && timeout 3 sudo -n true 2>/dev/null; then
         log_step "Instalando golang-go vía apt-get (sudo no-interactivo)..."
         sudo -n apt-get update -qq && sudo -n apt-get install -y -qq golang-go 2>/dev/null || true
     fi
@@ -414,7 +532,7 @@ fi
 # -----------------------------------------------------------------------------
 log_step "Verificando Bubblewrap (bwrap)..."
 if ! command -v bwrap &>/dev/null; then
-    if sudo -n true 2>/dev/null; then
+    if [[ "$SETUP_TIER" == "7rwx" ]] && timeout 3 sudo -n true 2>/dev/null; then
         sudo -n apt-get update -qq && sudo -n apt-get install -y -qq bubblewrap 2>/dev/null || true
     fi
 fi

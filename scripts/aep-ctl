@@ -25,25 +25,26 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from engine.privilege import CONTROL_PLANE_SCHEMA as SCHEMA  # noqa: E402
+from engine.privilege import (  # noqa: E402, I001
+    CHMOD_DEGRADATION_MATRIX,
+    CONTROL_PLANE_SCHEMA as SCHEMA,
+    capability_tier,
+    get_effective_chmod_tier,
+    privilege_prefix,
+)
 
 
 def _sudo_prefix() -> list[str] | None:
-    """[] si root; ['sudo','-n'] si escala sin password; None si no hay vía (DIMINISHED)."""
-    if os.geteuid() == 0:
-        return []
-    try:
-        if shutil.which("sudo") and subprocess.run(
-            ["sudo", "-n", "true"], capture_output=True, timeout=5, check=False
-        ).returncode == 0:
-            return ["sudo", "-n"]
-    except Exception:  # noqa: S110
-        pass
-    return None
+    """Unificado con engine.privilege: [] si root; ['sudo','-n'] si escala sin password; None si DIMINISHED."""
+    return privilege_prefix()
 
 
 def _tier() -> str:
-    return "FULL" if _sudo_prefix() is not None else "DIMINISHED"
+    return capability_tier()
+
+
+def _chmod_tier() -> str:
+    return str(get_effective_chmod_tier().get("tier", "6rw-"))
 
 
 def emit(obj: Any, code: int = 0) -> None:
@@ -101,13 +102,27 @@ def domain_service(action: str, name: str | None) -> Any:
         return {"status": "OK", "service": name, "capability_tier": _tier(), "properties": props}
 
     # Mutaciones (start/stop/restart): nivel FULL -> systemctl de sistema vía escalada;
-    # DIMINISHED -> intenta scope de usuario (servicios --user) y reporta el límite.
+    # DIMINISHED -> intenta scope de usuario (servicios --user) en 6rw-, o degrada a fail-soft/SIMULATED en 5r-x y 4r--.
+    chmod_tier = _chmod_tier()
+    if chmod_tier in ("4r--", "5r-x"):
+        return {
+            "status": "SIMULATED" if chmod_tier == "4r--" else "DEGRADED",
+            "service": name,
+            "action": action,
+            "capability_tier": "DIMINISHED",
+            "chmod_tier": chmod_tier,
+            "scope": "read-only",
+            "simulated": True,
+            "message": f"Mutación de servicios simulada / degradada bajo nivel {chmod_tier} (solo-lectura/auditor).",
+        }
+
     prefix = _sudo_prefix()
     if prefix is None:
         r = _run(["systemctl", "--user", action, name])
         return {
             "status": "OK" if r.returncode == 0 else "DIMINISHED",
             "service": name, "action": action, "capability_tier": "DIMINISHED",
+            "chmod_tier": chmod_tier,
             "scope": "user", "exit_code": r.returncode,
             "stderr": r.stderr.strip() or None,
             "note": "Sin privilegio para servicios de sistema; limitado a scope de usuario.",
@@ -116,6 +131,7 @@ def domain_service(action: str, name: str | None) -> Any:
     return {
         "status": "OK" if r.returncode == 0 else "FAILED",
         "service": name, "action": action, "capability_tier": "FULL",
+        "chmod_tier": chmod_tier,
         "scope": "system", "exit_code": r.returncode,
         "stderr": r.stderr.strip() or None,
     }
@@ -315,11 +331,27 @@ def domain_security(action: str, name: str | None) -> Any:
         if not name:
             fail("Falta <target_ip> para threat_mitigate", usage="aep-ctl security threat_mitigate <ip> --json")
         from engine.net_telemetry import enforce_netfilter_mitigation
-        return enforce_netfilter_mitigation(name, rule_action="drop")
+        chmod_tier = _chmod_tier()
+        # En tiers 6rw-, 5r-x y 4r-- emite SIMULATED; en 7rwx aplica netfilter real
+        return enforce_netfilter_mitigation(name, rule_action="drop", simulate=(chmod_tier != "7rwx"))
     fail(f"Acción de security desconocida: {action}", valid=SCHEMA["security"]["actions"])
 
 
 def domain_backup(action: str, name: str | None) -> Any:
+    chmod_tier = _chmod_tier()
+    if action in (
+        "backup", "restore", "golden", "restore_golden", "workspace_snapshot",
+        "workspace_restore", "micro_snapshot", "restore_micro_snapshot", "clear_micro_snapshots",
+    ):
+        if chmod_tier in ("4r--", "5r-x"):
+            return {
+                "status": "DEGRADED",
+                "action": action,
+                "chmod_tier": chmod_tier,
+                "scope": "read-only",
+                "message": f"Mutaciones de backup deshabilitadas en nivel {chmod_tier}; degradado a verificación.",
+            }
+
     from engine.backup import (
         clear_micro_snapshots,
         create_backup,
@@ -394,6 +426,17 @@ def domain_audit(action: str, name: str | None) -> Any:
 
 
 def domain_ipc(action: str, name: str | None) -> Any:
+    chmod_tier = _chmod_tier()
+    if action in ("lease", "release", "reap", "flush"):
+        if chmod_tier == "4r--":
+            return {
+                "status": "DEGRADED",
+                "action": action,
+                "chmod_tier": chmod_tier,
+                "scope": "auditor",
+                "message": f"Mutaciones IPC deshabilitadas en nivel {chmod_tier} (auditor).",
+            }
+
     from engine.ipc_pool import (
         GLOBAL_SESSION_POOL,
         GLOBAL_SOCKET_MUX,
@@ -463,13 +506,27 @@ DOMAINS = {
 def main(argv: list[str]) -> None:
     args = [a for a in argv if a != "--json"]  # --json es el default; lo aceptamos y lo ignoramos
     if "--schema" in args or not args or args[0] in ("schema", "--schema"):
-        emit({"status": "OK", "tool": "aep-ctl", "domains": SCHEMA})
+        emit({
+            "status": "OK",
+            "tool": "aep-ctl",
+            "chmod_tier": _chmod_tier(),
+            "degradation_matrix": CHMOD_DEGRADATION_MATRIX.get("domains", {}),
+            "domains": SCHEMA,
+        })
     domain = args[0]
     if domain not in DOMAINS:
         fail(f"Dominio desconocido: {domain}", valid=list(SCHEMA.keys()))
     action = args[1] if len(args) > 1 else None
     if action in ("--schema", "schema"):
-        emit({"status": "OK", "tool": "aep-ctl", "domain": domain, "schema": SCHEMA[domain], "domains": SCHEMA})
+        emit({
+            "status": "OK",
+            "tool": "aep-ctl",
+            "domain": domain,
+            "chmod_tier": _chmod_tier(),
+            "degradation_matrix": CHMOD_DEGRADATION_MATRIX.get("domains", {}).get(domain, {}),
+            "schema": SCHEMA[domain],
+            "domains": SCHEMA,
+        })
     name = args[2] if len(args) > 2 else None
     rest = args[3:] if len(args) > 3 else []
     if not action or action not in SCHEMA[domain]["actions"]:

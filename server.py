@@ -58,11 +58,13 @@ from engine.kanban import KanbanBoard
 from engine.landlock import get_landlock_status
 from engine.playbook import PlaybookStore
 from engine.privilege import (
+    CHMOD_DEGRADATION_MATRIX,
     CONTROL_PLANE_SCHEMA,
     CapabilityGuard,
     PermissionDenied,
     capability_manifest,
     capability_tier,
+    get_effective_chmod_tier,
     privilege_mode,
     privilege_prefix,
     tactical_playbook,
@@ -77,9 +79,12 @@ logger = logging.getLogger("aep.server")
 
 _INSTRUCTIONS = """# Agent Execution Plane (AEP) — Tactical Suite & Instructions (EAES-v2)
 
-AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 15 typed JSON-RPC tools (18 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under dual-tier privilege governance:
-- **FULL** (`root` or passwordless `sudo -n`): system-wide & kernel scope.
-- **DIMINISHED** (unprivileged user): bounded user/self scope with fail-soft JSON fallbacks.
+AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 15 typed JSON-RPC tools (18 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under 4-tier Unix chmod octal privilege governance:
+- **7rwx** (Root / Passwordless Sudo): Unrestricted system-wide & kernel scope, raw packet capture, eBPF tracing, system unit mutation, netfilter hardening.
+- **6rw-** (Standard User RW): Bounded user scope, user-space systemd units (`systemctl --user`), in-RAM anonymous exec (`memfd_create`), SQLite RW, user Pueue dispatch.
+- **5r-x** (Restricted / Container RO-Exec): Read-only workspace bind, in-RAM anonymous execution permitted, template inspection & syntax linting, query tools active.
+- **4r--** (Auditor / RO-Observer): Strict read-only audit posture, zero disk mutation, DAG verification (`topos_audit_dag`), SHA-256 ledger audit, query docs.
+- Backward compatibility: `FULL` maps to `7rwx`; `DIMINISHED` maps to `6rw-`, `5r-x`, and `4r--`.
 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
@@ -444,6 +449,8 @@ async def discover(
                     "source": source,
                     "session_id": eff_sid,
                     "capability_tier": manifest.get("capability_tier", "FULL"),
+                    "effective_chmod_tier": manifest.get("effective_chmod_tier", "6rw-"),
+                    "chmod_octal": manifest.get("chmod_octal", 6),
                     "privilege_mode": manifest.get("privilege_mode", "standard"),
                     "control_plane_domains": manifest.get("control_plane_domains", []),
                     "capabilities_count": len(manifest.get("capabilities", {})),
@@ -472,6 +479,8 @@ async def discover(
                     "source": source,
                     "session_id": eff_sid,
                     "capability_tier": manifest.get("capability_tier", "FULL"),
+                    "effective_chmod_tier": manifest.get("effective_chmod_tier", "6rw-"),
+                    "chmod_octal": manifest.get("chmod_octal", 6),
                     "privilege_mode": manifest.get("privilege_mode", "standard"),
                     "control_plane_domains": manifest.get("control_plane_domains", []),
                     "capabilities": compact_caps,
@@ -520,12 +529,15 @@ async def discover(
             else:
                 tools_meta = {}
                 for tname, tool_obj in mcp._tool_manager._tools.items():
+                    tool_degrad = CHMOD_DEGRADATION_MATRIX.get("tools", {}).get(tname, {})
                     tools_meta[tname] = {
                         "name": tname,
                         "description": tool_obj.description or "",
                         "parameters": tool_obj.parameters or {},
                         "privilege_tier": "FULL" if tname == "kernel_trace" else "DIMINISHED",
+                        "chmod_tier": "7rwx" if tname == "kernel_trace" else "6rw-",
                         "scope": "kernel" if tname == "kernel_trace" else "system/user",
+                        "degradation_behavior": tool_degrad,
                     }
                 preconds = {
                     domain: d_val.get("preconditions", {})
@@ -535,6 +547,7 @@ async def discover(
                     "status": "OK",
                     "tools_count": len(tools_meta),
                     "tools": tools_meta,
+                    "degradation_matrix": CHMOD_DEGRADATION_MATRIX,
                     "preconditions": preconds,
                     "control_plane_domains": list(CONTROL_PLANE_SCHEMA.keys()),
                 }
@@ -745,6 +758,19 @@ async def artifact_catalog(
         act = (action or "browse").strip().lower()
         tracker = RequestTelemetry("artifact_catalog", act)
         is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
+        tier_info = get_effective_chmod_tier()
+        curr_tier = tier_info.get("tier", "6rw-")
+        if act in ("reindex", "prune") and curr_tier in ("4r--", "5r-x"):
+            return attach_envelope(
+                {
+                    "status": "DEGRADED",
+                    "chmod_tier": curr_tier,
+                    "action": act,
+                    "message": f"Catalog mutation '{act}' disabled in read-only tier ({curr_tier}); query inspection only.",
+                },
+                tracker,
+                verbosity=verbosity,
+                            )
         try:
             if act in ("browse", "list"):
                 items = catalog.browse(category=category, query=query or intent, limit=limit)
@@ -909,6 +935,19 @@ async def artifact_lint_and_build(
     def _run() -> str:
         act = (action or "build").strip().lower()
         tracker = RequestTelemetry("artifact_lint_and_build", act)
+        tier_info = get_effective_chmod_tier()
+        curr_tier = tier_info.get("tier", "6rw-")
+        if act == "build" and curr_tier == "4r--":
+            return attach_envelope(
+                {
+                    "status": "DEGRADED",
+                    "chmod_tier": "4r--",
+                    "action": "build",
+                    "message": "Artifact compilation disabled in auditor read-only tier (4r--); template inspection and linting only.",
+                },
+                tracker,
+                verbosity=verbosity,
+                            )
         try:
             if act == "catalog":
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
@@ -1307,7 +1346,24 @@ async def artifact_execute_in_ram(
         eff_limit = max(1, int(limit or 25))
         eff_timeout = max(1, min(int(timeout or 30), 120))
 
-        # 1. Validación de autorización y blacklist
+        # 1. Validación de nivel chmod y autorización
+        tier_info = get_effective_chmod_tier()
+        curr_tier = tier_info.get("tier", "6rw-")
+        if curr_tier == "4r--":
+            return attach_envelope(
+                {
+                    "status": "PERMISSION_DENIED",
+                    "error": "In-RAM execution disabled in auditor read-only tier (4r--).",
+                    "tier": "4r--",
+                    "chmod_tier": "4r--",
+                    "target": eff_name,
+                },
+                tracker,
+                verbosity=verbosity,
+                                summary="In-RAM execution blocked by auditor read-only tier.",
+                next_action="Inspect template or execute in unprivileged/full tier.",
+            )
+
         try:
             CapabilityGuard.verify_action(agent_id, "cap_ram_exec", "ram_exec", target=eff_name)
         except PermissionDenied as e:
@@ -1378,7 +1434,7 @@ async def artifact_execute_in_ram(
         if not elf_bytes:
             blob = catalog.get_binary_blob(resolved_name)
             if not blob:
-                alt_name = name.replace("-", "_") if "-" in name else name.replace("_", "-")
+                alt_name = eff_name.replace("-", "_") if "-" in eff_name else eff_name.replace("_", "-")
                 if (TEMP_BIN_DIR / alt_name).exists():
                     try:
                         raw_elf = (TEMP_BIN_DIR / alt_name).read_bytes()
@@ -1995,6 +2051,19 @@ async def async_job_dispatch(
 
         try:
             if act == "dispatch":
+                tier_info = get_effective_chmod_tier()
+                curr_tier = tier_info.get("tier", "6rw-")
+                if curr_tier == "4r--":
+                    return attach_envelope(
+                        {
+                            "status": "DEGRADED",
+                            "chmod_tier": "4r--",
+                            "action": "dispatch",
+                            "message": "Async job dispatch disabled in auditor tier (4r--); status inspection only.",
+                        },
+                        tracker,
+                        verbosity=verbosity,
+                                            )
                 if not command or not command.strip():
                     return attach_envelope(
                         {
@@ -2525,6 +2594,24 @@ async def sandbox_run(
                 },
                 tracker,
             )
+
+        tier_info = get_effective_chmod_tier()
+        curr_tier = tier_info.get("tier", "6rw-")
+        if curr_tier == "4r--":
+            return attach_envelope(
+                {
+                    "status": "DEGRADED",
+                    "exit_code": 0,
+                    "agent_id": agent_id,
+                    "chmod_tier": "4r--",
+                    "command": effective_cmd,
+                    "stdout": f"[DRY_RUN_AUDITOR] Command execution mocked under tier 4r--: {effective_cmd}",
+                    "stderr": "",
+                    "message": "Execution disabled in auditor read-only tier (4r--). Dry-run mock returned.",
+                },
+                tracker,
+                verbosity=verbosity,
+                            )
 
         eff_ro = list(ro_paths or [])
         eff_rw = list(rw_paths or [])
@@ -3557,6 +3644,19 @@ async def kanban_board(
         tracker = RequestTelemetry("kanban_board", act)
         is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
         eff_limit = max(1, int(limit or 5))
+        tier_info = get_effective_chmod_tier()
+        curr_tier = tier_info.get("tier", "6rw-")
+        if act not in ("board", "list", "status", "query") and curr_tier in ("4r--", "5r-x"):
+            return attach_envelope(
+                {
+                    "status": "DEGRADED",
+                    "chmod_tier": curr_tier,
+                    "action": act,
+                    "message": f"Kanban mutation '{act}' disabled in read-only tier ({curr_tier}); board inspection only.",
+                },
+                tracker,
+                verbosity=verbosity,
+                            )
         try:
             if act == "board":
                 res = kanban.board(include_archived=include_archived)
@@ -3736,6 +3836,19 @@ async def playbook_run(
     is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
     effective_vars = vars if vars is not None else (params or {})
     effective_desc = (description or intent_description or "").strip()
+    tier_info = get_effective_chmod_tier()
+    curr_tier = tier_info.get("tier", "6rw-")
+    if act in ("run", "create", "prune") and curr_tier == "4r--":
+        return attach_envelope(
+            {
+                "status": "DEGRADED",
+                "chmod_tier": "4r--",
+                "action": act,
+                "message": f"Playbook execution/mutation '{act}' disabled in auditor tier (4r--); validation and static listing only.",
+            },
+            tracker,
+            verbosity=verbosity,
+                    )
     try:
         if act == "run":
             if not (name or "").strip():
