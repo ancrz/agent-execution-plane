@@ -8,10 +8,10 @@
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22%2B_Static_ELF-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Shell POSIX](https://img.shields.io/badge/Shell-POSIX_Bash_%2F_Zsh_%2F_Dash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![SQLite 3 WAL](https://img.shields.io/badge/SQLite_3-WAL_%2B_mmap_%2B_vec-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org/)
-[![FastMCP Protocol](https://img.shields.io/badge/FastMCP-15_Tools_%2F_18_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
+[![FastMCP Protocol](https://img.shields.io/badge/FastMCP-16_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-117%2F117_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-123%2F123_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -39,8 +39,9 @@
    - [Architectural Breakdown of the 4 Layers](#architectural-breakdown-of-the-4-layers)
    - [Detailed Layer Specifications](#detailed-layer-specifications)
 3. [High-Performance Linux Kernel Primitives → Resilient Agentic Capabilities](#3-high-performance-linux-kernel-primitives--resilient-agentic-capabilities)
-4. [Catalog of 15 MCP Tools (18 Capabilities)](#4-catalog-of-15-mcp-tools-18-capabilities)
-   - [Master Reference Tables for 15 FastMCP Tools](#master-reference-tables-for-15-fastmcp-tools)
+4. [Catalog of 16 MCP Tools (19 Capabilities)](#4-catalog-of-16-mcp-tools-19-capabilities)
+   - [Master Reference Tables for 16 FastMCP Tools](#master-reference-tables-for-16-fastmcp-tools)
+   - [Factory Decoupling: Runtime Primitives vs. Template Synthesis](#factory-decoupling-runtime-primitives-vs-template-synthesis)
    - [Lifecycle and Skill Chaining](#lifecycle-and-skill-chaining)
 5. [Hybrid Semantic Memory (sqlite-vec) & Hot SQLite Concurrency](#5-hybrid-semantic-memory-sqlite-vec--hot-sqlite-concurrency)
    - [Persistence and Agent Access](#persistence-and-agent-access)
@@ -255,12 +256,12 @@ flowchart LR
 
 ---
 
-## 4. Catalog of 15 MCP Tools (18 Capabilities)
+## 4. Catalog of 16 MCP Tools (19 Capabilities)
 
 ```mermaid
 flowchart TD
     Root["discover(action='capabilities')<br/>FIRST CALL: autonomy manifest (chmod/777)"]
-    Root --> G0 & G1 & G2 & G3 & G4 & G5
+    Root --> G0 & G1 & G1b & G2 & G3 & G4 & G5
     subgraph G0["Orientation & DAG"]
         T1["discover"]
         T2["topos_audit_dag"]
@@ -269,6 +270,9 @@ flowchart TD
         T3["artifact_catalog"]
         T4["artifact_lint_and_build"]
         T5["artifact_execute_in_ram"]
+    end
+    subgraph G1b["Native Diagnostic Primitives"]
+        T16["default_primitives"]
     end
     subgraph G2["Introspection & Execution"]
         T6["process_inspect"]
@@ -290,9 +294,9 @@ flowchart TD
     end
 ```
 
-### Master Reference Tables for 15 FastMCP Tools
+### Master Reference Tables for 16 FastMCP Tools
 
-The plane exposes 15 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all 15 tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-32, the strict 15-tool invariant is reaffirmed: native in-memory network and security telemetry capabilities (synthetic TCP port probing, /proc/net introspection, packet header dissection, and netfilter firewall hardening) are absorbed directly into polymorphic dispatchers (`aep_ctl`, `kernel_trace`, `discover(action="schema")`), preserving exactly 15 tools registered in `server.py` with zero tool-set bloat.
+The plane exposes 16 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-34, FastMCP Tool #16 (`default_primitives`) is registered to provide direct runtime diagnostic probing (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`) in pure Python/kernel memory, decoupling basic system introspection from the Go compilation and synthesis factory while strictly preserving all 5 Go template files in `templates/` as synthesis scaffolding.
 
 #### Root Entry Point & Autonomy Manifest
 
@@ -308,6 +312,12 @@ The plane exposes 15 RPC tools organized across operational domains plus the roo
 | `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(action: str = "build", name: Optional[str] = None, artifact_name: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None, category: Optional[str] = None, go_source: Optional[str] = None, template_name: Optional[str] = None, source_template: Optional[str] = None, params: Optional[Dict[str, Any]] = None, cue_contract: str = "", limit: int = 5) -> str` | Unified pipeline to browse templates (`catalog`), rank by relevance (`select`), hydrate Go source (`hydrate`), and compile binaries with `go vet`/`golangci-lint` validation (`build`, with `lint` and `vet` action aliases), including 1-step zero-config template shortcut (`template_name` auto-fills defaults and reuses active Kanban tasks). | Action-dependent typed JSON (`status`, `templates`, `matches`, `go_source`, `artifact_id`, `binary_path`). | Structured responses with `status: "PARAM_ERROR"` on missing inputs, `status: "HYDRATE_ERROR"` on template failures, and `status: "INVALID_ACTION"` on invalid actions. |
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, artifact_name: Optional[str] = None, args: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, stdin: Optional[str] = None, timeout: int = 30) -> str` | Loads the ELF binary into an anonymous volatile descriptor via `memfd_create` and executes directly in RAM via `/proc/self/fd/<fd>`. Supports `artifact_name` alias, `env` and `stdin` injection, and configurable `timeout` (1–120s, default 30s). Measures latency and records execution metrics in SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Non-zero exit codes return structured JSON with `stderr` and update historical failure rates. |
 | `artifact_catalog` | `DIMINISHED` | `artifact_catalog(action: str = "browse", category: Optional[str] = None, query: Optional[str] = None, intent: Optional[str] = None, name: Optional[str] = None, artifact_name: Optional[str] = None, limit: int = 10, force: bool = False, apply: bool = False) -> str` | Unified semantic memory. `action="browse"`: lists/searches by confidence or semantic top-K (`query`). `action in ("info", "get", "show")`: lightweight inspection of full artifact metadata (including `binary_size_bytes`) without dumping binary blobs. `action="query"`: hybrid cache search. `action="reindex"`: heals sqlite-vec vectors. `action="prune"`: safe GC. | `{"status": "OK"|"CACHE_HIT"|"CACHE_MISS", ...}` | Gracefully degrades to relational confidence ranking if vector extensions are unavailable. |
+
+#### Domain 1b: Native Diagnostic Primitives & Scaffolding (1 Tool)
+
+| Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| `default_primitives` | `DIMINISHED` | `default_primitives(action: str = "list", name: Optional[str] = None, params: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, verbosity: str = "detail", agent_id: str = "default") -> str` | Direct in-memory execution of system diagnostic probes (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`) in pure Python / Linux kernel `/proc` without compilation overhead or Go toolchain prerequisites. Supports `action="list"` (inspect available probes), `action in ("info", "get")` (probe specifications, metrics, and parameters), and `action in ("run", "exec")` (execute diagnostic probe). Enforces fail-soft 4-tier chmod privilege degradation (`4r--` returns `PERMISSION_DENIED` without raising exceptions) and returns single-encoded JSON with `attach_envelope(...)` where `output_schema is None`. Decouples runtime introspection from template factory synthesis. | `{"status": "OK"|"SUCCESS"|"PERMISSION_DENIED", "primitive": str, "output": {...}, "envelope": {...}, "telemetry": {...}}` | Parameter errors return `status: "PARAM_ERROR"`; missing names return `status: "NOT_FOUND"`; unprivileged executions degrade to `status: "PERMISSION_DENIED"`. Zero unhandled exceptions. |
 
 #### Domain 2: Pico-Kanban & Multidimensional Scoring (2 Tools)
 
@@ -348,6 +358,21 @@ Chains existing tools and artifacts into validated DAG workflows (e.g., E2E: sta
 | `playbook_run` | `DIMINISHED` | `playbook_run(action: str = "run", name: Optional[str] = None, vars: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None, steps: Optional[Union[List[Dict[str, Any]], str]] = None, return_only: str = "all", select_fields: Optional[List[str]] = None, stop_on_error: bool = True, description: Optional[str] = None, intent_description: Optional[str] = None, params_contract: Optional[List[Dict[str, Any]]] = None, names: Optional[List[str]] = None, apply: bool = False) -> str` | Unified execution of DAG workflows (`run`), single-turn ephemeral batch pipelines (`batch` / `code` / `ephemeral` / `pipeline`) supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`), cross-agent shared RAM session cache piping (`$cache.<key>.*`, `$slot.<key>.*`), failed steps preservation (`failed_steps`), server-side field projection (`select_fields` cutting tokens by 80–96.98%), defining automations (`create`), listing inventory (`list`), and safe pruning (`prune`). | Action-dependent typed JSON (`status`, `playbook`, `steps_run`, `results`, `output`, `failed_steps`, `token_savings_estimate`). | Returns `status: "PARAM_ERROR"` on missing inputs, `status: "INVALID_ACTION"` on invalid actions, and `status: "LINT_ERROR"` on recursion attempts. |
 
 ---
+
+
+### Factory Decoupling: Runtime Primitives vs. Template Synthesis
+
+Under Milestone ONT-34, AEP establishes a clean architectural boundary between **instantaneous runtime diagnostics** and **bespoke artifact synthesis**:
+
+| Dimension | `default_primitives` (Runtime Probes) | `artifact_lint_and_build` (Template Factory) |
+| :--- | :--- | :--- |
+| **Operational Role** | Immediate, low-latency diagnostic introspection | Autonomous code synthesis and ELF compilation |
+| **Target Probes** | `socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard` | Bespoke CUE-contracted Go tools & distributed agents |
+| **Implementation** | Pure in-memory Python stdlib & Linux `/proc` filesystem | Go 1.22+ compiler (`go vet`, `golangci-lint`) + static ELF |
+| **Execution Mechanics** | Direct in-process execution via `engine/primitives.py` | Volatile RAM execution via Linux `memfd_create` |
+| **Prerequisites** | None (zero external toolchain dependencies) | Go toolchain + CUE engine + `/mnt/apps` / host Go |
+| **Scaffolding Posture** | Runtime primary for standard diagnostics | Scaffolding preserved intact in `templates/` (R-4) |
+| **Latency Profile** | Sub-millisecond (< 5 ms) | Compilation cycle (~ 300-800 ms) |
 
 ### Lifecycle and Skill Chaining
 
@@ -1114,7 +1139,8 @@ agent-execution-plane/
 | Catalog Discovery | ✅ Operational | `artifact_catalog`: confidence browsing + semantic top-K |
 | Omarchy & IPC (8 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `security` with `firewall_status`, `nftables_inspect`, `threat_mitigate`, `ipc`, `audit usage`, and `workspace_snapshot`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool, batch projection, cross-agent discovery caching, Chrysalis bridge stabilization, FastMCP dynamic schema evolution (`tools.listChanged = True`), multi-harness process observability, and DX runner polish (109/109 tests passing in AEP, 100% pass rate) |
 | Network & Security Telemetry (ONT-32) | ✅ Operational | Pure in-RAM network probing, /proc/net kernel introspection, packet header dissection, netfilter hardening, dynamic schema reflection, container decoupling, and 15-tool invariant strictly preserved |
-| Dual-Tier Privilege | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (18 capabilities) |
+| 4-Tier Privilege & Degradation (ONT-33) | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (19 capabilities), 4-tier chmod octal matrix (`7rwx`/`6rw-`/`5r-x`/`4r--`), zero-sudo-hang probing |
+| Default Primitives & Factory Decoupling (ONT-34) | ✅ Operational | FastMCP Tool #16 (`default_primitives`), pure in-RAM system probes, template scaffolding preservation, 16 tools / 19 capabilities invariant certified (123/123 tests passing) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |
 | Nushell (`nu`) / `jc` | ⏳ Deferred (non-critical) | `aep_ctl` already delivers structured typed JSON |

@@ -51,6 +51,7 @@ AEP is undergoing a structured 7-phase consolidation roadmap to achieve 1:1 pari
 - **Phase 6: Crash Forensics** (`16 -> 15 tools`) — VERIFIED & COMPLETED.
 - **Phase 7: Orientation & Introspection Alignment** (`15 tools / 16 capabilities 1:1 parity`) — VERIFIED & COMPLETED.
 - **Roadmap Status**: **100% COMPLETE** (All 7 phases verified, 33 → 15 FastMCP tools covering 18 capabilities with 1:1 mapping).
+- **Milestone ONT-34: Tool #16 default_primitives & Factory Decoupling** (Invariant transition 15 -> 16 FastMCP tools, 18 -> 19 capabilities, pure in-RAM diagnostic primitives socket-monitor, fd-rescuer, disk-usage, mem-stat, landlock-guard, decoupling basic introspection from Go template synthesis while preserving Go scaffolding in templates/) — VERIFIED (123/123 Tests Passed, 100%, 0 Regressions) ✅.
 - **Milestone ONT-09: Memory-Mapped Hybrid SQLite Optimization** (`PRAGMA mmap_size 256MB`, 64MB Cache) — VERIFIED & COMMITTED (Task 110 PROMOTED).
 - **Milestone ONT-10: Code Modernization & Concurrency** (Python 3.12, Ruff SAST, AnyIO offloading, segregated RO/RW SQLite, BEGIN IMMEDIATE) — VERIFIED & COMMITTED (Task 111 PROMOTED).
 - **Milestone ONT-11: Database Resilience & Security Hardening** (5-slot hot backup engine, atomic restore & self-healing, CapabilityGuard, RAM exec safety, multi-agent context segregation, Bubblewrap `--cap-drop ALL`, SHA-256 audit log) — VERIFIED & PROMOTED (Task 112 PROMOTED).
