@@ -79,7 +79,7 @@ logger = logging.getLogger("aep.server")
 
 _INSTRUCTIONS = """# Agent Execution Plane (AEP) — Tactical Suite & Instructions (EAES-v2)
 
-AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 15 typed JSON-RPC tools (18 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under 4-tier Unix chmod octal privilege governance:
+AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 16 typed JSON-RPC tools (19 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under 4-tier Unix chmod octal privilege governance:
 - **7rwx** (Root / Passwordless Sudo): Unrestricted system-wide & kernel scope, raw packet capture, eBPF tracing, system unit mutation, netfilter hardening.
 - **6rw-** (Standard User RW): Bounded user scope, user-space systemd units (`systemctl --user`), in-RAM anonymous exec (`memfd_create`), SQLite RW, user Pueue dispatch.
 - **5r-x** (Restricted / Container RO-Exec): Read-only workspace bind, in-RAM anonymous execution permitted, template inspection & syntax linting, query tools active.
@@ -91,34 +91,35 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-9`, `WF-10..WF-11`) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
-## 2. Complete 15-Tool Suite Map (6 Operational Domains)
+## 2. Complete 16-Tool Suite Map (6 Operational Domains)
 - **Domain 1 — Orientation, Synthesis & In-RAM Execution**:
   1. `discover(use_case="", action="discover"|"capabilities"|"playbook", limit=3, verbosity="summary")`
   2. `artifact_lint_and_build(action="build"|"catalog"|"select"|"hydrate", name=..., template_name=..., agent_id=..., verbosity="summary")` *(1-step isolated Go build in `/dev/shm/aep_pool` + atomic `os.replace` & `kanban.upsert_build_task`: `template_name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard"`)*
   3. `artifact_execute_in_ram(name="socket_monitor", args=[], verbosity="summary", limit=25)` *(executes ELF via `memfd_create` with `fd_delta=0`)*
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
+  5. `default_primitives(action="list"|"info"|"run", name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
 - **Domain 2 — State Governance & Process Introspection**:
-  5. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
-  6. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
-  7. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
+  6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
+  7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
+  8. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
 - **Domain 3 — Isolation & Async Job Queues**:
-  8. `sandbox_run(command="pytest -q", working_dir="/path/to/repo", ro_paths=[], rw_paths=[], share_net=False, verbosity="summary")` *(Bubblewrap jail; auto-resolves `.venv` symlinks)*
-  9. `async_job_dispatch(action="dispatch"|"status"|"inspect"|"log", command=..., task_id=..., verbosity="summary")` *(Pueue background queue)*
+  9. `sandbox_run(command="pytest -q", working_dir="/path/to/repo", ro_paths=[], rw_paths=[], share_net=False, verbosity="summary")` *(Bubblewrap jail; auto-resolves `.venv` symlinks)*
+  10. `async_job_dispatch(action="dispatch"|"status"|"inspect"|"log", command=..., task_id=..., verbosity="summary")` *(Pueue background queue)*
 - **Domain 4 — Kernel Observability & Crash Forensics**:
-  10. `diagnose_system_crashes(action="diagnose"|"alerts", limit=5, verbosity="summary")` *(deduplicated systemd errors & coredumps)*
-  11. `kernel_trace(mode="syscall_count"|"file_opens"|"tcp_connect"|"security_open_denials"|"security_landlock_audit"|"security_exec_monitor"|"network_sniff"|"security_audit"|"tcp_listeners", duration_sec=2, verbosity="summary")`
+  11. `diagnose_system_crashes(action="diagnose"|"alerts", limit=5, verbosity="summary")` *(deduplicated systemd errors & coredumps)*
+  12. `kernel_trace(mode="syscall_count"|"file_opens"|"tcp_connect"|"security_open_denials"|"security_landlock_audit"|"security_exec_monitor"|"network_sniff"|"security_audit"|"tcp_listeners", duration_sec=2, verbosity="summary")`
 - **Domain 5 — Unified System Control, Man-Pages & Visual Capture**:
-  12. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit"|"ipc", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
-  13. `query_system_docs(query="bwrap ro-bind", ingest_command=None, limit=3, verbosity="summary")` *(offline `sqlite-vec` man-pages)*
-  14. `visual_inspect(url="http://localhost:8000", include_base64=False, verbosity="summary")` *(renders in headless Chromium to `/dev/shm/aep_shot_*.png`, returning path + sha256 + text excerpt in ~275 tokens)*
+  13. `aep_ctl(domain="schema"|"service"|"network"|"storage"|"package"|"backup"|"security"|"audit"|"ipc", action=..., name=..., verbosity="summary", limit=50, cursor=0)`
+  14. `query_system_docs(query="bwrap ro-bind", ingest_command=None, limit=3, verbosity="summary")` *(offline `sqlite-vec` man-pages)*
+  15. `visual_inspect(url="http://localhost:8000", include_base64=False, verbosity="summary")` *(renders in headless Chromium to `/dev/shm/aep_shot_*.png`, returning path + sha256 + text excerpt in ~275 tokens)*
 - **Domain 6 — DAG Workflow Orchestration & Ephemeral Batch/Code Mode**:
-  15. `playbook_run(action="run"|"batch"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, steps=[...], return_only="last"|"summary"|"all", select_fields=[...], agent_id=..., verbosity="summary")` *(supports `$prev.*`, `$steps.<id>.*`, `$cache.<key>.*`, `$slot.<key>.*` piping and `store_as` shared RAM handoffs)*
+  16. `playbook_run(action="run"|"batch"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, steps=[...], return_only="last"|"summary"|"all", select_fields=[...], agent_id=..., verbosity="summary")` *(supports `$prev.*`, `$steps.<id>.*`, `$cache.<key>.*`, `$slot.<key>.*` piping and `store_as` shared RAM handoffs)*
 
 ## 3. Rules of Engagement (Token Efficiency, Batching & Multi-Agent Concurrency)
-- **Compact Verbosity**: Always pass `verbosity="summary"` (supported across all 15/15 tools) for 70-98% token savings.
+- **Compact Verbosity**: Always pass `verbosity="summary"` (supported across all 16/16 tools) for 70-98% token savings.
 - **Single-Turn Ephemeral Batch & Field Projection (`Spec OM-7`)**: Chain multi-tool workflows in 1 LLM turn using `playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status","pid","fd_count"])` (also supported on saved playbooks with `action="run"`). Failed step diagnostics (`failed_steps`) are always preserved.
 - **Zero-Token Multi-Agent RAM Handoffs (`/dev/shm/aep_pool`)**: Pass `params={"session_id": "shared-id"}` and `store_as="key"` on steps so collaborating agents (`archon`, `pragma`, `dokimos`, `graphos`, `hermon`) read `$cache.<key>.<field>` directly from `/dev/shm` RAM without re-serializing JSON through the prompt.
-- **Collision-Free Multi-Agent Concurrency**: All 15 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
+- **Collision-Free Multi-Agent Concurrency**: All 16 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
 - **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
 - **Tactical Security & Incident Workflows (ONT-32)**: Use WF-10 ('Native Network Telemetry & Port Observability') and WF-11 ('Security Observability & Netfilter Hardening' with netfilter mitigation and Landlock verification).
@@ -194,7 +195,7 @@ def _get_git_commit() -> str:
 
 
 def _get_schema_hash() -> str:
-    """Compute deterministic SHA-256 fingerprint across all 15 FastMCP registered tool schemas (Directive OM-1)."""
+    """Compute deterministic SHA-256 fingerprint across all 16 FastMCP registered tool schemas (Directive OM-1)."""
     try:
         import hashlib
 
@@ -513,7 +514,7 @@ async def discover(
                 payload,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 18 capabilities).",
+                summary=f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities).",
                 next_action="Call discover(action='playbook') for tactical workflows or invoke a ready tool.",
             )
 
@@ -4305,6 +4306,189 @@ async def playbook_run(
             )
     except Exception as e:
         return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
+
+
+
+# ---------------------------------------------------------------------------
+# Tool #16: default_primitives (Milestone ONT-34)
+# ---------------------------------------------------------------------------
+@mcp.tool(structured_output=False)
+async def default_primitives(
+    action: str = "list",
+    name: str | None = None,
+    params: dict[str, Any] | None = None,
+    args: list[str] | str | None = None,
+    verbosity: str = "detail",
+    agent_id: str = "default",
+) -> str:
+    """
+    [DEFAULT PRIMITIVES] Sondas de diagnóstico e introspección nativas del sistema ejecutadas directamente en RAM.
+    Permite descubrir y ejecutar sondas integradas sin requerir el ciclo de compilación de plantillas:
+      - 'socket-monitor': sockets TCP/UDP vía kernel /proc/net (params: state='LISTEN'|'ESTABLISHED'|'').
+      - 'fd-rescuer': inspección de /proc/PID/fd para deadlocks o fugas (params: pid=0 para self, o pid>0).
+      - 'disk-usage': uso de disco del sistema de archivos vía statvfs / shutil (params: path='/').
+      - 'mem-stat': reporte de RAM total, libre y disponible leyendo /proc/meminfo.
+      - 'landlock-guard': auditoría del estado y compatibilidad de Landlock LSM en el kernel activo.
+    Acciones:
+      - 'list': lista todas las sondas por defecto con sus descripciones y parámetros.
+      - 'info' | 'get': metadata y contrato de una sonda específica (requiere name).
+      - 'run' | 'exec': ejecuta la sonda indicada bajo el tier chmod activo (fail-soft en 4r-- con PERMISSION_DENIED).
+    """
+    tracker = RequestTelemetry("default_primitives", action)
+    from engine.primitives import (
+        DEFAULT_PRIMITIVES_REGISTRY,
+        execute_primitive,
+        get_primitive_info,
+        list_primitives,
+        normalize_primitive_name,
+    )
+
+    act = (action or "list").strip().lower()
+
+    effective_params: dict[str, Any] = dict(params or {})
+    if args is not None:
+        if isinstance(args, dict):
+            effective_params.update(args)
+        elif isinstance(args, str) and args.strip().startswith("{"):
+            try:
+                parsed_args = json.loads(args)
+                if isinstance(parsed_args, dict):
+                    effective_params.update(parsed_args)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        elif isinstance(args, list) and args:
+            norm_name = normalize_primitive_name(name or "")
+            if norm_name == "disk-usage":
+                effective_params.setdefault("path", args[0])
+            elif norm_name == "fd-rescuer":
+                try:
+                    effective_params.setdefault("pid", int(args[0]))
+                except (ValueError, TypeError):
+                    pass
+            elif norm_name == "socket-monitor":
+                effective_params.setdefault("state", str(args[0]))
+
+    if act == "list":
+        prims = list_primitives()
+        if verbosity in ("summary", "brief", "terse"):
+            displayed_prims = [
+                {
+                    "name": p["name"],
+                    "category": p.get("category"),
+                    "description": p.get("description", ""),
+                }
+                for p in prims
+            ]
+        else:
+            displayed_prims = prims
+        payload = {
+            "status": "OK",
+            "count": len(prims),
+            "primitives": displayed_prims,
+        }
+        return attach_envelope(
+            payload,
+            tracker,
+            verbosity=verbosity,
+            summary=f"Listed {len(prims)} default system diagnostic primitives.",
+            next_action="Invoke default_primitives(action='run', name=...) to execute a diagnostic probe in RAM.",
+        )
+
+    elif act in ("info", "get"):
+        if not name or not name.strip():
+            payload = {
+                "status": "ERROR",
+                "error": "El parámetro 'name' es obligatorio para la acción 'info'.",
+                "available_primitives": list(DEFAULT_PRIMITIVES_REGISTRY.keys()),
+            }
+            return attach_envelope(
+                payload,
+                tracker,
+                verbosity=verbosity,
+                summary="Missing required 'name' parameter for info action.",
+            )
+        info = get_primitive_info(name)
+        if not info:
+            payload = {
+                "status": "NOT_FOUND",
+                "name": name,
+                "error": f"Sonda primitiva '{name}' no encontrada.",
+                "available_primitives": list(DEFAULT_PRIMITIVES_REGISTRY.keys()),
+            }
+            return attach_envelope(
+                payload,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Primitive '{name}' not found.",
+            )
+        payload = {
+            "status": "OK",
+            "primitive": info,
+        }
+        return attach_envelope(
+            payload,
+            tracker,
+            verbosity=verbosity,
+            summary=f"Retrieved metadata for primitive '{info['name']}'.",
+            next_action=f"Execute via default_primitives(action='run', name='{info['name']}')",
+        )
+
+    elif act in ("run", "exec"):
+        if not name or not name.strip():
+            payload = {
+                "status": "ERROR",
+                "error": "El parámetro 'name' es obligatorio para la acción 'run'.",
+                "available_primitives": list(DEFAULT_PRIMITIVES_REGISTRY.keys()),
+            }
+            return attach_envelope(
+                payload,
+                tracker,
+                verbosity=verbosity,
+                summary="Missing required 'name' parameter for run action.",
+            )
+
+        eff_tier_info = get_effective_chmod_tier()
+        active_tier = eff_tier_info["tier"]
+
+        result = execute_primitive(name, params=effective_params, tier=active_tier)
+        status_val = result.get("status", "OK")
+
+        if status_val == "PERMISSION_DENIED":
+            return attach_envelope(
+                result,
+                tracker,
+                verbosity=verbosity,
+                summary=result.get("summary", f"Execution of primitive '{name}' disabled under {active_tier}."),
+                next_action="Elevate chmod tier or inspect primitive metadata with action='info'.",
+            )
+        elif status_val != "OK":
+            return attach_envelope(
+                result,
+                tracker,
+                verbosity=verbosity,
+                summary=f"Primitive '{name}' execution failed: {result.get('error', 'unknown error')}",
+            )
+
+        return attach_envelope(
+            result,
+            tracker,
+            verbosity=verbosity,
+            summary=f"Primitive '{name}' executed successfully in RAM (tier={active_tier}).",
+            next_action="Review primitive diagnostics or proceed with next workflow step.",
+        )
+
+    else:
+        payload = {
+            "status": "INVALID_ACTION",
+            "error": f"Acción '{action}' no reconocida. Acciones válidas: 'list', 'info', 'run'.",
+            "valid_actions": ["list", "info", "run"],
+        }
+        return attach_envelope(
+            payload,
+            tracker,
+            verbosity=verbosity,
+            summary=f"Invalid action '{action}'.",
+        )
 
 
 # ---------------------------------------------------------------------------

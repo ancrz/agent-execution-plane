@@ -293,6 +293,13 @@ _CAPABILITIES = {
         ["query_system_docs"],
         "Memoria semántica local de man-pages (sqlite-vec): sintaxis exacta sin alucinar flags",
     ),
+    "default_primitives": (
+        5,
+        5,
+        "self",
+        ["default_primitives"],
+        "Ejecutar sondas de diagnóstico del sistema por defecto en RAM",
+    ),
 }
 
 _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "--x", 0: "---"}
@@ -320,6 +327,7 @@ _CAP_KEYWORDS = {
     "backup_admin": "backup restore recover rotation hot snapshot sqlite wal quarantine golden micro_snapshot copia seguridad restaurar",
     "audit_read": "audit log security chain cryptographic hash ledger tamper verify verificar auditoria cadena criptografica",
     "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando",
+    "default_primitives": "default primitives system diagnostic probes socket monitor fd rescuer disk usage mem stat landlock guard ram in-memory sondas diagnostico primitivas por defecto memoria",
 }
 
 # ---------------------------------------------------------------------------
@@ -416,6 +424,12 @@ CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             TIER_6RW: "Full DAG orchestration & batch execution",
             TIER_5RX: "Validation & dry-run planning",
             TIER_4R: "Validation & static DAG check only",
+        },
+        "default_primitives": {
+            TIER_7RWX: "Full execution of all built-in primitives across host scope",
+            TIER_6RW: "User-scope execution of built-in primitives in RAM",
+            TIER_5RX: "Read-only inspection and isolated execution in RAM",
+            TIER_4R: "Metadata inspection only (execution disabled: status PERMISSION_DENIED)",
         },
     },
     "domains": {
@@ -603,6 +617,7 @@ _CAP_BINARIES: dict[str, list[str]] = {
     "backup_admin": [],
     "audit_read": [],
     "system_docs": ["man"],
+    "default_primitives": [],
 }
 
 _CAP_TACTICAL: dict[str, dict[str, Any]] = {
@@ -732,6 +747,14 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
             'query_system_docs(query="bubblewrap bind mount read only", ingest_command="bwrap", limit=3)',
         ],
     },
+    "default_primitives": {
+        "when_to_use": "Execute built-in system introspection and diagnostic probes directly in RAM without template compilation.",
+        "canonical_calls": [
+            'default_primitives(action="list")',
+            'default_primitives(action="info", name="socket-monitor")',
+            'default_primitives(action="run", name="disk-usage", params={"path": "/"})',
+        ],
+    },
 }
 
 
@@ -795,7 +818,7 @@ def tactical_playbook() -> dict[str, Any]:
             "4. STATE EXTERNALIZATION: Record multi-step work in kanban_board and validate task dependencies with topos_audit_dag before mutating files.",
             "5. SNAPSHOT BEFORE MUTATION: Call aep_ctl(domain='backup', action='micro_snapshot', name='pre_edit') before risky database or catalog changes.",
             "6. EPHEMERAL PIPELINE BATCHING: Use playbook_run(action='batch', steps=[...], return_only='last', select_fields=[...]) or /dev/shm/aep.sock UNIX socket pool to execute multi-tool chains in a single turn and discard unneeded fields server-side (saving 80-98% tokens).",
-            "7. ZERO-TOKEN MULTI-AGENT RAM HANDOFF & CONCURRENCY: Share state across agents in /dev/shm/aep_pool using params={'session_id': 'shared'} + store_as='key' and reference $cache.<key>.<field> (or $slot.<key>.<field>). All 15 tools (Pico-Kanban, Pico-Jenkins Go builds, Pico-Ansible playbooks, SHA-256 audit log, and RAM snapshots) are collision-free under concurrent multi-agent execution.",
+            "7. ZERO-TOKEN MULTI-AGENT RAM HANDOFF & CONCURRENCY: Share state across agents in /dev/shm/aep_pool using params={'session_id': 'shared'} + store_as='key' and reference $cache.<key>.<field> (or $slot.<key>.<field>). All 16 tools (Pico-Kanban, Pico-Jenkins Go builds, Pico-Ansible playbooks, SHA-256 audit log, default primitives, and RAM snapshots) are collision-free under concurrent multi-agent execution.",
             "8. MULTI-AGENT RAM CAPABILITY CACHING (GAP-DOC-02): Subagents must call discover(action='capabilities', session_id='<shared-id>', verbosity='terse') to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).",
             "9. TACTICAL SANDBOX RECIPES (ONT-30): Use sandbox-linter-fix (rw_paths=[<repo>]) for in-place formatting, untrusted-adversarial-probe (rw_paths=[<scratch>]) for isolated fuzzing, and composite-verification-runner (parse='auto') for unified ruff && pytest in 1 turn.",
         ],
@@ -910,6 +933,8 @@ def tactical_playbook() -> dict[str, Any]:
             "composite_verification": 'sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", parse="auto", verbosity="brief")',
             "network_telemetry_probe": 'aep_ctl(domain="network", action="probe", name="127.0.0.1", args="22,80,443", verbosity="summary")',
             "incident_protocol_audit": 'aep_ctl(domain="security", action="nftables_inspect", verbosity="summary")',
+            "default_primitives_run": 'default_primitives(action="run", name="disk-usage", verbosity="summary")',
+            "default_primitives_list": 'default_primitives(action="list", verbosity="summary")',
         },
         "prerequisites_summary": {k: v["installed"] for k, v in prereqs.items()},
     }

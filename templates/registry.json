@@ -1,4 +1,14 @@
 {
+  "_meta": {
+    "role": "starter_scaffolding",
+    "description": "Plantillas Go estáticas de andamiaje para síntesis y compilación dinámica de artefactos (artifact_lint_and_build). Para introspección e inspección directa en tiempo de ejecución sin compilación, utilice la herramienta built-in default_primitives.",
+    "canonical_runtime_tool": "default_primitives",
+    "synthesis_tools": [
+      "artifact_catalog",
+      "artifact_lint_and_build",
+      "artifact_execute_in_ram"
+    ]
+  },
   "templates": [
     {
       "name": "socket-monitor",
@@ -24,7 +34,9 @@
           "required": false,
           "default": ""
         }
-      ]
+      ],
+      "scaffolding_only": true,
+      "runtime_alternative": "default_primitives"
     },
     {
       "name": "fd-rescuer",
@@ -51,7 +63,9 @@
           "required": false,
           "default": 0
         }
-      ]
+      ],
+      "scaffolding_only": true,
+      "runtime_alternative": "default_primitives"
     },
     {
       "name": "disk-usage",
@@ -69,7 +83,7 @@
         "capacity",
         "mount"
       ],
-      "description": "Uso de disco del sistema de archivos root v\u00eda statfs: total, libre y usado en bytes.",
+      "description": "Uso de disco del sistema de archivos root vía statfs: total, libre y usado en bytes.",
       "params": [
         {
           "name": "path",
@@ -77,7 +91,9 @@
           "required": false,
           "default": "/"
         }
-      ]
+      ],
+      "scaffolding_only": true,
+      "runtime_alternative": "default_primitives"
     },
     {
       "name": "mem-stat",
@@ -98,7 +114,9 @@
         "consumption"
       ],
       "description": "Uso de memoria: lee /proc/meminfo y reporta RAM total, libre y disponible (usage) en bytes.",
-      "params": []
+      "params": [],
+      "scaffolding_only": true,
+      "runtime_alternative": "default_primitives"
     },
     {
       "name": "landlock-guard",
@@ -115,8 +133,10 @@
         "filesystem",
         "probe"
       ],
-      "description": "Sonda est\u00e1tica en Go para auditar soporte y confinamiento de Landlock LSM (Kernel 5.13+) v\u00eda syscalls puras.",
-      "params": []
+      "description": "Sonda estática en Go para auditar soporte y confinamiento de Landlock LSM (Kernel 5.13+) vía syscalls puras.",
+      "params": [],
+      "scaffolding_only": true,
+      "runtime_alternative": "default_primitives"
     }
   ]
 }

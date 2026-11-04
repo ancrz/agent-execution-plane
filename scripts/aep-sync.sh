@@ -44,7 +44,7 @@ validate() {
         err "py_compile falló:"; cat /tmp/aep_sync_compile.err; return 1
     fi
     # Smoke de import: construye el server completo (registra las tools). Falla => no se enchufa.
-    if ! PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp')" 2>/tmp/aep_sync_import.err; then
+    if ! PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp'); assert len(server.mcp._tool_manager._tools) == 16, f'Expected 16 tools, got {len(server.mcp._tool_manager._tools)}'" 2>/tmp/aep_sync_import.err; then
         err "import de server falló:"; cat /tmp/aep_sync_import.err; return 1
     fi
     chmod +x "$LAUNCHER" "$SCRIPT_DIR/aep-ctl" 2>/dev/null || true

@@ -442,7 +442,7 @@ class ArtifactCatalog:
                     "SELECT id, name, category, version, success_rate, execution_count, "
                     "avg_latency_ms, created_at FROM artifacts ORDER BY execution_count DESC"
                 ).fetchall()
-            return [dict(r) for r in rows]
+            return [{**dict(r), "artifact_type": "synthesized"} for r in rows]
 
     def browse(self, category: str | None = None, query: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
         """Descubrimiento del catálogo para el agente: 'qué soluciones tengo disponibles'.
@@ -478,6 +478,7 @@ class ArtifactCatalog:
                         if category and d.get("category") != category:
                             continue
                         d["semantic_distance"] = round(float(d.pop("_d")), 4)
+                        d["artifact_type"] = "synthesized"
                         out.append(d)
                     return out
 
@@ -500,7 +501,13 @@ class ArtifactCatalog:
                     "ORDER BY reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC LIMIT ?",
                     (lim,),
                 ).fetchall()
-        return [dict(r) for r in rows]
+        return [{**dict(r), "artifact_type": "synthesized"} for r in rows]
+
+    @staticmethod
+    def is_builtin_primitive(name: str) -> bool:
+        """Comprueba si el nombre corresponde a una sonda primitiva built-in (default_primitives)."""
+        from engine.primitives import DEFAULT_PRIMITIVES_REGISTRY, normalize_primitive_name
+        return normalize_primitive_name(name) in DEFAULT_PRIMITIVES_REGISTRY
 
     def prune(self, protect: set | None = None, apply: bool = False) -> dict[str, Any]:
         """Poda destructiva SEGURA de artefactos que perdieron la confianza.
