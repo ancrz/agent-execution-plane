@@ -135,6 +135,7 @@ def attach_envelope(
     tracker: RequestTelemetry,
     *,
     verbosity: str = "detail",
+    severity: str | None = None,
     summary: str | None = None,
     evidence: Any | None = None,
     next_action: str | None = None,
@@ -145,7 +146,7 @@ def attach_envelope(
     """Attach telemetry and normalized agent-brief envelope fields while preserving existing keys."""
     mode = (verbosity or "detail").strip().lower()
     status_val = str(payload.get("status") or payload.get("verdict") or "OK")
-    sev = infer_severity(status_val)
+    sev = str(severity or payload.get("severity") or infer_severity(status_val))
 
     if truncated is not None:
         payload["truncated"] = truncated
@@ -175,7 +176,7 @@ def attach_envelope(
     indent_val = None if is_unindented else 2
 
     payload.setdefault("status", status_val)
-    payload.setdefault("severity", sev)
+    payload["severity"] = sev
     payload.setdefault("summary", summary)
     payload.setdefault("next_action", next_action)
     if evidence is not None:

@@ -176,8 +176,8 @@ AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _get_git_commit() -> str:
-    """Fail-soft retrieval of git HEAD short commit hash (Directive OM-1)."""
+def _read_git_head_commit() -> str:
+    """Fail-soft retrieval of git HEAD short commit hash (Directive OM-1 / GAP-RT-04)."""
     try:
         res = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -192,6 +192,15 @@ def _get_git_commit() -> str:
     except Exception:  # noqa: BLE001, S110
         pass
     return "unknown"
+
+
+LOADED_COMMIT: str = _read_git_head_commit()
+LOADED_TIME: float = time.time()
+
+
+def _get_git_commit() -> str:
+    """Backward-compatible retrieval returning the frozen loaded commit (GAP-RT-04)."""
+    return LOADED_COMMIT
 
 
 def _get_schema_hash() -> str:
@@ -400,20 +409,20 @@ async def discover(
     select_fields: list[str] | None = None,
 ) -> str:
     """
-    [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
-    devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico de ingeniería de sistemas.
-    Soporta auto-caching en RAM (/dev/shm) entre subagentes para mitigar la amnesia de descubrimiento ('Re-Discovery Tax').
-    action:
-      - 'discover' (default; alias: 'match', 'route', 'search', 'recommend'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
-      - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
-      - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida de ingeniería de sistemas.
-  - 'schema': reflexión introspectiva de esquemas, parámetros, tipos y condiciones previas para las 15 herramientas FastMCP.
-    Parámetros de eficiencia de tokens (Spec OM-7 / Cloudflare Premise):
-      - `session_id` / `sid`: espacio de sesión compartido en RAM para reutilizar manifiestos entre agentes.
-      - `store_as`: almacena el resultado bajo una clave nombrada en el SessionPool para piping en RAM ($cache.<store_as>).
-      - `select_fields`: lista de dot-paths (ej: ['status', 'capability_tier']) para recortar la respuesta en RAM.
-      - `force_refresh`: fuerza la re-evaluación omitiendo la caché en RAM.
-      - `verbosity`: 'detail' (completo), 'summary' (compacto), o 'terse'/'cached' (stub de ~40 tokens cuando ya está en caché).
+      [ORIENTACIÓN, MANIFIESTO Y PLAYBOOK TÁCTICO] Primera parada: traduce un caso de uso en lenguaje natural a QUÉ hacer,
+      devuelve el manifiesto de autonomía estilo chmod/777 con estado real de binarios, o entrega el playbook táctico de ingeniería de sistemas.
+      Soporta auto-caching en RAM (/dev/shm) entre subagentes para mitigar la amnesia de descubrimiento ('Re-Discovery Tax').
+      action:
+        - 'discover' (default; alias: 'match', 'route', 'search', 'recommend'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
+        - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
+        - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida de ingeniería de sistemas.
+    - 'schema': reflexión introspectiva de esquemas, parámetros, tipos y condiciones previas para las 15 herramientas FastMCP.
+      Parámetros de eficiencia de tokens (Spec OM-7 / Cloudflare Premise):
+        - `session_id` / `sid`: espacio de sesión compartido en RAM para reutilizar manifiestos entre agentes.
+        - `store_as`: almacena el resultado bajo una clave nombrada en el SessionPool para piping en RAM ($cache.<store_as>).
+        - `select_fields`: lista de dot-paths (ej: ['status', 'capability_tier']) para recortar la respuesta en RAM.
+        - `force_refresh`: fuerza la re-evaluación omitiendo la caché en RAM.
+        - `verbosity`: 'detail' (completo), 'summary' (compacto), o 'terse'/'cached' (stub de ~40 tokens cuando ya está en caché).
     """
 
     def _run() -> str:
@@ -424,7 +433,7 @@ async def discover(
         v_mode = (verbosity or "detail").strip().lower()
         tracker = RequestTelemetry("discover", act)
 
-        if act == "capabilities":
+        if act in ("capabilities", "version"):
             cache_k = "discover_capabilities"
             cached_entry = GLOBAL_SESSION_POOL.cache_get(session_id=eff_sid, agent_id=eff_agent, key=cache_k)
             is_hit = bool(cached_entry.get("status") == "OK" and cached_entry.get("value"))
@@ -492,9 +501,15 @@ async def discover(
                 payload["source"] = source
                 payload["session_id"] = eff_sid
 
+            repo_head = _read_git_head_commit()
+            is_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
+
             caps_meta = {
                 "server_version": "v0.2.8",
-                "git_commit": _get_git_commit(),
+                "git_commit": LOADED_COMMIT,
+                "loaded_commit": LOADED_COMMIT,
+                "repo_head": repo_head,
+                "stale": is_stale,
                 "schema_hash": _get_schema_hash(),
                 "pid": os.getpid(),
                 "process_start_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(SERVER_START_TIME)),
@@ -510,12 +525,23 @@ async def discover(
                 if "status" not in payload:
                     payload["status"] = "OK"
 
+            if is_stale:
+                payload["severity"] = "WARN"
+                summary = f"AEP process is STALE (running commit {LOADED_COMMIT}, but repository HEAD is {repo_head})."
+                next_action = f"Restart this AEP instance (PID {os.getpid()}) to load commit {repo_head}."
+                sev = "WARN"
+            else:
+                summary = f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities)."
+                next_action = "Call discover(action='playbook') for tactical workflows or invoke a ready tool."
+                sev = "INFO"
+
             return attach_envelope(
                 payload,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities).",
-                next_action="Call discover(action='playbook') for tactical workflows or invoke a ready tool.",
+                severity=sev,
+                summary=summary,
+                next_action=next_action,
             )
 
         elif act in ("schema", "tools_schema"):
@@ -540,10 +566,7 @@ async def discover(
                         "scope": "kernel" if tname == "kernel_trace" else "system/user",
                         "degradation_behavior": tool_degrad,
                     }
-                preconds = {
-                    domain: d_val.get("preconditions", {})
-                    for domain, d_val in CONTROL_PLANE_SCHEMA.items()
-                }
+                preconds = {domain: d_val.get("preconditions", {}) for domain, d_val in CONTROL_PLANE_SCHEMA.items()}
                 payload = {
                     "status": "OK",
                     "tools_count": len(tools_meta),
@@ -628,7 +651,7 @@ async def discover(
                     {
                         "status": "PARAM_ERROR",
                         "error": "Acción 'discover' requiere el parámetro 'use_case' (o 'intent'/'query') no vacío.",
-                        "valid_actions": ["discover", "match", "capabilities", "playbook"],
+                        "valid_actions": ["discover", "match", "capabilities", "playbook", "schema", "version"],
                     },
                     tracker,
                     verbosity=verbosity,
@@ -721,7 +744,7 @@ async def discover(
                 {
                     "status": "INVALID_ACTION",
                     "error": f"Acción '{action}' no válida para discover.",
-                    "valid_actions": ["discover", "match", "capabilities", "playbook"],
+                    "valid_actions": ["discover", "match", "capabilities", "playbook", "schema", "version"],
                 },
                 tracker,
                 verbosity=verbosity,
@@ -771,7 +794,7 @@ async def artifact_catalog(
                 },
                 tracker,
                 verbosity=verbosity,
-                            )
+            )
         try:
             if act in ("browse", "list"):
                 items = catalog.browse(category=category, query=query or intent, limit=limit)
@@ -948,7 +971,7 @@ async def artifact_lint_and_build(
                 },
                 tracker,
                 verbosity=verbosity,
-                            )
+            )
         try:
             if act == "catalog":
                 fb = catalog.template_feedback([t["name"] for t in template_registry.templates])
@@ -1361,7 +1384,7 @@ async def artifact_execute_in_ram(
                 },
                 tracker,
                 verbosity=verbosity,
-                                summary="In-RAM execution blocked by auditor read-only tier.",
+                summary="In-RAM execution blocked by auditor read-only tier.",
                 next_action="Inspect template or execute in unprivileged/full tier.",
             )
 
@@ -2064,7 +2087,7 @@ async def async_job_dispatch(
                         },
                         tracker,
                         verbosity=verbosity,
-                                            )
+                    )
                 if not command or not command.strip():
                     return attach_envelope(
                         {
@@ -2500,15 +2523,39 @@ def _parse_pytest_output(raw_text: str) -> dict[str, Any] | None:
 def _parse_ruff_output(raw_text: str) -> dict[str, Any] | None:
     v_m = re.search(r"Found\s+(\d+)\s+error", raw_text)
     fix_m = re.search(r"\((\d+)\s+fixable", raw_text)
-    if "All checks passed" in raw_text:
-        return {"tool": "ruff", "violations": 0, "fixable": 0}
-    elif v_m:
-        return {
-            "tool": "ruff",
-            "violations": int(v_m.group(1)),
-            "fixable": int(fix_m.group(1)) if fix_m else 0,
-        }
-    return None
+    has_check = ("All checks passed" in raw_text) or (v_m is not None)
+
+    wf_m = re.search(r"(\d+)\s+file[s]?\s+would\s+be\s+reformatted", raw_text)
+    rf_m = re.search(r"(\d+)\s+file[s]?\s+reformatted", raw_text)
+    clean_fmt = bool(re.search(r"(\d+)\s+file[s]?\s+(?:already formatted|left unchanged)", raw_text))
+    has_format = (wf_m is not None) or (rf_m is not None) or clean_fmt
+
+    if not has_check and not has_format:
+        return None
+
+    res: dict[str, Any] = {"tool": "ruff"}
+
+    if has_check:
+        violations = 0 if "All checks passed" in raw_text else (int(v_m.group(1)) if v_m else 0)
+        fixable = 0 if "All checks passed" in raw_text else (int(fix_m.group(1)) if fix_m else 0)
+        res["violations"] = violations
+        res["fixable"] = fixable
+        res["check"] = {"violations": violations, "fixable": fixable}
+
+    if has_format:
+        fmt_dict: dict[str, Any] = {}
+        if wf_m:
+            fmt_dict["would_reformat"] = int(wf_m.group(1))
+        elif clean_fmt:
+            fmt_dict["would_reformat"] = 0
+        if rf_m:
+            fmt_dict["reformatted"] = int(rf_m.group(1))
+        res["format"] = fmt_dict
+        if not has_check:
+            res["violations"] = fmt_dict.get("would_reformat", 0)
+            res["fixable"] = 0
+
+    return res
 
 
 def _parse_runner_output(raw_text: str, command: str, mode: str | None) -> dict[str, Any] | None:
@@ -2568,7 +2615,7 @@ async def sandbox_run(
     - Por defecto oculta el workspace del host y desactiva red (`share_net=False`).
     - `working_dir`: monta el directorio en modo solo-lectura (salvo que esté en `rw_paths`) y hace `--chdir`.
     - `ro_paths` / `rw_paths`: montajes explícitos validados contra `CapabilityGuard.is_path_blacklisted()`.
-    - `env`: variables de entorno explícitas inyectadas al sandbox vía `--setenv` (GAP-OM-04).
+    - env: variables de entorno explícitas inyectadas al sandbox vía --setenv. Preferir env={...} sobre prefijar comandos con shell 'env' (ej: env PYTHONPATH=...).
     """
 
     def _run() -> str:
@@ -2612,7 +2659,7 @@ async def sandbox_run(
                 },
                 tracker,
                 verbosity=verbosity,
-                            )
+            )
 
         eff_ro = list(ro_paths or [])
         eff_rw = list(rw_paths or [])
@@ -2732,6 +2779,51 @@ async def sandbox_run(
             if Path(rp).exists():
                 bwrap_cmd.extend(["--bind", rp, rp])
                 mounted_rw.append(rp)
+                # Auto-resolve uv/pyenv/virtualenv interpreter symlink chain so .venv/bin/python works in jail
+                venv_py = Path(rp) / ".venv" / "bin" / "python"
+                if venv_py.is_symlink():
+                    try:
+                        py_real = venv_py.resolve()
+                        if py_real.exists():
+                            idx = 2 if len(py_real.parents) >= 3 else 1
+                            py_root = str(py_real.parents[idx])
+                            if (
+                                not CapabilityGuard.is_path_blacklisted(py_root)
+                                and py_root not in mounted_ro
+                                and py_root not in mounted_rw
+                            ):
+                                bwrap_cmd.extend(["--ro-bind-try", py_root, py_root])
+                                mounted_ro.append(py_root)
+                    except OSError:
+                        pass
+
+        # Auto-mount uv binary and cache if working_dir or mounted paths contain a Python/uv project (GAP-OM-04 / Ergonomics)
+        has_uv_project = False
+        for p in eff_ro + eff_rw + ([resolved_wd] if resolved_wd else []):
+            try:
+                p_obj = Path(p).expanduser().resolve()
+                if p_obj.is_dir() and ((p_obj / "uv.lock").exists() or (p_obj / "pyproject.toml").exists()):
+                    has_uv_project = True
+                    break
+            except OSError:
+                pass
+
+        if has_uv_project:
+            uv_bin = Path.home() / ".local" / "bin" / "uv"
+            if uv_bin.exists():
+                uv_bin_str = str(uv_bin.resolve())
+                if not CapabilityGuard.is_path_blacklisted(uv_bin_str):
+                    bwrap_cmd.extend(["--ro-bind-try", uv_bin_str, uv_bin_str])
+                    if uv_bin_str not in mounted_ro:
+                        mounted_ro.append(uv_bin_str)
+            uv_cache = Path.home() / ".cache" / "uv"
+            if uv_cache.exists():
+                uv_cache_str = str(uv_cache.resolve())
+                if not CapabilityGuard.is_path_blacklisted(uv_cache_str):
+                    bwrap_cmd.extend(["--ro-bind-try", uv_cache_str, uv_cache_str])
+                    if uv_cache_str not in mounted_ro:
+                        mounted_ro.append(uv_cache_str)
+                    bwrap_cmd.extend(["--setenv", "UV_CACHE_DIR", uv_cache_str])
 
         # Provide writable ephemeral HOME/XDG and tool cache directories on /tmp tmpfs inside the sandbox
         host_home = str(Path.home().resolve())
@@ -2835,6 +2927,21 @@ async def sandbox_run(
                 }
                 if parsed_result is not None:
                     res_payload["parsed"] = parsed_result
+
+                # Capping de stdout en brief/terse cuando parse is None (GAP-RT-04 / Ergonomics)
+                if is_brief and parse is None:
+                    lines = out_str.splitlines()
+                    if len(out_str) > 1000 or len(lines) > 20:
+                        res_payload["stdout_tail"] = "\n".join(lines[-20:])
+                        res_payload["stdout_bytes"] = len(res.stdout)
+                        res_payload["stdout"] = ""
+                        truncated = True
+                    err_lines = err_str.splitlines()
+                    if len(err_str) > 1000 or len(err_lines) > 20:
+                        res_payload["stderr_tail"] = "\n".join(err_lines[-20:])
+                        res_payload["stderr_bytes"] = len(res.stderr)
+                        res_payload["stderr"] = ""
+                        truncated = True
             return attach_envelope(
                 res_payload,
                 tracker,
@@ -2986,7 +3093,12 @@ async def aep_ctl(
                         "active": True,
                     }
                 else:
-                    res_obj = {"status": "OK", "backend": "none", "active": False, "message": "Neither ufw nor nftables utility found"}
+                    res_obj = {
+                        "status": "OK",
+                        "backend": "none",
+                        "active": False,
+                        "message": "Neither ufw nor nftables utility found",
+                    }
             elif a == "nftables_inspect":
                 if not shutil.which("nft"):
                     res_obj = {"status": "DEGRADED", "message": "nft binary not found"}
@@ -2997,7 +3109,11 @@ async def aep_ctl(
                         lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
                         res_obj = {"status": "OK", "rules_count": len(lines), "ruleset": lines[:50]}
                     else:
-                        res_obj = {"status": "DEGRADED", "message": "nftables unprivileged or not configured", "stderr": r.stderr.strip()[:200]}
+                        res_obj = {
+                            "status": "DEGRADED",
+                            "message": "nftables unprivileged or not configured",
+                            "stderr": r.stderr.strip()[:200],
+                        }
             elif a == "threat_mitigate":
                 if not eff_name:
                     return attach_envelope(
@@ -3006,6 +3122,7 @@ async def aep_ctl(
                         verbosity=verbosity,
                     )
                 from engine import net_telemetry
+
                 res_obj = net_telemetry.enforce_netfilter_mitigation(eff_name, rule_action="drop")
             else:
                 res_obj = get_landlock_status()
@@ -3511,6 +3628,7 @@ async def kernel_trace(
                 pcap_shm = Path("/dev/shm/pcap_stream")
                 if pcap_shm.exists():
                     from engine import net_telemetry
+
                     dissected = net_telemetry.dissect_shm_pcap_buffer(pcap_shm, limit=eff_limit)
                     return attach_envelope(
                         {
@@ -3591,6 +3709,7 @@ async def kernel_trace(
                 pcap_shm = Path("/dev/shm/pcap_stream")
                 if pcap_shm.exists():
                     from engine import net_telemetry
+
                     trace_data["pcap_dissection"] = net_telemetry.dissect_shm_pcap_buffer(pcap_shm, limit=eff_limit)
             return attach_envelope(
                 trace_data,
@@ -3657,7 +3776,7 @@ async def kanban_board(
                 },
                 tracker,
                 verbosity=verbosity,
-                            )
+            )
         try:
             if act == "board":
                 res = kanban.board(include_archived=include_archived)
@@ -3849,7 +3968,7 @@ async def playbook_run(
             },
             tracker,
             verbosity=verbosity,
-                    )
+        )
     try:
         if act == "run":
             if not (name or "").strip():
@@ -4306,7 +4425,6 @@ async def playbook_run(
             )
     except Exception as e:
         return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
-
 
 
 # ---------------------------------------------------------------------------

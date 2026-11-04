@@ -159,44 +159,67 @@ PY
 
 audit_running_instances() {
     log "Auditando instancias activas de AEP..."
+    local head_commit; head_commit="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
     local head_ct; head_ct="$(git -C "$PROJECT_ROOT" log -1 --format=%ct 2>/dev/null || echo 0)"
+    local head_time; head_time="$(date -d "@$head_ct" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "$head_ct")"
     local pids; pids="$(pgrep -f "python.*server\.py" 2>/dev/null || true)"
     if [[ -z "$pids" ]]; then
-        ok "No hay instancias obsoletas de AEP en ejecución."
+        ok "No hay instancias de AEP en ejecución."
         return 0
     fi
 
     local current_pid=$$
     local found_count=0
+    local stale_count=0
     for pid in $pids; do
         if [[ "$pid" == "$current_pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
             continue
         fi
 
         found_count=$((found_count + 1))
-        local ppid; ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || echo 0)"
+        local ppid; ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d " " || echo 0)"
         local parent_cmd; parent_cmd="$(ps -o comm= -p "$ppid" 2>/dev/null || ps -o args= -p "$ppid" 2>/dev/null || echo "unknown")"
-        
+        local pppid; pppid="$(ps -o ppid= -p "$ppid" 2>/dev/null | tr -d " " || echo 0)"
+        local ancestors="$parent_cmd"
+        if [[ "$pppid" -gt 1 ]]; then
+            ancestors="$ancestors $(ps -o args= -p "$pppid" 2>/dev/null || true)"
+        fi
+
         local harness="CLI/Other"
-        if echo "$parent_cmd" | grep -qi "claude"; then
+        local restart_hint="Reinicie el proceso o la sesión correspondiente."
+        if echo "$ancestors" | grep -qi "claude"; then
             harness="Claude Code"
-        elif echo "$parent_cmd" | grep -qi -E "agy|antigravity|language_server"; then
+            restart_hint="Reinicie la sesión con 'claude' o salga y reanude con 'claude --resume'."
+        elif echo "$ancestors" | grep -qi -E "agy|antigravity|language_server"; then
             harness="Antigravity"
-        elif echo "$parent_cmd" | grep -qi "codex"; then
+            restart_hint="Reinicie la ventana/sesión de Antigravity o ejecute RefreshMcpServers."
+        elif echo "$ancestors" | grep -qi "codex"; then
             harness="Codex"
-        elif echo "$parent_cmd" | grep -qi "gemini"; then
+            restart_hint="Envíe config/mcpServer/reload vía socket o reinicie Codex CLI."
+        elif echo "$ancestors" | grep -qi "gemini"; then
             harness="Gemini CLI"
+            restart_hint="Reinicie la sesión activa de Gemini CLI."
         fi
 
         local proc_mtime; proc_mtime="$(stat -c %Y "/proc/$pid" 2>/dev/null || echo 0)"
+        local proc_time; proc_time="$(date -d "@$proc_mtime" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "$proc_mtime")"
         if [[ "$head_ct" -gt 0 && "$proc_mtime" -gt 0 && "$proc_mtime" -lt "$head_ct" ]]; then
-            warn "Instancia activa AEP (PID $pid, Harness: $harness, PPID $ppid) iniciada antes del último commit ($proc_mtime < $head_ct). Puede servir bytecode obsoleto. Reinicie la sesión del harness."
+            stale_count=$((stale_count + 1))
+            warn "Instancia STALE detectada (PID $pid, Harness: $harness, PPID $ppid):"
+            echo -e "       ${YELLOW}Iniciada:${NC}       $proc_time (antes del HEAD $head_commit @ $head_time)"
+            echo -e "       ${YELLOW}Estado:${NC}         Ejecutando bytecode desactualizado en memoria (GAP-RT-04)."
+            echo -e "       ${YELLOW}Instrucciones:${NC}  $restart_hint"
+            echo -e "       ${YELLOW}Seguridad:${NC}      No se mata automáticamente para preservar contexto del harness."
         else
-            log "Instancia AEP (PID $pid, Harness: $harness, PPID $ppid) activa."
+            ok "Instancia AEP (PID $pid, Harness: $harness, PPID $ppid) al día con HEAD ($head_commit)."
         fi
     done
     if [[ "$found_count" -eq 0 ]]; then
         ok "No hay instancias secundarias de AEP en ejecución."
+    elif [[ "$stale_count" -eq 0 ]]; then
+        ok "Todas las instancias activas ($found_count) están sincronizadas con commit $head_commit."
+    else
+        warn "$stale_count instancia(s) obsoleta(s) encontrada(s). Siga las instrucciones de recarga por harness."
     fi
     return 0
 }
