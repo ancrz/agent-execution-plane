@@ -2,7 +2,7 @@
 Tests for Milestone ONT-30: AEP Cross-Harness Schema Evolution & Multi-Runner Ergonomics Stabilization.
 
 Verifies:
-  - Gate 1: FastMCP strictly maintains exactly 15 tools (zero tool footprint expansion).
+  - Gate 1: FastMCP strictly maintains exactly 16 tools (zero tool footprint expansion).
   - Gate 2: Schema evolution signaling (capabilities.tools.listChanged = True) & discover capabilities metadata (server_version, git_commit, schema_hash).
   - Gate 3: Multi-harness process observability (pid, process_start_time, uptime_seconds, and aep-sync.sh --audit).
   - Gate 4: topos_audit_dag resilient task-level resource hazard fallback (Directive OM-2).
@@ -25,20 +25,21 @@ import server
 from engine.topos_guard import ToposVerdict
 
 # ==============================================================================
-# Gate 1: FastMCP 15 Tools Invariant
+# Gate 1: FastMCP 16 Tools Invariant
 # ==============================================================================
 
 
-def test_gate1_exactly_15_fastmcp_tools() -> None:
-    """The FastMCP server MUST strictly expose exactly 15 tools."""
+def test_gate1_exactly_16_fastmcp_tools() -> None:
+    """The FastMCP server MUST strictly expose exactly 16 tools."""
     tools = server.mcp._tool_manager._tools
-    assert len(tools) == 15, f"Expected exactly 15 tools, found {len(tools)}: {list(tools.keys())}"
+    assert len(tools) == 16, f"Expected exactly 16 tools, found {len(tools)}: {list(tools.keys())}"
     expected_tools = {
         "topos_audit_dag",
         "discover",
         "artifact_catalog",
         "artifact_lint_and_build",
         "artifact_execute_in_ram",
+        "default_primitives",
         "process_inspect",
         "async_job_dispatch",
         "diagnose_system_crashes",

@@ -5,7 +5,7 @@ Covers:
 - engine/backup.py: 5-slot FIFO rotation, hot streaming, SHA-256 verification, restore with sidecar cleanup, corruption auto-recovery.
 - engine/privilege.py: CapabilityGuard, path blacklist enforcement (/etc/shadow, /root, ~/.ssh), 18 capabilities, multi-agent context.
 - engine/security.py: record_audit_event, verify_audit_chain, mask_secrets, SHA-256 chained tamper-evident ledger.
-- server.py: FastMCP 15 tools registration and capability manifest parity.
+- server.py: FastMCP 16 tools registration and capability manifest parity.
 """
 
 from __future__ import annotations
@@ -246,14 +246,15 @@ class TestBackupEngine:
 # ==============================================================================
 
 class TestPrivilegeAndCapabilityGuard:
-    def test_18_capabilities_manifest(self):
+    def test_19_capabilities_manifest(self):
         manifest = capability_manifest()
         caps = manifest["capabilities"]
-        assert len(caps) == 18
+        assert len(caps) == 19
         assert "backup_admin" in caps
         assert "audit_read" in caps
         assert "ram_execution" in caps
         assert "ephemeral_sandbox" in caps
+        assert "default_primitives" in caps
 
     def test_guard_blocks_blacklisted_paths(self):
         # /etc/shadow
@@ -375,11 +376,11 @@ class TestSecurityAuditLog:
 # ==============================================================================
 
 class TestServerFastMCPParity:
-    def test_15_tools_registered(self):
+    def test_16_tools_registered(self):
         import server
         tools = server.mcp._tool_manager.list_tools()
         tool_names = {t.name for t in tools}
-        expected_15_tools = {
+        expected_16_tools = {
             "discover",
             "topos_audit_dag",
             "artifact_catalog",
@@ -395,9 +396,10 @@ class TestServerFastMCPParity:
             "visual_inspect",
             "kanban_board",
             "playbook_run",
+            "default_primitives",
         }
-        assert expected_15_tools.issubset(tool_names)
-        assert len(expected_15_tools) == 15
+        assert expected_16_tools.issubset(tool_names)
+        assert len(expected_16_tools) == 16
 
     def test_discover_capabilities_contract(self):
         import server
@@ -405,7 +407,7 @@ class TestServerFastMCPParity:
         res = json.loads(res_str)
         assert res["capability_tier"] in ("FULL", "DIMINISHED")
         assert "capabilities" in res
-        assert len(res["capabilities"]) == 18
+        assert len(res["capabilities"]) == 19
 
 
 # ==============================================================================

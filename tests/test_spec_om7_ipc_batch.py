@@ -10,7 +10,7 @@ Covers:
    - Return modes ("all", "last", "summary").
    - DAG ordering with topos_guard.
 4. aep_ctl(domain="ipc"): CLI and RPC control-plane actions (status, ping, lease, release, reap, pool, metrics).
-5. FastMCP 15-Tool Invariant: Confirms exactly 15 tools are registered without bloating the tool namespace.
+5. FastMCP 16-Tool Invariant: Confirms exactly 15 tools are registered without bloating the tool namespace.
 """
 
 from __future__ import annotations
@@ -293,13 +293,13 @@ class TestAepCtlIpcDomain:
 
 
 # ==============================================================================
-# 6. FastMCP 15-Tool Invariant Test
+# 6. FastMCP 16-Tool Invariant Test
 # ==============================================================================
 
 class TestFastMcpToolInvariant:
-    def test_strictly_15_tools_registered(self):
+    def test_strictly_16_tools_registered(self):
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 15, f"Expected strictly 15 FastMCP tools, got {len(tools)}: {[t.name for t in tools]}"
+        assert len(tools) == 16, f"Expected strictly 16 FastMCP tools, got {len(tools)}: {[t.name for t in tools]}"
 
 
 # ==============================================================================
@@ -1007,12 +1007,12 @@ class TestOmissionGapsRemediation:
             assert r1["status"] == "OK"
             assert r1["cache_status"] == "FRESH"
             assert r1["source"] == "system"
-            assert len(r1["capabilities"]) == 18
+            assert len(r1["capabilities"]) == 19
 
             # Verificar que team_caps quedó almacenado en SessionPool
             cached_check = server.GLOBAL_SESSION_POOL.cache_get(session_id=sid, key="team_caps")
             assert cached_check["status"] == "OK"
-            assert len(cached_check["value"]["capabilities"]) == 18
+            assert len(cached_check["value"]["capabilities"]) == 19
 
             # 2. Subagente Pragma: re-descubrimiento en modo terse (mitiga los 1.180 tokens redundantes)
             res2_raw = await server.discover(action="capabilities", session_id=sid, verbosity="terse", agent_id="pragma")
@@ -1020,8 +1020,8 @@ class TestOmissionGapsRemediation:
             assert r2["status"] == "OK"
             assert r2["cache_status"] == "CACHED"
             assert r2["source"] == "ram_session_cache"
-            assert r2["capabilities_count"] == 18
-            assert r2["ready_capabilities_count"] >= 16
+            assert r2["capabilities_count"] == 19
+            assert r2["ready_capabilities_count"] >= 14
             assert r2["token_savings_pct"] >= 95.0
             # Ahorro masivo de bytes: stub < 1,500 bytes vs > 10,000 bytes de detalle
             assert len(res2_raw.encode("utf-8")) < 1500

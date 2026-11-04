@@ -192,8 +192,8 @@ def test_discover_binary_readiness_and_tactical_playbook() -> None:
     assert "ephemeral_sandbox" in top_caps
 
 
-def test_omission_battery_all_15_tools_envelope_and_frame_safety() -> None:
-    """All 15 tools include envelope+telemetry, support ergonomic aliases, and prevent JSON-RPC frame overflow."""
+def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
+    """All 16 tools include envelope+telemetry, support ergonomic aliases, and prevent JSON-RPC frame overflow."""
     import server
     from engine.telemetry import MAX_SAFE_JSON_BYTES
 
@@ -231,7 +231,8 @@ def test_omission_battery_all_15_tools_envelope_and_frame_safety() -> None:
     docs = json.loads(asyncio.run(server.query_system_docs(query="bwrap", source="man", limit=1)))
     kb = json.loads(asyncio.run(server.kanban_board(action="board")))
     pb = json.loads(asyncio.run(server.playbook_run(action="list")))
-    for r in (dag, cat, bld, docs, kb, pb):
+    prim = json.loads(asyncio.run(server.default_primitives(action="list", verbosity="summary")))
+    for r in (dag, cat, bld, docs, kb, pb, prim):
         assert "envelope" in r
         assert "telemetry" in r
 
@@ -437,7 +438,7 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
 
 
 def test_self_evolutionary_loop_and_ram_probes() -> None:
-    """ONT-19 & ONT-20: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and 15/15 verbosity."""
+    """ONT-19 & ONT-20: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and 16/16 verbosity."""
     import inspect
 
     import server
@@ -446,8 +447,8 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     for st in ("ARCHIVED", "UNARCHIVED", "PRUNED", "DEMOTED", "REEVALUATED", "REINDEXED", "CLEAN"):
         assert infer_severity(st) == "INFO", f"Expected INFO for {st}, got {infer_severity(st)}"
 
-    # Verify all 15 MCP tools accept verbosity uniformly and _INSTRUCTIONS exposes the full 15-tool suite map
-    assert "Complete 15-Tool Suite Map" in server._INSTRUCTIONS
+    # Verify all 16 MCP tools accept verbosity uniformly and _INSTRUCTIONS exposes the full 16-tool suite map
+    assert "Complete 16-Tool Suite Map" in server._INSTRUCTIONS
     assert "herramientas ofensivas" not in server._INSTRUCTIONS.lower()
     for tool_name in (
         "discover",
@@ -465,6 +466,7 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
         "visual_inspect",
         "topos_audit_dag",
         "playbook_run",
+        "default_primitives",
     ):
         sig = inspect.signature(getattr(server, tool_name))
         assert "verbosity" in sig.parameters, f"{tool_name} must accept 'verbosity'"
