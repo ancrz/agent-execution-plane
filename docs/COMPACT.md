@@ -1,12 +1,12 @@
-# Context Compaction Guidance — AEP (Milestone ONT-34 Verified)
+# Context Compaction Guidance — AEP (Milestone ONT-35 Verified)
 
 **Preserve**:
-- Pipeline State: Full Mode (Archon ✅ -> Graphos G1 ✅ -> Ontos ✅ -> Pragma Stage 4 ✅ -> Dokimos Stage 5 VERIFIED ✅ -> Graphos G2 Record ✅ -> Hermon Stage 6 Release ⏳).
-- Active Milestone: ONT-34 / M95 ("FastMCP Tool #16 default_primitives & Factory Decoupling") — VERIFIED ✅ (123/123 tests passing, 100%, 0 errors Ruff).
-- Verified Invariants: Exactly 16 FastMCP tools (`len(_tools) == 16`), 19 capabilities (`len(_CAPABILITIES) == 19`), 4-tier chmod octal matrix (`7rwx`/`6rw-`/`5r-x`/`4r--`), `output_schema is None` (GAP-OM-19), zero sudo prompt hangs (`sudo -n true`).
-- Verified Artifacts: `docs/pipeline/feature_20261104_105500_ont34_default_primitives_and_factory_decoupling.md`, `execution_report_20261104_114000_ont34_default_primitives_and_factory_decoupling.md`, `verification_report_20261104_121500_ont34_default_primitives_and_factory_decoupling.md`.
-- Files Changed: 17 modified (`server.py`, `engine/privilege.py`, `templates/registry.json`, `engine/catalog.py`, `scripts/setup.sh`, `scripts/aep-sync.sh`, 7 test files, docs), 2 code created (`engine/primitives.py`, `tests/test_default_primitives.py`).
-- Next Actions: (1) Hermon Stage 6 Atomic Release & Conventional Commit (`feat(mcp): ont-34 ...`); (2) Git Tag / Release Notes; (3) Final repo synchronization.
+- Pipeline State: Short Mode (Pragma Stage 4 ✅ -> Dokimos Stage 5 VERIFIED ✅ -> Graphos G2 Record ✅ -> Hermon Stage 6 Release ⏳).
+- Active Milestone: ONT-35 / M96 ("Version Stamp Integrity GAP-RT-04, Multi-Harness Sync GAP-RT-03 & Sandbox Ergonomics") — VERIFIED ✅ (133/133 tests passing, 100%, 0 Ruff SAST errors).
+- Verified Invariants: `LOADED_COMMIT` + source hash freeze at import, call-time `repo_head` & `stale` calculation with `WARN`/restart hint; non-destructive `aep-sync.sh --audit` multi-harness inspection; structured Ruff parser (`check`/`format`); `sandbox_run` brief stdout truncation cap (20 lines); uv auto-mount.
+- Verified Artifacts: `docs/pipeline/feature_20261104_133000_ont35_version_stamp_integrity_and_sync.md`, `verification_report_20261104_133500_ont35_version_stamp_integrity_and_sync.md`, `reports/2026-11-04_aep_ont30_34_consumer_verification.md`.
+- Files Changed: 3 modified (`server.py`, `engine/telemetry.py`, `scripts/aep-sync.sh`), 1 test created (`tests/test_version_integrity.py`), +493/-68 lines, 0 scope creep.
+- Next Actions: (1) Hermon Stage 6 Atomic Release & Conventional Commit (`fix(runtime): ont-35 version stamp integrity, multi-harness sync & sandbox ergonomics`); (2) Git Tag / Release Notes; (3) Multi-harness status report.
 
 **Drop**:
 - Verbose test run outputs, intermediate stack traces, superseded planning drafts.
