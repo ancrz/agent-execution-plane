@@ -500,15 +500,68 @@ def domain_hardware(action: str, name: str | None, *rest: Any) -> Any:
         accels = probe_accelerators()
         return {"status": "OK", "count": len(accels), "accelerators": accels}
     if action == "admit":
-        device = name if name and name != "auto" else None
-        req_vram = int(rest[0]) if len(rest) > 0 and str(rest[0]).isdigit() else 0
-        req_gtt = int(rest[1]) if len(rest) > 1 and str(rest[1]).isdigit() else 0
-        margin = int(rest[2]) if len(rest) > 2 and str(rest[2]).isdigit() else 4096
+        raw_tokens = ([name] if name else []) + list(rest)
+        device: str | None = None
+        req_vram: int = 0
+        req_gtt: int = 0
+        req_mib: int = 0
+        margin: int = 4096
+
+        positional: list[str] = []
+        i = 0
+        while i < len(raw_tokens):
+            token = str(raw_tokens[i])
+            if token in ("--vram", "-vram", "--req_vram", "--req-vram") and i + 1 < len(raw_tokens):
+                req_vram = int(raw_tokens[i + 1]) if str(raw_tokens[i + 1]).isdigit() else 0
+                i += 2
+            elif token in ("--gtt", "-gtt", "--req_gtt", "--req-gtt") and i + 1 < len(raw_tokens):
+                req_gtt = int(raw_tokens[i + 1]) if str(raw_tokens[i + 1]).isdigit() else 0
+                i += 2
+            elif token in ("--margin", "-margin", "--margin_mib", "--margin-mib") and i + 1 < len(raw_tokens):
+                margin = int(raw_tokens[i + 1]) if str(raw_tokens[i + 1]).isdigit() else 4096
+                i += 2
+            elif token in ("--req", "-req", "--req_mib", "--req-mib") and i + 1 < len(raw_tokens):
+                req_mib = int(raw_tokens[i + 1]) if str(raw_tokens[i + 1]).isdigit() else 0
+                i += 2
+            elif token in ("--device", "-device", "--card", "-card") and i + 1 < len(raw_tokens):
+                device = str(raw_tokens[i + 1])
+                i += 2
+            else:
+                positional.append(token)
+                i += 1
+
+        if positional:
+            first = positional[0]
+            if first.isdigit():
+                if req_mib == 0 and req_vram == 0:
+                    req_mib = int(first)
+            elif first != "auto":
+                if not device:
+                    device = first
+
+            nums = [int(p) for p in positional[1:] if p.isdigit()]
+            if not first.isdigit() and nums:
+                if len(nums) == 1 and req_mib == 0 and req_vram == 0 and req_gtt == 0:
+                    req_mib = nums[0]
+                else:
+                    if len(nums) > 0 and req_vram == 0:
+                        req_vram = nums[0]
+                    if len(nums) > 1 and req_gtt == 0:
+                        req_gtt = nums[1]
+                    if len(nums) > 2 and margin == 4096:
+                        margin = nums[2]
+            elif first.isdigit() and nums:
+                if len(nums) > 0 and req_gtt == 0:
+                    req_gtt = nums[0]
+                if len(nums) > 1 and margin == 4096:
+                    margin = nums[1]
+
         return admit_accelerator(
             device=device,
             req_vram_mib=req_vram,
             req_gtt_mib=req_gtt,
             margin_mib=margin,
+            req_mib=req_mib,
         )
     fail(f"Acción de hardware desconocida: {action}", valid=SCHEMA["hardware"]["actions"])
 

@@ -604,8 +604,12 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
     },
     "hardware": {
         "actions": ["inventory", "accelerators", "admit"],
-        "arg": "[device] [req_vram_mib] [req_gtt_mib] [margin_mib]",
-        "description": "Hardware introspection, CPU/RAM inventory, DRM accelerator (GPU/iGPU) detection, and pre-flight admission with safety margin.",
+        "arg": "[device|req_mib] [req_vram_mib] [req_gtt_mib] [margin_mib] | named: --vram, --gtt, --margin, --req",
+        "description": (
+            "Hardware introspection, CPU/RAM inventory, DRM accelerator (GPU/iGPU) detection, "
+            "and pre-flight admission with UMA auto-routing (APUs route unqualified req_mib to GTT; "
+            "dGPUs to VRAM) and mandatory 4096 MiB desktop safety margin on GTT."
+        ),
         "preconditions": {
             "inventory": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/cpuinfo", "/proc/meminfo"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
             "accelerators": {"privilege_tier": "DIMINISHED", "required_fs": ["/sys/class/drm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},

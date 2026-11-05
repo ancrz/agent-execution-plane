@@ -193,19 +193,59 @@ def admit_accelerator(
     req_vram_mib: int = 0,
     req_gtt_mib: int = 0,
     margin_mib: int = DEFAULT_DESKTOP_SAFETY_MARGIN_MIB,
+    req_mib: int = 0,
+    params: dict[str, Any] | None = None,
     drm_dir: Path | str = "/sys/class/drm",
 ) -> dict[str, Any]:
-    """Pre-flight resource admission for graphics accelerators (GAP-CP-05).
+    """Pre-flight resource admission for graphics accelerators (GAP-CP-05 & GAP-DX-06).
 
-    Enforces mandatory desktop safety margin (default 4096 MiB) on GTT allocations
-    to prevent compositor memory exhaustion and GNOME Shell / Wayland SIGABRT.
+    - Auto-detects UMA (Unified Memory Architecture / APUs) when vram_total <= 2048 MiB
+      and gtt_total > vram_total * 2.
+    - Unqualified requests (req_mib > 0 with req_vram_mib == 0 and req_gtt_mib == 0):
+      * UMA / APU: auto-routes to GTT (req_gtt_mib = req_mib, req_vram_mib = 0).
+      * Discrete GPU: auto-routes to VRAM (req_vram_mib = req_mib, req_gtt_mib = 0).
+    - Enforces mandatory desktop safety margin (default 4096 MiB) on GTT allocations
+      to prevent compositor memory exhaustion and GNOME Shell / Wayland SIGABRT.
+    - Defensive leaf routing (R2): if device is numeric or digits, interprets as req_mib
+      and sets device = None (auto-selecting default card).
+    - Supports named parameters dictionary via params.
     """
+    # 0. Unpack params dictionary if provided
+    if params and isinstance(params, dict):
+        if "vram_mib" in params:
+            req_vram_mib = int(params["vram_mib"]) if str(params["vram_mib"]).isdigit() else 0
+        elif "req_vram_mib" in params:
+            req_vram_mib = int(params["req_vram_mib"]) if str(params["req_vram_mib"]).isdigit() else 0
+
+        if "gtt_mib" in params:
+            req_gtt_mib = int(params["gtt_mib"]) if str(params["gtt_mib"]).isdigit() else 0
+        elif "req_gtt_mib" in params:
+            req_gtt_mib = int(params["req_gtt_mib"]) if str(params["req_gtt_mib"]).isdigit() else 0
+
+        if "req_mib" in params:
+            req_mib = int(params["req_mib"]) if str(params["req_mib"]).isdigit() else 0
+
+        if "margin_mib" in params:
+            margin_mib = int(params["margin_mib"]) if str(params["margin_mib"]).isdigit() else margin_mib
+
+        if "device" in params and params["device"] is not None:
+            device = str(params["device"])
+
+    # 1. Defensive leaf routing (R2): if device is numeric or digits, interpret as req_mib
+    if device is not None:
+        dev_str = str(device).strip()
+        if dev_str.isdigit():
+            if req_mib == 0:
+                req_mib = int(dev_str)
+            device = None
+
     accels = probe_accelerators(drm_dir=drm_dir)
     if not accels:
         return {
             "status": "REJECTED",
             "admit": False,
             "device": device,
+            "is_uma": False,
             "reason": "no_accelerators_detected",
             "margin_mib": margin_mib,
             "req_vram_mib": req_vram_mib,
@@ -213,6 +253,7 @@ def admit_accelerator(
             "vram_free_mib": 0,
             "gtt_free_mib": 0,
             "gtt_available_mib": 0,
+            "next_action": "Verify DRM subsystem or install appropriate GPU kernel drivers.",
         }
 
     # Find requested card or select first available accelerator
@@ -227,6 +268,7 @@ def admit_accelerator(
                 "status": "REJECTED",
                 "admit": False,
                 "device": device,
+                "is_uma": False,
                 "reason": f"device_{device}_not_found",
                 "available_devices": [a["card"] for a in accels],
                 "margin_mib": margin_mib,
@@ -235,15 +277,33 @@ def admit_accelerator(
                 "vram_free_mib": 0,
                 "gtt_free_mib": 0,
                 "gtt_available_mib": 0,
+                "next_action": f"Select from detected accelerators: {[a['card'] for a in accels]}.",
             }
     else:
         # Default to first AMD accelerator or first card
         amd_cards = [a for a in accels if a.get("vendor") == AMDGPU_VENDOR_ID]
         target_card = amd_cards[0] if amd_cards else accels[0]
 
+    vram_total = target_card.get("vram_total_mib", 0)
+    gtt_total = target_card.get("gtt_total_mib", 0)
     vram_free = target_card.get("vram_free_mib", 0)
     gtt_free = target_card.get("gtt_free_mib", 0)
     gtt_available = max(0, gtt_free - margin_mib)
+
+    # 2. UMA auto-detection: vram_total <= 2048 and gtt_total > vram_total * 2
+    is_uma = bool(vram_total <= 2048 and gtt_total > (vram_total * 2))
+
+    # 3. Unqualified memory routing (GAP-DX-06)
+    allocated_to: str | None = None
+    if req_vram_mib == 0 and req_gtt_mib == 0 and req_mib > 0:
+        if is_uma:
+            req_gtt_mib = req_mib
+            req_vram_mib = 0
+            allocated_to = "gtt"
+        else:
+            req_vram_mib = req_mib
+            req_gtt_mib = 0
+            allocated_to = "vram"
 
     vram_ok = vram_free >= req_vram_mib
     gtt_ok = gtt_available >= req_gtt_mib
@@ -252,6 +312,7 @@ def admit_accelerator(
     if admitted:
         status = "OK"
         reason = "admitted"
+        next_action = "Proceed with accelerator workload execution."
     else:
         status = "REJECTED"
         reasons = []
@@ -264,19 +325,44 @@ def admit_accelerator(
             )
         reason = "; ".join(reasons)
 
-    return {
+        if is_uma and not vram_ok and req_vram_mib > 0:
+            next_action = (
+                f"Device {target_card['card']} is a UMA/APU accelerator with shared GTT memory "
+                f"({gtt_available} MiB available after {margin_mib} MiB safety margin). "
+                f"Route request to GTT memory using gtt_mib={req_vram_mib} or pass unqualified req_mib={req_vram_mib}."
+            )
+        elif not gtt_ok:
+            next_action = (
+                f"Free up system memory or reduce workload demand: requested {req_gtt_mib} MiB GTT exceeds "
+                f"{gtt_available} MiB available after {margin_mib} MiB safety margin."
+            )
+        else:
+            next_action = (
+                f"Workload exceeds accelerator capacity on {target_card['card']}: "
+                f"vram_free={vram_free} MiB, gtt_available={gtt_available} MiB."
+            )
+
+    result: dict[str, Any] = {
         "status": status,
         "admit": admitted,
         "device": target_card["card"],
         "vendor": target_card.get("vendor"),
         "vendor_name": target_card.get("vendor_name"),
+        "is_uma": is_uma,
         "req_vram_mib": req_vram_mib,
         "req_gtt_mib": req_gtt_mib,
         "margin_mib": margin_mib,
-        "vram_total_mib": target_card.get("vram_total_mib", 0),
+        "vram_total_mib": vram_total,
         "vram_free_mib": vram_free,
-        "gtt_total_mib": target_card.get("gtt_total_mib", 0),
+        "gtt_total_mib": gtt_total,
         "gtt_free_mib": gtt_free,
         "gtt_available_mib": gtt_available,
         "reason": reason,
+        "next_action": next_action,
     }
+    if req_mib > 0:
+        result["req_mib"] = req_mib
+    if allocated_to:
+        result["allocated_to"] = allocated_to
+
+    return result

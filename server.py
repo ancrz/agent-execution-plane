@@ -2494,23 +2494,36 @@ def _parse_pytest_output(raw_text: str) -> dict[str, Any] | None:
     f_m = re.search(r"(\d+)\s+failed", raw_text)
     e_m = re.search(r"(\d+)\s+error", raw_text)
     s_m = re.search(r"(\d+)\s+skipped", raw_text)
+    des_m = re.search(r"(\d+)\s+deselected", raw_text)
+    xf_m = re.search(r"(\d+)\s+xfailed", raw_text)
+    xp_m = re.search(r"(\d+)\s+xpassed", raw_text)
+    cov_m = re.search(r"TOTAL\s+.*?(\d+(?:\.\d+)?%)", raw_text)
     d_m = re.search(r"in\s+([\d\.]+)\s*s", raw_text)
 
+    # Fail-soft defaults (GAP-DX-07 & Remediation R4)
     passed = int(p_m.group(1)) if p_m else 0
     failed = int(f_m.group(1)) if f_m else 0
     errors = int(e_m.group(1)) if e_m else 0
     skipped = int(s_m.group(1)) if s_m else 0
+    deselected = int(des_m.group(1)) if des_m else 0
+    xfailed = int(xf_m.group(1)) if xf_m else 0
+    xpassed = int(xp_m.group(1)) if xp_m else 0
+    coverage = cov_m.group(1) if cov_m else None
     duration_s = float(d_m.group(1)) if d_m else 0.0
 
-    if p_m or f_m or e_m or s_m or "pytest" in raw_text or "passed" in raw_text:
+    if p_m or f_m or e_m or s_m or des_m or xf_m or xp_m or "pytest" in raw_text or "passed" in raw_text:
         res: dict[str, Any] = {
             "tool": "pytest",
             "passed": passed,
             "failed": failed,
             "errors": errors,
             "skipped": skipped,
+            "deselected": deselected,
+            "xfailed": xfailed,
+            "xpassed": xpassed,
+            "coverage": coverage,
             "duration_s": duration_s,
-            "total": passed + failed + errors + skipped,
+            "total": passed + failed + errors + skipped + xfailed + xpassed,
         }
         # Directive OM-3: Extract failing test node IDs into parsed["failures"]
         failures: list[str] = []
@@ -2525,7 +2538,6 @@ def _parse_pytest_output(raw_text: str) -> dict[str, Any] | None:
             res["failing_nodes"] = failures
         return res
     return None
-
 
 def _parse_ruff_output(raw_text: str) -> dict[str, Any] | None:
     v_m = re.search(r"Found\s+(\d+)\s+error", raw_text)
@@ -2599,6 +2611,30 @@ def _parse_runner_output(raw_text: str, command: str, mode: str | None) -> dict[
     except Exception:  # noqa: BLE001, S110
         pass
     return None
+
+
+def _deduplicate_lines(lines: list[str]) -> list[str]:
+    """Deduplicate consecutive identical lines into '<line> (repeated N times)' (GAP-DX-07)."""
+    if not lines:
+        return []
+    result: list[str] = []
+    current_line = lines[0]
+    count = 1
+    for line in lines[1:]:
+        if line == current_line:
+            count += 1
+        else:
+            if count > 1:
+                result.append(f"{current_line} (repeated {count} times)")
+            else:
+                result.append(current_line)
+            current_line = line
+            count = 1
+    if count > 1:
+        result.append(f"{current_line} (repeated {count} times)")
+    else:
+        result.append(current_line)
+    return result
 
 
 @mcp.tool(structured_output=False)
@@ -2901,15 +2937,36 @@ async def sandbox_run(
                     err_str = err_str[-4000:]
                     truncated = True
             parsed_result = _parse_runner_output(res.stdout + "\n" + res.stderr, effective_cmd, parse)
+
+            # Pytest Anti-Masking Check (GAP-DX-07)
+            exit_code_masked = False
+            eff_parse = str(parse).strip().lower() if parse else ""
+            if eff_parse in ("pytest", "composite", "auto") and res.returncode == 0:
+                py_data = None
+                if isinstance(parsed_result, dict):
+                    if parsed_result.get("tool") == "pytest":
+                        py_data = parsed_result
+                    elif parsed_result.get("tool") == "composite":
+                        py_data = parsed_result.get("pytest")
+                    elif "pytest" in parsed_result:
+                        py_data = parsed_result["pytest"]
+                if isinstance(py_data, dict):
+                    if py_data.get("failed", 0) > 0 or py_data.get("errors", 0) > 0:
+                        st = "EXEC_FAILED"
+                        exit_code_masked = True
+
             is_brief = (verbosity or "detail").strip().lower() in ("brief", "terse")
             if is_brief and parse is not None:
                 res_payload: dict[str, Any] = {
                     "status": st,
                     "exit_code": res.returncode,
                 }
+                if exit_code_masked:
+                    res_payload["exit_code_masked"] = True
+                    res_payload["warning"] = "Exit code 0 masked test failures (pipeline pipe masking detected)."
                 if parsed_result is not None:
                     res_payload["parsed"] = parsed_result
-                if res.returncode != 0:
+                if res.returncode != 0 or exit_code_masked:
                     failures = []
                     if isinstance(parsed_result, dict):
                         failures = parsed_result.get("failures") or parsed_result.get("failing_nodes") or []
@@ -2917,9 +2974,11 @@ async def sandbox_run(
                         res_payload["failures"] = failures
                         res_payload["failing_nodes"] = failures
                     if out_str:
-                        res_payload["stdout_tail"] = out_str[-1000:].strip()
+                        raw_tail = out_str[-1000:].strip().splitlines()
+                        res_payload["stdout_tail"] = "\n".join(_deduplicate_lines(raw_tail))
                     if err_str:
-                        res_payload["stderr_tail"] = err_str[-1000:].strip()
+                        raw_err_tail = err_str[-1000:].strip().splitlines()
+                        res_payload["stderr_tail"] = "\n".join(_deduplicate_lines(raw_err_tail))
             else:
                 res_payload = {
                     "status": st,
@@ -2930,8 +2989,11 @@ async def sandbox_run(
                     "ro_mounts": mounted_ro,
                     "rw_mounts": mounted_rw,
                     "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
-                    "stderr": ("" if (is_brief and parsed_result is not None and res.returncode == 0) else err_str),
+                    "stderr": ("" if (is_brief and parsed_result is not None and res.returncode == 0 and not exit_code_masked) else err_str),
                 }
+                if exit_code_masked:
+                    res_payload["exit_code_masked"] = True
+                    res_payload["warning"] = "Exit code 0 masked test failures (pipeline pipe masking detected)."
                 if parsed_result is not None:
                     res_payload["parsed"] = parsed_result
 
@@ -2939,22 +3001,35 @@ async def sandbox_run(
                 if is_brief and parse is None:
                     lines = out_str.splitlines()
                     if len(out_str) > 1000 or len(lines) > 20:
-                        res_payload["stdout_tail"] = "\n".join(lines[-20:])
+                        res_payload["stdout_tail"] = "\n".join(_deduplicate_lines(lines[-20:]))
                         res_payload["stdout_bytes"] = len(res.stdout)
                         res_payload["stdout"] = ""
                         truncated = True
                     err_lines = err_str.splitlines()
                     if len(err_str) > 1000 or len(err_lines) > 20:
-                        res_payload["stderr_tail"] = "\n".join(err_lines[-20:])
+                        res_payload["stderr_tail"] = "\n".join(_deduplicate_lines(err_lines[-20:]))
                         res_payload["stderr_bytes"] = len(res.stderr)
                         res_payload["stderr"] = ""
                         truncated = True
+
+            eff_summary = (
+                f"Sandbox command reported exit code 0 but contained test failures (exit code masked, net={'on' if share_net else 'off'})."
+                if exit_code_masked
+                else f"Sandbox command exited with code {res.returncode} (net={'on' if share_net else 'off'})."
+            )
+            eff_next_action = (
+                "Inspect failed test cases and avoid piping test commands that mask return codes (e.g. remove '| tail')."
+                if exit_code_masked
+                else None
+            )
+
             return attach_envelope(
                 res_payload,
                 tracker,
                 verbosity=verbosity,
                 truncated=truncated,
-                summary=f"Sandbox command exited with code {res.returncode} (net={'on' if share_net else 'off'}).",
+                summary=eff_summary,
+                next_action=eff_next_action,
             )
         except Exception as e:
             return attach_envelope({"status": "ERROR", "agent_id": agent_id, "error": str(e)}, tracker)
@@ -3006,12 +3081,12 @@ async def aep_ctl(
     action: str = "schema",
     name: str | None = None,
     target: str | None = None,
-    args: list[str] | str | None = None,
+    args: list[str] | str | dict[str, Any] | None = None,
     verbosity: str = "detail",
     limit: int = 50,
     cursor: int = 0,
     agent_id: str = "default",
-) -> str:
+    params: dict[str, Any] | None = None,) -> str:
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
     - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
@@ -3317,25 +3392,75 @@ async def aep_ctl(
                 device = eff_name if eff_name and eff_name != "auto" else None
                 req_vram = 0
                 req_gtt = 0
+                req_mib = 0
                 margin = 4096
+
+                eff_params = dict(params) if isinstance(params, dict) else {}
+                if isinstance(args, dict):
+                    eff_params = {**eff_params, **args}
+
+                if eff_params:
+                    if "vram_mib" in eff_params:
+                        req_vram = int(eff_params["vram_mib"]) if str(eff_params["vram_mib"]).isdigit() else 0
+                    elif "req_vram_mib" in eff_params:
+                        req_vram = int(eff_params["req_vram_mib"]) if str(eff_params["req_vram_mib"]).isdigit() else 0
+
+                    if "gtt_mib" in eff_params:
+                        req_gtt = int(eff_params["gtt_mib"]) if str(eff_params["gtt_mib"]).isdigit() else 0
+                    elif "req_gtt_mib" in eff_params:
+                        req_gtt = int(eff_params["req_gtt_mib"]) if str(eff_params["req_gtt_mib"]).isdigit() else 0
+
+                    if "req_mib" in eff_params:
+                        req_mib = int(eff_params["req_mib"]) if str(eff_params["req_mib"]).isdigit() else 0
+
+                    if "margin_mib" in eff_params:
+                        margin = int(eff_params["margin_mib"]) if str(eff_params["margin_mib"]).isdigit() else 4096
+                    elif "margin" in eff_params:
+                        margin = int(eff_params["margin"]) if str(eff_params["margin"]).isdigit() else 4096
+
+                    if "device" in eff_params and eff_params["device"] is not None:
+                        device = str(eff_params["device"])
+
                 nums = []
                 if isinstance(args, list):
-                    for item in args:
-                        try:
+                    i = 0
+                    while i < len(args):
+                        item = str(args[i])
+                        if item in ("--vram", "-vram", "--req_vram", "--req-vram") and i + 1 < len(args):
+                            req_vram = int(args[i + 1]) if str(args[i + 1]).isdigit() else 0
+                            i += 2
+                        elif item in ("--gtt", "-gtt", "--req_gtt", "--req-gtt") and i + 1 < len(args):
+                            req_gtt = int(args[i + 1]) if str(args[i + 1]).isdigit() else 0
+                            i += 2
+                        elif item in ("--margin", "-margin", "--margin_mib", "--margin-mib") and i + 1 < len(args):
+                            margin = int(args[i + 1]) if str(args[i + 1]).isdigit() else 4096
+                            i += 2
+                        elif item in ("--req", "-req", "--req_mib", "--req-mib") and i + 1 < len(args):
+                            req_mib = int(args[i + 1]) if str(args[i + 1]).isdigit() else 0
+                            i += 2
+                        elif item in ("--device", "-device", "--card", "-card") and i + 1 < len(args):
+                            device = str(args[i + 1])
+                            i += 2
+                        elif item.isdigit():
                             nums.append(int(item))
-                        except (ValueError, TypeError):
-                            pass
+                            i += 1
+                        else:
+                            i += 1
                 elif isinstance(args, str):
                     for part in args.split():
                         try:
                             nums.append(int(part))
                         except (ValueError, TypeError):
                             pass
-                if len(nums) > 0:
-                    req_vram = nums[0]
-                if len(nums) > 1:
+
+                if len(nums) > 0 and req_vram == 0 and req_mib == 0:
+                    if len(nums) == 1:
+                        req_mib = nums[0]
+                    else:
+                        req_vram = nums[0]
+                if len(nums) > 1 and req_gtt == 0:
                     req_gtt = nums[1]
-                if len(nums) > 2:
+                if len(nums) > 2 and margin == 4096:
                     margin = nums[2]
 
                 res_obj = admit_accelerator(
@@ -3343,6 +3468,8 @@ async def aep_ctl(
                     req_vram_mib=req_vram,
                     req_gtt_mib=req_gtt,
                     margin_mib=margin,
+                    req_mib=req_mib,
+                    params=eff_params,
                 )
             else:
                 res_obj = {"status": "ERROR", "error": f"Acción de hardware desconocida: {a}", "valid": valid_actions}

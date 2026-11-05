@@ -16,6 +16,7 @@ schemas/database.sql; _init_table() aquí es solo una red de seguridad idempoten
 import json
 import logging
 import shutil
+import signal
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -117,6 +118,9 @@ class CrashRouter:
                             d["coredump_info"] = json.loads(d["coredump_info"])
                         except json.JSONDecodeError as e:
                             logger.debug("Failed to decode coredump_info JSON: %s", e)
+                        if isinstance(d.get("coredump_info"), dict):
+                            if "cmdline" not in d or d["cmdline"] is None:
+                                d["cmdline"] = d["coredump_info"].get("cmdline")
                         alerts.append(d)
                     if alerts:
                         conn.execute("UPDATE crash_events SET resolved = 1 WHERE resolved = 0")
@@ -132,6 +136,9 @@ class CrashRouter:
                         d["coredump_info"] = json.loads(d["coredump_info"])
                     except json.JSONDecodeError as e:
                         logger.debug("Failed to decode coredump_info JSON: %s", e)
+                    if isinstance(d.get("coredump_info"), dict):
+                        if "cmdline" not in d or d["cmdline"] is None:
+                            d["cmdline"] = d["coredump_info"].get("cmdline")
                     alerts.append(d)
         return alerts
 
@@ -168,22 +175,36 @@ class CrashRouter:
                     cmdline: str | None = None
                     problem_type: str | None = None
 
+                    MAX_HEADER_BYTES = 65536
+                    bytes_read = 0
                     try:
                         with cf.open("r", encoding="utf-8", errors="replace") as f:
-                            header_block = f.read(8192)
-                            for line in header_block.splitlines():
+                            for line in f:
+                                bytes_read += len(line.encode("utf-8", errors="replace"))
+                                if bytes_read > MAX_HEADER_BYTES:
+                                    break
+                                if line.startswith(("CoreDump:", "Traceback:", "Stacktrace:")):
+                                    break
                                 if line.startswith("ExecutablePath:"):
                                     exe = line.split(":", 1)[1].strip()
                                 elif line.startswith("Signal:"):
-                                    sig = line.split(":", 1)[1].strip()
-                                elif line.startswith("Date:"):
-                                    date_str = line.split(":", 1)[1].strip()
+                                    raw_sig = line.split(":", 1)[1].strip()
+                                    try:
+                                        sig = signal.Signals(int(raw_sig)).name
+                                    except (ValueError, TypeError):
+                                        sig = str(raw_sig) if raw_sig else "UNKNOWN"
+                                elif line.startswith("Pid:"):
+                                    raw_pid = line.split(":", 1)[1].strip()
+                                    try:
+                                        pid = int(raw_pid)
+                                    except (ValueError, TypeError):
+                                        pid = None
                                 elif line.startswith("ProcCmdline:"):
                                     cmdline = line.split(":", 1)[1].strip()
+                                elif line.startswith("Date:"):
+                                    date_str = line.split(":", 1)[1].strip()
                                 elif line.startswith("ProblemType:"):
                                     problem_type = line.split(":", 1)[1].strip()
-                                elif line.startswith("CoreDump:") or line.startswith("Traceback:"):
-                                    break
                     except (PermissionError, OSError) as pe:
                         logger.debug("Permission/IO error reading %s; using stat fallback: %s", cf, pe)
 
