@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-16_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-143%2F143_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-153%2F153_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1147,6 +1147,7 @@ agent-execution-plane/
 | Default Primitives & Factory Decoupling (ONT-34) | ✅ Operational | FastMCP Tool #16 (`default_primitives`), pure in-RAM system probes, template scaffolding preservation, 16 tools / 19 capabilities invariant certified (123/123 tests passing) |
 | Version Stamp Integrity & Multi-Harness Sync (ONT-35) | ✅ Operational | Runtime commit freeze (`loaded_commit` vs `repo_head` drift detection), non-destructive multi-harness sync audit (`aep-sync.sh --audit`), and sandbox ergonomics (133/133 tests passing) |
 | Hardware Admission & Apport Alerts (ONT-36) | ✅ Operational | Hardware control plane domain (`inventory`, `accelerators`, `admit` with 4096 MiB desktop safety margin, GAP-CP-05), Apport crash alerts sync (`artifacts.db` deduplication, GAP-OM-20), single-encoding flat telemetry (143/143 tests passing) |
+| UMA Admission & Pytest Anti-Masking (ONT-37) | ✅ Operational | UMA auto-routing to GTT (`vram_total <= 2048` and `gtt_total > 2 * vram_total`, GAP-DX-06), leaf defensive routing for numeric device parameters, Apport RFC822 streaming forensics with 64 KiB cap & POSIX signal mapping (`SIGABRT`, GAP-OM-21), sandbox pytest anti-masking (`exit_code_masked=True`), extended metrics (`deselected`, `xfailed`, `xpassed`, `coverage`), and `stdout_tail` line deduplication (153/153 tests passing, 100% pass rate) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |
 | Nushell (`nu`) / `jc` | ⏳ Deferred (non-critical) | `aep_ctl` already delivers structured typed JSON |
