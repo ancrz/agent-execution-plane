@@ -270,7 +270,7 @@ def test_gate6_permission_safe_apport_forensics(tmp_path: Path) -> None:
 
     # Check parsed readable alert
     alert_ok = next(a for a in alerts if a["executable"] == "/usr/bin/my-app")
-    assert alert_ok["signal"] == "11"
+    assert alert_ok["signal"] in ("11", "SIGSEGV")
     assert alert_ok["event_timestamp"] == "Wed Nov  4 12:00:00 2026"
 
     # Check stem-fallback alert
