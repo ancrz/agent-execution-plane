@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-16_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-133%2F133_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-143%2F143_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -145,7 +145,7 @@ flowchart TD
     end
     subgraph L1["Layer 1: Shell Inheritance (Agnostic)"]
         Env["config/shell/aep-env.sh<br/>(bash / zsh / sh)"]
-        Ctl["scripts/aep-ctl (service, network,<br/>storage, package, backup, audit)"]
+        Ctl["scripts/aep-ctl (service, network, storage,<br/>package, backup, security, audit, ipc, hardware)"]
         Agent -.->|child process| Env
     end
     subgraph L0["Layer 0: Linux Kernel & Ubuntu Runtime"]
@@ -164,8 +164,8 @@ flowchart TD
 | Layer | Abstraction Level | Modules & Components | Underlying Primitives & Protocols | Guarantees & Runtime Role |
 | :---: | :--- | :--- | :--- | :--- |
 | **Layer 3** | **Agentic Interface (RPC)** | `server.py` (FastMCP)<br/>`aep_capabilities` | JSON-RPC 2.0 over `stdio`<br/>FastMCP SDK | Unified entry point for LLMs and agents (Claude Code, Antigravity `agy`, OpenAI Codex, Gemini CLI). Exposes 16 atomic, typed, and non-blocking tools (19 capabilities). |
-| **Layer 2** | **Execution, Persistence & Security Engines (`engine/`)** | `db.py`<br/>`backup.py`<br/>`security.py`<br/>`catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`ponder.py`<br/>`matcher.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py`<br/>`net_telemetry.py` | SQLite 3 (WAL mode, mmap 256MB)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`)<br/>`fcntl.flock` + `conn.backup()`<br/>SHA-256 Chained Hash Ledger | Core agentic logic: hybrid semantic memory, anti-deadlock hot SQLite concurrency (`BEGIN IMMEDIATE`), online 5-slot hot backup with auto-recovery, security countermeasures via `CapabilityGuard` (blacklisting `/etc/shadow`, `/root`, `~/.ssh`), SHA-256 cryptographic audit ledger, multidimensional Pico-Kanban, and dual-tier privilege governance (`FULL`/`DIMINISHED`). |
-| **Layer 1** | **Agnostic Shell Inheritance** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX standard Shell (`sh`, `bash`, `zsh`, `dash`)<br/>Environment variables (`PAGER=cat`) | Sanitizes subshell execution against hangs (`stdin`, interactive pagers). Deterministic `aep-ctl` CLI for system management with self-documenting typed JSON contracts (`--schema`) across domains: `service`, `network`, `storage`, `package`, `backup`, and `audit`. |
+| **Layer 2** | **Execution, Persistence & Security Engines (`engine/`)** | `db.py`<br/>`backup.py`<br/>`security.py`<br/>`catalog.py`<br/>`embedder.py`<br/>`kanban.py`<br/>`ponder.py`<br/>`matcher.py`<br/>`crash_router.py`<br/>`docs_vectorizer.py`<br/>`headless_display.py`<br/>`topos_guard.py`<br/>`privilege.py`<br/>`net_telemetry.py`<br/>`hardware.py` | SQLite 3 (WAL mode, mmap 256MB)<br/>`sqlite-vec` extension<br/>ONNX Runtime (bge-small)<br/>Playwright Chromium (`/dev/shm`)<br/>`fcntl.flock` + `conn.backup()`<br/>SHA-256 Chained Hash Ledger | Core agentic logic: hybrid semantic memory, anti-deadlock hot SQLite concurrency (`BEGIN IMMEDIATE`), online 5-slot hot backup with auto-recovery, security countermeasures via `CapabilityGuard` (blacklisting `/etc/shadow`, `/root`, `~/.ssh`), SHA-256 cryptographic audit ledger, multidimensional Pico-Kanban, and dual-tier privilege governance (`FULL`/`DIMINISHED`). |
+| **Layer 1** | **Agnostic Shell Inheritance** | `config/shell/aep-env.sh`<br/>`scripts/install-shell-env.sh`<br/>`scripts/aep-ctl` | POSIX standard Shell (`sh`, `bash`, `zsh`, `dash`)<br/>Environment variables (`PAGER=cat`) | Sanitizes subshell execution against hangs (`stdin`, interactive pagers). Deterministic `aep-ctl` CLI for system management with self-documenting typed JSON contracts (`--schema`) across domains: `service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, and `hardware`. |
 | **Layer 0** | **Linux Kernel & Ubuntu Runtime** | Linux Kernel Primitives<br/>`Pueue` daemon (musl)<br/>`bwrap` (Bubblewrap)<br/>`systemd` / `journald`<br/>Static Go Toolchain | `memfd_create(2)`<br/>Linux User & PID Namespaces<br/>eBPF / kprobes (`bpftrace`)<br/>`systemd-coredump` / `ptrace`<br/>Hermetic Python 3.14 (`uv`) | High-performance, low-level foundations: volatile ELF staging in RAM with zero disk residue, sub-millisecond isolation via unprivileged namespaces, non-blocking asynchronous queues, non-invasive kernel telemetry, and user-space execution without root requirements. |
 
 #### Detailed Layer Specifications
@@ -843,7 +843,7 @@ flowchart TD
 AEP establishes a **4-tier Unix chmod octal model** (`7rwx`, `6rw-`, `5r-x`, `4r--`) paired with a
 non-blocking predictive prober (`sudo -n true` with `<=3s` timeout and process-level caching via `_PrivilegeCache`).
 This architecture completely eliminates interactive password prompt hangs on `stdin` while guaranteeing
-graceful fail-soft degradation across all **15 FastMCP tools** and **8 `aep_ctl` control-plane domains**.
+graceful fail-soft degradation across all **16 FastMCP tools** and **9 `aep_ctl` control-plane domains**.
 
 ```mermaid
 flowchart TD
@@ -911,16 +911,16 @@ Every tool in the canonical FastMCP suite (`len(_tools) == 15`) adapts its behav
 | `async_job_dispatch` | Dispatch to Pueue system/user daemon | Dispatch to Pueue user daemon | Synchronous in-RAM fallback execution | Status inspection only (dispatch disabled) |
 | `diagnose_system_crashes` | Inspect `/var/crash` & system journal | Inspect user coredumps & user journal | Inspect local user crash logs | Read-only crash alert inspection |
 | `sandbox_run` | Full Bubblewrap jail (`--cap-drop ALL`) | User namespace Bubblewrap jail | Read-only mounted Bubblewrap jail | Disabled or dry-run mock (`parse="auto"`) |
-| `aep_ctl` | Full control across all 8 domains | User-scope control across 8 domains | Read-only queries across 8 domains | Auditor inspection across 8 domains |
+| `aep_ctl` | Full control across all 9 domains | User-scope control across 9 domains | Read-only queries across 9 domains | Auditor inspection across 9 domains |
 | `query_system_docs` | Full in-RAM semantic vector man search | Full in-RAM semantic vector man search | Full in-RAM semantic vector search | Full in-RAM semantic vector search |
 | `visual_inspect` | Full headless Chromium screenshot (`/dev/shm`) | User headless Chromium screenshot | Headless screenshot if display exists | Degrades to `DISPLAY_UNAVAILABLE` fail-soft |
 | `kernel_trace` | Full eBPF tracing (`CAP_BPF` / root) | Degrades to in-RAM `/proc/net` telemetry | Degrades to in-RAM `/proc/net` telemetry | Degrades to in-RAM `/proc/net` telemetry |
 | `kanban_board` | Full task creation, promotion, & archive | Full task creation, promotion, & archive | Read-only board inspection | Read-only board inspection |
 | `playbook_run` | Full DAG orchestration & batch execution | Full DAG orchestration & batch execution | Validation & dry-run planning | Validation & static DAG check only |
 
-### 9.4 Control Plane 8 Domains Graceful Degradation Matrix (`aep_ctl`)
+### 9.4 Control Plane 9 Domains Graceful Degradation Matrix (`aep_ctl`)
 
-The control plane (`scripts/aep-ctl` and FastMCP `aep_ctl`) shares `CONTROL_PLANE_SCHEMA` as the single source of truth across all 8 functional domains:
+The control plane (`scripts/aep-ctl` and FastMCP `aep_ctl`) shares `CONTROL_PLANE_SCHEMA` as the single source of truth across all 9 functional domains:
 
 | Domain | Tier `7rwx` (Root / Full Sudo) | Tier `6rw-` (User RW / Standard) | Tier `5r-x` (Restricted / RO-Exec) | Tier `4r--` (Auditor / RO-Observer) |
 | :--- | :--- | :--- | :--- | :--- |
@@ -932,6 +932,7 @@ The control plane (`scripts/aep-ctl` and FastMCP `aep_ctl`) shares `CONTROL_PLAN
 | `audit` | Append to SHA-256 chain & verify integrity | Append to SHA-256 chain & verify integrity | Read-only SHA-256 chain verification | Read-only SHA-256 chain verification |
 | `ipc` | Manage `/dev/shm/aep.sock` pool & reap | Manage `/dev/shm/aep.sock` pool & reap | Client batch execution over socket | Read-only session pool telemetry |
 | `security` | Enforce host netfilter drops via nftables | Simulated threat mitigation contracts | Simulated threat mitigation contracts | Read-only firewall status report |
+| `hardware` | Sysfs DRM & procfs probe + accelerator admission | User DRM inspection & safety-gated admission | Read-only hardware & GPU telemetry | Read-only inventory report |
 
 [↑ Back to top](#top)
 
@@ -1145,6 +1146,7 @@ agent-execution-plane/
 | 4-Tier Privilege & Degradation (ONT-33) | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (19 capabilities), 4-tier chmod octal matrix (`7rwx`/`6rw-`/`5r-x`/`4r--`), zero-sudo-hang probing |
 | Default Primitives & Factory Decoupling (ONT-34) | ✅ Operational | FastMCP Tool #16 (`default_primitives`), pure in-RAM system probes, template scaffolding preservation, 16 tools / 19 capabilities invariant certified (123/123 tests passing) |
 | Version Stamp Integrity & Multi-Harness Sync (ONT-35) | ✅ Operational | Runtime commit freeze (`loaded_commit` vs `repo_head` drift detection), non-destructive multi-harness sync audit (`aep-sync.sh --audit`), and sandbox ergonomics (133/133 tests passing) |
+| Hardware Admission & Apport Alerts (ONT-36) | ✅ Operational | Hardware control plane domain (`inventory`, `accelerators`, `admit` with 4096 MiB desktop safety margin, GAP-CP-05), Apport crash alerts sync (`artifacts.db` deduplication, GAP-OM-20), single-encoding flat telemetry (143/143 tests passing) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |
 | Nushell (`nu`) / `jc` | ⏳ Deferred (non-critical) | `aep_ctl` already delivers structured typed JSON |

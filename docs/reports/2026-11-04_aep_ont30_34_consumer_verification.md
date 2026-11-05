@@ -79,6 +79,42 @@ backport candidate for `server.py::_get_git_commit`.
   user can open each device node (ACL/groups). Add an `accelerators` block to `discover(capabilities)`.
   Keep the sandbox as is (hiding `/dev` is correct for untrusted code).
 
+### Incident 2026-11-04 13:59:34 — desktop session crash caused by an agent-launched GPU workload
+- **What happened:** the orchestrator launched `llama-server` (Gemma 4 26B-A4B Q4_0, 14.6 GB, `-ngl 99`, ctx 16k)
+  on the Radeon 780M. The iGPU has 1 GiB VRAM carve-out + ~15 GiB GTT **shared with the desktop**. The load
+  exhausted GTT → `amdgpu: [drm] *ERROR* Not enough memory for command submission!` → Mesa/libgallium `abort()`
+  in `gnome-shell` (SIGABRT, apport `_usr_bin_gnome-shell.1000.crash`) → GDM restarted the graphical session,
+  killing every app (both harnesses). The kernel did not reboot.
+- **Signal that was ignored:** llama.cpp printed `common_fit_params: failed to fit params to free device memory:
+  n_gpu_layers already set by user to 99, abort` before loading; the orchestrator classified it as a warning.
+- **AEP worked well afterwards:** in the other harness, `diagnose_system_crashes(action="diagnose")` + `aep_ctl`
+  + `playbook_run` reconstructed the root cause (apport crash, amdgpu error, systemd sequence). ✅
+
+### GAP-CP-05 escalated (Medium → **High**) — resource admission before accelerator workloads
+- The incident is the concrete cost of the missing hardware capability: a pre-flight read of
+  `/sys/class/drm/card*/device/mem_info_{vram,gtt}_{total,used}` would have shown that a 14.6 GB model leaves
+  < 1 GB GTT for the compositor.
+- **Improve (in addition to the inventory proposal):** `aep_ctl(domain="hardware", action="admit",
+  name="<required_gpu_mib>")` → `{admit: bool, gtt_free_mib, vram_free_mib, margin_mib, reason}` with a default
+  desktop margin (e.g. 4 GiB GTT); and an optional watchdog (`async_job_dispatch` group with a kill condition on
+  GTT free < margin) for long GPU jobs. cgroups cannot cap amdgpu GTT, so admission + watchdog is the only guard.
+
+### GAP-OM-20 (new) — `diagnose_system_crashes` lags the ONT-29 contract and `alerts` misses apport crashes
+- **Evidence (this session, fresh instance `loaded_commit=repo_head=19d6e22`, `stale=false`):**
+  - `diagnose_system_crashes(action="alerts", verbosity="summary")` still returns the **pre-ONT-29 shape**:
+    nested `envelope` duplicating top-level keys + full `telemetry` block (625 bytes / 156 tok for "0 alerts").
+    Other tools (`discover`, `sandbox_run`, `topos_audit_dag`) use the new flat shape with `t`.
+  - It reported `pending_count: 0` / `"coredumpctl ausente; enrutador inerte"` although an apport crash
+    (`gnome-shell`, SIGABRT, 13:59:34) exists and the `diagnose` action does find apport crashes.
+- **Impact:** a consumer polling `alerts` (the cheap periodic check) is told "all clear" after a real crash.
+- **Improve:** route `alerts` through the same apport fallback as `diagnose`; migrate the tool to the shared
+  `attach_envelope` (flat + `t`); contract test across all 16 tools asserting no nested `envelope` key.
+
+### Verified in this session
+- **GAP-RT-04 fixed:** `discover` returns `loaded_commit`, `repo_head`, `stale` (fresh instance: all equal,
+  `stale=false`). ✅
+- **`brief` no longer echoes request inputs** in `sandbox_run` (249-test run: 85 tok, only `parsed` + status). ✅
+
 ## 3. Usage metrics (iteration 4, orchestrator so far)
 
 | Tool / action | Verbosity | `t.tok` | Useful | Note |

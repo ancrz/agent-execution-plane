@@ -1,12 +1,12 @@
-# Context Compaction Guidance — AEP (Milestone ONT-35 Verified)
+# Context Compaction Guidance — AEP (Milestone ONT-36 VERIFIED)
 
 **Preserve**:
-- Pipeline State: Short Mode (Pragma Stage 4 ✅ -> Dokimos Stage 5 VERIFIED ✅ -> Graphos G2 Record ✅ -> Hermon Stage 6 Release ⏳).
-- Active Milestone: ONT-35 / M96 ("Version Stamp Integrity GAP-RT-04, Multi-Harness Sync GAP-RT-03 & Sandbox Ergonomics") — VERIFIED ✅ (133/133 tests passing, 100%, 0 Ruff SAST errors).
-- Verified Invariants: `LOADED_COMMIT` + source hash freeze at import, call-time `repo_head` & `stale` calculation with `WARN`/restart hint; non-destructive `aep-sync.sh --audit` multi-harness inspection; structured Ruff parser (`check`/`format`); `sandbox_run` brief stdout truncation cap (20 lines); uv auto-mount.
-- Verified Artifacts: `docs/pipeline/feature_20261104_133000_ont35_version_stamp_integrity_and_sync.md`, `verification_report_20261104_133500_ont35_version_stamp_integrity_and_sync.md`, `reports/2026-11-04_aep_ont30_34_consumer_verification.md`.
-- Files Changed: 3 modified (`server.py`, `engine/telemetry.py`, `scripts/aep-sync.sh`), 1 test created (`tests/test_version_integrity.py`), +493/-68 lines, 0 scope creep.
-- Next Actions: (1) Hermon Stage 6 Atomic Release & Conventional Commit (`fix(runtime): ont-35 version stamp integrity, multi-harness sync & sandbox ergonomics`); (2) Git Tag / Release Notes; (3) Multi-harness status report.
+- Pipeline State: Full Mode (Archon Stage 1 Rev2 ✅ -> Graphos G1 Rev2 Weave ✅ -> Ontos Stage 3 Approved ✅ -> Pragma Stage 4 Executed ✅ -> Dokimos Stage 5 Verified ✅ -> Graphos G2 Recorded ✅ -> Hermon Stage 6 Ready ⏳).
+- Active Intent: ONT-36 / M97 ("Hardware Domain GAP-CP-05 & Apport Alerts GAP-OM-20") — VERIFIED ✅ (10/10 Gates Passed, 143/143 Full Suite Passed, 0 Ruff errors, 0 Semgrep blocking findings).
+- Open Defects & Routing: 0 defects; all 5 Ontos remediations (R-1 through R-5) verified in tests/test_hardware_and_apport_alerts.py; routed to Hermon.
+- Key Invariants: FastMCP 16 tools invariant (`len(_tools) == 16`); 4096 MiB desktop safety margin (`engine/hardware.py`); 4-tier chmod governance (9 domains); Apport crash header sync & permission-safe dedup; flat `t: {"ms": ..., "tok": ...}` stub in compact telemetry.
+- Target Modules: `engine/hardware.py` (new), `engine/privilege.py`, `engine/crash_router.py`, `engine/telemetry.py`, `scripts/aep-ctl`, `server.py`, `tests/test_hardware_and_apport_alerts.py`, `tests/test_privilege_degradation.py`, `tests/test_net_security_telemetry.py`, `tests/test_agent_experience_evaluation.py`, `scripts/setup.sh`, `README.md`, `docs/MILESTONES.md`.
+- Next 3 Pending Actions: (1) Hermon Stage 6 Atomic Release & Conventional Commit; (2) Git tag / push authorization; (3) Next milestone planning / idle.
 
 **Drop**:
-- Verbose test run outputs, intermediate stack traces, superseded planning drafts.
+- Verbose test traces, intermediate diffs, superseded planning drafts, resolved audits.
