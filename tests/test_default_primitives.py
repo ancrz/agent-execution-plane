@@ -185,4 +185,6 @@ async def test_gate6_parameter_ergonomics_and_verbosity() -> None:
     raw_summary = await server.default_primitives(action="list", verbosity="summary")
     data_detail = json.loads(raw_detail)
     data_summary = json.loads(raw_summary)
-    assert data_summary["telemetry"]["output_bytes"] < data_detail["telemetry"]["output_bytes"]
+    sum_tok = data_summary["t"]["tok"] if "t" in data_summary else data_summary["telemetry"]["estimated_tokens"]
+    det_tok = data_detail["telemetry"]["estimated_tokens"]
+    assert sum_tok < det_tok

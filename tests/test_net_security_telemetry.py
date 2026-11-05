@@ -224,7 +224,7 @@ async def test_gate7_self_describing_schema_reflection() -> None:
     assert "tools" in res
     assert "preconditions" in res
     assert "control_plane_domains" in res
-    assert len(res["control_plane_domains"]) == 8
+    assert len(res["control_plane_domains"]) == 9
 
     # FastMCP tool metadata verification
     assert "topos_audit_dag" in res["tools"]

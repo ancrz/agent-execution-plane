@@ -169,7 +169,7 @@ def test_gate4_capabilities_matrix_synchrony() -> None:
         assert "chmod_octal" in caps_data
         assert "degradation_matrix" in caps_data
         assert len(caps_data["degradation_matrix"]["tools"]) == 16
-        assert len(caps_data["degradation_matrix"]["domains"]) == 8
+        assert len(caps_data["degradation_matrix"]["domains"]) == 9
 
         # Test discover(action="schema")
         raw_schema = await server.discover(action="schema", force_refresh=True)

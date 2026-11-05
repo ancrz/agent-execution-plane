@@ -149,18 +149,18 @@ def test_compact_summary_and_telemetry_attribution() -> None:
     )
     assert detail_mounts["status"] == "OK"
     assert summary_mounts["status"] == "OK"
-    assert summary_mounts["telemetry"]["output_bytes"] < detail_mounts["telemetry"]["output_bytes"]
-    assert summary_mounts["telemetry"]["estimated_tokens"] >= 1
-    assert "rss_delta_kb" in summary_mounts["telemetry"]
-    assert "fd_delta" in summary_mounts["telemetry"]
-    assert summary_mounts["envelope"]["status"] == "OK"
+    assert "telemetry" in detail_mounts
+    assert "t" in summary_mounts
+    assert summary_mounts["t"]["tok"] < detail_mounts["telemetry"]["estimated_tokens"]
+    assert "envelope" in detail_mounts
+    assert "envelope" not in summary_mounts
 
     proc_sum = json.loads(
         asyncio.run(server.process_inspect(pid=0, verbosity="summary"))
     )
     assert proc_sum["status"] == "OK"
     assert len(proc_sum["descriptors"]) <= 15
-    assert "telemetry" in proc_sum
+    assert "t" in proc_sum
 
 
 def test_discover_binary_readiness_and_tactical_playbook() -> None:
@@ -209,7 +209,7 @@ def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
     pueue_st_raw = asyncio.run(server.async_job_dispatch(action="status", limit=5, verbosity="summary"))
     assert len(pueue_st_raw.encode("utf-8")) < MAX_SAFE_JSON_BYTES
     pueue_st = json.loads(pueue_st_raw)
-    assert "envelope" in pueue_st and "telemetry" in pueue_st
+    assert "t" in pueue_st and "envelope" not in pueue_st
     if pueue_st["status"] == "OK" and "tasks" in pueue_st:
         assert len(pueue_st["tasks"]) <= 5
         for t in pueue_st["tasks"].values():
@@ -219,7 +219,7 @@ def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
     ram_res = json.loads(
         asyncio.run(server.artifact_execute_in_ram(name="socket_monitor", limit=5, verbosity="summary"))
     )
-    assert "envelope" in ram_res and "telemetry" in ram_res
+    assert "t" in ram_res and "envelope" not in ram_res
     if ram_res["status"] == "SUCCESS" and isinstance(ram_res.get("output"), dict):
         if "sockets" in ram_res["output"]:
             assert len(ram_res["output"]["sockets"]) <= 5
@@ -229,9 +229,9 @@ def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
     cat = json.loads(asyncio.run(server.artifact_catalog(action="browse", limit=2)))
     bld = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog")))
     docs = json.loads(asyncio.run(server.query_system_docs(query="bwrap", source="man", limit=1)))
-    kb = json.loads(asyncio.run(server.kanban_board(action="board")))
+    kb = json.loads(asyncio.run(server.kanban_board(action="board", verbosity="detail")))
     pb = json.loads(asyncio.run(server.playbook_run(action="list")))
-    prim = json.loads(asyncio.run(server.default_primitives(action="list", verbosity="summary")))
+    prim = json.loads(asyncio.run(server.default_primitives(action="list", verbosity="detail")))
     for r in (dag, cat, bld, docs, kb, pb, prim):
         assert "envelope" in r
         assert "telemetry" in r
@@ -475,7 +475,8 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     # Verify compact template catalog saves tokens
     cat_detail = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog", verbosity="detail")))
     cat_summary = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog", verbosity="summary")))
-    assert cat_summary["telemetry"]["output_bytes"] < cat_detail["telemetry"]["output_bytes"]
+    assert "t" in cat_summary
+    assert cat_summary["t"]["tok"] < cat_detail["telemetry"]["estimated_tokens"]
 
     # Verify 1-step template build with zero-config defaults and alias parameters
     build_res = json.loads(
@@ -491,7 +492,7 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     assert build_res["lint_warnings"] == []
 
     # Verify in-RAM execution closes memfd before telemetry finish (fd_delta == 0)
-    exec_res = json.loads(asyncio.run(server.artifact_execute_in_ram(name="mem_stat")))
+    exec_res = json.loads(asyncio.run(server.artifact_execute_in_ram(name="mem_stat", verbosity="detail")))
     assert exec_res["status"] == "SUCCESS"
     assert exec_res["telemetry"]["fd_delta"] == 0
 
