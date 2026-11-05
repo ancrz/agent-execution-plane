@@ -190,7 +190,7 @@ flowchart TD
 3. **Layer 1: Agnostic Shell Inheritance**:
    - **POSIX Environment Sanitization (`config/shell/aep-env.sh`)**: Universal environment file enforcing `PAGER=cat`, `MANPAGER=cat`, `DEBIAN_FRONTEND=noninteractive`, and exporting critical paths to `PATH`. Prevents child processes from hanging on interactive prompts.
    - **Idempotent Multi-Shell Installation (`scripts/install-shell-env.sh`)**: Injects atomic sourcing blocks into `~/.bashrc`, `~/.zshenv`, and `~/.profile`, supporting Bash, Zsh, and Dash without third-party frameworks.
-   - **Deterministic CLI Control Plane (`scripts/aep-ctl`)**: Modular Python standard library utility managing subdomains (`service`, `network`, `storage`, `package`, `backup`, `audit`) with structured JSON output and `--schema` contract introspection.
+   - **Deterministic CLI Control Plane (`scripts/aep-ctl`)**: Modular Python standard library utility managing subdomains (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `hardware`) with structured JSON output and `--schema` contract introspection.
 
 4. **Layer 0: Linux Kernel & System Runtime**:
    - **Volatile Anonymous Memory (`memfd_create`)**: Native Linux kernel primitive (glibc 2.27+ / Linux 3.17+) allowing ELF binaries to be staged and executed purely in RAM via `/proc/self/fd/`, bypassing secondary disk storage.
@@ -302,13 +302,13 @@ The plane exposes 16 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `discover` (`action="capabilities"`) | `FULL` / `DIMINISHED` | `discover(action="capabilities") -> str`<br/>*(compat wrapper: `aep_capabilities()`)* | Evaluates `euid == 0` and `sudo -n` availability. Generates an autonomy manifest in an octal `chmod/777` style (`r`=sense, `w`=act, `x`=execute) mapping 18 capabilities across scopes (`self`, `system`, `kernel`). Under Milestone ONT-30, exposes schema evolution drift detection and multi-harness process observability metadata across all verbosities (`server_version`, short `git_commit`, deterministic 64-char `schema_hash`, `pid`, `process_start_time` ISO-8601, and `uptime_seconds`). | `{"status": "OK", "capability_tier": "FULL"|"DIMINISHED", "server_version": str, "git_commit": str, "schema_hash": str, "pid": int, "process_start_time": str, "uptime_seconds": float, "capabilities": {...}}` | Always returns valid deterministic JSON. Zero unhandled exceptions. |
+| `discover` (`action="capabilities"`) | `FULL` / `DIMINISHED` | `discover(action="capabilities") -> str`<br/>*(compat wrapper: `aep_capabilities()`)* | Evaluates `euid == 0` and `sudo -n` availability. Generates an autonomy manifest in an octal `chmod/777` style (`r`=sense, `w`=act, `x`=execute) mapping 19 capabilities across scopes (`self`, `system`, `kernel`). Under Milestone ONT-30, exposes schema evolution drift detection and multi-harness process observability metadata across all verbosities (`server_version`, short `git_commit`, deterministic 64-char `schema_hash`, `pid`, `process_start_time` ISO-8601, and `uptime_seconds`). | `{"status": "OK", "capability_tier": "FULL"|"DIMINISHED", "server_version": str, "git_commit": str, "schema_hash": str, "pid": int, "process_start_time": str, "uptime_seconds": float, "capabilities": {...}}` | Always returns valid deterministic JSON. Zero unhandled exceptions. |
 
 #### Domain 1: Evolutive Artifacts & In-Memory Cycle (4 Tools)
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), introspects tool schemas across all 15 FastMCP tools (`action="schema"`), or returns the systems engineering tactical guide (`action="playbook"`, including native network telemetry recipes `WF-10` and `WF-11` and quick reference commands `network_telemetry_probe` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
+| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), introspects tool schemas across all 16 FastMCP tools (`action="schema"`), or returns the systems engineering tactical guide (`action="playbook"`, including native network telemetry recipes `WF-10` and `WF-11` and quick reference commands `network_telemetry_probe` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
 | `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(action: str = "build", name: Optional[str] = None, artifact_name: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None, category: Optional[str] = None, go_source: Optional[str] = None, template_name: Optional[str] = None, source_template: Optional[str] = None, params: Optional[Dict[str, Any]] = None, cue_contract: str = "", limit: int = 5) -> str` | Unified pipeline to browse templates (`catalog`), rank by relevance (`select`), hydrate Go source (`hydrate`), and compile binaries with `go vet`/`golangci-lint` validation (`build`, with `lint` and `vet` action aliases), including 1-step zero-config template shortcut (`template_name` auto-fills defaults and reuses active Kanban tasks). | Action-dependent typed JSON (`status`, `templates`, `matches`, `go_source`, `artifact_id`, `binary_path`). | Structured responses with `status: "PARAM_ERROR"` on missing inputs, `status: "HYDRATE_ERROR"` on template failures, and `status: "INVALID_ACTION"` on invalid actions. |
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, artifact_name: Optional[str] = None, args: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, stdin: Optional[str] = None, timeout: int = 30) -> str` | Loads the ELF binary into an anonymous volatile descriptor via `memfd_create` and executes directly in RAM via `/proc/self/fd/<fd>`. Supports `artifact_name` alias, `env` and `stdin` injection, and configurable `timeout` (1–120s, default 30s). Measures latency and records execution metrics in SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Non-zero exit codes return structured JSON with `stderr` and update historical failure rates. |
 | `artifact_catalog` | `DIMINISHED` | `artifact_catalog(action: str = "browse", category: Optional[str] = None, query: Optional[str] = None, intent: Optional[str] = None, name: Optional[str] = None, artifact_name: Optional[str] = None, limit: int = 10, force: bool = False, apply: bool = False) -> str` | Unified semantic memory. `action="browse"`: lists/searches by confidence or semantic top-K (`query`). `action in ("info", "get", "show")`: lightweight inspection of full artifact metadata (including `binary_size_bytes`) without dumping binary blobs. `action="query"`: hybrid cache search. `action="reindex"`: heals sqlite-vec vectors. `action="prune"`: safe GC. | `{"status": "OK"|"CACHE_HIT"|"CACHE_MISS", ...}` | Gracefully degrades to relational confidence ranking if vector extensions are unavailable. |
@@ -376,7 +376,7 @@ Under Milestone ONT-34, AEP establishes a clean architectural boundary between *
 
 ### Lifecycle and Skill Chaining
 
-The following diagram illustrates how an autonomous agent deterministically chains AEP's 15 tools across a complete execution cycle, integrating self-discovery, topological auditing, artifact synthesis, volatile RAM execution, async parallel queues, and proactive self-healing:
+The following diagram illustrates how an autonomous agent deterministically chains AEP's 16 tools across a complete execution cycle, integrating self-discovery, topological auditing, artifact synthesis, volatile RAM execution, async parallel queues, and proactive self-healing:
 
 ```mermaid
 flowchart TD
@@ -780,16 +780,16 @@ flowchart TD
      - Deterministic 32-bit IPv4 hex decoding (`socket.inet_ntoa` with little-endian struct packing) and socket inode-to-PID correlation.
      - Pure in-memory packet header dissection via big-endian `struct.unpack` (`!6s6sH`, `!BBHHHBBH4s4s`, `!HHIIBBHHH`) for Ethernet, IPv4, TCP, UDP, and ARP frames, plus `/dev/shm` volatile PCAP buffer decoding without external packet decoders.
   4. **Self-Describing Schema Reflection & Precondition Contracts**:
-     - `discover(action="schema")`: Introspectively extracts typed parameter signatures, types, defaults, docstrings, and execution scope (`DIMINISHED`/`FULL`) across all 15 FastMCP tools, with in-RAM session caching (`_shared_session_cache`).
+     - `discover(action="schema")`: Introspectively extracts typed parameter signatures, types, defaults, docstrings, and execution scope (`DIMINISHED`/`FULL`) across all 16 FastMCP tools, with in-RAM session caching (`_shared_session_cache`).
      - `CONTROL_PLANE_SCHEMA` in `engine/privilege.py`: Enforces explicit execution preconditions (`privilege_tier`, `required_fs`, `fail_soft_behavior`, `deterministic`) across all control plane actions.
   5. **Deterministic Netfilter Hardening & Perimeter Defense (`aep_ctl domain="security"`)**:
      - Deterministic, idempotent host firewall and netfilter mitigation (`aep_ctl security threat_mitigate <ip>`), ruleset auditing (`nftables_inspect`), and firewall status checks (`firewall_status`).
      - Fail-soft execution: In unprivileged (`DIMINISHED`) environments, generates structured `SIMULATED` drop contracts without throwing exceptions or interrupting autonomous agent workflows.
   6. **Semantic Sanitization & Pure Single-Plane Integration**:
      - Purged all legacy trigger keywords (*kali, pentest, exploit, offensive*) across documentation, schemas, and docstrings in favor of clean systems engineering nomenclature (*Network Telemetry*, *Security Observability*, *Netfilter Hardening*).
-     - Decoupled Antigravity global configuration (`~/.gemini/config/mcp_config.json`) by removing containerized satellites, running 100% of telemetry through the native 15 FastMCP tools.
-- **Strict FastMCP 15-Tool Invariant Preservation**:
-  - Exactly 15 tools registered on the primary AEP host server (`server.py`). All network probing, kernel socket analysis, and perimeter security capabilities are seamlessly absorbed into `aep_ctl(domain="network")`, `aep_ctl(domain="security")`, and `kernel_trace(mode="network_sniff")`.
+     - Decoupled Antigravity global configuration (`~/.gemini/config/mcp_config.json`) by removing containerized satellites, running 100% of telemetry through the native 16 FastMCP tools.
+- **Strict FastMCP 16-Tool Invariant Preservation**:
+  - Exactly 16 tools registered on the primary AEP host server (`server.py`). All network probing, kernel socket analysis, and perimeter security capabilities are seamlessly absorbed into `aep_ctl(domain="network")`, `aep_ctl(domain="security")`, and `kernel_trace(mode="network_sniff")`.
 
 ---
 
@@ -896,9 +896,9 @@ To eliminate headless process hangs, `scripts/setup.sh` and `engine/privilege.py
   ./scripts/setup.sh --predict
   ```
 
-### 9.3 FastMCP 15 Polymorphic Tools Graceful Degradation Matrix
+### 9.3 FastMCP 16 Polymorphic Tools Graceful Degradation Matrix
 
-Every tool in the canonical FastMCP suite (`len(_tools) == 15`) adapts its behavior deterministically to the detected tier, returning structured fail-soft responses rather than throwing unhandled exceptions:
+Every tool in the canonical FastMCP suite (`len(_tools) == 16`) adapts its behavior deterministically to the detected tier, returning structured fail-soft responses rather than throwing unhandled exceptions:
 
 | Tool Name | Tier `7rwx` (Root / Full Sudo) | Tier `6rw-` (User RW / Standard) | Tier `5r-x` (Restricted / RO-Exec) | Tier `4r--` (Auditor / RO-Observer) |
 | :--- | :--- | :--- | :--- | :--- |
@@ -917,6 +917,7 @@ Every tool in the canonical FastMCP suite (`len(_tools) == 15`) adapts its behav
 | `kernel_trace` | Full eBPF tracing (`CAP_BPF` / root) | Degrades to in-RAM `/proc/net` telemetry | Degrades to in-RAM `/proc/net` telemetry | Degrades to in-RAM `/proc/net` telemetry |
 | `kanban_board` | Full task creation, promotion, & archive | Full task creation, promotion, & archive | Read-only board inspection | Read-only board inspection |
 | `playbook_run` | Full DAG orchestration & batch execution | Full DAG orchestration & batch execution | Validation & dry-run planning | Validation & static DAG check only |
+| `default_primitives` | Full execution of all built-in primitives across host scope | User-scope execution of built-in primitives in RAM | Read-only inspection and isolated execution in RAM | Metadata inspection only (execution disabled: status PERMISSION_DENIED) |
 
 ### 9.4 Control Plane 9 Domains Graceful Degradation Matrix (`aep_ctl`)
 
@@ -1044,7 +1045,7 @@ flowchart TD
     PROV --> P1["Pueue Daemon Musl Auto-download<br/>(~/.local/bin/pueue, pueued -d)"]
     PROV --> S1["Omarchy Skills Hub Symlinks<br/>(Claude · Gemini · Codex)"]
     PROV --> S2["Git Pre-commit Hook Tracked<br/>(core.hooksPath=scripts/hooks)"]
-    PROV --> S3["aep-sync.sh Auto-Plug & Hot Reload<br/>(FastMCP 15 tools, Connect-RPC RefreshMcpServers)"]
+    PROV --> S3["aep-sync.sh Auto-Plug & Hot Reload<br/>(FastMCP 16 tools, Connect-RPC RefreshMcpServers)"]
 ```
 
 ### 12.3 Python 3.14 Production LTS Baseline
@@ -1075,10 +1076,15 @@ agent-execution-plane/
 │   ├── matcher.py                  # BM25F multi-signal lexical relevance matcher
 │   ├── hydrator.py                 # Go template hydrator with parameter binding
 │   ├── topos_guard.py              # Topos DAG anti-co-dependency guardian
-│   ├── crash_router.py             # Proactive coredump routing (OM-2)
+│   ├── crash_router.py             # Proactive coredump routing (OM-2) & Apport RFC822 streaming forensics (GAP-OM-20, GAP-OM-21)
 │   ├── docs_vectorizer.py          # Ubuntu man page offline vectorizer (OM-4)
 │   ├── headless_display.py         # Playwright Chromium in-RAM headless visual capture (OM-5)
-│   └── ipc_pool.py                 # Shared-memory UNIX socket mux (/dev/shm/aep.sock) & 16-slot session pool (OM-7)
+│   ├── ipc_pool.py                 # Shared-memory UNIX socket mux (/dev/shm/aep.sock) & 16-slot session pool (OM-7)
+│   ├── net_telemetry.py            # Pure in-RAM TCP/UDP socket introspection, ARP table & frame dissect (ONT-32)
+│   ├── primitives.py               # Pure in-memory system diagnostic probes (mem-stat, disk-usage, fd-rescuer, socket-monitor, landlock-guard, ONT-34)
+│   ├── hardware.py                 # GPU/sysfs DRM accelerator introspection, UMA auto-routing & pre-flight admission (GAP-CP-05, GAP-DX-06)
+│   ├── playbook.py                 # Pico-Playbook YAML/JSON storage & DAG step execution engine
+│   └── template_registry.py        # Go template registry, metadata catalog & CUE schema binding
 ├── diagnostic/go/
 │   ├── socket-monitor/main.go      # Static ELF Go probe for /proc/net/tcp
 │   ├── fd-rescuer/main.go          # Static ELF Go probe for /proc/PID/fd
@@ -1099,7 +1105,9 @@ agent-execution-plane/
 │   ├── test_net_security_telemetry.py # ONT-32 Native network & security telemetry test battery
 │   ├── test_privilege_degradation.py # ONT-33 Predictive privilege setup and chmod degradation suite
 │   ├── test_default_primitives.py  # ONT-34 Default diagnostic primitives & factory decoupling suite
-│   └── test_version_integrity.py   # ONT-35 Version stamp integrity, drift detection & runner ergonomics suite
+│   ├── test_version_integrity.py   # ONT-35 Version stamp integrity, drift detection & runner ergonomics suite
+│   ├── test_hardware_and_apport_alerts.py # ONT-36 Hardware domain, accelerator admission & Apport alerts suite
+│   └── test_uma_admission_apport_and_pytest_parsing.py # ONT-37 UMA admission ergonomics, Apport RFC822 & pytest anti-masking suite
 ├── schemas/
 │   ├── database.sql                # DDL (artifacts, metrics, crash_events, audit)
 │   └── artifact_contract.cue       # Declarative CUE artifact schemas
@@ -1107,7 +1115,7 @@ agent-execution-plane/
 ├── config/shell/aep-env.sh         # Agnostic POSIX environment inheritance (bash/zsh/dash)
 ├── scripts/
 │   ├── setup.sh                    # Bootstrapper, updater, and health auditor (--check)
-│   ├── aep-ctl                     # Deterministic CLI (service, network, storage, package, backup, security, audit)
+│   ├── aep-ctl                     # Deterministic CLI (service, network, storage, package, backup, security, audit, ipc, hardware)
 │   ├── aep-mcp-launch.sh           # Stable launcher with hermetic virtual environment resolution
 │   ├── aep-sync.sh                 # Multi-agent atomic MCP synchronization
 │   ├── install-shell-env.sh        # Shell environment installer
