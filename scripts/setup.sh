@@ -139,7 +139,7 @@ run_predict() {
     echo "FastMCP 16-Tool Degradation Posture:"
     echo "  - topos_audit_dag: ACTIVE (Pure In-RAM DAG Verification)"
     echo "  - discover: ACTIVE (Reflects $TIER & Capabilities)"
-    echo "  - aep_ctl: ACTIVE (8 Domains Fail-Soft Degradation)"
+    echo "  - aep_ctl: ACTIVE (9 Domains Fail-Soft Degradation)"
     echo "  - default_primitives: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED (Auditor Mode: PERMISSION_DENIED)" || echo "ACTIVE (In-RAM System Probes)" )"
     echo "  - artifact_execute_in_ram: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED (Auditor Mode)" || echo "ACTIVE (memfd_create)" )"
     echo "  - sandbox_run: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED / DRY-RUN" || echo "ACTIVE (Fail-Soft)" )"

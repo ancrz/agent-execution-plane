@@ -172,6 +172,7 @@ def attach_envelope(
         else:
             next_action = "Proceed with the next step in the agent workflow."
 
+    is_compact = mode in ("summary", "brief", "terse", "cached")
     is_unindented = mode in ("brief", "terse", "cached")
     indent_val = None if is_unindented else 2
 
@@ -193,9 +194,9 @@ def attach_envelope(
     if evidence is not None:
         envelope["evidence"] = evidence
 
-    # In summary and detail: preserve payload['envelope'] for backward compatibility.
-    # In brief, terse, cached: omit nested payload['envelope'] completely.
-    if not is_unindented:
+    # In detail mode (and default): preserve payload['envelope'] for backward compatibility.
+    # In compact modes (summary, brief, terse, cached): omit nested payload['envelope'] completely (GAP-OM-19).
+    if not is_compact:
         payload["envelope"] = envelope
     elif "envelope" in payload:
         payload.pop("envelope", None)
@@ -204,7 +205,7 @@ def attach_envelope(
     provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)
     if len(provisional.encode("utf-8")) > MAX_SAFE_JSON_BYTES and _clamp_oversized_payload(payload):
         payload["truncated"] = True
-        if not is_unindented:
+        if not is_compact:
             envelope["truncated"] = True
         provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)
 
@@ -213,9 +214,10 @@ def attach_envelope(
     estimated_tokens = max(1, round(prov_bytes / 4))
 
     # Telemetry configuration:
-    if is_unindented:
+    if is_compact:
         if telemetry is True:
             payload["telemetry"] = tracker.finish(prov_bytes)
+            payload.pop("t", None)
         elif telemetry is False:
             payload.pop("telemetry", None)
             payload.pop("t", None)
@@ -225,6 +227,7 @@ def attach_envelope(
     else:
         if telemetry is not False:
             payload["telemetry"] = tracker.finish(prov_bytes)
+            payload.pop("t", None)
         else:
             payload.pop("telemetry", None)
             payload.pop("t", None)

@@ -390,10 +390,10 @@ CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             TIER_4R: "Disabled or dry-run mock (parse='auto')",
         },
         "aep_ctl": {
-            TIER_7RWX: "Full control across all 8 domains",
-            TIER_6RW: "User-scope control across 8 domains",
-            TIER_5RX: "Read-only queries across 8 domains",
-            TIER_4R: "Auditor inspection across 8 domains",
+            TIER_7RWX: "Full control across all 9 domains",
+            TIER_6RW: "User-scope control across 9 domains",
+            TIER_5RX: "Read-only queries across 9 domains",
+            TIER_4R: "Auditor inspection across 9 domains",
         },
         "query_system_docs": {
             TIER_7RWX: "Full in-RAM semantic vector man-page search",
@@ -480,6 +480,12 @@ CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             TIER_6RW: "Simulated threat mitigation contracts",
             TIER_5RX: "Simulated threat mitigation contracts",
             TIER_4R: "Read-only firewall status report",
+        },
+        "hardware": {
+            TIER_7RWX: "Full sysfs hardware & DRM accelerator admission with 4096 MiB safety margin",
+            TIER_6RW: "User-space hardware introspection & accelerator admission",
+            TIER_5RX: "Read-only hardware inventory & DRM accelerator detection",
+            TIER_4R: "Static CPU/RAM inventory (accelerators disabled or mocked)",
         },
     },
 }
@@ -594,6 +600,16 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "preconditions": {
             act: {"privilege_tier": "DIMINISHED", "required_fs": ["/dev/shm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
             for act in ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"]
+        },
+    },
+    "hardware": {
+        "actions": ["inventory", "accelerators", "admit"],
+        "arg": "[device] [req_vram_mib] [req_gtt_mib] [margin_mib]",
+        "description": "Hardware introspection, CPU/RAM inventory, DRM accelerator (GPU/iGPU) detection, and pre-flight admission with safety margin.",
+        "preconditions": {
+            "inventory": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/cpuinfo", "/proc/meminfo"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "accelerators": {"privilege_tier": "DIMINISHED", "required_fs": ["/sys/class/drm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "admit": {"privilege_tier": "DIMINISHED", "required_fs": ["/sys/class/drm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
         },
     },
 }

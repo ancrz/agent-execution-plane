@@ -504,6 +504,12 @@ async def discover(
             repo_head = _read_git_head_commit()
             is_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
 
+            from engine.hardware import probe_accelerators
+            try:
+                accels_overview = probe_accelerators()
+            except Exception:
+                accels_overview = []
+
             caps_meta = {
                 "server_version": "v0.2.8",
                 "git_commit": LOADED_COMMIT,
@@ -514,6 +520,7 @@ async def discover(
                 "pid": os.getpid(),
                 "process_start_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(SERVER_START_TIME)),
                 "uptime_seconds": round(time.time() - SERVER_START_TIME, 2),
+                "accelerators": ([acc.get("device", "card") for acc in accels_overview] if v_mode in ("terse", "cached") else accels_overview),
             }
             payload.update(caps_meta)
             payload["session_hint"] = (
@@ -2463,7 +2470,7 @@ async def diagnose_system_crashes(
                     res,
                     tracker,
                     verbosity=verbosity,
-                    summary=f"Crash alerts: {res.get('pending_count', 0)} pending ({res.get('new_since_last_check', 0)} new).",
+                    summary=f"Crash alerts ({res.get('source', 'unknown')}): {res.get('pending_count', 0)} pending ({res.get('new_since_last_check', 0)} new).",
                 )
 
             else:
@@ -3008,7 +3015,7 @@ async def aep_ctl(
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
     - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
-    - `domain`: schema|service|network|storage|package|backup|security|audit|ipc.
+    - `domain`: schema|service|network|storage|package|backup|security|audit|ipc|hardware.
     - `name` (alias: `target`, `args`): nombre de servicio, paquete, snapshot o session_id IPC.
     - `verbosity`: 'detail' (default) | 'summary' | 'brief' (compacta listeners/mounts/interfaces ahorrando tokens).
     - `limit` y `cursor`: paginación determinista sobre listas extensas.
@@ -3296,6 +3303,49 @@ async def aep_ctl(
                 res_obj = GLOBAL_SESSION_POOL.cache_get(session_id=sid, agent_id=agent_id or "aep-ctl")
             else:
                 res_obj = {"status": "ERROR", "error": f"Acción de ipc desconocida: {a}", "valid": valid_actions}
+            return attach_envelope(res_obj, tracker, verbosity=verbosity)
+
+        elif d == "hardware":
+            from engine.hardware import admit_accelerator, probe_accelerators, probe_hardware_inventory
+
+            if a == "inventory":
+                res_obj = probe_hardware_inventory()
+            elif a == "accelerators":
+                accels = probe_accelerators()
+                res_obj = {"status": "OK", "count": len(accels), "accelerators": accels}
+            elif a == "admit":
+                device = eff_name if eff_name and eff_name != "auto" else None
+                req_vram = 0
+                req_gtt = 0
+                margin = 4096
+                nums = []
+                if isinstance(args, list):
+                    for item in args:
+                        try:
+                            nums.append(int(item))
+                        except (ValueError, TypeError):
+                            pass
+                elif isinstance(args, str):
+                    for part in args.split():
+                        try:
+                            nums.append(int(part))
+                        except (ValueError, TypeError):
+                            pass
+                if len(nums) > 0:
+                    req_vram = nums[0]
+                if len(nums) > 1:
+                    req_gtt = nums[1]
+                if len(nums) > 2:
+                    margin = nums[2]
+
+                res_obj = admit_accelerator(
+                    device=device,
+                    req_vram_mib=req_vram,
+                    req_gtt_mib=req_gtt,
+                    margin_mib=margin,
+                )
+            else:
+                res_obj = {"status": "ERROR", "error": f"Acción de hardware desconocida: {a}", "valid": valid_actions}
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
 
         if not AEP_CTL.exists():

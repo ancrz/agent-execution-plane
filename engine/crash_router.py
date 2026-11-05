@@ -135,15 +135,124 @@ class CrashRouter:
                     alerts.append(d)
         return alerts
 
+    def sync_apport(self, crash_dir: Path | str = Path("/var/crash")) -> int:
+        """Sincroniza archivos .crash de Apport en crash_events con de-duplicación por fingerprint.
+        FAIL-SOFT: Si /var/crash no existe o no se puede leer, devuelve 0 sin lanzar (R-4)."""
+        cd = Path(crash_dir)
+        if not cd.exists() or not cd.is_dir():
+            return 0
+
+        try:
+            crash_files = [p for p in cd.glob("*.crash") if p.is_file()]
+        except OSError as e:
+            logger.debug("Failed listing crash directory %s: %s", cd, e)
+            return 0
+
+        new = 0
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                for cf in crash_files:
+                    try:
+                        st = cf.stat()
+                        mtime = int(st.st_mtime)
+                    except OSError:
+                        continue
+
+                    fp = f"apport:{cf.name}:{mtime}"
+
+                    # Intentar leer headers con fallback ante PermissionError / OSError (R-4)
+                    exe: str | None = None
+                    sig: str | None = None
+                    date_str: str | None = None
+                    pid: int | None = None
+                    cmdline: str | None = None
+                    problem_type: str | None = None
+
+                    try:
+                        with cf.open("r", encoding="utf-8", errors="replace") as f:
+                            header_block = f.read(8192)
+                            for line in header_block.splitlines():
+                                if line.startswith("ExecutablePath:"):
+                                    exe = line.split(":", 1)[1].strip()
+                                elif line.startswith("Signal:"):
+                                    sig = line.split(":", 1)[1].strip()
+                                elif line.startswith("Date:"):
+                                    date_str = line.split(":", 1)[1].strip()
+                                elif line.startswith("ProcCmdline:"):
+                                    cmdline = line.split(":", 1)[1].strip()
+                                elif line.startswith("ProblemType:"):
+                                    problem_type = line.split(":", 1)[1].strip()
+                                elif line.startswith("CoreDump:") or line.startswith("Traceback:"):
+                                    break
+                    except (PermissionError, OSError) as pe:
+                        logger.debug("Permission/IO error reading %s; using stat fallback: %s", cf, pe)
+
+                    # Stat fallback si no fue posible leer o faltan campos
+                    if not exe:
+                        clean_stem = cf.stem
+                        clean_stem = clean_stem.removeprefix("_")
+                        parts = clean_stem.rsplit(".", 1)
+                        if len(parts) == 2 and parts[1].isdigit():
+                            clean_stem = parts[0]
+                        exe = "/" + clean_stem.replace("_", "/")
+                    if not sig:
+                        sig = "UNKNOWN"
+                    if not date_str:
+                        date_str = str(mtime)
+
+                    info = {
+                        "source": "apport",
+                        "file": cf.name,
+                        "size_bytes": st.st_size,
+                        "mtime": mtime,
+                        "uid": st.st_uid,
+                        "cmdline": cmdline,
+                        "problem_type": problem_type,
+                    }
+
+                    try:
+                        cur = conn.execute(
+                            """INSERT OR IGNORE INTO crash_events
+                               (fingerprint, pid, signal, executable, event_timestamp, coredump_info)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (fp, pid, sig, exe, date_str, json.dumps(info)),
+                        )
+                        if cur.rowcount:
+                            new += 1
+                    except sqlite3.Error as ex:
+                        logger.debug("Failed to insert apport crash event %s: %s", fp, ex)
+
+        return new
+
     def check(self, resolve_after_report: bool = False) -> dict[str, Any]:
-        new = self.sync_coredumps()
+        new_core = self.sync_coredumps()
+        new_app = self.sync_apport()
+        new = new_core + new_app
         alerts = self.pending_alerts(resolve_after_report)
+
+        has_coredumpctl = shutil.which("coredumpctl") is not None
+        has_apport = Path("/var/crash").is_dir()
+
+        if has_coredumpctl:
+            status = "OK"
+            source = "coredumpctl"
+            note = None
+        elif has_apport or len(alerts) > 0:
+            status = "OK"
+            source = "apport"
+            note = "coredumpctl ausente; alertas sincronizadas via Apport (/var/crash)."
+        else:
+            status = "DEGRADED"
+            source = "none"
+            note = "coredumpctl ausente; enrutador inerte (fail-soft)."
+
         return {
-            "status": "OK" if shutil.which("coredumpctl") else "DEGRADED",
+            "status": status,
+            "source": source,
             "capability_tier": capability_tier(),
             "scope": "system" if privilege_prefix() else "user",
             "new_since_last_check": new,
             "pending_count": len(alerts),
             "alerts": alerts,
-            "note": None if shutil.which("coredumpctl") else "coredumpctl ausente; enrutador inerte (fail-soft).",
+            "note": note,
         }
