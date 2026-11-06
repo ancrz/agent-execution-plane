@@ -236,7 +236,7 @@ def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
     bld = json.loads(asyncio.run(server.artifact_lint_and_build(action="catalog")))
     docs = json.loads(asyncio.run(server.query_system_docs(query="bwrap", source="man", limit=1)))
     kb = json.loads(asyncio.run(server.kanban_board(action="board", verbosity="detail")))
-    pb = json.loads(asyncio.run(server.playbook_run(action="list")))
+    pb = json.loads(asyncio.run(server.playbook_run(action="list", verbosity="detail")))
     prim = json.loads(asyncio.run(server.default_primitives(action="list", verbosity="detail")))
     for r in (dag, cat, bld, docs, kb, pb, prim):
         assert "envelope" in r

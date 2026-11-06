@@ -43,11 +43,11 @@ def test_pre_l1_probes_find_d01_and_d08() -> None:
             assert ("D-08" in refs) == (not obs["crash_forensics_ready"]["ok"])
 
 
-def test_head_d01_present_and_closed_ones_absent() -> None:
+def test_head_l3_and_closed_discrepancies_absent() -> None:
     analysis = threads.analyze(REPO, use_cache=False)
     refs = _refs(analysis)
-    assert "D-01" in refs
-    assert not {"D-08", "D-11", "D-12", "D-14"} & refs, refs
+    # L3 closed D-01..D-05 (strict xfails removed); earlier-closed ones stay absent.
+    assert not {"D-01", "D-02", "D-03a", "D-03b", "D-04", "D-05", "D-08", "D-11", "D-12", "D-14"} & refs, refs
     assert analysis.scc.codependencies == []
 
 

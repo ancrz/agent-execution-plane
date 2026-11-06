@@ -1119,7 +1119,7 @@ async def artifact_catalog(
                             "status": "PARAM_ERROR",
                             "error": "Acción 'query' requiere el parámetro 'intent' (o 'query').",
                         },
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
                 hit = catalog.find_hybrid(eff_intent, category=eff_category)
                 if hit:
@@ -1136,7 +1136,7 @@ async def artifact_catalog(
                             "semantic_distance": hit.get("semantic_distance"),
                         },
                         tracker,
-                        summary=f"Cache hit: {hit['name']} ({hit.get('retrieval_mode', 'exact_hash')}).",
+                        summary=f"Cache hit: {hit['name']} ({hit.get('retrieval_mode', 'exact_hash')}).", verbosity=verbosity,
                     )
                 return attach_envelope(
                     {
@@ -1146,7 +1146,7 @@ async def artifact_catalog(
                         "semantic_available": catalog._vec_available,
                     },
                     tracker,
-                    summary="Cache miss: no matching artifact found.",
+                    summary="Cache miss: no matching artifact found.", verbosity=verbosity,
                 )
             elif act == "reindex":
                 before = catalog.index_coverage()
@@ -1162,7 +1162,7 @@ async def artifact_catalog(
                         "storage_engine": storage_tel,
                         "db_telemetry": storage_tel,
                     },
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
             elif act in ("info", "get", "show"):
                 target_name = (name or artifact_name or query or intent or "").strip()
@@ -1172,7 +1172,7 @@ async def artifact_catalog(
                             "status": "PARAM_ERROR",
                             "error": "Acción 'info' requiere el parámetro 'name' (o 'artifact_name'/'query').",
                         },
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
                 art_meta = catalog.get_artifact(name=target_name)
                 if not art_meta:
@@ -1183,7 +1183,7 @@ async def artifact_catalog(
                             "target": target_name,
                         },
                         tracker,
-                        summary=f"Artifact '{target_name}' not found.",
+                        summary=f"Artifact '{target_name}' not found.", verbosity=verbosity,
                     )
                 return attach_envelope(
                     {
@@ -1197,7 +1197,7 @@ async def artifact_catalog(
                 )
             elif act == "prune":
                 protect = {t["name"] for t in template_registry.catalog()} | {"socket_monitor", "fd_rescuer"}
-                return attach_envelope(catalog.prune(protect=protect, apply=apply), tracker)
+                return attach_envelope(catalog.prune(protect=protect, apply=apply), tracker, verbosity=verbosity)
             else:
                 return attach_envelope(
                     {
@@ -1205,10 +1205,10 @@ async def artifact_catalog(
                         "error": f"Acción '{action}' no reconocida. Acciones válidas: 'browse', 'query', 'info', 'reindex', 'prune'.",
                         "valid_actions": ["browse", "query", "info", "reindex", "prune"],
                     },
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
         except Exception as e:
-            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -4337,32 +4337,32 @@ async def kanban_board(
                 if not (title or "").strip():
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'title'."},
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
                 res = kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id)
-                return attach_envelope(res, tracker)
+                return attach_envelope(res, tracker, verbosity=verbosity)
             elif act in ("advance", "move"):
                 if task_id is None or not (to_state or "").strip():
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'advance'/'move' requiere 'task_id' y 'to_state'."},
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
                 return attach_envelope(
                     kanban.advance(task_id, to_state.strip(), lint_passed, canary_passed, note),
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
             elif act == "promote":
                 if task_id is None:
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'promote' requiere 'task_id'."},
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
-                return attach_envelope(kanban.promote(task_id), tracker)
+                return attach_envelope(kanban.promote(task_id), tracker, verbosity=verbosity)
             elif act == "demote":
                 if not (artifact_name or "").strip() and task_id is None:
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'demote' requiere 'artifact_name' o 'task_id'."},
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
                 return attach_envelope(
                     kanban.demote(
@@ -4371,22 +4371,22 @@ async def kanban_board(
                         task_id=task_id,
                         target_state=target_state,
                     ),
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
             elif act == "reevaluate":
-                return attach_envelope(kanban.reevaluate(), tracker)
+                return attach_envelope(kanban.reevaluate(), tracker, verbosity=verbosity)
             elif act == "archive":
                 return attach_envelope(
                     kanban.archive(states=states, max_score=max_score, apply=apply),
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
             elif act == "unarchive":
                 if task_id is None:
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'unarchive' requiere 'task_id'."},
-                        tracker,
+                        tracker, verbosity=verbosity,
                     )
-                return attach_envelope(kanban.unarchive(task_id), tracker)
+                return attach_envelope(kanban.unarchive(task_id), tracker, verbosity=verbosity)
             else:
                 return attach_envelope(
                     {
@@ -4405,10 +4405,10 @@ async def kanban_board(
                             "unarchive",
                         ],
                     },
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
         except Exception as e:
-            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
+            return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)
 
@@ -4713,22 +4713,22 @@ async def playbook_run(
             if not (name or "").strip() or not effective_desc or not steps:
                 return attach_envelope(
                     {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'name', 'description' y 'steps'."},
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
             allowed = set(_playbook_dispatch())
             bad = sorted({s.get("tool") for s in steps if isinstance(s, dict) and s.get("tool") not in allowed})
             if bad:
                 return attach_envelope(
                     {"status": "LINT_ERROR", "invalid_tools": bad, "allowed_tools": sorted(allowed)},
-                    tracker,
+                    tracker, verbosity=verbosity,
                 )
             return attach_envelope(
                 playbook_store.create(name.strip(), effective_desc, steps, params_contract),
-                tracker,
+                tracker, verbosity=verbosity,
             )
 
         elif act == "list":
-            return attach_envelope({"status": "OK", "playbooks": playbook_store.list()}, tracker)
+            return attach_envelope({"status": "OK", "playbooks": playbook_store.list()}, tracker, verbosity=verbosity)
 
         elif act in ("batch", "code", "ephemeral", "pipeline"):
             raw_steps = steps
@@ -4947,7 +4947,7 @@ async def playbook_run(
             )
 
         elif act == "prune":
-            return attach_envelope(playbook_store.prune(names=names, apply=apply), tracker)
+            return attach_envelope(playbook_store.prune(names=names, apply=apply), tracker, verbosity=verbosity)
 
         else:
             return attach_envelope(
@@ -4956,10 +4956,10 @@ async def playbook_run(
                     "error": f"Acción '{action}' no reconocida. Acciones válidas: 'run', 'batch', 'create', 'list', 'prune'.",
                     "valid_actions": ["run", "batch", "create", "list", "prune"],
                 },
-                tracker,
+                tracker, verbosity=verbosity,
             )
     except Exception as e:
-        return attach_envelope({"status": "ERROR", "error": str(e)}, tracker)
+        return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
 
 # ---------------------------------------------------------------------------

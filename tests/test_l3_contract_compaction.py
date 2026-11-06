@@ -61,6 +61,22 @@ def test_compact_control_plane_defaults_and_exceptions() -> None:
     assert "preconditions" not in domains["d"] and "description" not in domains["d"]
 
 
+def test_summary_responses_have_no_envelope_or_telemetry() -> None:
+    import asyncio
+    import json
+
+    calls = [
+        server.playbook_run(action="list", verbosity="summary"),
+        server.artifact_catalog(action="browse", verbosity="summary"),
+        server.kanban_board(action="board", verbosity="summary"),
+    ]
+    for coro in calls:
+        payload = json.loads(asyncio.run(coro))
+        assert "envelope" not in payload
+        assert "telemetry" not in payload
+        assert "t" in payload
+
+
 def test_project_fields_reports_unresolved_without_full_fallback() -> None:
     from engine.ipc_pool import project_fields
 

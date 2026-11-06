@@ -7,7 +7,7 @@ Verifies in-process FastMCP tool token budgets via `t.tok` or `telemetry.estimat
   * default_primitives run mem-stat <= 250
   * topos_audit_dag brief <= 200
   * process_inspect brief limit=5 <= 300
-- Known discrepancies failing today (marked @pytest.mark.xfail(strict=True, reason="D-0x")):
+- Former discrepancies D-01..D-05 closed in L3 (xfail markers removed):
   * D-01: discover(schema, summary) < 3000
   * D-02: playbook_run(list) in summary without key "envelope"
   * D-03a: select_fields non-existent path -> key "unresolved_fields"
@@ -21,8 +21,6 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
-
-import pytest
 
 import server
 
@@ -95,7 +93,6 @@ def test_xfail_d01_discover_schema_summary_token_budget() -> None:
     assert tok < 3000, f"Expected < 3000 tokens, got {tok}"
 
 
-@pytest.mark.xfail(strict=True, reason="D-02: playbook_run(list) in summary emits legacy envelope and telemetry")
 def test_xfail_d02_playbook_run_list_summary_envelope() -> None:
     """playbook_run(action='list', verbosity='summary') must not contain 'envelope' key."""
     res = asyncio.run(server.playbook_run(action="list", verbosity="summary"))
