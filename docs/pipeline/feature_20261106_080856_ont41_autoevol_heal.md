@@ -340,3 +340,134 @@ Graphos G1 → Orchestrator → Ontos (re-auditoría ciclo 2 de 3). Pragma no se
 | **SERVING_LKG (MINOR)** | `spec` y `heal` en lectura usan `REPO_ROOT` como base y son solo análisis estático, sin ejecución. Cualquier ejecución sobre el repo real bajo LKG pasa por el jail fail-closed. |
 
 **Estado:** APPROVED. Siguiente paso: Pragma, con la Fase A y la Fase B1 en worktrees paralelos y después la Fase C en serie.
+
+## 17. Veredicto Dokimos ONT-41, ciclo de fix 1: DEFECTIVE (LOGIC_ERROR) (Graphos G2)
+
+**Veredicto:** DEFECTIVE (LOGIC_ERROR). Hallazgos bloqueantes F1 a F5. F6 es de higiene (low) y no bloquea. No hay PLAN_GAP ni DEPENDENCY_ISSUE.
+**Ruta:** Graphos G2 registra → Orchestrator → **Pragma** (fix con Fix Specification). Después Dokimos re-testea. Ciclo Pragma↔Dokimos **1 de 3**.
+**Modo:** Full. **Ruta de resolución:** Pragma sobre el plan aprobado (§16). **Blast radius declarado:** autoevol (`threads_ops.judge`, `threads_verify.verify_change`, runners de test, `_autoevol_pytest_cmd`, `_autoevol_dispatcher`, `_autoevol_test_runner`, `_tests_reasons`). Dokimos confirma que la ejecución quedó dentro del alcance: trabajó solo en clones bajo el scratchpad y no modificó el repo. No hizo commits ni push.
+**Fuente:** `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/ont41_dokimos_c1.md`.
+**Nota de trazabilidad:** la cabecera del informe dice "5 findings", pero lista F1 a F6. Se registra F6 como hallazgo de higiene no bloqueante.
+
+### 17.1 Focos PASS (sin hallazgos)
+
+| Foco | Resultado |
+|---|---|
+| `lkg_restore` | PASS. Más de 20 casos adversarios (traversal, absolutos, NUL, symlink en fichero y en directorio padre, LKG manipulado, tier 5, dry-run, fallo de snapshot) rechazados con códigos esperados. Solo se restauran los `rel` nombrados, y `lkg/` queda 0700. Residual de baja severidad: TOCTOU entre la comprobación de symlink y `os.replace`, no explotable por otro uid. |
+| `/dev/shm` | PASS. `aep_front_753000.json` 0600 y del usuario. `/dev/shm/aep_autoevol` 0700. Lectores con `O_NOFOLLOW`, fichero regular y `st_uid == euid`. `_barrier` se elimina de los argumentos del cliente. `aep-sync --audit` clasifica 753000 y 753020 como current. |
+| Barrera live `RELOAD_OK` y runners reales | PASS. `autoevol` live: graph, gaps, spec, heal (CLEAN), verify (REJECT NO_PROGRESS en árbol limpio). `fix_test` completo en clon: OPEN, dos REJECT lógicos que consumen iteración (3→2→1), ACCEPT. Sandbox bwrap real sobre el repo: 2 tests, 2 passed, 1.0 s. Un job real de pueue también se ejecutó. |
+
+### 17.2 Hallazgos LOGIC_ERROR y Fix Specification
+
+| ID | Sev. | Hallazgo y evidencia | Fix Specification (vinculante para Pragma) |
+|---|---|---|---|
+| **F1** | high | **ACCEPT sin ejecutar ningún test.** Un test nuevo con `assert False` sobre `tool:visual_inspect` dio `ACCEPT, fixed 1, tests {selected: 0}`, warning "no tests executed". Causa: `impacted_tests` sale solo de los nodos cambiados; los tests nuevos o modificados nunca se seleccionan (`or not impacted_tests`). | (a) Incluir en `impacted_tests` los nodos `test:` nuevos o cambiados. (b) Si `selected == 0` y el parche toca `tests/` o un nodo público, devolver REJECT con razón nueva `NO_TESTS_EXECUTED`. Mantener ACCEPT solo para casos puramente estáticos sin código. |
+| **F2** | high | **Lotes de más de 20 tests truncados en silencio.** `selected: 33`, pero el comando de pueue contenía 20 ids. El test nuevo y otros 13 no se ejecutaron, y el job informó "20 passed". Causa: `_autoevol_pytest_cmd` hace `tests[:20]` y `_autoevol_dispatcher` lo reutiliza. | Quitar el slice de la vía async (trocear en lotes N≤20). Exigir que todos los lotes terminen antes de ACCEPT. El resultado del job debe cumplir `ran == selected`. |
+| **F3** | high (seguridad) | **La vía async corre sin sandbox en el host.** El job de pueue ejecutó `.venv/bin/python -m pytest` directo en la ruta `root=`, sin bwrap. Causa: `_autoevol_dispatcher(tree)` ignora `trusted`. Un `root` no confiable con más de 20 tests escapa del sandbox (alcanzable desde tier ≥ 5r-x). | Si `trusted` es falso, no despachar async (`SANDBOX_UNAVAILABLE`). Alternativa: envolver el comando despachado en `bwrap` con los mismos bindings que `sandbox_run`. |
+| **F4** | medium | **Fallos de infraestructura clasificados como lógicos, que consumen iteraciones.** `sandbox_run` devolvió EXEC_FAILED, exit 127 (`.venv/bin/python: not found`, por un symlink de `.venv` en el clon). El runner lo mapeó a `{errors: 1, no_summary: True}`, que se vuelve TESTS_FAIL y consume iteración. Asociado: un rechazo ambiental nunca consume iteración y solo lo acota el TTL de 1 h del ciclo (`updated` no se refresca). | En `_autoevol_test_runner`, tratar `status == EXEC_FAILED`, exit 126/127, o no tener resumen de pytest con exit distinto de cero como `{"available": False}`, que da SANDBOX_UNAVAILABLE (ENVIRONMENTAL, no consume iteración). Añadir contador de reintentos ambientales por ciclo, máximo 10. |
+| **F5** | medium | **Cero tests ejecutados cuenta como verde.** `_autoevol_test_runner(repo, False)(["tests/nonexistent_xx.py"])` devuelve `{ran: 0, passed: 0, failed: 0, errors: 0}` y `decide` lo trata como verde. | En `_tests_reasons`, tratar `ran == 0` con tests seleccionados, o `ran < selected`, como TESTS_FAIL. Usar también el exit code de pytest: exit distinto de cero con 0 fallos cuenta como error. |
+| **F6** | low (higiene, no bloquea) | **Procesos huérfanos.** La suite deja procesos `aep_backend.py` vivos (pids 656019, 706058, 713724, 757618) bajo `/tmp/pytest-of-ancruz/...`, uno por ejecución. Dokimos no los mató. | Opcional en este ciclo. Los tests que levantan front o backend deben terminar sus procesos en teardown. |
+
+### 17.3 Tests de regresión exigidos a Pragma
+
+- Un test nuevo con fallo se rechaza (REJECT).
+- 33 tests seleccionados implican 33 ejecutados (`ran == selected`).
+- La vía async sin `trusted` se rechaza (`SANDBOX_UNAVAILABLE`).
+- Exit 127 es SANDBOX_UNAVAILABLE y no consume iteración.
+- `ran == 0` no es verde.
+- Riesgo a vigilar (Dokimos): el playbook terse en summary mide 2917 bytes (unos 2990 con `agent_id=dokimos`), con el límite de `test_spec_om7_ipc_batch.py:1054` en 3000. Margen de unos 10 bytes. Recomendación: un test explícito o recortar el playbook.
+
+### 17.4 Métricas
+
+- Pragma↔Dokimos: **ciclo 1 de 3** consumido. Quedan 2.
+- Suite: 477 passed, 6 xfailed. ruff limpio. Semgrep: 4 `insecure-file-permissions` (`aep_lkg.py`, `aep_front.py`, `engine/threads_events.py`), todos falsos positivos (chmod 0700).
+- Dokimos approximation ratio: no reportado en el informe.
+- Pipeline: Full. Duración: no reportada.
+
+### 17.5 Enrutado
+
+Graphos G2 → Orchestrator → **Pragma** (LOGIC_ERROR, F1 a F5, con esta Fix Specification). No se invoca Archon, porque no hay PLAN_GAP. Tras el fix, Dokimos re-testea. Hermon no se invoca hasta VERIFIED.
+
+### 17.6 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-41 APPROVED (ciclo 2 de Ontos)"] --> A1["A.1: implementado (Pragma) @ 37eb60d ✅"]
+    A1 --> A2["A.2: Dokimos ciclo 1 DEFECTIVE (LOGIC_ERROR) ⛔ (current)"]
+    A2 --> A3["A.3: fix F1 a F5 (Pragma, ciclo 1 de 3) pending"]
+    A3 --> A4["A.4: re-verificación (Dokimos) pending"]
+    A4 --> A5["A.5: VERIFIED (Graphos G2) pending"]
+```
+
+### 17.7 Reinforcement Graph (ONT-41, actualizado)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-41 autoevol spec/verify/heal + LKG"] --> M4["M4: implemented (Pragma) ✅ @ 37eb60d"]
+    M4 --> M5["M5: verified (Dokimos) ⛔ DEFECTIVE ciclo 1 de 3"]
+    M5 -. "LOGIC_ERROR F1 a F5" .-> M4
+    M5 --> M6["M6: documented (Graphos G2) pending"]
+    M6 --> M7["M7: committed (Hermon) pending"]
+```
+
+## 18. Veredicto Dokimos ONT-41, ciclo de fix 2: DEFECTIVE (LOGIC_ERROR) (Graphos G2)
+
+- **Fuente:** `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/dokimos_c2.md`
+- **Commit verificado:** `52393aa` (dev, con `849ed6d` de ONT-42a integrado). Tests Dokimos: `tests/test_dokimos_ont41_c2_e2e.py`, `tests/test_dokimos_ont42a_findings.py`.
+- **Clasificación:** LOGIC_ERROR. Sin PLAN_GAP ni DEPENDENCY_ISSUE. Ruta: Graphos G2, luego Pragma.
+- **Ciclo:** fix ciclo 2 de 3 consumido. Queda 1.
+
+### 18.1 Estado de los hallazgos de ciclo 1
+
+| # | Estado | Evidencia |
+|---|---|---|
+| F1 | Cerrado | Tests nuevos o cambiados entran en `impacted_tests`. Sin tests ejecutados, `NO_TESTS_EXECUTED`. |
+| F2 | Cerrado | Runner real (bwrap y `.venv`): 25 ids, ran=25, exit 0. Con ran<selected, TESTS_FAIL. |
+| F3 | Cerrado | Árbol no confiable no llega a pueue. Test propio que falla si se llama a `async_job_dispatch`. |
+| F4 | Cerrado | Intérprete roto (127) da `available: False`. Tope de 10 reintentos ambientales cubierto. |
+| F5 | Cerrado | Id inexistente: exit 4, ran 0, REJECT. |
+| F6 | Parcial, residual en L3 (ONT-42a) | Huérfanos de `aep_backend.py` persisten por la cobertura incompleta del reaper. |
+
+Prueba en vivo de F1 sobre clon: no reproducida. `verify` dio NO_PROGRESS (selected 0) porque el gap `tool:visual_inspect` no cerró con el test de Dokimos. Límite de la reproducción, no regresión confirmada. La cobertura de F1 recae en los tests unitarios de Pragma.
+
+### 18.2 Hallazgos nuevos y Fix Specification (vinculante para Pragma)
+
+| ID | Sev. | Hallazgo y evidencia | Fix Specification |
+|---|---|---|---|
+| **F7** | low | **Pytest ausente se clasifica como fallo lógico.** Sandbox sin módulo pytest: stderr `No module named pytest`, exit 1, `ran: 0`. Acaba en TESTS_FAIL y consume iteración. Es un fallo de infraestructura. | En `_autoevol_test_runner` y `_autoevol_plain_pytest`: `exit_code == 1` con `failed + errors == 0` (y `ran == 0`) pasa a `{"available": False}` (ENVIRONMENTAL, no consume iteración). Test: `test_real_runner_missing_pytest_module_is_environmental` (xfail estricto, retirar el marcador al corregir). |
+| **F8** | low (proceso) | **Poller async sin timeout ni estado de pueue.** Un job que cae sin resumen de pytest queda PENDING hasta el TTL de 1 h del ciclo, sin pasar a ambiental. Verificado con un test que pasa. | En `_autoevol_job_poller`: consultar el estado de la tarea en pueue; Done o Failed sin resumen devuelve `{"available": False}`. Añadir timeout al comando de consulta. |
+
+Juicio sobre la vía async única (F8): aceptable. `ran < selected` da TESTS_FAIL y no hay lotes parciales que coordinar.
+
+### 18.3 Métricas
+
+- Pragma↔Dokimos (ONT-41): ciclo 2 de 3 consumido. Queda 1.
+- Suite completa: 547 passed, 6 xfailed (con `-x`, antes de añadir los tests de Dokimos). ruff limpio. Semgrep no ejecutado en este ciclo.
+- Dokimos approximation ratio: no reportado.
+- Entorno: el `pkill` de limpieza de pids 790224 y 825740 terminó con exit 144. No confirmado. Backends huérfanos (790224, 825740, 833686) pueden seguir vivos. Backend vivo 821422 no tocado.
+
+### 18.4 Enrutado
+
+Graphos G2 → Orchestrator → **Pragma** (LOGIC_ERROR, F7 y F8). ONT-41 y ONT-42a van a Pragma en paralelo, cada uno en su track. No se invoca Archon (sin PLAN_GAP). Hermon no se invoca hasta VERIFIED.
+
+### 18.5 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-41 implementado @ 37eb60d"] --> A1["A.1: Dokimos ciclo 1 DEFECTIVE, fix F1 a F5 ✅"]
+    A1 --> A2["A.2: Dokimos ciclo 2 DEFECTIVE (LOGIC_ERROR) ⛔ (current)"]
+    A2 --> A3["A.3: fix F7 y F8 (Pragma, ciclo 2 de 3) pending"]
+    A3 --> A4["A.4: re-verificación (Dokimos) pending"]
+    A4 --> A5["A.5: VERIFIED (Graphos G2) pending"]
+```
+
+### 18.6 Reinforcement Graph (ONT-41, actualizado)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-41 autoevol spec/verify/heal + LKG"] --> M4["M4: implemented (Pragma) ✅ @ 37eb60d"]
+    M4 --> M5["M5: verified (Dokimos) ⛔ DEFECTIVE ciclo 2 de 3"]
+    M5 -. "LOGIC_ERROR F7 y F8" .-> M4
+    M5 --> M6["M6: documented (Graphos G2) pending"]
+    M6 --> M7["M7: committed (Hermon) pending"]
+```

@@ -194,3 +194,58 @@ flowchart LR
 - Este documento se entrega al orquestador. Siguiente destino: **Ontos** (Stage 3, Full). Ontos audita el plan completo, incluido el path y el blast radius de cada tarea (P1).
 - Puntos de atención para Ontos: F6 (expresión real de D-25 frente al plan), F3 y F5 (discrepancias menores de referencias), y la clasificación de la interdependencia `CONTROL_PLANE_SCHEMA` ↔ branch ipc.
 - Pragma no se invoca hasta que Ontos apruebe. No hay ejecución en esta activación.
+
+## 15. Veredicto Dokimos ONT-42a, ciclo de fix 1: DEFECTIVE (LOGIC_ERROR) (Graphos G2)
+
+- **Fuente:** `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/dokimos_c2.md`
+- **Commit verificado:** `52393aa` (dev, con `849ed6d` y `2bd37c0`, `d42d467`, `9bbb568` de ONT-42a integrados).
+- **Clasificación:** LOGIC_ERROR. Ruta: Graphos G2, luego Pragma. Ciclo de fix 1 de 3.
+- **Tests Dokimos:** `tests/test_dokimos_ont42a_findings.py` (xfail estricto L1, L3) y `tests/test_dokimos_ont41_c2_e2e.py` (xfail estricto F7 de ONT-41).
+
+### 15.1 Contrastes C1 a C14 (plan de Ontos)
+
+C1, C2, C4 a C11, C13 y C14 cumplidos. **C3 incumplido por L1.** Dos puntos menores sin bloqueo: el restore del sysctl no se reintenta si queda `sysctl_not_restored` (solo reporta CRITICAL), y el lockfile no usa `O_NOFOLLOW`.
+
+### 15.2 Hallazgos
+
+| ID | Sev. | Estado | Evidencia | Fix Specification (vinculante para Pragma) |
+|---|---|---|---|---|
+| **L1** | high, **bloqueante** | Confirmado en vivo | `find_harness` exige `basename(exe) == "claude"`. Claude Code instala `.../claude/versions/2.1.318`. `find_harness('/proc', 821422)` y `('/proc', 112908)` dan `harness_not_in_ancestry`. El TTY sí resuelve (`/dev/pts/2`, major 136). Código: `engine/harness_reconnect.py:85`. | En `find_harness`, aceptar `exe` si el basename es `claude`, o si el path casa con `^/.+/claude/versions/\d+\.\d+\.\d+$`. Mantener uid y ascendencia real. No usar comm ni argv. Test: `test_l1_find_harness_recognises_versioned_claude_binary` (xfail estricto). Los negativos (fuera de `claude/versions/`, versión no semver, traversal, semver incompleto) ya pasan y deben seguir pasando. |
+| **L2** | n/a | **Refutado** como defecto independiente | `build_plan` resuelve harness y tty antes de `decision_tree`. Con `front_stale=false` los reporta. Lo confirma `test_l2_plan_reports_ancestry_even_when_route_is_noop` (pasa). `execute` hace NOOP antes de la ancestría, correcto. | Ninguna. Se resuelve con L1. |
+| **L3** | low, intermitente | Confirmado (2 de 5 ejecuciones) | Huérfanos `aep_backend.py` (pids 825740 y 833686) tras `test_n2_cold_broken_disk_serves_lkg_then_recovers`. Causa 1: `reap_backends_of(root)` solo casa `root/aep_backend.py`, y los backends servidos desde LKG viven en `tmp_path/front_state/data/lkg/*/tree/aep_backend.py`. Causa 2: la promoción lanza `asyncio.create_task(_drain_and_terminate(old_conn))`, que no corre si `asyncio.run` cierra antes. | En el fixture `tree`, reapear todo `aep_backend.py` bajo `str(tmp_path)`, no solo bajo `root`. Opcional: `await _drain_and_terminate` en `shutdown()`. Test: `test_l3_reaper_covers_lkg_tree_backends` (xfail estricto, determinista). Observación abierta: el huérfano sobrevive a la muerte del front con 17 hilos esperando. No reproducido en backend aislado (sale al EOF). Pragma puede valorar `os._exit(0)` tras `asyncio.run(worker.run())` en `aep_backend.py`. |
+
+### 15.3 Procesos y límites respetados
+
+- Ejecuciones: `execute` real no ejecutado. No se tocó el sysctl ni un TTY. No se ejecutó `pueue clean`. No hay push.
+- Suite: 547 passed, 6 xfailed (3 xfail estrictos de Dokimos: L1, L3, F7 de ONT-41). ruff limpio.
+- Semgrep: no ejecutado en este ciclo.
+- Dokimos approximation ratio: no reportado.
+
+### 15.4 Enrutado
+
+Graphos G2 → Orchestrator → **Pragma** (LOGIC_ERROR, L1 y L3). No se invoca Archon (sin PLAN_GAP). Cuando Pragma corrija L1 y L3, los xfail estrictos fallarán a propósito: hay que retirar sus marcadores. Hermon no se invoca hasta VERIFIED. T8 (smoke en vivo) sigue user-gated.
+
+### 15.5 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-42a implementado (T1 a T7, worktree)"] --> A1["A.1: Dokimos ciclo 1 DEFECTIVE (LOGIC_ERROR) ⛔ (current)"]
+    A1 --> A2["A.2: fix L1 y L3 (Pragma, ciclo 1 de 3) pending"]
+    A2 --> A3["A.3: re-verificación (Dokimos) pending"]
+    A3 -->|"VERIFIED"| A4["A.4: G2 y Hermon, commits pending"]
+    A4 --> A5["A.5: T8 smoke en vivo (usuario) pending"]
+```
+
+### 15.6 Reinforcement Graph (intent ONT-42a, actualizado)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42a harness_reconnect"] --> M1["M1: planned (Archon / Orchestrator) ✅"]
+    M1 --> M2["M2: audited (Ontos) ✅"]
+    M2 --> M3["M3: implemented T1 a T7 (Pragma) ✅ en worktree"]
+    M3 --> M4["M4: verified (Dokimos) ⛔ DEFECTIVE ciclo 1 de 3 (L1, L3)"]
+    M4 -. "LOGIC_ERROR" .-> M3
+    M4 --> M5["M5: documented (Graphos G2, README/STATE/CHANGELOG) pending"]
+    M5 --> M6["M6: committed (Hermon) pending"]
+    M6 --> M7["M7: live smoke T8 (usuario) pending"]
+```

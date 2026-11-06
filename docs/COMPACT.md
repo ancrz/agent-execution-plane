@@ -1,22 +1,15 @@
-# Context Compaction Guidance: AEP (ONT-41 implementado, Dokimos pendiente)
-
+# Context Compaction Guidance: AEP (ONT-41 fix ciclo 2 de 3, ONT-42a fix ciclo 1 de 3)
 **Preservar:**
-- **Baseline:** `dev` en `e8f13b8` (18 commits por delante de `origin/dev` = `e3f7725`; el push está retenido hasta el VERIFIED de Dokimos, según AP-1). 17 tools, 19 capacidades. Suite: 477 passed, 6 xfailed (D-01..D-05). ruff limpio. autoevol: 103 gaps, own_gaps=0, codep=0.
-- **Hechos:**
-  - ONT-39 Live Plane (front estable con backend hot-swap y fence `AEP_SWAP_FENCE_PATH`).
-  - ONT-40 `autoevol` (grafo de hilos con Merkle R).
-  - ONT-41: `spec/verify/fix_test/heal`, `aep_lkg.py` (LKG content-addressed en `~/.local/share/agent-os/lkg`), front N0-N2 con barrera `_barrier`, `aep_ctl backup lkg_*`, `crash_events.source` y spool, y `--audit` D-24.
-- **Pendiente:**
-  1. Dokimos ONT-41 (cortado por el límite de la API; reanudar).
-  2. Graphos G2 y Hermon: push de dev.
-  3. Reconexión `/mcp` para activar el front de C1. Rollback: `git checkout pre-ont41-front -- aep_front.py`.
-  4. Dogfooding de `fix_test` real.
-  5. L3: D-01..D-05 como primer ciclo de autoevol.
-  6. ONT-42 `evolve` con auto-commit y auto-push (AP-1).
-- **Riesgos:**
-  - El playbook en summary está en 2990/3000 bytes.
-  - Los runners reales (sandbox/pueue) de verify/fix_test solo se probaron con dobles.
-  - Los subagentes agotan sus 50 turnos: hay que commitear por tarea.
-- **Fuentes de verdad:** `docs/STATE.md`, `docs/pipeline/feature_20261106_080856_ont41_autoevol_heal.md` (§15/§16), `docs/sdd/sdd_ont40_autoevol_thread_graph.md` (§7/§8), `docs/sdd/sdd_ont39_live_plane_hot_swap.md` (§9), `docs/reports/2026-11-05_aep_mcp_live_audit_and_agy_harness.md`.
-
-**Descartar:** logs de pytest, trazas de subagentes, diffs intermedios, ciclos BLOCKED ya resueltos.
+- **Modo y baseline:** Full. `dev` @ `52393aa`, push retenido hasta VERIFIED de ONT-41 y ONT-42a (AP-1). 17 tools, 19 capacidades. Suite 547 passed / 6 xfailed + tests Dokimos (3 xfail estrictos). ruff limpio.
+- **Hechos:** ONT-39 Live Plane; ONT-40 autoevol; ONT-41 spec/verify/fix_test/heal + LKG; ONT-42a `aep_ctl ipc harness_reconnect` (plan/execute) implementado en worktree.
+- **Defectos abiertos (LOGIC_ERROR → Pragma):**
+  - ONT-41 ciclo 2 de 3: F7 (pytest ausente clasificado como fallo lógico) y F8 (poller async sin timeout ni estado pueue). F1 a F5 cerrados; F6 residual en L3. Detalle: feature §18.
+  - ONT-42a ciclo 1 de 3: L1 bloqueante (binario `claude/versions/X.Y.Z` no reconocido por `find_harness`); L3 reaper incompleto (LKG tree y `_drain_and_terminate` sin await). L2 refutado. Detalle: feature §15.
+- **Decisiones del usuario:** ONT-42a T8 (smoke en vivo) es user-gated. Push solo tras VERIFIED.
+- **Riesgos:** runners reales validados solo en clon; huérfano `aep_backend.py` sobrevive a la muerte del front (sin causa raíz); playbook terse cerca del límite de 3000 bytes; subagentes agotan 50 turnos (commit por tarea).
+- **Fuentes:** `docs/pipeline/feature_20261106_080856_ont41_autoevol_heal.md` (§17/§18), `docs/pipeline/feature_20261106_172315_ont42a_harness_reconnect.md` (§15), `docs/STATE.md`.
+**Pendiente (próximas 3):**
+1. Pragma: fix F7 y F8 de ONT-41; Dokimos re-testea (ciclo 3 de 3 si falla).
+2. Pragma: fix L1 y L3 de ONT-42a en worktree; retirar xfail estrictos al corregir; Dokimos re-testea.
+3. Tras VERIFIED de ambos: Graphos G2 (README, STATE, CHANGELOG de ONT-42a) y Hermon (push dev solo si se autoriza).
+**Descartar:** logs de pytest, trazas de subagentes, diffs intermedios, ciclos BLOCKED ya resueltos, listados de pueue, detalle de F1 a F5 ya cerrados.
