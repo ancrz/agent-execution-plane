@@ -966,6 +966,7 @@ def tactical_playbook() -> dict[str, Any]:
             "ram_micro_snapshot": 'aep_ctl(domain="backup", action="micro_snapshot", name="snap1")',
             "audit_ledger_verify": 'aep_ctl(domain="audit", action="verify", verbosity="summary")',
             "ipc_socket_status": 'aep_ctl(domain="ipc", action="status", verbosity="summary")',
+            "self_heal": 'autoevol(action="heal") -> autoevol(action="spec", gap=G) -> patch -> autoevol(action="fix_test", cycle=C) x3 -> EXHAUSTED: heal (never hand-revert)',
             "ipc_shared_cache": 'aep_ctl(domain="ipc", action="cache", name="team-1")',
             "ephemeral_batch": 'playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status"])',
             "terse_cached_capabilities": 'discover(action="capabilities", session_id="team-1", verbosity="terse")',

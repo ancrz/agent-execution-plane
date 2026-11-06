@@ -311,3 +311,11 @@ def test_every_new_action_is_directly_invoked_and_registered(trees: tuple[Path, 
     assert heal["status"] in ("NO_LKG", "CLEAN", "BROKEN", "LKG_INVALID")
     assert {"spec", "verify", "fix_test", "heal"} <= set(server._AUTOEVOL_ACTIONS)
     assert "evolve" not in server._AUTOEVOL_ACTIONS
+
+
+def test_docs_and_playbook_carry_the_self_heal_rule() -> None:
+    assert "SELF-HEAL (ONT-41" in server._INSTRUCTIONS and "lkg_restore" in server._INSTRUCTIONS
+    recipe = json.loads(asyncio.run(server.discover(action="playbook", verbosity="summary")))["quick_reference"]["self_heal"]
+    assert 'autoevol(action="heal")' in recipe and len(recipe.encode()) < 3000
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "Self-Healing N0-N3" in readme and '"fix_test"' in readme and "17_Tools" in readme
