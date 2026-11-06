@@ -337,3 +337,27 @@ flowchart LR
 - **Siguiente:** Archon (re-plan de B9, PLAN_GAP, Full). Debe incluir: diagnóstico de `pins=0`, opción 2 o alternativa justificada, y reescritura de los dos tests con fixtures sintéticos.
 - **Después:** Ontos audita el re-plan. Luego Pragma (B9 real, C1–C3).
 - **Hermon:** no aplica. No hay VERIFIED.
+
+## 14. Graphos G2: Resolución de G1–G4, B9 Dogfood ACCEPT y Estandarización de Autogestión (`autonomous_session_steward`)
+
+- **Activación:** G2 tras resolución del `PLAN_GAP` G1–G4, dogfood B9 con `verdict: "ACCEPT"` y certificación en vivo de la primitiva de autogestión de sesión (`autonomous_session_steward`).
+- **Veredicto:** **VERIFIED (ONT-42b completo B1–B9 + `autonomous_session_steward`)**.
+
+### 14.1 Resolución de G1–G4 (`3cc568b`)
+1. **G1 (Ejecutor síncrono por lotes en sandbox):** `run_tests_batched` en `engine/threads_verify.py` divide selecciones $> 20$ en lotes de $\le 20$ tests dentro de `sandbox_run` cuando `batch_sync=True` (activado desde `ops.judge`), eliminando el bloqueo `SANDBOX_UNAVAILABLE` de Pueue.
+2. **G2 (Herencia de `pins` para helpers privados):** `_pin_tests` en `engine/threads_ops.py` hereda hasta `PIN_CALLER_CAP = 10` pins de los callers públicos del mismo módulo (`fn:server.discover` para `fn:server._compact_tools_schema`), priorizando tests que cubren efectivamente al caller (`in trans_set`).
+3. **G3 (Fixtures sintéticos en lugar de huecos reales):** `tests/test_ont42_gap_priority.py` y `tests/test_ont42_spec_change.py` usan árboles sintéticos en `tmp_path` para no quedar vacuos al cerrar `D-01b`.
+4. **G4 (Limpieza automática de ciclos huérfanos):** `_reap_orphan_cycles` en `CycleStore.open_cycle` (`engine/threads_verify.py`) limpia ciclos expirados y reemplaza ciclos `OPEN` huérfanos para el mismo `(uid, gap)` (cerrando automáticamente `72871021d7de`).
+
+### 14.2 Evidencia de B9 Dogfood (`7183a6c`, ciclo `d6aabe764afd`)
+- Parche aplicado en `server.py` (`_TOOL_ACTIONS`) y eliminación de `@pytest.mark.xfail(strict=True, reason="D-01b")` en `tests/test_ont42_tool_actions.py`.
+- Veredicto de `autoevol(action="fix_test", cycle="d6aabe764afd")`: `verdict="ACCEPT"`, `state="ACCEPTED"`, `fixed=1`, `gaps=[98, 97]`, `tests={"mode": "batched", "selected": 24, "batches": 2}`, `selection={"direct": 2, "pins": 10, "transitive_dropped": 14}`, `partial=True`, `mirrored=1`.
+
+### 14.3 Estandarización y Certificación de Autogestión Autónoma (`autonomous_session_steward`)
+- Elevación de `aep_ctl(domain="ipc", action="harness_reconnect")` a capacidad extendida de autogestión autónoma de sesión (`PRIMITIVE_NAME = "autonomous_session_steward"`) con soporte para `claude`, `agy`, `codex` y `gemini`, y modo de autocertificación `mode="certify"` (`certify_loopback`).
+- **Certificación en vivo sobre el servidor MCP `agent-execution-plane`:**
+  - `autonomy_loop`: `"agent_plane -> session_steward_pty_loopback -> agent_plane"`
+  - `harness`: `"agy"` (`harness_pid=16461`), `loopback_pts`: `"/dev/pts/3"`, `tty_validation`: `"ok"`
+  - `message_sent`: `"hello world"` $\rightarrow$ `message_received`: `"hello world"`
+  - `sha256`: `"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"`, `certified=True`, `audit_degraded=False`.
+

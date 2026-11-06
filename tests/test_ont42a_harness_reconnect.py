@@ -344,7 +344,7 @@ def test_ipc_plan_is_read_only_and_carries_caveats(monkeypatch: pytest.MonkeyPat
     assert any("typed-prompt" in c for c in res["caveats"])
 
 
-def test_multi_harness_4d_bridge_profiles_and_rpc(tmp_path: Path) -> None:
+def test_multi_harness_session_steward_profiles_and_rpc(tmp_path: Path) -> None:
     # 1. Ancestry detection for agy, codex, gemini, and versioned claude
     for idx, (exe, expected) in enumerate(
         [
@@ -396,6 +396,11 @@ def test_multi_harness_4d_bridge_profiles_and_rpc(tmp_path: Path) -> None:
     assert res["status"] == "OK" and res["route"] == "rpc_reload" and rec.helper_calls == 0
     assert [s for s, _ in rec.audits] == ["ATTEMPT", "OK"]
     assert hr.real_adapters().probe_rpc("claude")["available"] is False
+    cert = hr.certify_loopback("hello world", proc_root=empty_proc, start_pid=200, target_harness="agy", adapters=ad)
+    assert cert["status"] == "OK" and cert["certified"] is True and cert["message_received"] == "hello world"
+    assert cert["primitive"] == "autonomous_session_steward"
+    ctl_cert = _ctl(params={"mode": "certify", "message": "hello world"})
+    assert ctl_cert["status"] == "OK" and ctl_cert["certified"] is True and ctl_cert["message_received"] == "hello world"
 
 
 def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) -> None:

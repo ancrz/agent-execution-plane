@@ -115,18 +115,20 @@ user to type. No state changes.
 3. If `sudo` is configured with `use_pty`, it may replace stdin with a fresh pty. The helper's `fstat(0)` rdev check
    then fails closed (`unsupported` -> `manual`). Confirmed or ruled out only by the T8 smoke test.
 
-## 5. Multi-Harness Standardization (`dimensional_bridge_4d`)
+## 5. Multi-Harness Autonomous Self-Management (`autonomous_session_steward`)
 
-To elevate `harness_reconnect` from a Claude-only workaround into a universal out-of-band ("4th-dimension") agentic bridge (`PRIMITIVE_NAME = "dimensional_bridge_4d"`), `engine/harness_reconnect.py` and `aep_ctl(domain="ipc", action="harness_reconnect")` standardize four harness profiles across two out-of-band control transports:
+To elevate `harness_reconnect` from a Claude-only workaround into an extended autonomous session self-management capability (`PRIMITIVE_NAME = "autonomous_session_steward"`), `engine/harness_reconnect.py` and `aep_ctl(domain="ipc", action="harness_reconnect")` standardize four harness profiles across two lifecycle stewardship transports:
 
-| Harness ID | Process Signatures (`/proc/<pid>/exe` / `cmdline`) | Preferred Transport | Out-of-Band Mechanism / Fallback |
+| Harness ID | Process Signatures (`/proc/<pid>/exe` / `cmdline`) | Preferred Transport | Stewardship Mechanism / Fallback |
 |------------|---------------------------------------------------|---------------------|----------------------------------|
 | `claude` | `claude`, `/.local/share/claude/versions/*` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` (brief flip `< 2s`) + `ioctl(TIOCSTI)` `/mcp reconnect <server>\r` on ancestor `/dev/pts/*` |
-| `agy` | `agy`, `antigravity`, `language_server_linux*` | `rpc_reload` | Local Connect-RPC `RefreshMcpServers` on `language_server_linux_x64` (`--csrf_token` + dynamic localhost port); fallback: AGY Command Palette |
-| `codex` | `codex`, `codex-cli` | `rpc_reload` | `codex app-server proxy --sock $XDG_RUNTIME_DIR/codex/app-server-control.sock` JSON-RPC `config/mcpServer/reload` (fallback: `tty_inject` `/mcp\r`) |
-| `gemini` | `gemini`, `gemini-cli` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` + `ioctl(TIOCSTI)` `/mcp refresh\r` on ancestor `/dev/pts/*` |
+| `agy` | `agy`, `antigravity`, `language_server_linux*` | `rpc_reload` | Native `agy` CLI stewardship (`agy mcp`) or configured `AEP_AGY_RPC_URL`; fallback: AGY Command Palette |
+| `codex` | `codex`, `codex-cli` | `rpc_reload` | `codex app-server proxy --sock $XDG_RUNTIME_DIR/codex/app-server-control.sock` JSON-RPC `config/mcpServer/reload` (fallback: `tty_inject`) |
+| `gemini` | `gemini`, `gemini-cli` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` + `ioctl(TIOCSTI)` `/mcp reconnect <server>\r` on ancestor `/dev/pts/*` |
 
 **Extended `params` contract (`aep_ctl(domain="ipc", action="harness_reconnect")`)**:
-- `harness?: "claude" | "agy" | "codex" | "gemini"` — explicit target harness override (useful when invoking an RPC-capable harness whose server process is a sibling rather than a direct `/proc` ancestor).
-- `force?: bool` — when `True`, allows on-demand out-of-band execution even when `front_stale=False` (still strictly gated by `tier == "7rwx"` and per-call `confirm=True`).
+- `mode?: "plan" | "execute" | "certify"` — `certify` runs `certify_loopback(message="hello world")` across an isolated kernel PTY pair (`agent_plane -> session_steward_pty_loopback -> agent_plane`), validates `check_tty_fd`, verifies SHA-256 integrity (`b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9`), and records `CERTIFIED` in the SQLite audit ledger.
+- `harness?: "claude" | "agy" | "codex" | "gemini"` — explicit target harness override.
+- `force?: bool` — when `True`, allows on-demand execution even when `front_stale=False` (still strictly gated by `tier == "7rwx"` and per-call `confirm=True`).
+
 

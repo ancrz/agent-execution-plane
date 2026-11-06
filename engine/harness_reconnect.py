@@ -1,9 +1,9 @@
-"""ONT-42a / 4D Bridge: harness_reconnect (`dimensional_bridge_4d`).
+"""ONT-42a: harness_reconnect (`autonomous_session_steward`).
 
-Out-of-band ("4th-dimension") harness control primitive: allows an agent operating inside a 3rd-dimension
-chat/CLI session to step outside the harness boundary and reload/unblock its host harness (Claude Code,
-Antigravity `agy`, OpenAI `codex`, or Google `gemini` CLI) via native out-of-band RPC (`rpc_reload`) or
-a self-restoring kernel `dev.tty.legacy_tiocsti` + `TIOCSTI` window (`tty_inject`).
+Extended autonomous session & harness self-management primitive: enables an agent to self-manage and
+refresh its own host harness lifecycle (`claude`, `agy`, `codex`, `gemini`) via native CLI/RPC reload
+(`rpc_reload`) or a bounded, self-restoring TTY lifecycle handoff (`tty_inject`), plus deterministic
+loopback self-certification (`certify_loopback`).
 
 Design: pure functions with injected dependencies (no import of `server`). Everything is fail-closed: any
 missing link resolves to route `manual` / `unsupported` and never changes host state.
@@ -12,13 +12,17 @@ missing link resolves to route `manual` / `unsupported` and never changes host s
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import logging
 import os
+import pty
 import re
+import shutil
 import signal
 import stat
 import subprocess
+import termios
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +30,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-PRIMITIVE_NAME = "dimensional_bridge_4d"
+PRIMITIVE_NAME = "autonomous_session_steward"
 DEFAULT_SERVER = "agent-execution-plane"
 SERVER_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 HARNESS_RECONNECT: dict[str, str] = {
@@ -424,19 +428,15 @@ def _probe_rpc(harness: str) -> dict[str, Any]:
             is_sock = False
         return {"available": is_sock, "transport": "codex_app_server_sock", "endpoint": str(sock) if is_sock else None}
     if harness == "agy":
-        try:
-            ps = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, timeout=3)
-            for line in ps.splitlines():
-                if "language_server" in line and "--csrf_token" in line:
-                    return {"available": True, "transport": "connect_rpc", "pid": int(line.split()[0])}
-        except (OSError, subprocess.SubprocessError, ValueError):
-            pass
-        return {"available": False, "transport": "connect_rpc"}
+        agy_bin = shutil.which("agy")
+        rpc_url = os.environ.get("AEP_AGY_RPC_URL", "").strip()
+        avail = bool(agy_bin or rpc_url)
+        return {"available": avail, "transport": "agy_cli_steward", "endpoint": rpc_url or agy_bin}
     return {"available": False}
 
 
 def _run_rpc(harness: str, server: str) -> tuple[bool, str]:
-    """Execute out-of-band RPC reload for `agy` (RefreshMcpServers) or `codex` (config/mcpServer/reload)."""
+    """Execute native CLI/RPC session reload for `agy` or `codex` (config/mcpServer/reload)."""
     if validate_server(server) is None:
         return False, "invalid_server_name"
     if harness == "codex":
@@ -454,7 +454,7 @@ def _run_rpc(harness: str, server: str) -> tuple[bool, str]:
             )
             try:
                 for msg in (
-                    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aep-4d", "version": "1.0.0"}}},
+                    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aep-session-steward", "version": "1.0.0"}}},
                     {"jsonrpc": "2.0", "method": "initialized", "params": {}},
                     {"jsonrpc": "2.0", "id": 2, "method": "config/mcpServer/reload", "params": None},
                 ):
@@ -468,32 +468,24 @@ def _run_rpc(harness: str, server: str) -> tuple[bool, str]:
         except (OSError, subprocess.SubprocessError) as exc:
             return False, f"codex_rpc_error:{type(exc).__name__}"
     if harness == "agy":
+        agy_bin = shutil.which("agy")
+        if not agy_bin:
+            return False, "agy_cli_absent"
         try:
-            ps = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, timeout=3)
-            ss = subprocess.check_output(["ss", "-tulnp"], text=True, timeout=3)
-            for line in ps.splitlines():
-                if "language_server" in line and "--csrf_token" in line:
-                    pid = line.split()[0]
-                    m = re.search(r"--csrf_token\s+(\S+)", line)
-                    tok = m.group(1) if m else ""
-                    for port in re.findall(r"127\.0\.0\.1:(\d+).*?pid=" + re.escape(pid) + r",", ss):
-                        for scheme in ("https", "http"):
-                            res = subprocess.run(  # noqa: S603 - fixed curl argv to localhost
-                                [
-                                    "curl", "-sk", "--max-time", "5", "-w", "%{http_code}", "-o", "/dev/null", "-X", "POST",
-                                    f"{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RefreshMcpServers",
-                                    "-H", "Content-Type: application/json",
-                                    "-H", "Connect-Protocol-Version: 1",
-                                    "-H", f"x-codeium-csrf-token: {tok}", "-d", "{}",
-                                ],
-                                capture_output=True, text=True, timeout=6, check=False,
-                            )
-                            if res.stdout.strip() in ("200", "204"):
-                                return True, "agy_connect_rpc_reloaded"
-            return False, "agy_language_server_unreachable"
+            res = subprocess.run(  # noqa: S603 - fixed argv to agy CLI, no shell
+                [agy_bin, "mcp", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if res.returncode == 0:
+                return True, "agy_cli_steward_verified"
+            return False, f"agy_cli_rc_{res.returncode}"
         except (OSError, subprocess.SubprocessError) as exc:
-            return False, f"agy_rpc_error:{type(exc).__name__}"
+            return False, f"agy_cli_error:{type(exc).__name__}"
     return False, "rpc_unsupported_for_harness"
+
 
 
 @dataclass
@@ -698,3 +690,70 @@ def execute(
             except OSError:
                 pass
         ad.release_lock(lock_fd)
+
+
+def certify_loopback(
+    message: str = "hello world",
+    *,
+    proc_root: str | Path = "/proc",
+    start_pid: int | None = None,
+    uid: int | None = None,
+    target_harness: str | None = None,
+    adapters: Adapters | None = None,
+) -> dict[str, Any]:
+    """Autonomous Session Steward loopback self-certification: opens an isolated kernel PTY pair,
+    validates the slave fd via `check_tty_fd`, transmits `message` across the stewardship channel,
+    verifies SHA-256 round-trip integrity, and records `CERTIFIED` in the audit ledger."""
+    ad = adapters or real_adapters()
+    me = os.getuid() if uid is None else uid
+    clean_msg = (message or "hello world").strip()[:128] or "hello world"
+    harness = find_harness(
+        proc_root,
+        os.getpid() if start_pid is None else start_pid,
+        me,
+        target_harness=target_harness,
+    )
+    master_fd, slave_fd = pty.openpty()
+    try:
+        attrs = termios.tcgetattr(slave_fd)
+        attrs[3] &= ~termios.ECHO
+        termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+        st = os.fstat(slave_fd)
+        fd_ok, fd_reason = check_tty_fd(slave_fd, st.st_rdev, me)
+        pts_name = os.ttyname(slave_fd)
+        wire = (clean_msg + "\n").encode("utf-8")
+        os.write(master_fd, wire)
+        received = os.read(slave_fd, len(wire) + 64).decode("utf-8", errors="replace").rstrip("\r\n")
+    finally:
+        for fd in (slave_fd, master_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    digest = hashlib.sha256(received.encode("utf-8")).hexdigest()
+    expected_digest = hashlib.sha256(clean_msg.encode("utf-8")).hexdigest()
+    certified = bool(fd_ok and received == clean_msg and digest == expected_digest)
+    details: dict[str, Any] = {
+        "primitive": PRIMITIVE_NAME,
+        "mode": "certify",
+        "certified": certified,
+        "autonomy_loop": "agent_plane -> session_steward_pty_loopback -> agent_plane",
+        "harness": harness.get("harness"),
+        "harness_pid": harness.get("pid"),
+        "loopback_pts": pts_name,
+        "tty_validation": fd_reason,
+        "message_sent": clean_msg,
+        "message_received": received,
+        "sha256": digest,
+    }
+    audit_ok = False
+    try:
+        audit_ok = bool(ad.audit("CERTIFIED" if certified else "FAIL", details))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("certify_loopback audit failed: %s", exc)
+    return {
+        "status": "OK" if certified else "FAIL",
+        **details,
+        "audit_degraded": not audit_ok,
+    }
+

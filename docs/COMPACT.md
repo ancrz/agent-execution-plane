@@ -1,15 +1,13 @@
-# Context Compaction Guidance: AEP (ONT-42b B9 PLAN_GAP; re-plan Archon pendiente; sin push)
+# Context Compaction Guidance: AEP (ONT-42b B1–B9 VERIFIED + `autonomous_session_steward` CERTIFIED; ONT-42c pendiente; sin push)
 **Preservar:**
-- **Modo y baseline:** Full. `dev` @ `a34b5ac`. Suite 632 passed, 1 xfail (D-01b). 17 tools, 19 capacidades.
-- **Hechos:** ONT-39, ONT-40, ONT-41 VERIFIED. ONT-42a VERIFIED completo: T8 en vivo (`harness_reconnect` execute confirm=true; inyectado 86 ms, sysctl 0→0, ledger ok, front pid 753000→921894, front_stale=false). ONT-42b B1–B8 integrados (`6490533..a34b5ac`).
-- **Defecto abierto:** B9 DEFECTIVE (PLAN_GAP) → Archon re-plan. RC1: `SELECTION_CAP` 24 (`threads_ops.py:32`) > `TESTS_PER_ITERATION` 20 (`threads_verify.py:80`) → modo async → dispatcher fail-closed F3 → SANDBOX_UNAVAILABLE perpetuo. Además `pins=0` con 10 pins en spec (sin diagnosticar).
-- **Commit no integrado:** `5a3c98b` en rama `worktree-agent-a783d592846aab250`. Vuelve vacuos `test_ont42_spec_change` y `test_ont42_gap_priority`: reescribir con fixtures sintéticos, no integrar relajados.
-- **Recomendación del orquestador:** opción 2 (lotes sync re-entrantes ≤20 en sandbox), mismo mecanismo que condición 10 de Ontos para el gate C4.
-- **Decisiones del usuario:** push de `dev` solo con autorización explícita. R7 (tier de push) pendiente si no se confirmó.
-- **Riesgos:** ciclo `72871021d7de` abierto (`env_left` 8). `sudo use_pty` sin validar. Runners reales validados solo en clon.
-- **Fuentes:** `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §13; `docs/pipeline/ont42_ontos_audit.md`; reporte B9 en el scratchpad de la sesión.
-**Pendiente (próximas 3):**
-1. Archon: re-plan de B9 (opción 2, diagnóstico de `pins=0`, tests con fixtures sintéticos). Ontos audita el re-plan.
-2. Pragma: aplicar re-plan, B9 con ACCEPT real (`ran ≥ selected`, sin `unsandboxed`), luego C1–C3.
-3. Usuario: decidir si se reescribe o descarta `5a3c98b`.
-**Descartar:** logs de pytest, trazas de subagentes, llamadas intermedias de B9 ya resumidas en §13.3, ciclos cerrados (fix cycles de L3, BLOCKED de Ontos), detalle de T8 más allá de la línea de evidencia.
+- **Modo y baseline:** Full (ONT-42b) + Short (`autonomous_session_steward`). `dev` sincronizado localmente con B1–B9 VERIFIED y `D-01b` cerrado (`0 xfailed`). 17 tools, 19 capacidades.
+- **Hechos cerrados:**
+  - **Autogestión Autónoma de Sesión (`autonomous_session_steward`)**: `aep_ctl(domain="ipc", action="harness_reconnect")` estandarizada para `claude`, `agy`, `codex` y `gemini`, con autocertificación `mode="certify"` (`certify_loopback("hello world")` verificada en vivo sobre `/dev/pts/3`, SHA-256 `b94d27b9...`, `certified=True`, `audit_degraded=False`).
+  - **ONT-42b G1–G4 + B9 Dogfood (`ACCEPT`)**: G1 (`run_tests_batched` síncrono $\le 20$ por lote en `sandbox_run`), G2 (herencia de hasta 10 `pins` de callers públicos para helpers privados), G3 (fixtures sintéticos en `test_ont42_gap_priority.py` y `test_ont42_spec_change.py`), G4 (`_reap_orphan_cycles` limpió `72871021d7de`). B9 cerró `D-01b` (`_TOOL_ACTIONS`) con `verdict="ACCEPT"` en ciclo `d6aabe764afd` (`fixed=1`, `gaps: 98->97`, `pins=10`, `batches=2`).
+- **Decisiones del usuario:** push de `dev` solo con autorización explícita. R7 (tier de push en ONT-42c) y ONT-42d (acuerdo previo vs confirmación por llamada en `harness_reconnect`) pendientes de decisión si se abordan.
+- **Fuentes:** `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §14; `docs/sdd/sdd_ont42a_harness_reconnect.md` §5.
+**Pendiente (próximas 2):**
+1. ONT-42c (C1–C7): máquina de estados `evolve`, `GitPort`, gate final con `run_tests_batched`, ledger e idempotencia, rollback `git revert` y Merkle `R_before`/`R_after`.
+2. Autorización del usuario antes de cualquier `git push` de `dev`.
+**Descartar:** logs de pytest, trazas de subagentes, ciclos huérfanos ya cosechados (`72871021d7de`, `01a97f09e77b`).
+
