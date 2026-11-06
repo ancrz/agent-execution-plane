@@ -191,8 +191,30 @@ audit_running_instances() {
     local current_pid=$$
     local found_count=0
     local stale_count=0
+    # ONT-41 TC6: clasificacion por /dev/shm/aep_front_<pid>.json (pids muertos se limpian); sin archivo -> legacy/unknown.
+    local state_lines; state_lines="$(python3 "$SCRIPT_DIR/aep_audit_state.py" "$PROJECT_ROOT" $pids 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.loads(sys.stdin.read() or "{}")
+except ValueError:
+    data = {}
+for i in data.get("instances", []):
+    print("%s\t%s\t%s" % (i["pid"], i["class"], i["detail"]))
+' 2>/dev/null || true)"
     for pid in $pids; do
         if [[ "$pid" == "$current_pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+            continue
+        fi
+        local st_class; st_class="$(printf '%s\n' "$state_lines" | awk -F'\t' -v p="$pid" '$1==p {print $2; exit}')"
+        local st_detail; st_detail="$(printf '%s\n' "$state_lines" | awk -F'\t' -v p="$pid" '$1==p {print $3; exit}')"
+        if [[ -n "$st_class" && "$st_class" != "legacy/unknown" ]]; then
+            found_count=$((found_count + 1))
+            case "$st_class" in
+                front_stale)   stale_count=$((stale_count + 1)); warn "PID $pid: front_stale -> $st_detail" ;;
+                serving_lkg)   stale_count=$((stale_count + 1)); warn "PID $pid: serving_from=lkg -> $st_detail" ;;
+                backend_stale) ok "PID $pid: backend_stale -> $st_detail" ;;
+                *)             ok "PID $pid: $st_class ($st_detail)" ;;
+            esac
             continue
         fi
 
@@ -225,7 +247,7 @@ audit_running_instances() {
         local proc_time; proc_time="$(date -d "@$proc_mtime" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "$proc_mtime")"
         if [[ "$head_ct" -gt 0 && "$proc_mtime" -gt 0 && "$proc_mtime" -lt "$head_ct" ]]; then
             stale_count=$((stale_count + 1))
-            warn "Instancia STALE detectada (PID $pid, Harness: $harness, PPID $ppid):"
+            warn "Instancia STALE detectada [legacy/unknown, D-24] (PID $pid, Harness: $harness, PPID $ppid):"
             echo -e "       ${YELLOW}Iniciada:${NC}       $proc_time (antes del HEAD $head_commit @ $head_time)"
             echo -e "       ${YELLOW}Estado:${NC}         Ejecutando bytecode desactualizado en memoria (GAP-RT-04)."
             echo -e "       ${YELLOW}Instrucciones:${NC}  $restart_hint"
