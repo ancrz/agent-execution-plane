@@ -5049,6 +5049,8 @@ async def default_primitives(
 _AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal")
 _AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
+_AUTOEVOL_JOB_TIMEOUT_S = 900  # F8: tope del job async (pueue) para que un cuelgue no deje el ciclo PENDING indefinido
+_PUEUE_TERMINAL_RE = re.compile(r'"(?:Done|Failed)"\s*:|"status"\s*:\s*"(?:Done|Failed)\b')
 _AUTOEVOL_ENV_EXIT_CODES = (126, 127)  # no ejecutable / no encontrado: fallo de entorno, no de logica
 
 
@@ -5101,6 +5103,10 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
         # F4: 126/127 o salida != 0 sin resumen de pytest = fallo de infraestructura (SANDBOX_UNAVAILABLE, ambiental).
         if exit_code in _AUTOEVOL_ENV_EXIT_CODES or (counts is None and (res.get("status") == "EXEC_FAILED" or exit_code)):
             return {"available": False}
+        # F7: exit 1 sin fallos ni errores (p. ej. `No module named pytest`) es entorno, no logica: un pytest real
+        # con exit 1 siempre reporta al menos un fallo.
+        if counts is not None and exit_code == 1 and counts["failed"] + counts["errors"] == 0:
+            return {"available": False}
         if counts is not None:
             return {**counts, "exit_code": exit_code} if isinstance(exit_code, int) else counts
         return {"ran": 0, "failed": 0, "errors": 0, "no_summary": True}
@@ -5122,6 +5128,8 @@ def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
     counts = _pytest_counts(_parse_pytest_output(proc.stdout + "\n" + proc.stderr))
     if counts is None:
         return {"available": False} if proc.returncode else {"ran": 0, "failed": 0, "errors": 0, "no_summary": True}
+    if proc.returncode == 1 and counts["failed"] + counts["errors"] == 0:  # F7: entorno, no logica
+        return {"available": False}
     return {**counts, "exit_code": proc.returncode, "unsandboxed": True}
 
 
@@ -5139,7 +5147,7 @@ def _autoevol_dispatcher(tree: Path, trusted: bool) -> Any:
         async def _call() -> str:
             return await async_job_dispatch(
                 action="dispatch",
-                command=_autoevol_pytest_cmd(tree, tests),
+                command=f"timeout {_AUTOEVOL_JOB_TIMEOUT_S} {_autoevol_pytest_cmd(tree, tests)}",
                 label="autoevol-verify",
                 working_dir=str(tree),
                 verbosity="summary",
@@ -5161,9 +5169,12 @@ def _autoevol_job_poller(job: str) -> dict[str, Any]:
     async def _call() -> str:
         return await async_job_dispatch(action="log", task_id=int(job), lines=200, verbosity="summary")
 
-    text = json.dumps(json.loads(anyio.from_thread.run(_call))).replace("\\n", "\n")
-    counts = _pytest_counts(_parse_pytest_output(text))
-    return counts if counts is not None else {"status": "PENDING"}
+    raw = json.dumps(json.loads(anyio.from_thread.run(_call)))
+    counts = _pytest_counts(_parse_pytest_output(raw.replace("\\n", "\n")))
+    if counts is not None:
+        return counts
+    # F8: tarea terminada en pueue (Done/Failed) sin resumen de pytest = fallo de infraestructura, no PENDING eterno.
+    return {"available": False} if _PUEUE_TERMINAL_RE.search(raw) else {"status": "PENDING"}
 
 
 @mcp.tool(structured_output=False)
