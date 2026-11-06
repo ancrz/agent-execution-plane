@@ -9,6 +9,7 @@ fake clock for the N2 window and barrier timeouts.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -16,6 +17,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -58,9 +60,13 @@ class FakeClock:
 
 
 def reap_backends_of(root: Path) -> int:
-    """F6: termina SOLO los `aep_backend.py` de ESTE arbol temporal (ruta unica por test) que el test dejo vivos."""
-    script = str(root / "aep_backend.py")
+    """F6/L3: termina los `aep_backend.py` cuyo script cuelga de el directorio padre de `root` (el tmp_path del test; incluye arboles LKG).
+
+    SIGTERM, y SIGKILL tras 2 s: los huerfanos ignoran SIGTERM.
+    """
+    prefix = str(root.parent)
     me = os.getpid()
+    victims: list[int] = []
     reaped = 0
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit() or int(entry.name) == me:
@@ -69,14 +75,28 @@ def reap_backends_of(root: Path) -> int:
             argv = (entry / "cmdline").read_bytes().split(b"\0")
         except OSError:
             continue
-        if script.encode() not in argv:
+        if not any(a.startswith(prefix.encode()) and a.endswith(b"/aep_backend.py") for a in argv):
             continue
-        try:
+        with contextlib.suppress(OSError):
             os.kill(int(entry.name), signal.SIGTERM)
+            victims.append(int(entry.name))
             reaped += 1
-        except OSError:
-            continue
+    deadline = time.monotonic() + 2.0
+    while victims and time.monotonic() < deadline:
+        victims = [p for p in victims if Path(f"/proc/{p}").exists() and not _is_zombie(p)]
+        if victims:
+            time.sleep(0.05)
+    for pid in victims:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGKILL)
     return reaped
+
+
+def _is_zombie(pid: int) -> bool:
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return True
 
 
 @pytest.fixture
@@ -728,14 +748,15 @@ def test_front_process_cold_broken_disk_serves_lkg_and_recovers(tmp_path: Path) 
     asyncio.run(_session(_second))
 
 
-def test_reap_backends_of_terminates_only_backends_of_its_own_tree(tmp_path: Path) -> None:
+def test_reap_backends_of_terminates_only_backends_of_its_own_tree(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
     """F6: el teardown mata el backend huerfano de su arbol y no toca procesos ajenos."""
     assert aep_front.state_dir_path()  # ancla el test al grafo de hilos (covers)
     own = tmp_path / "repo"
     own.mkdir()
     (own / "aep_backend.py").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
-    other = tmp_path / "other"
-    other.mkdir()
+    other = tmp_path_factory.mktemp("foreign_tree")  # fuera del tmp_path de este test: el reaper cubre todo tmp_path
     (other / "aep_backend.py").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
     mine = subprocess.Popen([sys.executable, str(own / "aep_backend.py")])  # noqa: S603
     foreign = subprocess.Popen([sys.executable, str(other / "aep_backend.py")])  # noqa: S603

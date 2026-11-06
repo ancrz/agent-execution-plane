@@ -304,6 +304,10 @@ def main() -> None:
 
     worker = BackendWorker(sock, generation=args.generation)
     asyncio.run(worker.run())
+    # Non-daemon threads (executors, sandbox waiters) would keep the process alive after the EOF on the front socket.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

@@ -602,6 +602,7 @@ class LivePlaneManager:
         self.clock = clock
         self.sleep = sleep
         self.active_conn: BackendConnection | None = None
+        self._drain_tasks: set[asyncio.Task[None]] = set()
         self.active_schema: list[dict[str, Any]] = []
         self.active_schema_hash: str = ""
         self.active_fingerprint: str = ""
@@ -1136,7 +1137,9 @@ class LivePlaneManager:
 
             # Drain calls on old connection in background (max 30s)
             if old_conn:
-                asyncio.create_task(self._drain_and_terminate(old_conn, timeout=30.0))
+                task = asyncio.create_task(self._drain_and_terminate(old_conn, timeout=30.0))
+                self._drain_tasks.add(task)
+                task.add_done_callback(self._drain_tasks.discard)
 
     async def _drain_and_terminate(self, conn: BackendConnection, timeout: float = 30.0) -> None:
         start_t = time.time()
@@ -1222,6 +1225,10 @@ class LivePlaneManager:
         return tools_list
 
     async def shutdown(self) -> None:
+        # Retired backends pending drain must be terminated before the loop closes, or they are orphaned.
+        pending = list(self._drain_tasks)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         if self.active_conn:
             await self.active_conn.terminate()
             self.active_conn = None
