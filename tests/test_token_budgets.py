@@ -133,7 +133,6 @@ def test_xfail_d04_aep_ctl_schema_summary_token_budget() -> None:
     assert tok < 1500, f"Expected < 1500 tokens, got {tok}"
 
 
-@pytest.mark.xfail(strict=True, reason="D-05: aep_ctl(ipc status, summary) contains duplicated mux.pool")
 def test_xfail_d05_aep_ctl_ipc_status_no_mux_pool() -> None:
     """aep_ctl(domain='ipc', action='status', verbosity='summary') must not include duplicated 'mux.pool'."""
     res = asyncio.run(server.aep_ctl(domain="ipc", action="status", verbosity="summary"))

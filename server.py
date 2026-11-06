@@ -376,6 +376,13 @@ def _actions_from_doc(doc: str) -> list[str]:
     return list(dict.fromkeys(names))[:16]
 
 
+def _dedupe_mux_pool(mux_status: dict[str, Any], verbosity: str) -> dict[str, Any]:
+    """D-05: `mux.pool` duplicates `session_pool` (same slots); drop it outside verbosity='detail'."""
+    if (verbosity or "detail").strip().lower() == "detail":
+        return mux_status
+    return {k: v for k, v in mux_status.items() if k != "pool"}
+
+
 def _compact_control_plane(schema: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """D-04: summary view of the control-plane schema -> (domains, defaults).
 
@@ -3676,7 +3683,7 @@ async def aep_ctl(
         elif d == "ipc":
             if a == "status":
                 pool_status = GLOBAL_SESSION_POOL.status()
-                mux_status = GLOBAL_SOCKET_MUX.status()
+                mux_status = _dedupe_mux_pool(GLOBAL_SOCKET_MUX.status(), verbosity)
                 res_obj = {
                     "status": "OK",
                     "ipc_socket": str(GLOBAL_SOCKET_MUX.socket_path),

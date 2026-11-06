@@ -35,6 +35,13 @@ def test_compact_tools_schema_shape() -> None:
     assert "degradation_matrix" not in out and "preconditions" not in out
 
 
+def test_dedupe_mux_pool_only_outside_detail() -> None:
+    mux = {"pool": {"slots": 1}, "requests_handled": 2}
+    assert server._dedupe_mux_pool(mux, "summary") == {"requests_handled": 2}
+    assert server._dedupe_mux_pool(mux, "detail") == mux
+    assert "pool" in mux
+
+
 def test_compact_control_plane_defaults_and_exceptions() -> None:
     base = {"privilege_tier": "DIMINISHED", "required_fs": [], "deterministic": True}
     schema = {
