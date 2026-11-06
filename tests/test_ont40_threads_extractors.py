@@ -113,3 +113,97 @@ def test_extract_inputs_hash_changes(tmp_path: Path) -> None:
     h1 = ex.read_sources(root).inputs_hash()
     (root / "README.md").write_text("changed")
     assert ex.read_sources(root).inputs_hash() != h1
+
+
+# --- D-23: alias de acciones -------------------------------------------------------------------------
+
+_ALIAS_SERVER = '''
+mcp = object()
+_MODE_ALIASES = {"short": "long", "other": "nowhere"}
+
+@mcp.tool()
+async def multi(action: str = "main", mode: str = "long"):
+    act = action
+    if act == "main":
+        return 1
+    elif act in ("show", "view", "peek"):
+        if act == "peek":
+            return 2
+        return 3
+    elif act in ("wipe", "reset") and mode == "x":
+        return 4
+    elif act == "wipe":
+        return 5
+    if mode == "long":
+        return _MODE_ALIASES
+    if mode == "short":
+        return 6
+'''
+_ALIAS_PRIV = '''
+_CAPABILITIES = {"c": (4, 4, "self", ["multi"], "d")}
+CHMOD_DEGRADATION_MATRIX = {"tools": {"multi": {}}}
+_CAP_TACTICAL = {}
+CONTROL_PLANE_SCHEMA = {}
+'''
+
+
+def _alias_tree(tmp: Path, test_body: str) -> Path:
+    for d in ("engine", "tests", "schemas"):
+        (tmp / d).mkdir()
+    (tmp / "server.py").write_text(_ALIAS_SERVER)
+    (tmp / "engine" / "__init__.py").write_text("")
+    (tmp / "engine" / "privilege.py").write_text(_ALIAS_PRIV)
+    (tmp / "tests" / "test_multi.py").write_text("import server\n" + test_body)
+    return tmp
+
+
+def test_d23_aliases_detected_deterministically(tmp_path: Path) -> None:
+    root = _alias_tree(tmp_path, "def test_a():\n    server.multi(action='view')\n")
+    a = threads.analyze(root, use_cache=False)
+    alias_edges = {(e.src, e.dst) for e in a.graph.edges({"alias_of"})}
+    p = "action:multi:"
+    # `view` -> `show` (first literal of the branch); `peek` is re-distinguished inside the branch (own behaviour)
+    assert (p + "view", p + "show") in alias_edges
+    assert not any(src == p + "peek" for src, _ in alias_edges)
+    # `act in (...) and cond` is a guard, not a pure dispatch branch: no alias
+    assert not any(src in (p + "reset", p + "wipe") for src, _ in alias_edges)
+    # module alias table: both ends are actions of the tool
+    assert (p + "short", p + "long") in alias_edges
+    assert not any(src == p + "other" for src, _ in alias_edges)
+    assert a.graph.out_edges(p + "view", "alias_of")
+
+
+def test_d23_alias_has_no_own_req_and_canonical_inherits_coverage(tmp_path: Path) -> None:
+    root = _alias_tree(tmp_path, "def test_a():\n    server.multi(action='view')\n")
+    a = threads.analyze(root, use_cache=False)
+    omitted = {g.node for g in a.gaps if g.kind == "omission"}
+    assert "action:multi:view" not in omitted  # alias: no node with its own Req
+    assert "action:multi:short" not in omitted
+    # canonical `show` is covered through its alias `view` (same body): inherits the covers edge
+    assert not any(g.id == "omission:action:multi:show:in:covers" for g in a.gaps)
+    # a real canonical action nobody tests stays a gap
+    assert any(g.id == "omission:action:multi:main:in:covers" for g in a.gaps)
+    assert any(g.id == "omission:action:multi:peek:in:covers" for g in a.gaps)
+
+
+def test_d23_alias_edge_is_outside_merkle_root(tmp_path: Path) -> None:
+    from engine.threads_model import HASH_EDGE_KINDS
+
+    assert "alias_of" not in HASH_EDGE_KINDS
+    root = _alias_tree(tmp_path, "def test_a():\n    server.multi(action='view')\n")
+    a = threads.analyze(root, use_cache=False)
+    assert a.root_hash and a.scc is not None
+
+
+def test_d23_repo_aliases_resolve_to_canonical() -> None:
+    a = threads.analyze(REPO, use_cache=False)
+    edges = {(e.src, e.dst) for e in a.graph.edges({"alias_of"})}
+    for alias, canon in [
+        ("discover:route", "discover:discover"),
+        ("discover:tactical_guide", "discover:playbook"),
+        ("discover:tools_schema", "discover:schema"),
+        ("diagnose_system_crashes:check", "diagnose_system_crashes:alerts"),
+    ]:
+        assert (f"action:{alias}", f"action:{canon}") in edges
+    ids = {g.id for g in a.gaps}
+    assert "omission:action:discover:route:in:covers" not in ids

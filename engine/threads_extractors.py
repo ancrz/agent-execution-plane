@@ -566,6 +566,76 @@ def _tool_actions(fn: ast.AST) -> set[str]:
     return found
 
 
+def _action_compare(test: ast.AST) -> tuple[str, list[str]] | None:
+    """`act in ("a", "b")` / `act == "a"` puro (sin BoolOp): (variable, valores literales); None si no aplica."""
+    if not (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.left, ast.Name)):
+        return None
+    if test.left.id not in ACTION_VARS or not isinstance(test.ops[0], (ast.Eq, ast.In)):
+        return None
+    return test.left.id, [v for v in _str_values(test.comparators[0]) if _ACTION_RE.match(v)]
+
+
+def _action_aliases(fn: ast.AST, actions: set[str], tables: dict[str, dict[str, str]]) -> dict[str, str]:
+    """Alias -> acción canónica, de forma determinista.
+
+    (a) Rama de despacho `if/elif act in ("a", "b", ...)` (test puro, sin BoolOp: una guarda de tier no
+        despacha): todos los valores salvo el primero son alias del primero, porque la rama es un único
+        cuerpo. Se excluye el valor que el cuerpo vuelve a distinguir (`act == "b"` dentro de la rama).
+    (b) Tabla de alias de módulo `*ALIASES = {"alias": "canónica"}` que la tool referencia, cuando ambos
+        extremos son acciones de la tool.
+    """
+    out: dict[str, str] = {}
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.If):
+            continue
+        parsed = _action_compare(node.test)
+        if parsed is None or len(parsed[1]) < 2:
+            continue
+        _, values = parsed
+        inner: set[str] = set()
+        for stmt in node.body:
+            for sub in ast.walk(stmt):
+                inner_parsed = _action_compare(sub) if isinstance(sub, ast.Compare) else None
+                if inner_parsed is not None:
+                    inner.update(inner_parsed[1])
+        canonical = values[0]
+        for alias in values[1:]:
+            if alias != canonical and alias not in inner and alias in actions and canonical in actions:
+                out.setdefault(alias, canonical)
+    used = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+    for name, table in sorted(tables.items()):
+        if name not in used:
+            continue
+        for alias, canonical in sorted(table.items()):
+            if alias in actions and canonical in actions and alias != canonical:
+                out.setdefault(alias, canonical)
+    # Resolver cadenas alias -> alias hasta la canónica (sin ciclos).
+    for alias in sorted(out):
+        seen = {alias}
+        target = out[alias]
+        while target in out and target not in seen:
+            seen.add(target)
+            target = out[target]
+        out[alias] = target
+    return {a: c for a, c in out.items() if a != c}
+
+
+def _alias_tables(tree: ast.Module) -> dict[str, dict[str, str]]:
+    tables: dict[str, dict[str, str]] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Dict):
+            for tgt in stmt.targets:
+                if isinstance(tgt, ast.Name) and tgt.id.upper().endswith("ALIASES"):
+                    table = {
+                        k.value: v.value
+                        for k, v in zip(stmt.value.keys, stmt.value.values, strict=True)
+                        if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                        and isinstance(v, ast.Constant) and isinstance(v.value, str)
+                    }
+                    tables[tgt.id] = table
+    return tables
+
+
 def _default_action(fn: ast.AST) -> str:
     args = getattr(fn, "args", None)
     if args is None:
@@ -585,6 +655,7 @@ def extract_tools_actions(graph: ThreadGraph, src: Sources, info: ExtractionInfo
     if server is None or server.tree is None:
         return tools
     schema_actions = _control_plane_actions(src)
+    alias_tables = _alias_tables(server.tree)
     for stmt in server.tree.body:
         if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -600,11 +671,14 @@ def extract_tools_actions(graph: ThreadGraph, src: Sources, info: ExtractionInfo
             actions = _tool_actions(stmt)
             if name == "autoevol":
                 actions -= set(info.planned_actions)
-        tools[name] = {"actions": sorted(actions), "default_action": _default_action(stmt)}
+        aliases = {} if name == "aep_ctl" and schema_actions else _action_aliases(stmt, actions, alias_tables)
+        tools[name] = {"actions": sorted(actions), "default_action": _default_action(stmt), "aliases": aliases}
         for act in sorted(actions):
             aid = f"action:{name}:{act}"
             graph.add_node(Node("action", aid, sha(name, act), {"tool": name, "name": act, "module": "server"}))
             graph.add_edge(aid, f"fn:server.{name}", "implemented_by")
+        for alias, canonical in sorted(aliases.items()):
+            graph.add_edge(f"action:{name}:{alias}", f"action:{name}:{canonical}", "alias_of")
     return tools
 
 

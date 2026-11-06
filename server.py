@@ -4947,6 +4947,7 @@ async def autoevol(
       - 'log': historial de generaciones del grafo (solo lectura).
       - 'diff': diff semántico entre dos R (`a`, `b`; `b` omitido = árbol actual) con impacted_tests.
     `probe=True` (tier >= 5r-x): observaciones de runtime en un hijo aislado, fuera de R.
+    `select_fields` proyecta claves de primer nivel (ej: ["gaps"], no ["id"]).
     Las acciones 'spec', 'verify', 'heal' y 'evolve' quedan fuera de ONT-40 (INVALID_ACTION).
     """
     from engine import threads as _threads

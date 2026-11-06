@@ -10,7 +10,7 @@ Covers:
    - Return modes ("all", "last", "summary").
    - DAG ordering with topos_guard.
 4. aep_ctl(domain="ipc"): CLI and RPC control-plane actions (status, ping, lease, release, reap, pool, metrics).
-5. FastMCP 17-Tool Invariant: Confirms exactly 15 tools are registered without bloating the tool namespace.
+5. FastMCP 17-Tool Invariant: Confirms exactly 17 tools are registered without bloating the tool namespace.
 """
 
 from __future__ import annotations

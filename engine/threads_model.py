@@ -11,6 +11,8 @@ Decisiones de modelado (SDD ONT-40):
     la condensación SCC y en el hash Merkle (HASH_EDGE_KINDS).
   - `observes` (observaciones de probes, DQ-2/F6) queda FUERA de SCC y de Merkle por construcción:
     ninguna consulta de dependencia la ve.
+  - `alias_of` (D-23): acción alias -> acción canónica. No entra en SCC ni Merkle (como `observes`, no es
+    dependencia). El alias no tiene Req propio y la canónica hereda las aristas entrantes de sus alias.
   - `module` es un tipo adicional al SDD §1.1: la clasificación Topos (dependencia / interdependencia /
     co-dependencia) se aplica a módulos, y el plan (sección 4) clasifica módulos.
 """
@@ -44,6 +46,7 @@ EDGE_KINDS: tuple[str, ...] = (
     "implemented_by",
     "privileged_by",
     "observes",
+    "alias_of",
 )
 
 # Aristas que definen la dependencia estructural: SCC (Tarjan) y Merkle solo ven estas.
@@ -192,6 +195,16 @@ def missing_edges(graph: ThreadGraph, node: Node) -> list[tuple[str, str]]:
         if not edges:
             missing.append((direction, kind))
     return sorted(missing)
+
+
+def alias_members(graph: ThreadGraph, node_id: str) -> list[str]:
+    """Alias que apuntan (`alias_of`) a `node_id`: su cobertura, doc y routing se heredan a la acción canónica."""
+    return sorted(e.src for e in graph.in_edges(node_id, "alias_of"))
+
+
+def is_alias(graph: ThreadGraph, node_id: str) -> bool:
+    """Un alias no es un nodo con Req propio: delega en su acción canónica."""
+    return bool(graph.out_edges(node_id, "alias_of"))
 
 
 def copy_graph(graph: ThreadGraph) -> ThreadGraph:

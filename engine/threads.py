@@ -47,7 +47,9 @@ from engine.threads_model import (
     OMISSION_SEVERITY,
     Gap,
     ThreadGraph,
+    alias_members,
     copy_graph,
+    is_alias,
     missing_edges,
 )
 
@@ -458,7 +460,12 @@ def omission_gaps(graph: ThreadGraph) -> list[Gap]:
             continue
         if node.type == "state" and node.attrs.get("kind") != "table":
             continue
+        if is_alias(graph, nid):
+            continue  # D-23: un alias delega en su acción canónica
+        inherited = alias_members(graph, nid)
         for direction, kind in missing_edges(graph, node):
+            if direction == "in" and any(graph.in_edges(a, kind) for a in inherited):
+                continue  # la canónica hereda covers/asserts/routes de sus alias
             sev = OMISSION_SEVERITY.get((direction, kind), 0.3)
             if (direction, kind) == ("in", "covers"):
                 sev = COVERS_SEVERITY_BY_TYPE.get(node.type, sev)
