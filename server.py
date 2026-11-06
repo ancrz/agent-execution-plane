@@ -271,6 +271,10 @@ def _get_live_meta() -> dict[str, Any]:
         "swap_attempts": int(meta.get("swap_attempts") or 0),
         "swap_fenced": bool(meta.get("swap_fenced", False)),
         "swap_fence_orphan": bool(meta.get("swap_fence_orphan", False)),
+        "serving_from": meta.get("serving_from") or None,
+        "lkg_fingerprint": meta.get("lkg_fingerprint") or None,
+        "reload_error": meta.get("last_reload_error_struct") or None,
+        "lkg_module_drift": bool(meta.get("lkg_module_drift", False)),
     }
 
 
@@ -616,8 +620,9 @@ async def discover(
             disk_fp = code_fingerprint(REPO_ROOT)
             commit_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
             fp_stale = bool(LOADED_FINGERPRINT and disk_fp and LOADED_FINGERPRINT != disk_fp)
-            is_stale = commit_stale or fp_stale
             live_meta = _get_live_meta()
+            # ONT-41: a snapshot (LKG) is by definition not the code on disk: stale is forced.
+            is_stale = commit_stale or fp_stale or live_meta["serving_from"] == "lkg"
 
             from engine.hardware import probe_accelerators
             try:
@@ -654,6 +659,20 @@ async def discover(
                 payload["swap_fenced"] = True
             if live_meta["swap_fence_orphan"]:
                 payload["swap_fence_orphan"] = True
+            # ONT-41 TC2: emitted only when non-default (token budget).
+            if live_meta["serving_from"]:
+                payload["serving_from"] = live_meta["serving_from"]
+            compact = v_mode in ("terse", "cached")  # keeps terse <= 400 tokens even in SERVING_LKG
+            if live_meta["lkg_fingerprint"]:
+                fp_l = str(live_meta["lkg_fingerprint"])
+                payload["lkg_fingerprint"] = fp_l[:8] if compact else fp_l
+            if live_meta["reload_error"]:
+                err_s = dict(live_meta["reload_error"])
+                if compact:
+                    err_s = f"{err_s.get('type')}@{os.path.basename(str(err_s.get('file') or ''))}:{err_s.get('line')}"  # type: ignore[assignment]
+                payload["reload_error"] = err_s
+            if live_meta["lkg_module_drift"]:
+                payload["lkg_module_drift"] = True
             if v_mode not in ("terse", "cached"):
                 payload["session_hint"] = (
                     "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities (>95% token savings)."

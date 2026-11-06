@@ -54,6 +54,10 @@ BACKEND_META: dict[str, Any] = {
     "swap_attempts": 0,
     "swap_fenced": False,
     "swap_fence_orphan": False,
+    "serving_from": None,
+    "lkg_fingerprint": None,
+    "last_reload_error_struct": None,
+    "lkg_module_drift": False,
 }
 
 
