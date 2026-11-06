@@ -173,14 +173,25 @@ def _get_docs_vectorizer() -> Any:
 
 
 # Rutas base
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parent  # class C: code being executed
 TEMP_BIN_DIR = Path.home() / ".local" / "share" / "agent-os" / "bin"
 AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _lkg_git_head() -> str:
+    """Under LKG the tree has no VCS: use `git_head` from the snapshot manifest (sibling of `tree/`)."""
+    try:
+        manifest = json.loads((PROJECT_DIR.parent / "manifest.json").read_text(encoding="utf-8"))
+        return str(manifest.get("git_head") or "unknown")
+    except (OSError, ValueError):
+        return "unknown"
+
+
 def _read_git_head_commit() -> str:
     """Fail-soft retrieval of git HEAD short commit hash (Directive OM-1 / GAP-RT-04)."""
+    if os.environ.get("AEP_SERVING_FROM") == "lkg":
+        return _lkg_git_head()
     try:
         res = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -200,8 +211,10 @@ def _read_git_head_commit() -> str:
 LOADED_COMMIT: str = _read_git_head_commit()
 LOADED_TIME: float = time.time()
 
-from engine.fingerprint import code_fingerprint  # noqa: E402
+from engine.fingerprint import code_fingerprint, resolve_repo_root  # noqa: E402
 
+# Class D anchor (data/disk): the real repository, even when this code is served from an LKG snapshot.
+REPO_ROOT: Path = resolve_repo_root(PROJECT_DIR)
 LOADED_FINGERPRINT: str = code_fingerprint(PROJECT_DIR)
 
 _BACKEND_META_GETTER: Any = None
@@ -253,7 +266,7 @@ def _get_live_meta() -> dict[str, Any]:
 def _is_front_stale() -> bool:
     """Check if aep_front.py has changed since front process startup (F4)."""
     front_start_ns_str = os.environ.get("AEP_FRONT_START_TIME_NS")
-    front_path = PROJECT_DIR / "aep_front.py"
+    front_path = REPO_ROOT / "aep_front.py"
     if front_start_ns_str and front_path.exists():
         try:
             return front_path.stat().st_mtime_ns > int(front_start_ns_str)
@@ -589,7 +602,7 @@ async def discover(
                 payload["session_id"] = eff_sid
 
             repo_head = _read_git_head_commit()
-            disk_fp = code_fingerprint(PROJECT_DIR)
+            disk_fp = code_fingerprint(REPO_ROOT)
             commit_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
             fp_stale = bool(LOADED_FINGERPRINT and disk_fp and LOADED_FINGERPRINT != disk_fp)
             is_stale = commit_stale or fp_stale
@@ -4969,7 +4982,7 @@ async def autoevol(
         }
         return attach_envelope(payload, tracker, verbosity=verbosity, summary=f"Invalid action '{action}'.")
 
-    tree = Path(root).expanduser() if root else PROJECT_DIR
+    tree = Path(root).expanduser() if root else REPO_ROOT
     if root and (CapabilityGuard.is_path_blacklisted(str(tree)) or not tree.is_dir()):
         payload = {"status": "ERROR", "error": f"root '{root}' no es un directorio legible permitido."}
         return attach_envelope(payload, tracker, verbosity=verbosity, summary="Invalid root.")

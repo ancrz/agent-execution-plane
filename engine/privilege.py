@@ -21,7 +21,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from engine.fingerprint import resolve_repo_root
+
 logger = logging.getLogger("aep.privilege")
+_CODE_ROOT = Path(__file__).resolve().parent.parent  # class C: code being executed
 
 
 TIER_7RWX = "7rwx"
@@ -100,7 +103,7 @@ def detect_chmod_tier(workspace_path: Path | str | None = None) -> dict[str, Any
     is_root = os.geteuid() == 0
     can_sudo = False if is_root else sudo_n_available()
 
-    ws = Path(workspace_path).resolve() if workspace_path else Path(__file__).resolve().parent.parent
+    ws = Path(workspace_path).resolve() if workspace_path else resolve_repo_root(_CODE_ROOT)
     ws_w_ok = os.access(ws, os.W_OK)
     shm_w_ok = os.access(Path("/dev/shm"), os.W_OK) if Path("/dev/shm").exists() else False
     exec_ok = os.access(Path("/proc/self/exe"), os.X_OK) or bool(shutil.which("python3") or shutil.which("sh"))

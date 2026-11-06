@@ -10,7 +10,20 @@ Zero external dependencies; pure stdlib.
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
+
+REPO_ROOT_ENV = "AEP_REPO_ROOT"
+
+
+def resolve_repo_root(code_root: Path | str) -> Path:
+    """Data root (class D anchors): `AEP_REPO_ROOT` if set, else the code root passed by the caller.
+
+    Class C anchors (templates, schemas, trusted probes) keep `__file__` so they stay inside the code tree
+    being executed (e.g. an LKG snapshot). Evaluated at call time so the environment is honoured.
+    """
+    env = os.environ.get(REPO_ROOT_ENV, "").strip()
+    return Path(env).resolve() if env else Path(code_root).resolve()
 
 
 def _resolve_repo_root(root: Path | str | None = None) -> Path:

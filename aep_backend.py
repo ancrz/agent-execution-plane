@@ -37,7 +37,10 @@ with contextlib.suppress(Exception):
     sys.stdout = sys.stderr
 
 import server  # noqa: E402
-from engine.fingerprint import code_fingerprint  # noqa: E402
+from engine.fingerprint import code_fingerprint, resolve_repo_root  # noqa: E402
+
+# Class D anchor: the disk fingerprint always refers to the real repository (AEP_REPO_ROOT under LKG).
+REPO_ROOT = resolve_repo_root(PROJECT_ROOT)
 
 logger = logging.getLogger("aep.backend")
 
@@ -97,7 +100,7 @@ class BackendWorker:
                 tm = getattr(server.mcp, "_tool_manager", None)
                 tools_count = len(getattr(tm, "_tools", {})) if tm else 0
                 schema_hash = server._get_schema_hash()
-                fp = code_fingerprint(PROJECT_ROOT)
+                fp = code_fingerprint(REPO_ROOT)
                 # T-D19: test hook simulating a slow candidate (only for swap candidates, Gen >= 2)
                 health_delay = float(os.environ.get("AEP_TEST_HEALTH_DELAY_S", "0") or 0)
                 if health_delay > 0 and self.generation >= 2:
