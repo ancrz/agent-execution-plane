@@ -7,6 +7,7 @@ asynchronous job queues (Pueue), crash forensics, and Topos DAG auditing to AI a
 
 import concurrent.futures
 import contextlib
+import contextvars
 import inspect
 import json
 import logging
@@ -218,6 +219,16 @@ REPO_ROOT: Path = resolve_repo_root(PROJECT_DIR)
 LOADED_FINGERPRINT: str = code_fingerprint(PROJECT_DIR)
 
 _BACKEND_META_GETTER: Any = None
+
+# ONT-41: reload-barrier state injected by the front for autoevol(verify|fix_test) as `_barrier`
+# (plain JSON dict: state, reason, retry_after_s, error, served_fingerprint, disk_fingerprint, from_lkg).
+_BARRIER_CTX: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("aep_reload_barrier", default=None)
+
+
+def get_reload_barrier() -> dict[str, Any] | None:
+    """Barrier for the tool call in flight, or None when the front did not provide one."""
+    return _BARRIER_CTX.get()
+
 
 
 def _get_live_meta() -> dict[str, Any]:

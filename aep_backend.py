@@ -73,6 +73,13 @@ def set_backend_meta(**kwargs: Any) -> None:
 server._BACKEND_META_GETTER = get_backend_meta
 
 
+BARRIER_STATES = frozenset({"RELOAD_OK", "RELOAD_PENDING", "RELOAD_FAILED", "SERVING_LKG"})
+
+
+def _valid_barrier(barrier: Any) -> bool:
+    return isinstance(barrier, dict) and barrier.get("state") in BARRIER_STATES
+
+
 class BackendWorker:
     def __init__(self, sock: socket.socket, generation: int = 1) -> None:
         self.sock = sock
@@ -205,6 +212,10 @@ class BackendWorker:
             tm = getattr(server.mcp, "_tool_manager", None)
             if not tm:
                 raise RuntimeError("server.mcp._tool_manager not available")
+            # `_barrier` is front-owned (reload barrier): never a tool argument; exposed via server contextvar.
+            args = dict(args)
+            barrier = args.pop("_barrier", None)
+            server._BARRIER_CTX.set(barrier if _valid_barrier(barrier) else None)
             res = await tm.call_tool(name, args)
             await self._send_response(writer, {
                 "status": "OK",

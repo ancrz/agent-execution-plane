@@ -12,6 +12,10 @@ Capabilities:
 - Fail-safe swap protocol (Gen N retained on error, in-flight calls drained)
 - Tier governance (7rwx/6rw-/5r-x auto-swap, 4r-- watch-only)
 - Zero FD leak guarantee
+- ONT-41: LKG (last-known-good) store integration: N0 structured reload error, N1 save after healthy
+  promotions, N2 crash-window fallback to an LKG tree, reload barrier for autoevol(verify|fix_test),
+  private plane-events spool and per-pid state file. The front never imports engine/threads* nor the
+  heavy engine: the barrier contract is a plain JSON dict passed to the backend as `_barrier`.
 """
 
 from __future__ import annotations
@@ -23,12 +27,15 @@ import json
 import logging
 import os
 import re
+import secrets
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +45,11 @@ if os.environ.get("AEP_HOTSWAP") == "0":
     project_root = Path(__file__).resolve().parent
     server_py = project_root / "server.py"
     os.execv(sys.executable, [sys.executable, str(server_py), *sys.argv[1:]])  # noqa: S606
+
+try:  # ONT-41: a broken/missing aep_lkg must never stop the front (degrades to LKG_UNAVAILABLE)
+    import aep_lkg  # noqa: E402
+except Exception:  # noqa: BLE001
+    aep_lkg = None  # type: ignore[assignment]
 
 import mcp.server.stdio  # noqa: E402
 import mcp.types as types  # noqa: E402
@@ -243,6 +255,202 @@ def get_hotswap_mode() -> str:
     return "auto"
 
 
+# ---------------------------------------------------------------------------
+# ONT-41 TC1: private spool (plane_events JSONL) and per-pid state file
+# ---------------------------------------------------------------------------
+
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
+_O_COMMON = os.O_NOFOLLOW | os.O_CLOEXEC
+STATE_MAX_BYTES = 64 * 1024
+SPOOL_MAX_BYTES = 1024 * 1024
+SPOOL_MAX_LINES = 5000
+SPOOL_MAX_LINE_BYTES = 4096
+SPOOL_FIELD_MAX_CHARS = 512
+DEFAULT_SPOOL_DIR = "/dev/shm/aep_autoevol"
+DEFAULT_STATE_DIR = "/dev/shm"
+CRASH_WINDOW_S = 60.0
+CRASH_WINDOW_MAX = 3
+DEFAULT_RELOAD_BARRIER_S = 15.0
+BARRIER_POLL_S = 0.25
+BARRIER_TOOL = "autoevol"
+BARRIER_ACTIONS = frozenset({"verify", "fix_test"})
+# Barrier contract (plain JSON dict, consumed by the backend as `_barrier`)
+RELOAD_OK = "RELOAD_OK"
+RELOAD_PENDING = "RELOAD_PENDING"
+RELOAD_FAILED = "RELOAD_FAILED"
+SERVING_LKG = "SERVING_LKG"
+LKG_UNAVAILABLE = "LKG_UNAVAILABLE"
+
+
+class FrontFileError(OSError):
+    """Unsafe state/spool file (symlink, foreign owner, wrong type, oversize)."""
+
+
+def spool_dir_path() -> Path:
+    return Path(os.environ.get("AEP_FRONT_SPOOL_DIR") or os.environ.get("AEP_AUTOEVOL_DIR") or DEFAULT_SPOOL_DIR)
+
+
+def state_dir_path() -> tuple[Path, bool]:
+    """(directory, private). A custom dir is private (0700, owned by euid); the /dev/shm default is shared."""
+    custom = os.environ.get("AEP_FRONT_STATE_DIR", "").strip()
+    return (Path(custom), True) if custom else (Path(DEFAULT_STATE_DIR), False)
+
+
+def state_file_name(pid: int | None = None) -> str:
+    return f"aep_front_{pid if pid is not None else FRONT_PID}.json"
+
+
+def _open_dir(path: Path, private: bool) -> int:
+    if private:
+        os.makedirs(path, mode=PRIVATE_DIR_MODE, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | _O_COMMON)
+    except OSError as exc:
+        raise FrontFileError(f"cannot open dir {path}: {exc.strerror}") from exc
+    if private:
+        st = os.fstat(fd)
+        if st.st_uid != os.geteuid():
+            os.close(fd)
+            raise FrontFileError(f"dir {path} not owned by euid")
+        if st.st_mode & 0o077:
+            os.fchmod(fd, PRIVATE_DIR_MODE)
+    return fd
+
+
+def _check_regular(fd: int, name: str) -> os.stat_result:
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode):
+        raise FrontFileError(f"{name}: not a regular file")
+    if st.st_uid != os.geteuid():
+        raise FrontFileError(f"{name}: not owned by euid")
+    if st.st_mode & 0o077:
+        os.fchmod(fd, PRIVATE_FILE_MODE)
+    return st
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]
+
+
+def write_state_file(directory: Path, private: bool, name: str, data: dict[str, Any]) -> None:
+    """Atomic replace: `O_EXCL|O_NOFOLLOW` 0600 temp inside the dir, then `os.replace` (dir_fd relative)."""
+    payload = json.dumps(data, sort_keys=True, default=str).encode("utf-8")
+    if len(payload) > STATE_MAX_BYTES:
+        raise FrontFileError(f"{name}: state exceeds {STATE_MAX_BYTES} bytes")
+    dir_fd = _open_dir(directory, private)
+    tmp = f".{name}.{secrets.token_hex(4)}.tmp"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_COMMON, PRIVATE_FILE_MODE, dir_fd=dir_fd)
+        try:
+            _write_all(fd, payload)
+        finally:
+            os.close(fd)
+        try:
+            os.replace(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp, dir_fd=dir_fd)
+            raise
+    finally:
+        os.close(dir_fd)
+
+
+def read_state_file(directory: Path, private: bool, name: str) -> dict[str, Any] | None:
+    """Read with `O_NOFOLLOW`, `st_uid == euid`, regular file and size limit. None if missing."""
+    dir_fd = _open_dir(directory, private=False)
+    try:
+        try:
+            fd = os.open(name, os.O_RDONLY | _O_COMMON, dir_fd=dir_fd)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise FrontFileError(f"{name}: {exc.strerror}") from exc
+        try:
+            st = _check_regular(fd, name)
+            if st.st_size > STATE_MAX_BYTES:
+                raise FrontFileError(f"{name}: too large")
+            raw = os.read(fd, STATE_MAX_BYTES + 1)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dir_fd)
+    data = json.loads(raw.decode("utf-8", errors="replace"))
+    return data if isinstance(data, dict) else None
+
+
+def remove_state_file(directory: Path, private: bool, name: str) -> None:
+    dir_fd = _open_dir(directory, private)
+    try:
+        with contextlib.suppress(OSError):
+            os.unlink(name, dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+class PlaneEventSpool:
+    """Append-only `plane_events_<uid>.jsonl` (O_APPEND|O_NOFOLLOW, 0600, private 0700 dir).
+
+    Every line carries `ts`, `nonce` and `pid` so line hashes are unique; rotation at 1 MB / 5000 lines
+    keeps one `.1` file; oversized lines are trimmed. Writers are best-effort (callers swallow errors).
+    """
+
+    def __init__(self, directory: Path | None = None, uid: int | None = None) -> None:
+        self.directory = directory if directory is not None else spool_dir_path()
+        self.name = f"plane_events_{uid if uid is not None else os.geteuid()}.jsonl"
+        self._lines: int | None = None
+
+    @staticmethod
+    def _trim(fields: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for k, v in fields.items():
+            out[str(k)[:64]] = v[:SPOOL_FIELD_MAX_CHARS] if isinstance(v, str) else v
+        return out
+
+    def append(self, kind: str, **fields: Any) -> None:
+        record = {"ts": datetime.now(UTC).isoformat(timespec="microseconds"), "nonce": secrets.token_hex(4),
+                  "pid": FRONT_PID, "kind": kind, **self._trim(fields)}
+        line = (json.dumps(record, sort_keys=True, default=str) + "\n").encode("utf-8")
+        if len(line) > SPOOL_MAX_LINE_BYTES:
+            line = (json.dumps({k: record[k] for k in ("ts", "nonce", "pid", "kind")}) + "\n").encode("utf-8")
+        dir_fd = _open_dir(self.directory, private=True)
+        try:
+            fd = self._open_log(dir_fd)
+            try:
+                size = os.fstat(fd).st_size
+                if self._lines is None:
+                    self._lines = os.pread(fd, SPOOL_MAX_BYTES, 0).count(b"\n") if size else 0
+                if size + len(line) > SPOOL_MAX_BYTES or self._lines >= SPOOL_MAX_LINES:
+                    os.close(fd)
+                    os.replace(self.name, self.name + ".1", src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+                    self._lines = 0
+                    fd = self._open_log(dir_fd)
+                _write_all(fd, line)
+                self._lines += 1
+            finally:
+                os.close(fd)
+        finally:
+            os.close(dir_fd)
+
+    def _open_log(self, dir_fd: int) -> int:
+        flags = os.O_WRONLY | os.O_APPEND | _O_COMMON
+        try:
+            fd = os.open(self.name, flags | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE, dir_fd=dir_fd)
+        except FileExistsError:
+            try:
+                fd = os.open(self.name, flags, dir_fd=dir_fd)
+            except OSError as exc:
+                raise FrontFileError(f"{self.name}: {exc.strerror}") from exc
+        try:
+            _check_regular(fd, self.name)
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
+
 class BackendConnection:
     """Encapsulates a running backend worker and its socketpair connection."""
 
@@ -344,10 +552,55 @@ class BackendConnection:
                 await asyncio.to_thread(self.proc.wait)
 
 
-class LivePlaneManager:
-    """Orchestrates hot-swapping, fail-safe promotion, and drainage of backends."""
+class _StartFailure(Exception):
+    """A backend (disk or LKG) failed to start/become healthy. `kind`: deterministic | transient."""
 
-    def __init__(self) -> None:
+    def __init__(self, kind: str, detail: str, tail: str = "") -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+        self.tail = tail
+
+
+def _git_head_short(cwd: Path) -> str:
+    """Fail-soft short HEAD for the LKG manifest (blocking: call through asyncio.to_thread)."""
+    try:
+        res = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return "unknown"
+
+
+def _barrier_timeout_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("AEP_RELOAD_BARRIER_S", str(DEFAULT_RELOAD_BARRIER_S))))
+    except ValueError:
+        return DEFAULT_RELOAD_BARRIER_S
+
+
+class LivePlaneManager:
+    """Orchestrates hot-swapping, fail-safe promotion, LKG fallback and drainage of backends.
+
+    `clock` (monotonic seconds) and `sleep` are injectable so the N2 crash window and the reload barrier
+    are testable with a fake clock.
+    """
+
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
+    ) -> None:
+        self.clock = clock
+        self.sleep = sleep
         self.active_conn: BackendConnection | None = None
         self.active_schema: list[dict[str, Any]] = []
         self.active_schema_hash: str = ""
@@ -356,6 +609,7 @@ class LivePlaneManager:
         self.generation: int = 1
         self.last_swap_at: str | None = None
         self.last_reload_error: str | None = None
+        self.last_reload_error_struct: dict[str, Any] | None = None
         self.last_check_time: float = 0.0
         self.failed_fingerprint: str = ""
         self.failure_kind: str | None = None
@@ -367,6 +621,51 @@ class LivePlaneManager:
         self.swap_fence_orphan: bool = False
         self.swap_lock = asyncio.Lock()
         self.cached_session: ServerSession | None = None
+        # ONT-41 (LKG)
+        self.serving_lkg: bool = False
+        self.lkg_key: str | None = None
+        self.lkg_fingerprint: str | None = None
+        self.lkg_module_drift: bool = False
+        self.drops: list[float] = []
+        self.spool = PlaneEventSpool()
+
+    # -- telemetry (best-effort: never affects serving) -------------------------------------------
+
+    def _event(self, kind: str, **fields: Any) -> None:
+        try:
+            self.spool.append(kind, generation=self.generation, **fields)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("plane_events spool failed: %s", e)
+
+    def _write_state(self) -> None:
+        directory, private = state_dir_path()
+        try:
+            write_state_file(
+                directory,
+                private,
+                state_file_name(),
+                {
+                    "pid": FRONT_PID,
+                    "ts": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "generation": self.generation,
+                    "active_fingerprint": self.active_fingerprint,
+                    "schema_hash": self.active_schema_hash,
+                    "serving_from": "lkg" if self.serving_lkg else "disk",
+                    "lkg_key": self.lkg_key,
+                    "lkg_fingerprint": self.lkg_fingerprint,
+                    "failure_kind": self._effective_failure_kind(),
+                    "last_reload_error": self.last_reload_error,
+                    "lkg_module_drift": self.lkg_module_drift,
+                    "backend_pid": self.active_conn.proc.pid if self.active_conn else None,
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("front state file failed: %s", e)
+
+    def _remove_state(self) -> None:
+        directory, private = state_dir_path()
+        with contextlib.suppress(Exception):
+            remove_state_file(directory, private, state_file_name())
 
     def is_front_stale(self) -> bool:
         try:
@@ -375,8 +674,9 @@ class LivePlaneManager:
         except OSError:
             return False
 
-    async def _spawn_backend(self, generation: int) -> BackendConnection:
-        backend_script = PROJECT_ROOT / "aep_backend.py"
+    async def _spawn_backend(self, generation: int, lkg_tree: Path | None = None) -> BackendConnection:
+        code_dir = lkg_tree if lkg_tree is not None else PROJECT_ROOT
+        backend_script = code_dir / "aep_backend.py"
         s_front, s_backend = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         log_fd: Any = None
         proc: subprocess.Popen | None = None
@@ -393,6 +693,15 @@ class LivePlaneManager:
             # D-18: a candidate never inherits a reload error. Drop any ambient value; the error is
             # delivered via set_meta only to the ACTIVE backend that keeps serving.
             env.pop("AEP_LAST_RELOAD_ERROR", None)
+            if lkg_tree is not None:
+                # N2: code from the snapshot, data (disk fingerprint, workspace) from the real repo.
+                env["PYTHONPATH"] = str(lkg_tree)
+                env["AEP_REPO_ROOT"] = str(PROJECT_ROOT)
+                env["AEP_SERVING_FROM"] = "lkg"
+                # The snapshot is hash-verified: byte-compiling into it would add stray files and fail verify().
+                env["PYTHONDONTWRITEBYTECODE"] = "1"
+            else:
+                env.pop("AEP_SERVING_FROM", None)
 
             # F2/D-5: stderr -> aep_backend_<front_pid>_gen<N>.log (per-front names; retain last 5 per front)
             BACKEND_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -413,7 +722,7 @@ class LivePlaneManager:
                     mode,
                 ],
                 pass_fds=(s_backend.fileno(),),
-                cwd=str(PROJECT_ROOT),
+                cwd=str(code_dir),
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -438,52 +747,209 @@ class LivePlaneManager:
             with contextlib.suppress(Exception):
                 s_backend.close()
 
+    # -- N1: LKG save ------------------------------------------------------------------------------
+
+    async def _save_lkg(self, generation: int, fingerprint: str, schema_hash: str) -> None:
+        """Snapshot the healthy disk tree. Only called after health+list OK; never while serving from LKG."""
+        if aep_lkg is None or self.serving_lkg:
+            return
+
+        def _do() -> dict[str, Any]:
+            return aep_lkg.save(PROJECT_ROOT, generation, fingerprint, schema_hash, _git_head_short(PROJECT_ROOT))
+
+        try:
+            manifest = await asyncio.to_thread(_do)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("LKG save failed: %s", e)
+            self._event("LKG_SAVE_FAILED", error=str(e))
+            return
+        self.lkg_key = str(manifest.get("key"))
+        self.lkg_fingerprint = str(manifest.get("code_fingerprint") or "")
+        self.lkg_module_drift = manifest.get("lkg_module_hash") != aep_lkg.LKG_MODULE_HASH
+        self._event("LKG_SAVED", key=self.lkg_key, created=bool(manifest.get("created")))
+
+    # -- backend start / recovery ------------------------------------------------------------------
+
+    def _conn_ok(self) -> bool:
+        return bool(self.active_conn and self.active_conn.alive and self.active_conn.proc.poll() is None)
+
+    def _note_drop(self) -> int:
+        """Record a backend drop; return how many fall inside the sliding window."""
+        now = self.clock()
+        self.drops = [t for t in self.drops if now - t <= CRASH_WINDOW_S] + [now]
+        return len(self.drops)
+
+    async def _health_and_list(self, conn: BackendConnection, generation: int, health_timeout: float) -> tuple[
+        dict[str, Any], list[dict[str, Any]], str
+    ]:
+        try:
+            health = await conn.send_request({"op": "health"}, timeout=health_timeout)
+            if health.get("status") != "OK":
+                raise RuntimeError(health.get("error") or "Non-OK health status")
+            tools_resp = await conn.send_request({"op": "list"}, timeout=10.0)
+        except Exception as e:  # noqa: BLE001
+            kind, tail = await self._classify_failure(conn, generation)
+            await conn.terminate()
+            raise _StartFailure(kind, tail or str(e), tail) from e
+        return health, tools_resp.get("tools", []), tools_resp.get("schema_hash", "")
+
+    async def _start_disk_backend(self) -> tuple[BackendConnection, dict[str, Any], list[dict[str, Any]], str]:
+        try:
+            conn = await self._spawn_backend(self.generation)
+        except Exception as e:  # noqa: BLE001
+            raise _StartFailure("transient", f"spawn failed: {e}") from e
+        health, tools, schema_hash = await self._health_and_list(conn, self.generation, 20.0)
+        return conn, health, tools, schema_hash
+
     async def get_or_start_backend(self) -> BackendConnection:
-        if self.active_conn and self.active_conn.alive and self.active_conn.proc.poll() is None:
+        if self._conn_ok():
+            assert self.active_conn is not None  # noqa: S101
             return self.active_conn
 
         async with self.swap_lock:
-            if self.active_conn and self.active_conn.alive and self.active_conn.proc.poll() is None:
+            if self._conn_ok():
+                assert self.active_conn is not None  # noqa: S101
                 return self.active_conn
+            return await self._recover_locked()
 
-            conn = await self._spawn_backend(self.generation)
+    async def _recover_locked(self) -> BackendConnection:
+        mode = get_hotswap_mode()
+        dead = self.active_conn
+        if dead is not None:
+            self.active_conn = None
+            with contextlib.suppress(Exception):
+                await dead.terminate()
+
+        if self.serving_lkg and dead is not None:
+            # The LKG worker itself died: restart it. The disk is retried only when its fingerprint changes.
+            conn = await self._serve_lkg(mode, reason="lkg_worker_died")
+            if conn is not None:
+                return conn
+            raise RuntimeError(self.last_reload_error or "LKG worker could not be restarted")
+
+        if dead is not None:
+            n = self._note_drop()
+            self._event("BACKEND_DROPPED", drops_in_window=n)
+            if n >= CRASH_WINDOW_MAX:
+                self.failed_fingerprint = code_fingerprint(PROJECT_ROOT)
+                conn = await self._serve_lkg(mode, reason="crash_window")
+                if conn is not None:
+                    return conn
+            else:
+                await self.sleep(transient_backoff_seconds(n))
+
+        while True:
+            disk_fp = code_fingerprint(PROJECT_ROOT)
             try:
-                health = await conn.send_request({"op": "health"}, timeout=20.0)
-                if health.get("status") != "OK":
-                    raise RuntimeError(health.get("error") or "Non-OK health status")
-            except Exception as e:
-                err_tail = _read_backend_log_tail(self.generation, max_bytes=4096)
-                err_detail = err_tail or str(e)
-                self.last_reload_error = f"Initial Gen {self.generation} health failed: {err_detail}"
-                await conn.terminate()
-                raise RuntimeError(self.last_reload_error) from e
+                conn, health, tools, schema_hash = await self._start_disk_backend()
+                break
+            except _StartFailure as f:
+                n = self._note_drop()
+                self._set_error(f.kind, f"Initial Gen {self.generation} health failed: {f.detail}", f.tail or f.detail)
+                if f.kind == "deterministic":
+                    self.failed_fingerprint = disk_fp
+                if f.kind == "deterministic" or n >= CRASH_WINDOW_MAX:
+                    self.failed_fingerprint = disk_fp
+                    lkg_conn = await self._serve_lkg(mode, reason=f.kind)
+                    if lkg_conn is not None:
+                        return lkg_conn
+                    raise RuntimeError(self.last_reload_error) from f
+                await self.sleep(transient_backoff_seconds(n))
 
-            self.active_instructions = health.get("instructions", "")
-            tools_resp = await conn.send_request({"op": "list"}, timeout=10.0)
-            self.active_schema = tools_resp.get("tools", [])
-            self.active_schema_hash = tools_resp.get("schema_hash", "")
-            self.active_fingerprint = code_fingerprint(PROJECT_ROOT)
-            self.active_conn = conn
-            return conn
+        self.active_instructions = health.get("instructions", "")
+        self.active_schema = tools
+        self.active_schema_hash = schema_hash
+        self.active_fingerprint = code_fingerprint(PROJECT_ROOT)
+        self.active_conn = conn
+        await self._save_lkg(self.generation, self.active_fingerprint, schema_hash)
+        await self._push_meta(mode)
+        return conn
+
+    async def _serve_lkg(self, mode: str, reason: str) -> BackendConnection | None:
+        """N2: start a backend from the newest verified LKG tree. None when no usable LKG exists."""
+        if aep_lkg is None:
+            self._event("LKG_UNAVAILABLE", reason=reason)
+            return None
+        try:
+            key = await asyncio.to_thread(aep_lkg.latest)
+            if not key:
+                self._event("LKG_UNAVAILABLE", reason="no_verified_lkg")
+                return None
+            manifest = await asyncio.to_thread(aep_lkg.read_manifest, key)
+            tree = aep_lkg.tree_path(key)
+        except Exception as e:  # noqa: BLE001
+            self._event("LKG_UNAVAILABLE", reason=f"lkg_read_failed: {e}")
+            return None
+        conn: BackendConnection | None = None
+        try:
+            conn = await self._spawn_backend(self.generation, lkg_tree=tree)
+            health, tools, schema_hash = await self._health_and_list(conn, self.generation, 20.0)
+        except Exception as e:  # noqa: BLE001
+            if conn is not None:
+                with contextlib.suppress(Exception):
+                    await conn.terminate()
+            self._event("LKG_START_FAILED", key=key, error=str(e))
+            return None
+
+        old_hash = self.active_schema_hash
+        self.active_conn = conn
+        self.active_instructions = health.get("instructions", "")
+        self.active_schema = tools
+        self.active_schema_hash = schema_hash
+        self.active_fingerprint = str(manifest.get("code_fingerprint") or f"lkg:{key}")
+        self.serving_lkg = True
+        self.lkg_key = key
+        self.lkg_fingerprint = self.active_fingerprint
+        self.lkg_module_drift = manifest.get("lkg_module_hash") != aep_lkg.LKG_MODULE_HASH
+        self._event("SERVING_LKG", key=key, reason=reason)
+        await self._push_meta(mode)
+        if old_hash and schema_hash != old_hash and self.cached_session:
+            with contextlib.suppress(Exception):
+                await self.cached_session.send_tool_list_changed()
+        return conn
+
+    # -- meta ----------------------------------------------------------------------------------------
+
+    def _effective_failure_kind(self) -> str | None:
+        if self.serving_lkg:
+            return "SERVING_LKG"
+        if self.failure_kind:
+            return self.failure_kind
+        return LKG_UNAVAILABLE if aep_lkg is None else None
 
     def _live_meta(self, mode: str) -> dict[str, Any]:
         return {
             "last_reload_error": self.last_reload_error,
-            "failure_kind": self.failure_kind,
+            "last_reload_error_struct": self.last_reload_error_struct,
+            "failure_kind": self._effective_failure_kind(),
             "hotswap_mode": mode,
             "swap_attempts": self.swap_attempts,
             "swap_fenced": self.swap_fenced,
             "swap_fence_orphan": self.swap_fence_orphan,
+            "serving_from": "lkg" if self.serving_lkg else None,
+            "lkg_fingerprint": self.lkg_fingerprint if self.serving_lkg else None,
+            "lkg_module_drift": self.lkg_module_drift,
         }
 
     async def _push_meta(self, mode: str, extra: dict[str, Any] | None = None) -> None:
         """Send current front-side state to the ACTIVE backend (explicit None clears fields)."""
+        self._write_state()
         if self.active_conn and self.active_conn.alive:
             meta = self._live_meta(mode)
             if extra:
                 meta.update(extra)
             with contextlib.suppress(Exception):
                 await self.active_conn.send_request({"op": "set_meta", "meta": meta}, timeout=5.0)
+
+    def _set_error(self, kind: str, error: str, tail: str) -> None:
+        """N0: free text is preserved; the structured form comes from aep_lkg.parse_error."""
+        self.last_reload_error = f"[{kind}] {error}"
+        self.failure_kind = kind
+        struct = None
+        if aep_lkg is not None:
+            with contextlib.suppress(Exception):
+                struct = aep_lkg.parse_error(tail or error)
+        self.last_reload_error_struct = struct
 
     async def _refresh_fence(self, mode: str) -> bool:
         """Re-evaluate the swap fence, publish changes, and return True if swapping is fenced."""
@@ -507,11 +973,10 @@ class LivePlaneManager:
         deterministic = exited and ("Traceback" in tail or "SyntaxError" in tail)
         return ("deterministic" if deterministic else "transient"), tail
 
-    async def _record_failed_swap(self, mode: str, disk_fp: str, error: str, kind: str) -> None:
+    async def _record_failed_swap(self, mode: str, disk_fp: str, error: str, kind: str, tail: str = "") -> None:
         """Retain Gen N and surface the error (D-18). Deterministic failures pin the failing
         fingerprint (D-19). Transient ones retry with backoff, up to TRANSIENT_MAX_ATTEMPTS."""
-        self.last_reload_error = f"[{kind}] {error}"
-        self.failure_kind = kind
+        self._set_error(kind, error, tail)
         if kind == "deterministic":
             self.failed_fingerprint = disk_fp
         else:
@@ -522,11 +987,13 @@ class LivePlaneManager:
             if self.transient_failures >= TRANSIENT_MAX_ATTEMPTS:
                 self.failed_fingerprint = disk_fp  # give up; touching the file forces a new attempt
             else:
-                self.next_retry_at = time.monotonic() + transient_backoff_seconds(self.transient_failures)
+                self.next_retry_at = self.clock() + transient_backoff_seconds(self.transient_failures)
+        self._event("SWAP_FAILED", failure_kind=kind, error=error)
         await self._push_meta(mode)
 
     def _clear_failure_state(self) -> None:
         self.last_reload_error = None
+        self.last_reload_error_struct = None
         self.failure_kind = None
         self.failed_fingerprint = ""
         self.transient_failures = 0
@@ -551,7 +1018,9 @@ class LivePlaneManager:
             self.active_fingerprint = disk_fp
             return
 
-        if disk_fp == self.active_fingerprint:
+        # While serving from the LKG tree, "same fingerprint as the served code" does not mean the disk
+        # is what runs: only a pinned (already failed) fingerprint is skipped.
+        if disk_fp == self.active_fingerprint and not self.serving_lkg:
             # Code reverted to what is running: an old reload error no longer applies.
             if self.last_reload_error is not None or self.failed_fingerprint or self.failure_kind:
                 self._clear_failure_state()
@@ -571,11 +1040,11 @@ class LivePlaneManager:
         if disk_fp == self.failed_fingerprint:
             return
         # Transient failure backoff (1 s, 2 s, 4 s).
-        if disk_fp == self.transient_fp and time.monotonic() < self.next_retry_at:
+        if disk_fp == self.transient_fp and self.clock() < self.next_retry_at:
             return
 
         # D-20(a): quiescence window; only swap if the fingerprint is stable across two reads.
-        await asyncio.sleep(_quiesce_seconds())
+        await self.sleep(_quiesce_seconds())
         if code_fingerprint(PROJECT_ROOT) != disk_fp:
             self.last_check_time = 0.0  # still being written: re-evaluate on the next call
             return
@@ -584,7 +1053,7 @@ class LivePlaneManager:
         async with self.swap_lock:
             # Re-check under lock (fingerprint and fence: a fence may appear during quiescence)
             disk_fp = code_fingerprint(PROJECT_ROOT)
-            if disk_fp == self.active_fingerprint or disk_fp == self.failed_fingerprint:
+            if (disk_fp == self.active_fingerprint and not self.serving_lkg) or disk_fp == self.failed_fingerprint:
                 return
             if await self._refresh_fence(mode):
                 return
@@ -607,7 +1076,9 @@ class LivePlaneManager:
                 kind, err_tail = await self._classify_failure(candidate, next_gen)
                 err_detail = err_tail or str(e)
                 await candidate.terminate()
-                await self._record_failed_swap(mode, disk_fp, f"Reload Gen {next_gen} health failed: {err_detail}", kind)
+                await self._record_failed_swap(
+                    mode, disk_fp, f"Reload Gen {next_gen} health failed: {err_detail}", kind, err_tail
+                )
                 return
 
             new_instructions = health.get("instructions", "")
@@ -617,9 +1088,9 @@ class LivePlaneManager:
                 new_schema = tools_resp.get("tools", [])
                 new_schema_hash = tools_resp.get("schema_hash", "")
             except Exception as e:  # noqa: BLE001
-                kind, _ = await self._classify_failure(candidate, next_gen)
+                kind, tail = await self._classify_failure(candidate, next_gen)
                 await candidate.terminate()
-                await self._record_failed_swap(mode, disk_fp, f"Failed to list tools from Gen {next_gen}: {e}", kind)
+                await self._record_failed_swap(mode, disk_fp, f"Failed to list tools from Gen {next_gen}: {e}", kind, tail)
                 return
 
             # A fence created while the candidate was starting aborts the promotion.
@@ -629,6 +1100,7 @@ class LivePlaneManager:
 
             old_conn = self.active_conn
             old_schema_hash = self.active_schema_hash
+            was_lkg = self.serving_lkg
 
             # Promote Gen N+1
             self.active_conn = candidate
@@ -638,9 +1110,15 @@ class LivePlaneManager:
             self.active_fingerprint = disk_fp
             self.generation = next_gen
             self.last_swap_at = datetime.now(UTC).isoformat()
+            self.serving_lkg = False
+            self.drops = []  # N2: the crash counter restarts on every promotion
             self._clear_failure_state()
+            self._event("PROMOTED", from_lkg=was_lkg, fingerprint=disk_fp)
             if hasattr(server, "instructions") and new_instructions:
                 server.instructions = new_instructions
+
+            # N1: snapshot the freshly promoted, healthy disk tree.
+            await self._save_lkg(self.generation, disk_fp, new_schema_hash)
 
             # Sync metadata to new worker (explicit None clears any stale error)
             await self._push_meta(
@@ -666,8 +1144,53 @@ class LivePlaneManager:
             await asyncio.sleep(0.1)
         await conn.terminate()
 
+    # -- reload barrier (autoevol verify | fix_test) ---------------------------------------------------
+
+    def compute_barrier(self) -> dict[str, Any]:
+        """Plain-JSON barrier state: {state, reason, retry_after_s, error, served_fingerprint,
+        disk_fingerprint, from_lkg}. The backend consumes it as `_barrier`; no threads_verify import here."""
+        disk_fp = code_fingerprint(PROJECT_ROOT)
+        out: dict[str, Any] = {
+            "state": RELOAD_PENDING,
+            "reason": "swap_pending",
+            "retry_after_s": None,
+            "error": self.last_reload_error,
+            "served_fingerprint": self.active_fingerprint,
+            "disk_fingerprint": disk_fp,
+            "from_lkg": self.serving_lkg,
+        }
+        if self.serving_lkg:
+            out.update(state=SERVING_LKG, reason="serving_lkg")
+        elif disk_fp == self.active_fingerprint:
+            out.update(state=RELOAD_OK, reason="", error=None)
+        elif disk_fp == self.failed_fingerprint:
+            out.update(state=RELOAD_FAILED, reason=self.failure_kind or "failed")
+        elif get_hotswap_mode() == "watch":
+            out.update(reason="watch_mode")
+        elif swap_fence_state()[0]:
+            out.update(reason="fenced")
+        elif disk_fp == self.transient_fp and self.clock() < self.next_retry_at:
+            out.update(reason="backoff", retry_after_s=round(max(0.0, self.next_retry_at - self.clock()), 3))
+        return out
+
+    async def settle_barrier(self) -> dict[str, Any]:
+        """Force a fingerprint check and wait (up to AEP_RELOAD_BARRIER_S) until the swap is no longer pending."""
+        deadline = self.clock() + _barrier_timeout_seconds()
+        while True:
+            self.last_check_time = 0.0
+            await self.check_and_swap_if_needed()
+            state = self.compute_barrier()
+            if state["state"] != RELOAD_PENDING or state["reason"] == "watch_mode" or self.clock() >= deadline:
+                return state
+            await self.sleep(BARRIER_POLL_S)
+
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        await self.check_and_swap_if_needed()
+        # `_barrier` is front-owned: a client-supplied value is always discarded.
+        arguments = {k: v for k, v in (arguments or {}).items() if k != "_barrier"}
+        if name == BARRIER_TOOL and arguments.get("action") in BARRIER_ACTIONS:
+            arguments["_barrier"] = await self.settle_barrier()
+        else:
+            await self.check_and_swap_if_needed()
         conn = await self.get_or_start_backend()
 
         conn.in_flight_calls += 1
@@ -702,6 +1225,7 @@ class LivePlaneManager:
         if self.active_conn:
             await self.active_conn.terminate()
             self.active_conn = None
+        self._remove_state()
 
 
 def create_front_server(mgr: LivePlaneManager, instructions: str | None = None) -> Server:
