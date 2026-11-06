@@ -103,7 +103,6 @@ def test_xfail_d02_playbook_run_list_summary_envelope() -> None:
     assert "envelope" not in payload, "Found legacy 'envelope' key in summary response"
 
 
-@pytest.mark.xfail(strict=True, reason="D-03a: select_fields non-existent path must report unresolved_fields")
 def test_xfail_d03a_select_fields_missing_key_unresolved_fields() -> None:
     """select_fields non-existent path should return unresolved_fields key."""
     res = asyncio.run(server.discover(action="playbook", select_fields=["nope"]))
@@ -111,7 +110,6 @@ def test_xfail_d03a_select_fields_missing_key_unresolved_fields() -> None:
     assert "unresolved_fields" in payload, "Missing 'unresolved_fields' key for invalid projection path"
 
 
-@pytest.mark.xfail(strict=True, reason="D-03b: indexed projection converts list to dict instead of preserving list")
 def test_xfail_d03b_indexed_projection_preserves_list() -> None:
     """Indexed select_fields path must preserve list type."""
     res = asyncio.run(

@@ -59,3 +59,21 @@ def test_compact_control_plane_defaults_and_exceptions() -> None:
     assert defaults == base
     assert domains["d"]["exceptions"] == {"c": {"privilege_tier": "FULL"}}
     assert "preconditions" not in domains["d"] and "description" not in domains["d"]
+
+
+def test_project_fields_reports_unresolved_without_full_fallback() -> None:
+    from engine.ipc_pool import project_fields
+
+    data = {"status": "OK", "big": {"x": 1}}
+    assert project_fields(data, ["nope"]) == {"unresolved_fields": ["nope"]}
+    mixed = project_fields(data, ["status", "nope.deep"])
+    assert mixed == {"status": "OK", "unresolved_fields": ["nope.deep"]}
+
+
+def test_project_fields_indexed_paths_preserve_lists() -> None:
+    from engine.ipc_pool import project_fields
+
+    data = {"items": [{"a": 1, "b": 2}, {"a": 3, "b": 4}], "m": {"l": [[{"k": 1, "z": 0}]]}}
+    out = project_fields(data, ["items.1.a", "items.0.b", "items.1.b", "m.l.0.0.k"])
+    assert out["items"] == [{"a": 3, "b": 4}, {"b": 2}]
+    assert out["m"]["l"] == [[{"k": 1}]]

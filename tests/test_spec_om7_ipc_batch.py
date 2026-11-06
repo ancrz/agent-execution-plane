@@ -146,7 +146,7 @@ class TestPipingAndProjection:
         projected = project_fields(data, ["status", "nested.val", "array.0.name"])
         assert projected["status"] == "OK"
         assert projected["nested"] == {"val": 42}
-        assert projected["array"] == {"0": {"name": "item1"}}
+        assert projected["array"] == [{"name": "item1"}]
         assert "unwanted" not in projected
         assert "secret" not in projected["nested"]
 

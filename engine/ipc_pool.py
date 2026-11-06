@@ -543,11 +543,15 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
     Constructs a lightweight dictionary containing ONLY requested fields in RAM
     prior to serialization, reducing response payload sizes by >75-95%.
     Supports smart fallback resolution for return_only="last" and return_only="all".
+    Paths that resolve nowhere are listed under `unresolved_fields` (the full payload is never returned
+    as a fallback); numeric segments over lists keep the result a list (D-03b).
     """
     if not select_fields or not isinstance(data, dict):
         return data
 
     projected: dict[str, Any] = {}
+    idx_maps: dict[int, dict[int, int]] = {}
+    unresolved: list[str] = []
 
     for field_path in select_fields:
         clean_path = str(field_path).strip()
@@ -556,7 +560,7 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
         # Direct resolution on data root (preserves existing behavior)
         val = _get_dot_path(data, clean_path)
         if val is not None:
-            _set_dot_path(projected, clean_path, val)
+            _set_dot_path(projected, clean_path, val, source=data, idx_maps=idx_maps)
             continue
 
         # Smart Fallback 1: return_only="last" where "output" is a dictionary
@@ -572,6 +576,7 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
 
         # Smart Fallback 2: return_only="all" where "results" is a list of steps
         results_list = data.get("results")
+        step_matched = False
         if isinstance(results_list, list):
             for idx, r in enumerate(results_list):
                 if not isinstance(r, dict):
@@ -585,6 +590,7 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
                     step_val = _get_dot_path(r, clean_path)
 
                 if step_val is not None:
+                    step_matched = True
                     if "results" not in projected:
                         projected["results"] = []
                     while len(projected["results"]) <= idx:
@@ -595,19 +601,57 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
                             "status": mr.get("status"),
                         })
                     _set_dot_path(projected["results"][idx], clean_path, step_val)
+        if not step_matched:
+            unresolved.append(clean_path)
 
-    # If projection ended up completely empty (e.g. unmatched fields), fall back gracefully
-    return projected or data
+    # D-03a: never fall back to the full payload; report what could not be resolved.
+    if unresolved:
+        projected["unresolved_fields"] = unresolved
+    return projected
 
 
-def _set_dot_path(dest: dict[str, Any], path_str: str, value: Any) -> None:
+def _set_dot_path(
+    dest: Any,
+    path_str: str,
+    value: Any,
+    source: Any = None,
+    idx_maps: dict[int, dict[int, int]] | None = None,
+) -> None:
+    """Write `value` at `path_str` inside `dest`.
+
+    With `source` (the original payload), numeric segments that address a list in `source` produce a
+    list in `dest` (D-03b: type preserved). Selected elements are packed densely in request order;
+    `idx_maps` records original-index -> position per list so repeated selections share an element.
+    Without `source`, numeric segments are plain dict keys (legacy behaviour).
+    """
+    maps = idx_maps if idx_maps is not None else {}
     parts = path_str.split(".")
     curr = dest
-    for i, part in enumerate(parts[:-1]):
-        if part not in curr or not isinstance(curr[part], dict):
-            curr[part] = {}
-        curr = curr[part]
-    curr[parts[-1]] = value
+    src = source
+    for i, part in enumerate(parts):
+        last = i == len(parts) - 1
+        if isinstance(src, list) and isinstance(curr, list) and part.isdigit():
+            orig = int(part)
+            m = maps.setdefault(id(curr), {})
+            if orig not in m:
+                curr.append(None)
+                m[orig] = len(curr) - 1
+            pos = m[orig]
+            child_src = src[orig] if 0 <= orig < len(src) else None
+            if last:
+                curr[pos] = value
+                return
+            if not isinstance(curr[pos], (dict, list)):
+                curr[pos] = [] if isinstance(child_src, list) else {}
+            curr, src = curr[pos], child_src
+            continue
+        child_src = src.get(part) if isinstance(src, dict) else None
+        if last:
+            curr[part] = value
+            return
+        if not isinstance(curr.get(part), (dict, list)):
+            curr[part] = [] if isinstance(child_src, list) else {}
+        curr, src = curr[part], child_src
 
 
 # -----------------------------------------------------------------------------
