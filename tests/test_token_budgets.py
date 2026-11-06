@@ -87,7 +87,6 @@ def test_budget_process_inspect_brief_limit_5() -> None:
 # ==============================================================================
 
 
-@pytest.mark.xfail(strict=True, reason="D-01: discover(schema, summary) currently returns ~18k tokens")
 def test_xfail_d01_discover_schema_summary_token_budget() -> None:
     """discover(action='schema', verbosity='summary') < 3000 tokens."""
     res = asyncio.run(server.discover(action="schema", verbosity="summary"))

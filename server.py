@@ -345,6 +345,63 @@ async def aep_capabilities(**kw: Any) -> str:
     return await discover(action="capabilities", **kw)
 
 
+def _json_type(spec: Any) -> str:
+    """Render a JSON Schema property type as a short token (e.g. 'str', 'int|null')."""
+    if not isinstance(spec, dict):
+        return "any"
+    t = spec.get("type")
+    if t is None and isinstance(spec.get("anyOf"), list):
+        t = [x.get("type", "any") for x in spec["anyOf"] if isinstance(x, dict)]
+    if isinstance(t, list):
+        t = "|".join(str(x) for x in t)
+    return str(t or "any")
+
+
+def _actions_from_doc(doc: str) -> list[str]:
+    """Best-effort action names from a tool docstring: `action="a"|"b"` or an `action:` bullet list."""
+    m = re.search(r'action="([a-z_]+(?:"\|"[a-z_]+)+)"', doc)
+    if m:
+        return m.group(1).split('"|"')
+    names: list[str] = []
+    in_block = False
+    for line in doc.splitlines():
+        if not in_block:
+            in_block = line.strip() == "action:"
+            continue
+        if line.strip().startswith("- '"):
+            head = line.strip()[2:].split(":", 1)[0]
+            names.extend(re.findall(r"'([a-z][a-z_]*)'", head))
+        elif line.strip() and not line.startswith("  "):
+            break
+    return list(dict.fromkeys(names))[:16]
+
+
+def _compact_tools_schema(payload: dict[str, Any]) -> dict[str, Any]:
+    """D-01: summary view of discover(schema): {tool: {params: [name:type=default], actions}}.
+
+    Full JSON Schema, docstrings and the degradation matrix are reserved for verbosity='detail'.
+    """
+    compact_tools: dict[str, Any] = {}
+    for tname, meta in (payload.get("tools") or {}).items():
+        params_schema = (meta or {}).get("parameters") or {}
+        props = params_schema.get("properties") or {}
+        params = []
+        actions: list[str] = []
+        for pname, pspec in props.items():
+            token = f"{pname}:{_json_type(pspec)}"
+            if isinstance(pspec, dict) and "default" in pspec:
+                token += f"={json.dumps(pspec['default'], separators=(',', ':'))}"
+            params.append(token)
+            if pname == "action" and isinstance(pspec.get("enum"), list):
+                actions = [str(x) for x in pspec["enum"]]
+        if not actions:
+            actions = _actions_from_doc((meta or {}).get("description") or "")
+        compact_tools[tname] = {"params": params, "actions": actions}
+    out = {k: v for k, v in payload.items() if k not in ("tools", "degradation_matrix", "preconditions")}
+    out["tools"] = compact_tools
+    return out
+
+
 @mcp.tool(structured_output=False)
 async def topos_audit_dag(
     tasks: list[Any],
@@ -766,6 +823,9 @@ async def discover(
             payload["cache_status"] = cache_status
             payload["source"] = source
             payload["session_id"] = eff_sid
+
+            if (verbosity or "detail").strip().lower() in ("summary", "brief", "terse", "cached"):
+                payload = _compact_tools_schema(payload)
 
             if select_fields and isinstance(select_fields, list):
                 payload = project_fields(payload, select_fields)
