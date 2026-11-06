@@ -97,7 +97,16 @@ def test_t_f2_stderr_flood_no_deadlock() -> None:
                 assert data.get("status") == "OK"
 
                 # Verify backend log file exists and contains > 256 KiB
-                log_file = Path.home() / ".local" / "share" / "agent-os" / "logs" / "aep_backend_gen1.log"
+                # D-5: logs are per-front. The backend's parent is the front: resolve its exact log.
+                backend_pid = data["pid"]
+                front_pid = next(
+                    int(line.split()[1])
+                    for line in Path(f"/proc/{backend_pid}/status").read_text().splitlines()
+                    if line.startswith("PPid:")
+                )
+                log_file = (
+                    Path.home() / ".local" / "share" / "agent-os" / "logs" / f"aep_backend_{front_pid}_gen1.log"
+                )
                 assert log_file.exists()
                 assert log_file.stat().st_size >= 256 * 1024
 
