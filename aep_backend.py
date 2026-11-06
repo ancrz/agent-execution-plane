@@ -47,6 +47,10 @@ BACKEND_META: dict[str, Any] = {
     "last_swap_at": None,
     "last_reload_error": None,
     "hotswap_mode": "auto",
+    "failure_kind": None,
+    "swap_attempts": 0,
+    "swap_fenced": False,
+    "swap_fence_orphan": False,
 }
 
 
@@ -55,8 +59,10 @@ def get_backend_meta() -> dict[str, Any]:
 
 
 def set_backend_meta(**kwargs: Any) -> None:
+    """Update known meta keys. Only keys actually sent are touched; an explicit None
+    is a valid value (D-18: clears a stale last_reload_error)."""
     for k, v in kwargs.items():
-        if k in BACKEND_META and v is not None:
+        if k in BACKEND_META:
             BACKEND_META[k] = v
 
 
@@ -92,6 +98,10 @@ class BackendWorker:
                 tools_count = len(getattr(tm, "_tools", {})) if tm else 0
                 schema_hash = server._get_schema_hash()
                 fp = code_fingerprint(PROJECT_ROOT)
+                # T-D19: test hook simulating a slow candidate (only for swap candidates, Gen >= 2)
+                health_delay = float(os.environ.get("AEP_TEST_HEALTH_DELAY_S", "0") or 0)
+                if health_delay > 0 and self.generation >= 2:
+                    await asyncio.sleep(health_delay)
                 instructions = getattr(server.mcp, "instructions", "") or ""
                 await self._send_response(writer, {
                     "status": "OK",
@@ -248,6 +258,7 @@ def main() -> None:
         BACKEND_META["last_swap_at"] = args.last_swap_at
     if args.last_reload_error:
         BACKEND_META["last_reload_error"] = args.last_reload_error
+    # Candidates never inherit a reload error through env (D-18); only set_meta carries it.
     BACKEND_META["hotswap_mode"] = args.hotswap_mode
 
     # Setup socket

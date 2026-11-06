@@ -841,7 +841,7 @@ def tactical_playbook() -> dict[str, Any]:
             "7. ZERO-TOKEN MULTI-AGENT RAM HANDOFF & CONCURRENCY: Share state across agents in /dev/shm/aep_pool using params={'session_id': 'shared'} + store_as='key' and reference $cache.<key>.<field> (or $slot.<key>.<field>). All 16 tools (Pico-Kanban, Pico-Jenkins Go builds, Pico-Ansible playbooks, SHA-256 audit log, default primitives, and RAM snapshots) are collision-free under concurrent multi-agent execution.",
             "8. MULTI-AGENT RAM CAPABILITY CACHING (GAP-DOC-02): Subagents must call discover(action='capabilities', session_id='<shared-id>', verbosity='terse') to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).",
             "9. TACTICAL SANDBOX RECIPES (ONT-30): Use sandbox-linter-fix (rw_paths=[<repo>]) for in-place formatting, untrusted-adversarial-probe (rw_paths=[<scratch>]) for isolated fuzzing, and composite-verification-runner (parse='auto') for unified ruff && pytest in 1 turn.",
-            "10. VERIFY LOADED CODE (ONT-39 / SDD §5): Después de editar código o de un reload, llamar a discover(action='capabilities', verbosity='terse') y exigir stale == false y code_fingerprint_loaded == code_fingerprint_disk. Si no se cumple, el cambio no está cargado y cualquier prueba hecha sobre él es inválida.",
+            "10. VERIFY LOADED CODE (ONT-39): tras editar o recargar, discover(capabilities, terse) y exigir stale == false y code_fingerprint_loaded == code_fingerprint_disk; si no, el cambio NO está cargado. Cambios multiarchivo: crea .aep_swap_fence, edita, valida, borra el fence y verifica con discover(capabilities, terse).",
         ],
         "workflow_recipes": [
             {

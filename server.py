@@ -125,7 +125,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
 - **Tactical Security & Incident Workflows (ONT-32)**: Use WF-10 ('Native Network Telemetry & Port Observability') and WF-11 ('Security Observability & Netfilter Hardening' with netfilter mitigation and Landlock verification).
 - **Tactical Sandbox Recipes (ONT-30)**: Use `sandbox-linter-fix` (`rw_paths=[<repo>]`) for in-place formatting, `untrusted-adversarial-probe` (`rw_paths=[<scratch>]`) for isolated fuzzing, and `composite-verification-runner` (`parse="auto"`) for unified ruff && pytest in 1 turn.
-- **VERIFY LOADED CODE (ONT-39 / SDD §5)**: Después de editar código o de un reload, llamar a `discover(action="capabilities", verbosity="terse")` y exigir `stale == false` y `code_fingerprint_loaded == code_fingerprint_disk`. Si no se cumple, el cambio NO está cargado y cualquier prueba hecha sobre él es inválida.
+- **VERIFY LOADED CODE (ONT-39 / SDD §5)**: Después de editar código o de un reload, llamar a `discover(action="capabilities", verbosity="terse")` y exigir `stale == false` y `code_fingerprint_loaded == code_fingerprint_disk`. Si no se cumple, el cambio NO está cargado y cualquier prueba hecha sobre él es inválida. FENCE MULTIARCHIVO (D-20): para cambios multiarchivo, crea `.aep_swap_fence` en la raíz del proyecto, edita, valida, borra el fence y luego verifica con `discover(capabilities, terse)` (mientras exista el fence el front no hace swap y reporta `swap_fenced=true`; un fence con más de 600 s se ignora como huérfano).
 """
 
 
@@ -219,8 +219,16 @@ def _get_live_meta() -> dict[str, Any]:
             gen = int(os.environ.get("AEP_BACKEND_GENERATION", "1"))
         except ValueError:
             gen = 1
-    last_swap = meta.get("last_swap_at") or os.environ.get("AEP_LAST_SWAP_AT") or None
-    last_err = meta.get("last_reload_error") or os.environ.get("AEP_LAST_RELOAD_ERROR") or None
+    # D-18: when the backend meta carries the key (even as None) it is authoritative;
+    # the env fallback only applies to a process with no meta channel (legacy mode).
+    if "last_swap_at" in meta:
+        last_swap = meta["last_swap_at"] or None
+    else:
+        last_swap = os.environ.get("AEP_LAST_SWAP_AT") or None
+    if "last_reload_error" in meta:
+        last_err = meta["last_reload_error"] or None
+    else:
+        last_err = os.environ.get("AEP_LAST_RELOAD_ERROR") or None
     hs_mode = meta.get("hotswap_mode") or os.environ.get("AEP_HOTSWAP_MODE")
     if not hs_mode:
         if os.environ.get("AEP_HOTSWAP") == "0":
@@ -234,6 +242,10 @@ def _get_live_meta() -> dict[str, Any]:
         "last_swap_at": last_swap,
         "last_reload_error": last_err,
         "hotswap_mode": hs_mode,
+        "failure_kind": meta.get("failure_kind") or None,
+        "swap_attempts": int(meta.get("swap_attempts") or 0),
+        "swap_fenced": bool(meta.get("swap_fenced", False)),
+        "swap_fence_orphan": bool(meta.get("swap_fence_orphan", False)),
     }
 
 
@@ -608,6 +620,15 @@ async def discover(
                 "accelerators": ([acc.get("device", "card") for acc in accels_overview] if v_mode in ("terse", "cached") else accels_overview),
             }
             payload.update(caps_meta)
+            # ONT-39 D-19/D-20: integrity counters/flags are emitted only when non-default (token budget).
+            if live_meta["failure_kind"]:
+                payload["failure_kind"] = live_meta["failure_kind"]
+            if live_meta["swap_attempts"]:
+                payload["swap_attempts"] = live_meta["swap_attempts"]
+            if live_meta["swap_fenced"]:
+                payload["swap_fenced"] = True
+            if live_meta["swap_fence_orphan"]:
+                payload["swap_fence_orphan"] = True
             if v_mode not in ("terse", "cached"):
                 payload["session_hint"] = (
                     "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."

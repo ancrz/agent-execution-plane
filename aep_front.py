@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -44,34 +45,169 @@ from mcp.server.lowlevel import Server  # noqa: E402
 from mcp.server.lowlevel.server import NotificationOptions  # noqa: E402
 from mcp.server.session import ServerSession  # noqa: E402
 
-from engine.fingerprint import code_fingerprint  # noqa: E402
-
 logger = logging.getLogger("aep.front")
 PROJECT_ROOT = Path(__file__).resolve().parent
 FRONT_START_TIME_NS: int = time.time_ns()
 BACKEND_LOG_DIR = Path.home() / ".local" / "share" / "agent-os" / "logs"
+FRONT_PID: int = os.getpid()
+
+SWAP_FENCE_NAME = ".aep_swap_fence"
+SWAP_FENCE_ORPHAN_AFTER_S = 600.0
+DEFAULT_QUIESCE_MS = 300
+DEAD_FRONT_LOG_MAX_AGE_S = 86400.0
+LOG_RETENTION_PER_FRONT = 5
 
 
-def _prune_backend_logs(log_dir: Path, max_generations: int = 5) -> None:
-    """Retain only the last max_generations backend log files by mtime (F2)."""
+def _fallback_code_fingerprint(root: Path | str | None = None) -> str:
+    """Self-contained copy of engine.fingerprint.code_fingerprint (D-21).
+
+    The front must start even when engine/fingerprint.py (a watched file) is broken.
+    Must stay byte-for-byte equivalent in output; tests assert hash parity.
+    """
+    repo = Path(root).resolve() if root is not None else Path(__file__).resolve().parent
+    files: list[Path] = []
+    for name in ("server.py", "aep_backend.py"):
+        p = repo / name
+        if p.is_file():
+            files.append(p)
+    engine_dir = repo / "engine"
+    if engine_dir.is_dir():
+        for p in engine_dir.rglob("*.py"):
+            if "__pycache__" not in p.parts and p.is_file():
+                files.append(p)
+    tpl = repo / "templates" / "registry.json"
+    if tpl.is_file():
+        files.append(tpl)
+    schemas_dir = repo / "schemas"
+    if schemas_dir.is_dir():
+        for p in schemas_dir.iterdir():
+            if p.is_file():
+                files.append(p)
+    files.sort(key=lambda f: f.relative_to(repo).as_posix())
+
+    hasher = hashlib.sha256()
+    for f in files:
+        try:
+            rel = f.relative_to(repo).as_posix()
+            st = f.stat()
+            hasher.update(f"{rel}:{st.st_mtime_ns}:{st.st_size}\n".encode())
+        except OSError:
+            continue
+    return hasher.hexdigest()
+
+
+try:
+    from engine.fingerprint import code_fingerprint  # noqa: E402
+except Exception:  # noqa: BLE001
+    code_fingerprint = _fallback_code_fingerprint
+
+
+def _quiesce_seconds() -> float:
+    raw = os.environ.get("AEP_HOTSWAP_QUIESCE_MS", str(DEFAULT_QUIESCE_MS))
     try:
-        files: list[tuple[int, Path]] = []
-        for p in log_dir.glob("aep_backend_gen*.log"):
-            m = re.match(r"^aep_backend_gen\d+\.log$", p.name)
-            if m:
-                files.append((p.stat().st_mtime_ns, p))
-        files.sort(key=lambda x: x[0])
-        while len(files) > max_generations:
-            _, old_p = files.pop(0)
-            with contextlib.suppress(Exception):
-                old_p.unlink()
+        return max(0, int(raw)) / 1000.0
+    except ValueError:
+        return DEFAULT_QUIESCE_MS / 1000.0
+
+
+def _debounce_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("AEP_HOTSWAP_DEBOUNCE_S", "1.0")))
+    except ValueError:
+        return 1.0
+
+
+def _health_timeout_seconds() -> float:
+    try:
+        return max(0.1, float(os.environ.get("AEP_HOTSWAP_HEALTH_TIMEOUT_S", "20")))
+    except ValueError:
+        return 20.0
+
+
+TRANSIENT_MAX_ATTEMPTS = 3  # backoff 1 s, 2 s, 4 s between attempts
+
+
+def transient_backoff_seconds(failure_number: int) -> float:
+    """Delay before the retry that follows the Nth consecutive transient failure (1 s, 2 s, 4 s)."""
+    return float(2 ** (max(1, failure_number) - 1))
+
+
+def swap_fence_state() -> tuple[bool, bool]:
+    """Return (fenced, orphan). A fence older than SWAP_FENCE_ORPHAN_AFTER_S is ignored (orphan)."""
+    try:
+        st = (PROJECT_ROOT / SWAP_FENCE_NAME).stat()
+    except OSError:
+        return False, False
+    if time.time() - st.st_mtime > SWAP_FENCE_ORPHAN_AFTER_S:
+        return False, True
+    return True, False
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+_LOG_RE = re.compile(r"^aep_backend_(?:(\d+)_)?gen(\d+)\.log$")
+
+
+def _backend_log_path(front_pid: int, generation: int) -> Path:
+    return BACKEND_LOG_DIR / f"aep_backend_{front_pid}_gen{generation}.log"
+
+
+def _prune_backend_logs(
+    log_dir: Path,
+    front_pid: int | None = None,
+    max_generations: int = LOG_RETENTION_PER_FRONT,
+) -> None:
+    """Per-front retention of the last max_generations logs (by mtime), and removal of
+    logs from dead fronts older than one day (legacy pid-less names count as dead)."""
+    try:
+        own = front_pid if front_pid is not None else FRONT_PID
+        by_pid: dict[int | None, list[tuple[int, Path]]] = {}
+        for p in log_dir.glob("aep_backend_*gen*.log"):
+            m = _LOG_RE.match(p.name)
+            if not m:
+                continue
+            pid = int(m.group(1)) if m.group(1) else None
+            try:
+                by_pid.setdefault(pid, []).append((p.stat().st_mtime_ns, p))
+            except OSError:
+                continue
+        now_ns = time.time_ns()
+        max_age_ns = int(DEAD_FRONT_LOG_MAX_AGE_S * 1e9)
+        for pid, files in by_pid.items():
+            files.sort(key=lambda x: x[0])
+            if pid == own:
+                while len(files) > max_generations:
+                    _, old_p = files.pop(0)
+                    with contextlib.suppress(Exception):
+                        old_p.unlink()
+            elif pid is None or not _pid_alive(pid):
+                for mtime_ns, old_p in files:
+                    if now_ns - mtime_ns > max_age_ns:
+                        with contextlib.suppress(Exception):
+                            old_p.unlink()
+            else:
+                # Live concurrent front: apply the same per-front retention to its logs.
+                while len(files) > max_generations:
+                    _, old_p = files.pop(0)
+                    with contextlib.suppress(Exception):
+                        old_p.unlink()
     except Exception as e:  # noqa: BLE001
         logger.debug("Failed pruning backend logs: %s", e)
 
 
 def _read_backend_log_tail(generation: int, max_bytes: int = 4096) -> str:
     """Read tail of backend log file for last_reload_error on failure (F2)."""
-    log_file = BACKEND_LOG_DIR / f"aep_backend_gen{generation}.log"
+    log_file = _backend_log_path(FRONT_PID, generation)
     try:
         if not log_file.exists():
             return ""
@@ -211,6 +347,14 @@ class LivePlaneManager:
         self.last_swap_at: str | None = None
         self.last_reload_error: str | None = None
         self.last_check_time: float = 0.0
+        self.failed_fingerprint: str = ""
+        self.failure_kind: str | None = None
+        self.transient_failures: int = 0
+        self.transient_fp: str = ""
+        self.next_retry_at: float = 0.0
+        self.swap_attempts: int = 0
+        self.swap_fenced: bool = False
+        self.swap_fence_orphan: bool = False
         self.swap_lock = asyncio.Lock()
         self.cached_session: ServerSession | None = None
 
@@ -224,49 +368,65 @@ class LivePlaneManager:
     async def _spawn_backend(self, generation: int) -> BackendConnection:
         backend_script = PROJECT_ROOT / "aep_backend.py"
         s_front, s_backend = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-        s_backend.set_inheritable(True)
+        log_fd: Any = None
+        proc: subprocess.Popen | None = None
+        try:
+            s_backend.set_inheritable(True)
 
-        mode = get_hotswap_mode()
-        env = dict(os.environ)
-        env["AEP_BACKEND_GENERATION"] = str(generation)
-        env["AEP_HOTSWAP_MODE"] = mode
-        env["AEP_FRONT_START_TIME_NS"] = str(FRONT_START_TIME_NS)
-        if self.last_swap_at:
-            env["AEP_LAST_SWAP_AT"] = self.last_swap_at
-        if self.last_reload_error:
-            env["AEP_LAST_RELOAD_ERROR"] = self.last_reload_error
+            mode = get_hotswap_mode()
+            env = dict(os.environ)
+            env["AEP_BACKEND_GENERATION"] = str(generation)
+            env["AEP_HOTSWAP_MODE"] = mode
+            env["AEP_FRONT_START_TIME_NS"] = str(FRONT_START_TIME_NS)
+            if self.last_swap_at:
+                env["AEP_LAST_SWAP_AT"] = self.last_swap_at
+            # D-18: a candidate never inherits a reload error. Drop any ambient value; the error is
+            # delivered via set_meta only to the ACTIVE backend that keeps serving.
+            env.pop("AEP_LAST_RELOAD_ERROR", None)
 
-        # F2: Redirect stderr to ~/.local/share/agent-os/logs/aep_backend_gen<N>.log (retain last 5 generations)
-        BACKEND_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        log_path = BACKEND_LOG_DIR / f"aep_backend_gen{generation}.log"
-        log_fd = open(log_path, "w", encoding="utf-8")
-        _prune_backend_logs(BACKEND_LOG_DIR, max_generations=5)
+            # F2/D-5: stderr -> aep_backend_<front_pid>_gen<N>.log (per-front names; retain last 5 per front)
+            BACKEND_LOG_DIR.mkdir(parents=True, exist_ok=True)
+            log_path = _backend_log_path(FRONT_PID, generation)
+            log_fd = open(log_path, "w", encoding="utf-8")
+            _prune_backend_logs(BACKEND_LOG_DIR, front_pid=FRONT_PID, max_generations=LOG_RETENTION_PER_FRONT)
 
-        # F1: Pass stdin/stdout DEVNULL to protect client MCP JSON-RPC protocol channel
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                str(backend_script),
-                "--fd",
-                str(s_backend.fileno()),
-                "--generation",
-                str(generation),
-                "--hotswap-mode",
-                mode,
-            ],
-            pass_fds=(s_backend.fileno(),),
-            cwd=str(PROJECT_ROOT),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=log_fd,
-        )
-        log_fd.close()
-        s_backend.close()
-
-        conn = BackendConnection(proc, s_front, generation)
-        await conn.initialize()
-        return conn
+            # F1: Pass stdin/stdout DEVNULL to protect client MCP JSON-RPC protocol channel
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(backend_script),
+                    "--fd",
+                    str(s_backend.fileno()),
+                    "--generation",
+                    str(generation),
+                    "--hotswap-mode",
+                    mode,
+                ],
+                pass_fds=(s_backend.fileno(),),
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=log_fd,
+            )
+            conn = BackendConnection(proc, s_front, generation)
+            await conn.initialize()
+            return conn
+        except BaseException:
+            # No leaks on a failed spawn: stop the child and release every descriptor we own.
+            if proc is not None and proc.poll() is None:
+                with contextlib.suppress(Exception):
+                    proc.kill()
+                    proc.wait(timeout=2.0)
+            with contextlib.suppress(Exception):
+                s_front.close()
+            raise
+        finally:
+            if log_fd is not None:
+                with contextlib.suppress(Exception):
+                    log_fd.close()
+            with contextlib.suppress(Exception):
+                s_backend.close()
 
     async def get_or_start_backend(self) -> BackendConnection:
         if self.active_conn and self.active_conn.alive and self.active_conn.proc.poll() is None:
@@ -296,14 +456,85 @@ class LivePlaneManager:
             self.active_conn = conn
             return conn
 
+    def _live_meta(self, mode: str) -> dict[str, Any]:
+        return {
+            "last_reload_error": self.last_reload_error,
+            "failure_kind": self.failure_kind,
+            "hotswap_mode": mode,
+            "swap_attempts": self.swap_attempts,
+            "swap_fenced": self.swap_fenced,
+            "swap_fence_orphan": self.swap_fence_orphan,
+        }
+
+    async def _push_meta(self, mode: str, extra: dict[str, Any] | None = None) -> None:
+        """Send current front-side state to the ACTIVE backend (explicit None clears fields)."""
+        if self.active_conn and self.active_conn.alive:
+            meta = self._live_meta(mode)
+            if extra:
+                meta.update(extra)
+            with contextlib.suppress(Exception):
+                await self.active_conn.send_request({"op": "set_meta", "meta": meta}, timeout=5.0)
+
+    async def _refresh_fence(self, mode: str) -> bool:
+        """Re-evaluate the swap fence, publish changes, and return True if swapping is fenced."""
+        fenced, orphan = swap_fence_state()
+        if (fenced, orphan) != (self.swap_fenced, self.swap_fence_orphan):
+            self.swap_fenced, self.swap_fence_orphan = fenced, orphan
+            await self._push_meta(mode)
+        return fenced
+
+    async def _classify_failure(self, candidate: BackendConnection | None, generation: int) -> tuple[str, str]:
+        """deterministic: candidate exited with a traceback; transient: anything else (timeout,
+        spawn exception, failed list with the process alive). Returns (kind, log_tail)."""
+        exited = False
+        if candidate is not None:
+            try:
+                await asyncio.to_thread(candidate.proc.wait, timeout=0.5)
+                exited = True
+            except Exception:  # noqa: BLE001
+                exited = candidate.proc.poll() is not None
+        tail = _read_backend_log_tail(generation=generation, max_bytes=4096) if candidate is not None else ""
+        deterministic = exited and ("Traceback" in tail or "SyntaxError" in tail)
+        return ("deterministic" if deterministic else "transient"), tail
+
+    async def _record_failed_swap(self, mode: str, disk_fp: str, error: str, kind: str) -> None:
+        """Retain Gen N and surface the error (D-18). Deterministic failures pin the failing
+        fingerprint (D-19). Transient ones retry with backoff, up to TRANSIENT_MAX_ATTEMPTS."""
+        self.last_reload_error = f"[{kind}] {error}"
+        self.failure_kind = kind
+        if kind == "deterministic":
+            self.failed_fingerprint = disk_fp
+        else:
+            if disk_fp != self.transient_fp:
+                self.transient_fp = disk_fp
+                self.transient_failures = 0
+            self.transient_failures += 1
+            if self.transient_failures >= TRANSIENT_MAX_ATTEMPTS:
+                self.failed_fingerprint = disk_fp  # give up; touching the file forces a new attempt
+            else:
+                self.next_retry_at = time.monotonic() + transient_backoff_seconds(self.transient_failures)
+        await self._push_meta(mode)
+
+    def _clear_failure_state(self) -> None:
+        self.last_reload_error = None
+        self.failure_kind = None
+        self.failed_fingerprint = ""
+        self.transient_failures = 0
+        self.transient_fp = ""
+        self.next_retry_at = 0.0
+
     async def check_and_swap_if_needed(self) -> None:
         now = time.time()
-        # Debounce of 1s
-        if now - self.last_check_time < 1.0:
+        # Debounce (default 1s, AEP_HOTSWAP_DEBOUNCE_S)
+        if now - self.last_check_time < _debounce_seconds():
             return
         self.last_check_time = now
 
         mode = get_hotswap_mode()
+
+        # D-20(b): explicit fence. Reported honestly; stale stays visible.
+        fenced = await self._refresh_fence(mode)
+
         disk_fp = code_fingerprint(PROJECT_ROOT)
 
         if not self.active_fingerprint:
@@ -311,56 +542,62 @@ class LivePlaneManager:
             return
 
         if disk_fp == self.active_fingerprint:
+            # Code reverted to what is running: an old reload error no longer applies.
+            if self.last_reload_error is not None or self.failed_fingerprint or self.failure_kind:
+                self._clear_failure_state()
+                await self._push_meta(mode)
             return
 
         # Code has changed!
         if mode == "watch":
             # In watch mode, do not swap. Report stale to active backend.
-            if self.active_conn and self.active_conn.alive:
-                with contextlib.suppress(Exception):
-                    await self.active_conn.send_request({
-                        "op": "set_meta",
-                        "meta": {
-                            "hotswap_mode": "watch",
-                            "last_reload_error": self.last_reload_error,
-                        },
-                    }, timeout=2.0)
+            await self._push_meta(mode)
+            return
+
+        if fenced:
+            return
+
+        # D-19: do not retry the same deterministically broken fingerprint.
+        if disk_fp == self.failed_fingerprint:
+            return
+        # Transient failure backoff (1 s, 2 s, 4 s).
+        if disk_fp == self.transient_fp and time.monotonic() < self.next_retry_at:
+            return
+
+        # D-20(a): quiescence window; only swap if the fingerprint is stable across two reads.
+        await asyncio.sleep(_quiesce_seconds())
+        if code_fingerprint(PROJECT_ROOT) != disk_fp:
+            self.last_check_time = 0.0  # still being written: re-evaluate on the next call
             return
 
         # Auto-swap enabled (7rwx / 6rw- / 5r-x)
         async with self.swap_lock:
-            # Re-check under lock
+            # Re-check under lock (fingerprint and fence: a fence may appear during quiescence)
             disk_fp = code_fingerprint(PROJECT_ROOT)
-            if disk_fp == self.active_fingerprint:
+            if disk_fp == self.active_fingerprint or disk_fp == self.failed_fingerprint:
+                return
+            if await self._refresh_fence(mode):
                 return
 
             next_gen = self.generation + 1
+            self.swap_attempts += 1
             try:
                 candidate = await self._spawn_backend(generation=next_gen)
             except Exception as e:  # noqa: BLE001
-                self.last_reload_error = f"Failed to spawn backend Gen {next_gen}: {e}"
+                await self._record_failed_swap(mode, disk_fp, f"Failed to spawn backend Gen {next_gen}: {e}", "transient")
                 return
 
-            # Wait for health with 20s timeout (fail-safe)
+            # Wait for health (fail-safe)
             try:
-                health = await candidate.send_request({"op": "health"}, timeout=20.0)
+                health = await candidate.send_request({"op": "health"}, timeout=_health_timeout_seconds())
                 if health.get("status") != "OK":
                     raise RuntimeError(health.get("error") or "Non-OK health status")
             except Exception as e:  # noqa: BLE001
                 # Retain Gen N! Un code roto nunca sustituye a uno sano.
-                err_tail = _read_backend_log_tail(generation=next_gen, max_bytes=4096)
+                kind, err_tail = await self._classify_failure(candidate, next_gen)
                 err_detail = err_tail or str(e)
-                self.last_reload_error = f"Reload Gen {next_gen} health failed: {err_detail}"
                 await candidate.terminate()
-                if self.active_conn and self.active_conn.alive:
-                    with contextlib.suppress(Exception):
-                        await self.active_conn.send_request({
-                            "op": "set_meta",
-                            "meta": {
-                                "last_reload_error": self.last_reload_error,
-                                "hotswap_mode": mode,
-                            },
-                        }, timeout=2.0)
+                await self._record_failed_swap(mode, disk_fp, f"Reload Gen {next_gen} health failed: {err_detail}", kind)
                 return
 
             new_instructions = health.get("instructions", "")
@@ -370,7 +607,13 @@ class LivePlaneManager:
                 new_schema = tools_resp.get("tools", [])
                 new_schema_hash = tools_resp.get("schema_hash", "")
             except Exception as e:  # noqa: BLE001
-                self.last_reload_error = f"Failed to list tools from Gen {next_gen}: {e}"
+                kind, _ = await self._classify_failure(candidate, next_gen)
+                await candidate.terminate()
+                await self._record_failed_swap(mode, disk_fp, f"Failed to list tools from Gen {next_gen}: {e}", kind)
+                return
+
+            # A fence created while the candidate was starting aborts the promotion.
+            if await self._refresh_fence(mode):
                 await candidate.terminate()
                 return
 
@@ -385,21 +628,15 @@ class LivePlaneManager:
             self.active_fingerprint = disk_fp
             self.generation = next_gen
             self.last_swap_at = datetime.now(UTC).isoformat()
-            self.last_reload_error = None
+            self._clear_failure_state()
             if hasattr(server, "instructions") and new_instructions:
                 server.instructions = new_instructions
 
-            # Sync metadata to new worker
-            with contextlib.suppress(Exception):
-                await candidate.send_request({
-                    "op": "set_meta",
-                    "meta": {
-                        "backend_generation": self.generation,
-                        "last_swap_at": self.last_swap_at,
-                        "last_reload_error": None,
-                        "hotswap_mode": mode,
-                    },
-                }, timeout=5.0)
+            # Sync metadata to new worker (explicit None clears any stale error)
+            await self._push_meta(
+                mode,
+                {"backend_generation": self.generation, "last_swap_at": self.last_swap_at},
+            )
 
             # Check if schema changed: notify client
             if old_schema_hash and new_schema_hash != old_schema_hash:

@@ -57,3 +57,6 @@ _probes/
 *.egg-info/
 dist/
 build/
+
+# AEP live plane multi-file swap fence (D-20)
+.aep_swap_fence
