@@ -125,6 +125,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
 - **Tactical Security & Incident Workflows (ONT-32)**: Use WF-10 ('Native Network Telemetry & Port Observability') and WF-11 ('Security Observability & Netfilter Hardening' with netfilter mitigation and Landlock verification).
 - **Tactical Sandbox Recipes (ONT-30)**: Use `sandbox-linter-fix` (`rw_paths=[<repo>]`) for in-place formatting, `untrusted-adversarial-probe` (`rw_paths=[<scratch>]`) for isolated fuzzing, and `composite-verification-runner` (`parse="auto"`) for unified ruff && pytest in 1 turn.
+- **VERIFY LOADED CODE (ONT-39 / SDD §5)**: Después de editar código o de un reload, llamar a `discover(action="capabilities", verbosity="terse")` y exigir `stale == false` y `code_fingerprint_loaded == code_fingerprint_disk`. Si no se cumple, el cambio NO está cargado y cualquier prueba hecha sobre él es inválida.
 """
 
 
@@ -197,6 +198,43 @@ def _read_git_head_commit() -> str:
 
 LOADED_COMMIT: str = _read_git_head_commit()
 LOADED_TIME: float = time.time()
+
+from engine.fingerprint import code_fingerprint  # noqa: E402
+
+LOADED_FINGERPRINT: str = code_fingerprint(PROJECT_DIR)
+
+_BACKEND_META_GETTER: Any = None
+
+
+def _get_live_meta() -> dict[str, Any]:
+    meta: dict[str, Any] = {}
+    if callable(_BACKEND_META_GETTER):
+        try:
+            meta = _BACKEND_META_GETTER() or {}
+        except Exception:  # noqa: BLE001, S110
+            pass
+    gen = meta.get("backend_generation")
+    if gen is None:
+        try:
+            gen = int(os.environ.get("AEP_BACKEND_GENERATION", "1"))
+        except ValueError:
+            gen = 1
+    last_swap = meta.get("last_swap_at") or os.environ.get("AEP_LAST_SWAP_AT") or None
+    last_err = meta.get("last_reload_error") or os.environ.get("AEP_LAST_RELOAD_ERROR") or None
+    hs_mode = meta.get("hotswap_mode") or os.environ.get("AEP_HOTSWAP_MODE")
+    if not hs_mode:
+        if os.environ.get("AEP_HOTSWAP") == "0":
+            hs_mode = "legacy"
+        elif get_effective_chmod_tier() == "4r--":
+            hs_mode = "watch"
+        else:
+            hs_mode = "auto"
+    return {
+        "backend_generation": gen,
+        "last_swap_at": last_swap,
+        "last_reload_error": last_err,
+        "hotswap_mode": hs_mode,
+    }
 
 
 def _get_server_version() -> str:
@@ -487,7 +525,7 @@ async def discover(
                         [k for k, v in manifest.get("capabilities", {}).items() if v.get("ready")]
                     ),
                     "token_savings_pct": 96.5,
-                    "hint": "Capacidades ya verificadas y disponibles en RAM slot. Use herramientas directamente o pase force_refresh=True.",
+                    "hint": "Capacidades en RAM slot. Use herramientas directamente o pase force_refresh=True.",
                 }
             elif v_mode in ("summary", "brief"):
                 compact_caps: dict[str, Any] = {}
@@ -523,7 +561,11 @@ async def discover(
                 payload["session_id"] = eff_sid
 
             repo_head = _read_git_head_commit()
-            is_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
+            disk_fp = code_fingerprint(PROJECT_DIR)
+            commit_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
+            fp_stale = bool(LOADED_FINGERPRINT and disk_fp and LOADED_FINGERPRINT != disk_fp)
+            is_stale = commit_stale or fp_stale
+            live_meta = _get_live_meta()
 
             from engine.hardware import probe_accelerators
             try:
@@ -536,7 +578,13 @@ async def discover(
                 "git_commit": LOADED_COMMIT,
                 "loaded_commit": LOADED_COMMIT,
                 "repo_head": repo_head,
+                "code_fingerprint_loaded": LOADED_FINGERPRINT,
+                "code_fingerprint_disk": disk_fp,
                 "stale": is_stale,
+                "backend_generation": live_meta["backend_generation"],
+                "last_swap_at": live_meta["last_swap_at"],
+                "last_reload_error": live_meta["last_reload_error"],
+                "hotswap_mode": live_meta["hotswap_mode"],
                 "schema_hash": _get_schema_hash(),
                 "pid": os.getpid(),
                 "process_start_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(SERVER_START_TIME)),
@@ -544,9 +592,10 @@ async def discover(
                 "accelerators": ([acc.get("device", "card") for acc in accels_overview] if v_mode in ("terse", "cached") else accels_overview),
             }
             payload.update(caps_meta)
-            payload["session_hint"] = (
-                "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."
-            )
+            if v_mode not in ("terse", "cached"):
+                payload["session_hint"] = (
+                    "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."
+                )
 
             if select_fields and isinstance(select_fields, list):
                 payload = project_fields(payload, select_fields)
@@ -555,8 +604,19 @@ async def discover(
 
             if is_stale:
                 payload["severity"] = "WARN"
-                summary = f"AEP process is STALE (running commit {LOADED_COMMIT}, but repository HEAD is {repo_head})."
-                next_action = f"Restart this AEP instance (PID {os.getpid()}) to load commit {repo_head}."
+                if commit_stale and fp_stale:
+                    reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}; code fingerprint mismatch"
+                elif commit_stale:
+                    reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}"
+                else:
+                    reason = f"code fingerprint mismatch (working tree changes against loaded {LOADED_COMMIT})"
+                summary = f"AEP process is STALE ({reason})."
+                next_action = f"Restart this AEP instance (PID {os.getpid()}) or hot-swap to load commit {repo_head}."
+                sev = "WARN"
+            elif live_meta.get("last_reload_error"):
+                payload["severity"] = "WARN"
+                summary = f"AEP reload failed: {live_meta['last_reload_error']}. Running generation {live_meta['backend_generation']}."
+                next_action = "Fix syntax/import error in modified code to resume hot-swap."
                 sev = "WARN"
             else:
                 summary = f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities)."
