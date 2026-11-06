@@ -94,7 +94,7 @@ def test_ingest_whitelist_limits_dedup_and_enum(router: cr.CrashRouter, tmp_path
 
 
 def test_ingest_failsoft_and_line_cap(router: cr.CrashRouter, tmp_path: Path) -> None:
-    assert router.sync_plane_events(str(tmp_path / "missing_parent" / "nope")) in (0,)
+    assert router.sync_plane_events(str(tmp_path / "missing_parent" / "nope")) == 0
     lines = [{"kind": "SWAP_FAILED", "pid": 1, "nonce": str(i)} for i in range(cr.PLANE_EVENT_MAX_LINES + 50)]
     assert router.sync_plane_events(str(_spool(tmp_path, lines))) == cr.PLANE_EVENT_MAX_LINES
 
