@@ -114,3 +114,19 @@ user to type. No state changes.
    session could also inject during that window.
 3. If `sudo` is configured with `use_pty`, it may replace stdin with a fresh pty. The helper's `fstat(0)` rdev check
    then fails closed (`unsupported` -> `manual`). Confirmed or ruled out only by the T8 smoke test.
+
+## 5. Multi-Harness Standardization (`dimensional_bridge_4d`)
+
+To elevate `harness_reconnect` from a Claude-only workaround into a universal out-of-band ("4th-dimension") agentic bridge (`PRIMITIVE_NAME = "dimensional_bridge_4d"`), `engine/harness_reconnect.py` and `aep_ctl(domain="ipc", action="harness_reconnect")` standardize four harness profiles across two out-of-band control transports:
+
+| Harness ID | Process Signatures (`/proc/<pid>/exe` / `cmdline`) | Preferred Transport | Out-of-Band Mechanism / Fallback |
+|------------|---------------------------------------------------|---------------------|----------------------------------|
+| `claude` | `claude`, `/.local/share/claude/versions/*` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` (brief flip `< 2s`) + `ioctl(TIOCSTI)` `/mcp reconnect <server>\r` on ancestor `/dev/pts/*` |
+| `agy` | `agy`, `antigravity`, `language_server_linux*` | `rpc_reload` | Local Connect-RPC `RefreshMcpServers` on `language_server_linux_x64` (`--csrf_token` + dynamic localhost port); fallback: AGY Command Palette |
+| `codex` | `codex`, `codex-cli` | `rpc_reload` | `codex app-server proxy --sock $XDG_RUNTIME_DIR/codex/app-server-control.sock` JSON-RPC `config/mcpServer/reload` (fallback: `tty_inject` `/mcp\r`) |
+| `gemini` | `gemini`, `gemini-cli` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` + `ioctl(TIOCSTI)` `/mcp refresh\r` on ancestor `/dev/pts/*` |
+
+**Extended `params` contract (`aep_ctl(domain="ipc", action="harness_reconnect")`)**:
+- `harness?: "claude" | "agy" | "codex" | "gemini"` — explicit target harness override (useful when invoking an RPC-capable harness whose server process is a sibling rather than a direct `/proc` ancestor).
+- `force?: bool` — when `True`, allows on-demand out-of-band execution even when `front_stale=False` (still strictly gated by `tier == "7rwx"` and per-call `confirm=True`).
+

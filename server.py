@@ -3374,6 +3374,9 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
     mode = str(eff.get("mode") or "plan").strip().lower()
     server_name = eff.get("server")
     server_name = str(server_name) if server_name is not None else None
+    target_harness = eff.get("harness")
+    target_harness = str(target_harness) if target_harness is not None else None
+    force = eff.get("force") is True
     if mode not in ("plan", "execute"):
         return {"status": "ERROR", "error": f"mode desconocido: {mode}", "valid": ["plan", "execute"]}
 
@@ -3397,6 +3400,8 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
             front_stale=_is_front_stale(),
             server=server_name,
             session_type=os.environ.get("XDG_SESSION_TYPE", ""),
+            target_harness=target_harness,
+            force=force,
             adapters=adapters,
         )
         return {"status": "OK", "mode": "plan", **plan}
@@ -3405,6 +3410,8 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
         confirm=eff.get("confirm") is True,
         front_stale=_is_front_stale(),
         server=server_name,
+        target_harness=target_harness,
+        force=force,
         adapters=adapters,
     )
     return {"mode": "execute", **res}

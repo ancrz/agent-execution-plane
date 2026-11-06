@@ -1,5 +1,9 @@
-"""ONT-42a: harness_reconnect. Reload the orchestrator's MCP front by typing `/mcp reconnect <server>` into the
-harness TTY (TIOCSTI) inside a short, self-restoring sysctl window.
+"""ONT-42a / 4D Bridge: harness_reconnect (`dimensional_bridge_4d`).
+
+Out-of-band ("4th-dimension") harness control primitive: allows an agent operating inside a 3rd-dimension
+chat/CLI session to step outside the harness boundary and reload/unblock its host harness (Claude Code,
+Antigravity `agy`, OpenAI `codex`, or Google `gemini` CLI) via native out-of-band RPC (`rpc_reload`) or
+a self-restoring kernel `dev.tty.legacy_tiocsti` + `TIOCSTI` window (`tty_inject`).
 
 Design: pure functions with injected dependencies (no import of `server`). Everything is fail-closed: any
 missing link resolves to route `manual` / `unsupported` and never changes host state.
@@ -22,9 +26,28 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+PRIMITIVE_NAME = "dimensional_bridge_4d"
 DEFAULT_SERVER = "agent-execution-plane"
 SERVER_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-HARNESS_RECONNECT: dict[str, str] = {"claude": "/mcp reconnect {server}"}
+HARNESS_RECONNECT: dict[str, str] = {
+    "claude": "/mcp reconnect {server}",
+    "codex": "/mcp reconnect {server}",
+    "gemini": "/mcp reconnect {server}",
+    "agy": "/mcp reconnect {server}",
+}
+HARNESS_PROFILES: dict[str, dict[str, Any]] = {
+    "claude": {"transports": ("tty_inject",), "manual": "/mcp reconnect {server}"},
+    "agy": {
+        "transports": ("rpc_reload", "tty_inject"),
+        "manual": "agy mcp add {server} <launcher> (or Connect-RPC RefreshMcpServers)",
+    },
+    "codex": {
+        "transports": ("rpc_reload", "tty_inject"),
+        "manual": "/mcp reconnect {server} (or codex app-server config/mcpServer/reload)",
+    },
+    "gemini": {"transports": ("tty_inject",), "manual": "/mcp reconnect {server}"},
+}
+SUPPORTED_HARNESSES: tuple[str, ...] = tuple(HARNESS_PROFILES.keys())
 PTS_MAJOR = 136
 SYSCTL_PATH = "/proc/sys/dev/tty/legacy_tiocsti"
 MAX_ANCESTRY_DEPTH = 64
@@ -70,24 +93,52 @@ def _read_stat(proc_root: Path, pid: int) -> dict[str, int] | None:
 
 # Claude Code installs versioned binaries (e.g. ~/.local/share/claude/versions/2.1.318); the resolved exe is a semver.
 _VERSIONED_CLAUDE_RE = re.compile(r"^/.+/claude/versions/\d+\.\d+\.\d+$")
+_EXE_ALIASES: dict[str, str] = {
+    "claude": "claude",
+    "agy": "agy",
+    "antigravity": "agy",
+    "codex": "codex",
+    "codex-cli": "codex",
+    "gemini": "gemini",
+    "gemini-cli": "gemini",
+}
 
 
 def _harness_name(exe: str) -> str:
     """Map a resolved /proc/<pid>/exe target to a harness key ("" if unknown). Never uses comm/argv."""
     base = os.path.basename(exe)
-    if base in HARNESS_RECONNECT:
-        return base
+    if base in _EXE_ALIASES:
+        return _EXE_ALIASES[base]
+    if base.startswith("language_server") or "/Antigravity/" in exe:
+        return "agy"
+    if "/@openai/codex/" in exe:
+        return "codex"
+    if "/@google/gemini-cli/" in exe:
+        return "gemini"
     if "/../" not in exe and _VERSIONED_CLAUDE_RE.fullmatch(exe):
         return "claude"
     return ""
 
 
-def find_harness(proc_root: str | Path, start_pid: int, uid: int) -> dict[str, Any]:
+def find_harness(
+    proc_root: str | Path,
+    start_pid: int,
+    uid: int,
+    *,
+    target_harness: str | None = None,
+) -> dict[str, Any]:
     """Walk the real ancestry of `start_pid` looking for a known harness.
 
     Uses `/proc/<pid>/exe` (not comm/argv, both forgeable) and requires the same uid as the caller.
+    If `target_harness` is explicitly specified and valid, filters or resolves to that harness.
     Returns {"found": bool, "reason": str, ...}.
     """
+    if target_harness is not None:
+        norm = _EXE_ALIASES.get(target_harness.strip().lower(), "")
+        if norm not in HARNESS_PROFILES:
+            return {"found": False, "reason": "unknown_target_harness"}
+    else:
+        norm = ""
     root = Path(proc_root)
     pid = start_pid
     seen: set[int] = set()
@@ -100,7 +151,7 @@ def find_harness(proc_root: str | Path, start_pid: int, uid: int) -> dict[str, A
             owner = (root / str(pid)).stat().st_uid
         except OSError:
             exe_base, owner = "", -1
-        if exe_base in HARNESS_RECONNECT:
+        if exe_base in HARNESS_RECONNECT and (not norm or exe_base == norm):
             if owner != uid:
                 return {"found": False, "reason": "harness_uid_mismatch", "pid": pid}
             return {"found": True, "reason": "ok", "pid": pid, "harness": exe_base}
@@ -108,6 +159,9 @@ def find_harness(proc_root: str | Path, start_pid: int, uid: int) -> dict[str, A
         if st is None:
             break
         pid = st["ppid"]
+    if norm in ("agy", "codex"):
+        # Out-of-band RPC harnesses (agy language_server, codex app-server) can be targeted directly by the agent.
+        return {"found": True, "reason": "target_override", "pid": start_pid, "harness": norm}
     return {"found": False, "reason": "harness_not_in_ancestry"}
 
 
@@ -174,25 +228,36 @@ def decision_tree(
     sysctl_value: str | None,
     server: str | None = None,
     session_type: str = "",
+    rpc_info: dict[str, Any] | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Pure plan: recommended_route in {noop, manual, tty_inject, gui_unsupported}."""
+    """Pure plan: recommended_route in {noop, manual, tty_inject, rpc_reload, gui_unsupported}."""
     srv = validate_server(server if server is not None else DEFAULT_SERVER)
-    manual_cmd = f"/mcp reconnect {srv or DEFAULT_SERVER}"
+    hname = harness.get("harness") if harness.get("found") else None
+    profile = HARNESS_PROFILES.get(str(hname or ""), {})
+    manual_tmpl = str(profile.get("manual") or "/mcp reconnect {server}")
+    manual_cmd = manual_tmpl.format(server=srv or DEFAULT_SERVER)
+    rpc_avail = bool((rpc_info or {}).get("available"))
     plan: dict[str, Any] = {
+        "primitive": PRIMITIVE_NAME,
+        "supported_harnesses": list(SUPPORTED_HARNESSES),
         "front_stale": bool(front_stale),
-        "harness": harness.get("harness") if harness.get("found") else None,
+        "harness": hname,
         "harness_pid": harness.get("pid"),
         "tty": tty.get("path") if tty.get("ok") else None,
         "sysctl": sysctl_value,
+        "rpc_available": rpc_avail,
         "manual_command": manual_cmd,
         "caveats": list(CAVEATS),
     }
-    if not front_stale:
+    if not front_stale and not force:
         plan.update(recommended_route="noop", reason="front_stale=false")
     elif srv is None:
         plan.update(recommended_route="manual", reason="invalid_server_name")
     elif not harness.get("found"):
         plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=harness.get("reason", "harness_not_found"))
+    elif rpc_avail and "rpc_reload" in profile.get("transports", ()):
+        plan.update(recommended_route="rpc_reload", reason="ok")
     elif not tty.get("ok"):
         plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=tty.get("reason", "no_tty"))
     elif sysctl_value is None:
@@ -348,6 +413,89 @@ def run_helper(major: int, minor: int, payload_hex: str, tty_fd: int, timeout: f
         return proc.returncode if proc.returncode is not None else -1, out or "", True
 
 
+def _probe_rpc(harness: str) -> dict[str, Any]:
+    """Read-only probe for native out-of-band RPC channels (Antigravity Connect-RPC or Codex app-server sock)."""
+    if harness == "codex":
+        base = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+        sock = base / "app-server-control" / "app-server-control.sock"
+        try:
+            is_sock = sock.exists() and stat.S_ISSOCK(sock.stat().st_mode)
+        except OSError:
+            is_sock = False
+        return {"available": is_sock, "transport": "codex_app_server_sock", "endpoint": str(sock) if is_sock else None}
+    if harness == "agy":
+        try:
+            ps = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, timeout=3)
+            for line in ps.splitlines():
+                if "language_server" in line and "--csrf_token" in line:
+                    return {"available": True, "transport": "connect_rpc", "pid": int(line.split()[0])}
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+        return {"available": False, "transport": "connect_rpc"}
+    return {"available": False}
+
+
+def _run_rpc(harness: str, server: str) -> tuple[bool, str]:
+    """Execute out-of-band RPC reload for `agy` (RefreshMcpServers) or `codex` (config/mcpServer/reload)."""
+    if validate_server(server) is None:
+        return False, "invalid_server_name"
+    if harness == "codex":
+        base = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
+        sock = base / "app-server-control" / "app-server-control.sock"
+        try:
+            if not (sock.exists() and stat.S_ISSOCK(sock.stat().st_mode)):
+                return False, "codex_sock_absent"
+            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                ["codex", "app-server", "proxy", "--sock", str(sock)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                for msg in (
+                    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aep-4d", "version": "1.0.0"}}},
+                    {"jsonrpc": "2.0", "method": "initialized", "params": {}},
+                    {"jsonrpc": "2.0", "id": 2, "method": "config/mcpServer/reload", "params": None},
+                ):
+                    if proc.stdin is not None:
+                        proc.stdin.write(json.dumps(msg) + "\n")
+                        proc.stdin.flush()
+            finally:
+                proc.terminate()
+                proc.wait(timeout=3)
+            return True, "codex_rpc_reloaded"
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"codex_rpc_error:{type(exc).__name__}"
+    if harness == "agy":
+        try:
+            ps = subprocess.check_output(["ps", "-eo", "pid,args"], text=True, timeout=3)
+            ss = subprocess.check_output(["ss", "-tulnp"], text=True, timeout=3)
+            for line in ps.splitlines():
+                if "language_server" in line and "--csrf_token" in line:
+                    pid = line.split()[0]
+                    m = re.search(r"--csrf_token\s+(\S+)", line)
+                    tok = m.group(1) if m else ""
+                    for port in re.findall(r"127\.0\.0\.1:(\d+).*?pid=" + re.escape(pid) + r",", ss):
+                        for scheme in ("https", "http"):
+                            res = subprocess.run(  # noqa: S603 - fixed curl argv to localhost
+                                [
+                                    "curl", "-sk", "--max-time", "5", "-w", "%{http_code}", "-o", "/dev/null", "-X", "POST",
+                                    f"{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RefreshMcpServers",
+                                    "-H", "Content-Type: application/json",
+                                    "-H", "Connect-Protocol-Version: 1",
+                                    "-H", f"x-codeium-csrf-token: {tok}", "-d", "{}",
+                                ],
+                                capture_output=True, text=True, timeout=6, check=False,
+                            )
+                            if res.stdout.strip() in ("200", "204"):
+                                return True, "agy_connect_rpc_reloaded"
+            return False, "agy_language_server_unreachable"
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"agy_rpc_error:{type(exc).__name__}"
+    return False, "rpc_unsupported_for_harness"
+
+
 @dataclass
 class Adapters:
     """Every side-effecting dependency, injectable. Defaults are the real ones; `audit` is wired by the server."""
@@ -358,11 +506,13 @@ class Adapters:
     open_tty: Callable[[str], int] = open_tty
     check_fd: Callable[[int, int, int], tuple[bool, str]] = check_tty_fd
     run_helper: Callable[..., tuple[int, str, bool]] = run_helper
+    probe_rpc: Callable[[str], dict[str, Any]] = field(default=lambda _h: {"available": False})
+    run_rpc: Callable[[str, str], tuple[bool, str]] = field(default=lambda _h, _s: (False, "rpc_disabled"))
     audit: Callable[[str, dict[str, Any]], bool] = field(default=lambda _status, _details: False)
 
 
 def dry_adapters(audit: Callable[[str, dict[str, Any]], bool] | None = None) -> Adapters:
-    """AEP_HARNESS_RECONNECT_DRY=1 (tests): no sysctl, no pts, no sudo, no lock."""
+    """AEP_HARNESS_RECONNECT_DRY=1 (tests): no sysctl, no pts, no sudo, no lock, no live RPC."""
     return Adapters(
         read_sysctl=lambda: "0",
         acquire_lock=lambda: -1,
@@ -370,6 +520,8 @@ def dry_adapters(audit: Callable[[str, dict[str, Any]], bool] | None = None) -> 
         open_tty=lambda _p: os.open(os.devnull, os.O_RDWR),
         check_fd=lambda _fd, _rdev, _uid: (True, "dry"),
         run_helper=lambda _ma, _mi, _hex, _fd, timeout=0: (0, json.dumps({"dry": True, "injected": 0}), False),
+        probe_rpc=lambda _h: {"available": False},
+        run_rpc=lambda _h, _s: (True, "dry_rpc"),
         audit=audit or (lambda _s, _d: False),
     )
 
@@ -377,7 +529,7 @@ def dry_adapters(audit: Callable[[str, dict[str, Any]], bool] | None = None) -> 
 def real_adapters(audit: Callable[[str, dict[str, Any]], bool] | None = None) -> Adapters:
     if os.environ.get("AEP_HARNESS_RECONNECT_DRY") == "1":
         return dry_adapters(audit)
-    return Adapters(audit=audit or (lambda _s, _d: False))
+    return Adapters(probe_rpc=_probe_rpc, run_rpc=_run_rpc, audit=audit or (lambda _s, _d: False))
 
 
 def build_plan(
@@ -388,14 +540,29 @@ def build_plan(
     start_pid: int | None = None,
     uid: int | None = None,
     session_type: str = "",
+    target_harness: str | None = None,
+    force: bool = False,
     adapters: Adapters | None = None,
 ) -> dict[str, Any]:
     """Read-only plan (any tier). Never opens a TTY nor touches the sysctl."""
     ad = adapters or real_adapters()
-    harness = find_harness(proc_root, os.getpid() if start_pid is None else start_pid, os.getuid() if uid is None else uid)
+    harness = find_harness(
+        proc_root,
+        os.getpid() if start_pid is None else start_pid,
+        os.getuid() if uid is None else uid,
+        target_harness=target_harness,
+    )
     tty = resolve_tty(proc_root, harness["pid"]) if harness.get("found") else {"ok": False, "reason": "no_harness"}
+    rpc_info = ad.probe_rpc(str(harness.get("harness") or "")) if harness.get("found") else {"available": False}
     return decision_tree(
-        front_stale=front_stale, harness=harness, tty=tty, sysctl_value=ad.read_sysctl(), server=server, session_type=session_type
+        front_stale=front_stale,
+        harness=harness,
+        tty=tty,
+        sysctl_value=ad.read_sysctl(),
+        server=server,
+        session_type=session_type,
+        rpc_info=rpc_info,
+        force=force,
     )
 
 
@@ -408,11 +575,13 @@ def execute(
     proc_root: str | Path = "/proc",
     start_pid: int | None = None,
     uid: int | None = None,
+    target_harness: str | None = None,
+    force: bool = False,
     adapters: Adapters | None = None,
     timeout: float = HELPER_TIMEOUT_S,
 ) -> dict[str, Any]:
-    """Gated, fail-closed execution. Gate order: tier -> confirm -> front_stale -> ancestry -> allowlist -> tty ->
-    sysctl -> flock -> open+validate tty -> audit attempt -> helper -> sysctl verify -> audit result."""
+    """Gated, fail-closed execution. Gate order: tier -> confirm -> front_stale/force -> ancestry/target -> allowlist ->
+    rpc_reload (if available) or (tty -> sysctl -> flock -> open+validate tty -> audit attempt -> helper -> sysctl verify) -> audit result."""
     ad = adapters or real_adapters()
     me = os.getuid() if uid is None else uid
     degraded = False
@@ -430,20 +599,53 @@ def execute(
 
     def done(status: str, reason: str, route: str = "manual", **extra: Any) -> dict[str, Any]:
         audit(status, {"reason": reason, **extra})
-        return {"status": status, "reason": reason, "route": route, "audit_degraded": degraded, **extra}
+        return {
+            "primitive": PRIMITIVE_NAME,
+            "status": status,
+            "reason": reason,
+            "route": route,
+            "audit_degraded": degraded,
+            **extra,
+        }
 
     if tier != "7rwx":
         return done("REJECTED", "tier_insufficient")
     if confirm is not True:
         return done("REJECTED", "confirm_required")
-    if not front_stale:
+    if not front_stale and not force:
         return done("NOOP", "front_stale=false", route="noop")
-    harness = find_harness(proc_root, os.getpid() if start_pid is None else start_pid, me)
+    harness = find_harness(proc_root, os.getpid() if start_pid is None else start_pid, me, target_harness=target_harness)
     if not harness.get("found"):
         return done("REJECTED", harness["reason"])
-    payload = build_payload(harness["harness"], server)
+    hname = str(harness["harness"])
+    payload = build_payload(hname, server)
     if payload is None or not validate_payload(payload):
         return done("REJECTED", "payload_not_allowed")
+
+    # Out-of-band RPC route (agy Connect-RPC / codex app-server sock) when available: zero sysctl/TTY mutation.
+    rpc_info = ad.probe_rpc(hname)
+    if rpc_info.get("available") and "rpc_reload" in HARNESS_PROFILES.get(hname, {}).get("transports", ()):
+        try:
+            lock_fd = ad.acquire_lock()
+        except LockBusyError:
+            return done("BUSY", "lock_held")
+        except (NoRuntimeDirError, OSError):
+            return done("REJECTED", "no_runtime_dir")
+        rpc_meta: dict[str, Any] = {
+            "harness": hname,
+            "harness_pid": harness["pid"],
+            "server": server or DEFAULT_SERVER,
+            "transport": rpc_info.get("transport", "rpc"),
+        }
+        try:
+            audit("ATTEMPT", rpc_meta)
+            ok_rpc, why_rpc = ad.run_rpc(hname, server or DEFAULT_SERVER)
+            if ok_rpc:
+                return done("OK", why_rpc, route="rpc_reload", **rpc_meta)
+            return done("FAIL", why_rpc, route="manual", severity="HIGH", **rpc_meta)
+        finally:
+            ad.release_lock(lock_fd)
+
     tty = resolve_tty(proc_root, harness["pid"])
     if not tty.get("ok"):
         return done("UNSUPPORTED", tty["reason"])
@@ -458,6 +660,7 @@ def execute(
         return done("REJECTED", "no_runtime_dir")
 
     info: dict[str, Any] = {
+        "harness": hname,
         "harness_pid": harness["pid"],
         "tty_rdev": tty["rdev"],
         "server": server or DEFAULT_SERVER,

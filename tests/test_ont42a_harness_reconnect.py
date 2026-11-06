@@ -74,11 +74,12 @@ def test_resolve_tty(tmp_path: Path) -> None:
 
 
 def test_build_payload_allowlist() -> None:
-    assert hr.build_payload("claude", None) == b"/mcp reconnect agent-execution-plane\r"
-    assert hr.build_payload("claude", "my_srv-1") == b"/mcp reconnect my_srv-1\r"
+    for hname in ("claude", "codex", "gemini", "agy"):
+        assert hr.build_payload(hname, None) == b"/mcp reconnect agent-execution-plane\r"
+        assert hr.build_payload(hname, "my_srv-1") == b"/mcp reconnect my_srv-1\r"
     for bad in ("", "A", "-x", "a b", "a;rm", "a\x1b", "x" * 65, "a\r"):
         assert hr.build_payload("claude", bad) is None
-    assert hr.build_payload("codex", "x") is None
+    assert hr.build_payload("unknown_harness", "x") is None
 
 
 def test_validate_payload_rejects_control_bytes() -> None:
@@ -337,8 +338,64 @@ def test_ipc_plan_is_read_only_and_carries_caveats(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(server, "_is_front_stale", lambda: True)
     res = _ctl(params={"mode": "plan"})
     assert res["status"] == "OK" and res["mode"] == "plan"
-    assert res["recommended_route"] in {"manual", "tty_inject", "gui_unsupported"}
+    assert res["primitive"] == hr.PRIMITIVE_NAME
+    assert set(res["supported_harnesses"]) == {"claude", "agy", "codex", "gemini"}
+    assert res["recommended_route"] in {"manual", "tty_inject", "rpc_reload", "gui_unsupported"}
     assert any("typed-prompt" in c for c in res["caveats"])
+
+
+def test_multi_harness_4d_bridge_profiles_and_rpc(tmp_path: Path) -> None:
+    # 1. Ancestry detection for agy, codex, gemini, and versioned claude
+    for idx, (exe, expected) in enumerate(
+        [
+            ("/opt/Antigravity/antigravity", "agy"),
+            ("/usr/local/bin/agy", "agy"),
+            ("/usr/local/bin/codex", "codex"),
+            ("/usr/local/bin/gemini", "gemini"),
+            ("/home/u/.local/share/claude/versions/2.1.318", "claude"),
+        ],
+        start=1,
+    ):
+        sub = tmp_path / f"p_{idx}"
+        _mk_proc(sub, 100, 1, exe, _pts_nr(4))
+        _mk_proc(sub, 200, 100, "/usr/bin/python3")
+        found = hr.find_harness(sub, 200, os.getuid())
+        assert found["found"] and found["harness"] == expected
+
+    # 2. Target override for RPC harnesses (agy / codex) and unknown target rejection
+    empty_proc = tmp_path / "empty"
+    _mk_proc(empty_proc, 200, 1, "/usr/bin/python3")
+    assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="agy")["harness"] == "agy"
+    assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="codex")["harness"] == "codex"
+    assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="invalid")["reason"] == "unknown_target_harness"
+
+    # 3. RPC reload route (agy / codex) executes without touching sysctl or TTY, and force=True bypasses front_stale=False
+    rec = _Rec()
+    ad = rec.adapters()
+    ad.probe_rpc = lambda h: {"available": h in ("agy", "codex"), "transport": "connect_rpc"}
+    ad.run_rpc = lambda h, s: (True, f"{h}_reloaded:{s}")
+    plan = hr.build_plan(
+        front_stale=False,
+        force=True,
+        target_harness="agy",
+        proc_root=empty_proc,
+        start_pid=200,
+        adapters=ad,
+    )
+    assert plan["recommended_route"] == "rpc_reload" and plan["harness"] == "agy"
+    res = hr.execute(
+        tier="7rwx",
+        confirm=True,
+        front_stale=False,
+        force=True,
+        target_harness="agy",
+        proc_root=empty_proc,
+        start_pid=200,
+        adapters=ad,
+    )
+    assert res["status"] == "OK" and res["route"] == "rpc_reload" and rec.helper_calls == 0
+    assert [s for s, _ in rec.audits] == ["ATTEMPT", "OK"]
+    assert hr.real_adapters().probe_rpc("claude")["available"] is False
 
 
 def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
