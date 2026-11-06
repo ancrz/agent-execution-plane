@@ -38,11 +38,26 @@ ENVIRONMENTAL: frozenset[str] = frozenset(
     {tv.SERVING_LKG, tv.RELOAD_PENDING, tv.BASE_UNAVAILABLE, tv.SANDBOX_UNAVAILABLE, tv.WRONG_TREE}
 )
 _SHRINK_ORDER = ("detail", "warnings", "diff", "threads", "files", "reasons")
+_AWAITING_BY_CAUSE: tuple[tuple[str, frozenset[str]], ...] = (
+    ("base", frozenset({tv.BASE_UNAVAILABLE})),
+    ("reload", frozenset({tv.RELOAD_PENDING, tv.SERVING_LKG, tv.RELOAD_BLOCKED})),
+    ("env", frozenset({tv.SANDBOX_UNAVAILABLE, tv.WRONG_TREE})),
+)
+BARRIER_NA = "n/a"  # root no confiable/externo: la barrera de recarga del plano vivo no aplica (plano estatico)
 HEAL_SUGGESTION = 'autoevol(action="heal")'
 _HEAL_THREADS_TERSE = 3
 _HEAL_THREADS_SUMMARY = 8
 _HEAL_HUNKS = 2
 _HEAL_HUNK_LINES = 20
+
+
+def awaiting_for(reasons: set[str] | list[str]) -> str:
+    """Que espera un rechazo ambiental, derivado de su causa: base | reload | env."""
+    present = set(reasons)
+    for name, causes in _AWAITING_BY_CAUSE:
+        if present & causes:
+            return name
+    return "env"
 
 
 def estimated_tokens(payload: dict[str, Any]) -> int:
@@ -261,22 +276,32 @@ def run_fix_test(
                 {"cycle": cycle, "state": tv.EXHAUSTED, "consumed": False, "env_retries": env["count"]},
             )
             return fit(out, budget)
-        out = _verdict_payload(decision, {"cycle": cycle, "consumed": False, "awaiting": "reload"})
+        out = _verdict_payload(decision, {"cycle": cycle, "consumed": False, "awaiting": awaiting_for(reasons)})
         out["env_retries"] = env.get("count", 0)
         out["iterations_left"] = max(0, rec["max_iterations"] - rec["iteration"])
-        if binfo:
+        out["env_left"] = max(0, tv.MAX_ENV_RETRIES - out["env_retries"])
+        if not trusted:
+            out["barrier"] = BARRIER_NA
+        elif binfo:
             out["barrier"] = binfo
         return fit(out, budget)
     recorded = store.record(cycle, decision)
     state = recorded.get("state", "")
     left = max(0, rec["max_iterations"] - int(recorded.get("iteration", rec["iteration"])))
     awaiting = {tv.OPEN: "patch", tv.CYCLE_PENDING: "job"}.get(state)
-    extra: dict[str, Any] = {"cycle": cycle, "state": state, "iterations_left": left}
+    extra: dict[str, Any] = {
+        "cycle": cycle,
+        "state": state,
+        "iterations_left": left,
+        "env_left": max(0, tv.MAX_ENV_RETRIES - int(rec.get("env_retries", 0))),
+    }
     if awaiting:
         extra["awaiting"] = awaiting
     if state == tv.EXHAUSTED:
         extra.update(suggest=HEAL_SUGGESTION, retry_after_s=recorded.get("retry_after_s", tv.LOCK_SECONDS))
-    if binfo:
+    if not trusted:
+        extra["barrier"] = BARRIER_NA
+    elif binfo:
         extra["barrier"] = binfo
     return fit(_verdict_payload(decision, extra), budget)
 
@@ -301,6 +326,7 @@ def _open_cycle(
         "state": tv.OPEN,
         "awaiting": "patch",
         "iterations_left": tv.MAX_ITERATIONS,
+        "env_left": tv.MAX_ENV_RETRIES,
         "base": source,
         "next": "apply the patch, then autoevol(fix_test, cycle=<cycle>)",
     }

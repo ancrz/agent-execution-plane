@@ -115,7 +115,8 @@ def test_exit_127_does_not_consume_iteration_and_env_retries_are_bounded(
         out = json.loads(asyncio.run(server.autoevol(action="fix_test", root=str(new), cycle=cycle, verbosity="summary")))
         assert out["reasons"] == [tv.SANDBOX_UNAVAILABLE], out
         assert out["consumed"] is False and out["iterations_left"] == tv.MAX_ITERATIONS
-        assert out["env_retries"] == i + 1
+        assert out["env_retries"] == i + 1 and out["env_left"] == tv.MAX_ENV_RETRIES - (i + 1)
+        assert out["awaiting"] == "env"  # B6: SANDBOX_UNAVAILABLE no espera una recarga
     final = json.loads(asyncio.run(server.autoevol(action="fix_test", root=str(new), cycle=cycle, verbosity="summary")))
     assert final["reasons"] == [tv.ENV_RETRIES_EXHAUSTED] and final["state"] == tv.EXHAUSTED
     again = json.loads(asyncio.run(server.autoevol(action="fix_test", root=str(new), cycle=cycle)))

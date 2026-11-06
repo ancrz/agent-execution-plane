@@ -172,6 +172,7 @@ def test_fix_test_accepts_patch_and_environmental_reasons_do_not_consume(trees: 
     cid = _fix(store, base, gap=GAP)["cycle"]
     waiting = _fix(store, new, cycle=cid, barrier={"state": "RELOAD_PENDING", "retry_after_s": 2.0})
     assert waiting["consumed"] is False and waiting["iterations_left"] == 3 and waiting["awaiting"] == "reload"
+    assert waiting["env_left"] == tv.MAX_ENV_RETRIES - 1 and waiting["barrier"] != ops.BARRIER_NA  # B6: causa=reload
     lkg = _fix(store, new, cycle=cid, serving_lkg=True)
     assert lkg["consumed"] is False and tv.SERVING_LKG in lkg["reasons"]
     done = _fix(store, new, cycle=cid)
