@@ -21,6 +21,7 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import sys
 import traceback
 from typing import Any
@@ -29,6 +30,11 @@ from typing import Any
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+# F1: Defense in depth - redirect stdout to stderr before importing server to prevent protocol corruption
+with contextlib.suppress(Exception):
+    os.dup2(sys.stderr.fileno(), 1)
+    sys.stdout = sys.stderr
 
 import server  # noqa: E402
 from engine.fingerprint import code_fingerprint  # noqa: E402
@@ -86,6 +92,7 @@ class BackendWorker:
                 tools_count = len(getattr(tm, "_tools", {})) if tm else 0
                 schema_hash = server._get_schema_hash()
                 fp = code_fingerprint(PROJECT_ROOT)
+                instructions = getattr(server.mcp, "instructions", "") or ""
                 await self._send_response(writer, {
                     "status": "OK",
                     "id": req_id,
@@ -94,6 +101,7 @@ class BackendWorker:
                     "tools_count": tools_count,
                     "schema_hash": schema_hash,
                     "code_fingerprint": fp,
+                    "instructions": instructions,
                 })
             except Exception as e:  # noqa: BLE001
                 await self._send_response(writer, {
@@ -160,6 +168,27 @@ class BackendWorker:
         args: dict[str, Any],
     ) -> None:
         try:
+            # T-F1: test stdout corruption injection hook
+            if os.environ.get("AEP_TEST_STDOUT_CORRUPT") == "1":
+                with contextlib.suppress(Exception):
+                    sys.stdout.write("CORRUPT_STDOUT_STREAM_INJECTION\n")
+                    sys.stdout.flush()
+                    os.write(1, b"CORRUPT_RAW_FD1_INJECTION\n")
+                    subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            "import os, sys; sys.stdout.write('grandchild stdout\\n'); os.write(1, b'grandchild raw fd1\\n')",
+                        ],
+                        check=False,
+                    )
+
+            # T-F2: test stderr flood hook (>256 KiB)
+            if os.environ.get("AEP_TEST_STDERR_FLOOD") == "1":
+                with contextlib.suppress(Exception):
+                    sys.stderr.write("AEP_TEST_STDERR_FLOOD\n" + ("X" * (300 * 1024)) + "\n")
+                    sys.stderr.flush()
+
             tm = getattr(server.mcp, "_tool_manager", None)
             if not tm:
                 raise RuntimeError("server.mcp._tool_manager not available")
@@ -237,6 +266,12 @@ def main() -> None:
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _sigterm_handler)
+
+    # T-F2: test stderr flood at startup (>256 KiB)
+    if os.environ.get("AEP_TEST_STDERR_FLOOD") == "1":
+        with contextlib.suppress(Exception):
+            sys.stderr.write("AEP_TEST_STDERR_FLOOD_STARTUP\n" + ("X" * (300 * 1024)) + "\n")
+            sys.stderr.flush()
 
     worker = BackendWorker(sock, generation=args.generation)
     asyncio.run(worker.run())

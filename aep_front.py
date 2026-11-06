@@ -21,6 +21,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -47,7 +48,40 @@ from engine.fingerprint import code_fingerprint  # noqa: E402
 
 logger = logging.getLogger("aep.front")
 PROJECT_ROOT = Path(__file__).resolve().parent
-FRONT_START_TIME = time.time()
+FRONT_START_TIME_NS: int = time.time_ns()
+BACKEND_LOG_DIR = Path.home() / ".local" / "share" / "agent-os" / "logs"
+
+
+def _prune_backend_logs(log_dir: Path, max_generations: int = 5) -> None:
+    """Retain only the last max_generations backend log files by mtime (F2)."""
+    try:
+        files: list[tuple[int, Path]] = []
+        for p in log_dir.glob("aep_backend_gen*.log"):
+            m = re.match(r"^aep_backend_gen\d+\.log$", p.name)
+            if m:
+                files.append((p.stat().st_mtime_ns, p))
+        files.sort(key=lambda x: x[0])
+        while len(files) > max_generations:
+            _, old_p = files.pop(0)
+            with contextlib.suppress(Exception):
+                old_p.unlink()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Failed pruning backend logs: %s", e)
+
+
+def _read_backend_log_tail(generation: int, max_bytes: int = 4096) -> str:
+    """Read tail of backend log file for last_reload_error on failure (F2)."""
+    log_file = BACKEND_LOG_DIR / f"aep_backend_gen{generation}.log"
+    try:
+        if not log_file.exists():
+            return ""
+        size = log_file.stat().st_size
+        with open(log_file, "rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+            return f.read().decode("utf-8", errors="replace").strip()
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def get_hotswap_mode() -> str:
@@ -172,6 +206,7 @@ class LivePlaneManager:
         self.active_schema: list[dict[str, Any]] = []
         self.active_schema_hash: str = ""
         self.active_fingerprint: str = ""
+        self.active_instructions: str = ""
         self.generation: int = 1
         self.last_swap_at: str | None = None
         self.last_reload_error: str | None = None
@@ -182,7 +217,7 @@ class LivePlaneManager:
     def is_front_stale(self) -> bool:
         try:
             st = (PROJECT_ROOT / "aep_front.py").stat()
-            return st.st_mtime > FRONT_START_TIME
+            return st.st_mtime_ns > FRONT_START_TIME_NS
         except OSError:
             return False
 
@@ -195,11 +230,19 @@ class LivePlaneManager:
         env = dict(os.environ)
         env["AEP_BACKEND_GENERATION"] = str(generation)
         env["AEP_HOTSWAP_MODE"] = mode
+        env["AEP_FRONT_START_TIME_NS"] = str(FRONT_START_TIME_NS)
         if self.last_swap_at:
             env["AEP_LAST_SWAP_AT"] = self.last_swap_at
         if self.last_reload_error:
             env["AEP_LAST_RELOAD_ERROR"] = self.last_reload_error
 
+        # F2: Redirect stderr to ~/.local/share/agent-os/logs/aep_backend_gen<N>.log (retain last 5 generations)
+        BACKEND_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = BACKEND_LOG_DIR / f"aep_backend_gen{generation}.log"
+        log_fd = open(log_path, "w", encoding="utf-8")
+        _prune_backend_logs(BACKEND_LOG_DIR, max_generations=5)
+
+        # F1: Pass stdin/stdout DEVNULL to protect client MCP JSON-RPC protocol channel
         proc = subprocess.Popen(
             [
                 sys.executable,
@@ -214,8 +257,11 @@ class LivePlaneManager:
             pass_fds=(s_backend.fileno(),),
             cwd=str(PROJECT_ROOT),
             env=env,
-            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=log_fd,
         )
+        log_fd.close()
         s_backend.close()
 
         conn = BackendConnection(proc, s_front, generation)
@@ -231,11 +277,18 @@ class LivePlaneManager:
                 return self.active_conn
 
             conn = await self._spawn_backend(self.generation)
-            health = await conn.send_request({"op": "health"}, timeout=20.0)
-            if health.get("status") != "OK":
+            try:
+                health = await conn.send_request({"op": "health"}, timeout=20.0)
+                if health.get("status") != "OK":
+                    raise RuntimeError(health.get("error") or "Non-OK health status")
+            except Exception as e:
+                err_tail = _read_backend_log_tail(self.generation, max_bytes=4096)
+                err_detail = err_tail or str(e)
+                self.last_reload_error = f"Initial Gen {self.generation} health failed: {err_detail}"
                 await conn.terminate()
-                raise RuntimeError(f"Initial backend health check failed: {health.get('error')}")
+                raise RuntimeError(self.last_reload_error) from e
 
+            self.active_instructions = health.get("instructions", "")
             tools_resp = await conn.send_request({"op": "list"}, timeout=10.0)
             self.active_schema = tools_resp.get("tools", [])
             self.active_schema_hash = tools_resp.get("schema_hash", "")
@@ -295,15 +348,8 @@ class LivePlaneManager:
                     raise RuntimeError(health.get("error") or "Non-OK health status")
             except Exception as e:  # noqa: BLE001
                 # Retain Gen N! Un code roto nunca sustituye a uno sano.
-                err_detail = str(e)
-                if candidate.proc.poll() is not None and candidate.proc.stderr:
-                    try:
-                        err_bytes = candidate.proc.stderr.read()
-                        if err_bytes:
-                            lines = err_bytes.decode("utf-8", errors="replace").strip().splitlines()
-                            err_detail = lines[-1] if lines else str(e)
-                    except Exception:  # noqa: BLE001, S110
-                        pass
+                err_tail = _read_backend_log_tail(generation=next_gen, max_bytes=4096)
+                err_detail = err_tail or str(e)
                 self.last_reload_error = f"Reload Gen {next_gen} health failed: {err_detail}"
                 await candidate.terminate()
                 if self.active_conn and self.active_conn.alive:
@@ -317,6 +363,7 @@ class LivePlaneManager:
                         }, timeout=2.0)
                 return
 
+            new_instructions = health.get("instructions", "")
             # Health succeeded: fetch tool schema
             try:
                 tools_resp = await candidate.send_request({"op": "list"}, timeout=10.0)
@@ -334,10 +381,13 @@ class LivePlaneManager:
             self.active_conn = candidate
             self.active_schema = new_schema
             self.active_schema_hash = new_schema_hash
+            self.active_instructions = new_instructions
             self.active_fingerprint = disk_fp
             self.generation = next_gen
             self.last_swap_at = datetime.now(UTC).isoformat()
             self.last_reload_error = None
+            if hasattr(server, "instructions") and new_instructions:
+                server.instructions = new_instructions
 
             # Sync metadata to new worker
             with contextlib.suppress(Exception):
@@ -407,26 +457,32 @@ class LivePlaneManager:
             self.active_conn = None
 
 
+def create_front_server(mgr: LivePlaneManager, instructions: str | None = None) -> Server:
+    """Create Low-Level MCP Server instance with optional advertised instructions (F3)."""
+    srv = Server("Agent-Execution-Plane", instructions=instructions)
+
+    @srv.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        with contextlib.suppress(Exception):
+            mgr.cached_session = srv.request_context.session
+        return await mgr.list_tools()
+
+    @srv.call_tool(validate_input=False)
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+        with contextlib.suppress(Exception):
+            mgr.cached_session = srv.request_context.session
+        result_text = await mgr.call_tool(name, arguments)
+        return [types.TextContent(type="text", text=result_text)]
+
+    return srv
+
+
 manager = LivePlaneManager()
-server = Server("Agent-Execution-Plane")
-
-
-@server.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
-    with contextlib.suppress(Exception):
-        manager.cached_session = server.request_context.session
-    return await manager.list_tools()
-
-
-@server.call_tool(validate_input=False)
-async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    with contextlib.suppress(Exception):
-        manager.cached_session = server.request_context.session
-    result_text = await manager.call_tool(name, arguments)
-    return [types.TextContent(type="text", text=result_text)]
+server = create_front_server(manager)
 
 
 async def main() -> None:
+    global server  # noqa: PLW0603
     # Setup signal handlers
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
@@ -437,6 +493,20 @@ async def main() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, _sig_handler)
+
+    # F3: Eagerly start Gen 1 before stdio_server to advertise backend instructions
+    server_instructions: str | None = None
+    try:
+        await manager.get_or_start_backend()
+        server_instructions = manager.active_instructions
+    except Exception as e:  # noqa: BLE001
+        logger.error("Gen 1 eager startup failed: %s", e)
+        server_instructions = (
+            f"Agent-Execution-Plane (Degraded Mode)\n"
+            f"Backend Gen 1 startup failed: {manager.last_reload_error or e}"
+        )
+
+    server = create_front_server(manager, instructions=server_instructions)
 
     initialization_options = server.create_initialization_options(
         NotificationOptions(tools_changed=True)

@@ -101,7 +101,42 @@ collected 181 items
 
 ---
 
-## 5. Conclusion & Routing
+## 6. Fix Cycle L2-fix1: Post-Review Stabilization (Claude Code Audit Findings)
 
-- Milestone **ONT-39 (Live Plane Hot-Swap)** is fully verified and ready for atomic commits by Hermon.
-- Verdict: **VERIFIED**.
+- **Cycle:** FIX 1/3 (Dokimos DEFECTIVE: LOGIC_ERROR -> VERIFIED)
+- **Reviewer:** Claude Code (Independent Architecture Review)
+- **Scope:** Protocol integrity, deadlock prevention, instructions propagation, and high-precision staleness detection.
+
+### 6.1 Fix Specifications Implemented
+
+- **F1 [CRÍTICO, Protocol Corruption]:**
+  - Problem: `aep_front._spawn_backend` spawned `aep_backend.py` with inherited stdout, causing any backend/child output (probes, pueue, prints) to corrupt the front's stdio JSON-RPC stream.
+  - Fix: Configured `Popen(stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)`. In addition, implemented defense-in-depth in `aep_backend.py` at startup before importing server: `os.dup2(sys.stderr.fileno(), 1)` and `sys.stdout = sys.stderr`.
+- **F2 [ALTO, Stderr Pipe Deadlock]:**
+  - Problem: `stderr=subprocess.PIPE` was never drained. Writing >64 KiB blocked the process on OS pipe write buffer deadlock.
+  - Fix: Redirected backend stderr to `~/.local/share/agent-os/logs/aep_backend_gen<N>.log`, pruning directory to retain only the last 5 generations. On health check failures, tail (max 4 KiB) of the generation log is read to populate `last_reload_error`. Added test harness hook for `AEP_TEST_STDERR_FLOOD=1`.
+- **F3 [ALTO, Tool Instructions Regression]:**
+  - Problem: Front instantiated `Server("Agent-Execution-Plane")` without instructions, dropping `server._INSTRUCTIONS` (the 16-tool manual) for connected clients.
+  - Fix: Backend includes `instructions` (`server.mcp.instructions`) in health check response. Front eagerly starts Gen 1 before `stdio_server` and passes `instructions` to `create_front_server(manager, instructions=...)`. If Gen 1 fails, uses degraded fallback text with `last_reload_error`.
+- **F4 [MEDIO, Front Staleness Precision]:**
+  - Problem: `is_front_stale` used float seconds comparison with potential rounding race conditions; `front_stale` was missing from `discover(capabilities)`.
+  - Fix: Migrated to integer nanoseconds (`st_mtime_ns > FRONT_START_TIME_NS`). Injected `AEP_FRONT_START_TIME_NS` into backend environment and exposed `"front_stale"` in `caps_meta` across all `discover(action="capabilities")` verbosities (`terse`, `cached`, `summary`, `brief`, `detail`).
+
+### 6.2 New Verification Suite (`tests/test_live_plane_fixes.py`)
+
+| Test ID | Objective | Result |
+|---|---|---|
+| **T-F1** | Tool/child writing to stdout via `AEP_TEST_STDOUT_CORRUPT=1` does not break MCP stream; 3 subsequent calls succeed | **PASS** |
+| **T-F2** | Backend emits >256 KiB to stderr (`AEP_TEST_STDERR_FLOOD=1`) and responds in <5s without pipe deadlock | **PASS** |
+| **T-F3** | Initialize response contains non-empty instructions including `"discover"` | **PASS** |
+| **T-F4** | `front_stale` is `False` at fresh startup and `True` after touching `aep_front.py` across verbosities | **PASS** |
+
+### 6.3 Dokimos Full Verification Results
+
+```
+================= 179 passed, 6 xfailed, 6 warnings in 38.27s ==================
+```
+- **Ruff check:** Clean (`All checks passed!`)
+- **aep-sync check:** Clean (`[ok] Validación superada`)
+- **Combined live plane tests:** 10 passed (`test_live_plane_ont39.py` + `test_live_plane_fixes.py`)
+- **Verdict:** **VERIFIED** -> Ready for Hermon commit.

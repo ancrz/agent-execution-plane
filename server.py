@@ -237,6 +237,21 @@ def _get_live_meta() -> dict[str, Any]:
     }
 
 
+def _is_front_stale() -> bool:
+    """Check if aep_front.py has changed since front process startup (F4)."""
+    front_start_ns_str = os.environ.get("AEP_FRONT_START_TIME_NS")
+    front_path = PROJECT_DIR / "aep_front.py"
+    if front_start_ns_str and front_path.exists():
+        try:
+            return front_path.stat().st_mtime_ns > int(front_start_ns_str)
+        except (ValueError, OSError):
+            pass
+    meta = _get_live_meta()
+    if "front_stale" in meta:
+        return bool(meta["front_stale"])
+    return False
+
+
 def _get_server_version() -> str:
     """Read server version from pyproject.toml via tomllib with fallback to 'unknown' (D-12)."""
     try:
@@ -581,6 +596,7 @@ async def discover(
                 "code_fingerprint_loaded": LOADED_FINGERPRINT,
                 "code_fingerprint_disk": disk_fp,
                 "stale": is_stale,
+                "front_stale": _is_front_stale(),
                 "backend_generation": live_meta["backend_generation"],
                 "last_swap_at": live_meta["last_swap_at"],
                 "last_reload_error": live_meta["last_reload_error"],
