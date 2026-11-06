@@ -1,13 +1,15 @@
-# Context Compaction Guidance: AEP (L3 VERIFIED; ONT-42 pendiente; sin push)
+# Context Compaction Guidance: AEP (ONT-42b B9 PLAN_GAP; re-plan Archon pendiente; sin push)
 **Preservar:**
-- **Modo y baseline:** Short para L3. `dev` @ `e36a608`. Suite 576 passed, 0 xfail, ruff limpio. 17 tools, 19 capacidades.
-- **Hechos:** ONT-39, ONT-39b, ONT-40, ONT-40b, ONT-41 VERIFIED (2 ciclos de fix); ONT-42a VERIFIED excluyendo T8 (1 ciclo de fix); L3 D-01..D-05 VERIFIED (0 ciclos de fix; commits `4af584d`, `5999cb1`, `9b2f11e`, `8068f8b`, `e36a608`).
-- **Backlog ONT-42 (bloqueante para `autoevol evolve` y auto-commit):** D-01b LOW; AE-1 ref corta en spec; AE-2 spec sin apuntar al código; AE-3 `SANDBOX_UNAVAILABLE` sin `.venv` canónico; AE-4 `fix_test` atascado en `awaiting reload`; AE-5 ranking entierra `open_discrepancy`; AE-6 no predice tests de comportamiento viejo. Detalle: `docs/pipeline/feature_20261106_181608_l3_token_contract.md` §5.
-- **Decisiones del usuario:** T8 (smoke en vivo `execute` de harness_reconnect, sudo + TIOCSTI) es user-gated. Push de `dev` solo tras autorización explícita.
-- **Riesgos:** `sudo use_pty` puede sustituir stdin del helper (falla cerrado a manual), sin validar hasta T8; runners reales validados solo en clon; `autoevol` aún no es juez autónomo.
-- **Fuentes:** `docs/pipeline/feature_20261106_181608_l3_token_contract.md`, `docs/pipeline/feature_20261106_172315_ont42a_harness_reconnect.md` §16, `docs/STATE.md`, `docs/MILESTONES.md`.
+- **Modo y baseline:** Full. `dev` @ `a34b5ac`. Suite 632 passed, 1 xfail (D-01b). 17 tools, 19 capacidades.
+- **Hechos:** ONT-39, ONT-40, ONT-41 VERIFIED. ONT-42a VERIFIED completo: T8 en vivo (`harness_reconnect` execute confirm=true; inyectado 86 ms, sysctl 0→0, ledger ok, front pid 753000→921894, front_stale=false). ONT-42b B1–B8 integrados (`6490533..a34b5ac`).
+- **Defecto abierto:** B9 DEFECTIVE (PLAN_GAP) → Archon re-plan. RC1: `SELECTION_CAP` 24 (`threads_ops.py:32`) > `TESTS_PER_ITERATION` 20 (`threads_verify.py:80`) → modo async → dispatcher fail-closed F3 → SANDBOX_UNAVAILABLE perpetuo. Además `pins=0` con 10 pins en spec (sin diagnosticar).
+- **Commit no integrado:** `5a3c98b` en rama `worktree-agent-a783d592846aab250`. Vuelve vacuos `test_ont42_spec_change` y `test_ont42_gap_priority`: reescribir con fixtures sintéticos, no integrar relajados.
+- **Recomendación del orquestador:** opción 2 (lotes sync re-entrantes ≤20 en sandbox), mismo mecanismo que condición 10 de Ontos para el gate C4.
+- **Decisiones del usuario:** push de `dev` solo con autorización explícita. R7 (tier de push) pendiente si no se confirmó.
+- **Riesgos:** ciclo `72871021d7de` abierto (`env_left` 8). `sudo use_pty` sin validar. Runners reales validados solo en clon.
+- **Fuentes:** `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §13; `docs/pipeline/ont42_ontos_audit.md`; reporte B9 en el scratchpad de la sesión.
 **Pendiente (próximas 3):**
-1. Hermon: commit `docs(pipeline): record L3 VERIFIED and autoevol AE-1..AE-6 backlog`; sin push.
-2. ONT-42: cerrar AE-1..AE-6 y D-01b antes de `autoevol evolve` y auto-commit.
-3. Usuario: decidir consentimiento para T8 (user-gated).
-**Descartar:** logs de pytest, trazas de subagentes, diffs intermedios, ciclos BLOCKED o DEFECTIVE ya cerrados, listados de pueue, detalle de F1 a F8 y L1 a L3 ya cerrados.
+1. Archon: re-plan de B9 (opción 2, diagnóstico de `pins=0`, tests con fixtures sintéticos). Ontos audita el re-plan.
+2. Pragma: aplicar re-plan, B9 con ACCEPT real (`ran ≥ selected`, sin `unsandboxed`), luego C1–C3.
+3. Usuario: decidir si se reescribe o descarta `5a3c98b`.
+**Descartar:** logs de pytest, trazas de subagentes, llamadas intermedias de B9 ya resumidas en §13.3, ciclos cerrados (fix cycles de L3, BLOCKED de Ontos), detalle de T8 más allá de la línea de evidencia.

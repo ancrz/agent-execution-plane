@@ -5,7 +5,7 @@
 - **Mode:** Full (Topos). Archon (Stage 1) → Graphos G1 (este documento) → Ontos pendiente.
 - **Stage:** 2 — Graphos G1 (Weave & Record) tras el plan de Archon.
 - **Baseline:** `dev` @ `07ff47a`. Árbol con `?? .claude/` (no versionado, fuera de alcance). Sin código tocado. Sin commit (Hermon).
-- **Status:** PLANNED. Pendiente de auditoría Ontos (G1 → Ontos). Sin push.
+- **Status:** B1–B8 integrados (dev @ a34b5ac); B9 DEFECTIVE (PLAN_GAP) → Archon re-plan; C1–C7 no iniciados (§13). Sin push.
 - **Fuente del plan:** `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/ont42_plan.md` (incluye la decisión del orquestador sobre C2 al final).
 
 ## 1. Intent & Premises
@@ -220,3 +220,120 @@ flowchart LR
 - **Siguiente:** Ontos (auditoría de G1). Ontos debe confirmar §3.4 y R7.
 - **Tras APPROVED:** Pragma sesión 1 (B1 a B4).
 - **Hermon:** no aplica en esta fase. No hay commit.
+
+## 13. Graphos G2: T8 en vivo, ONT-42b B1–B8 integrados, B9 DEFECTIVE (PLAN_GAP)
+
+- **Activación:** G2 tras veredicto de Dokimos sobre el dogfood B9. Veredicto registrado: **DEFECTIVE (PLAN_GAP)**.
+- **Modo:** Full. Stage 2, G2.
+- **Baseline:** `dev` @ `a34b5ac`. Suite en dev: 632 passed, 1 xfail (xfail strict de D-01b, B1).
+- **Camino y blast radius de esta sesión:** registro documental en `docs/`. Sin código tocado. Sin push.
+- **Auditoría previa:** Ontos `APPROVED CON CONDICIONES VINCULANTES (1–16)` (`docs/pipeline/ont42_ontos_audit.md`).
+
+### 13.1 T8 de ONT-42a: COMPLETADO en vivo
+
+- Ejecución: `harness_reconnect` acción `execute` con `confirm=true`.
+- Evidencia: inyectado 86 ms; harness 112908; sysctl 0 → 0; ledger ok.
+- Front: pid 753000 → 921894 tras reconnect; `front_stale=false`.
+- Estado: ONT-42a VERIFIED completo (el backlog L3 excluía T8).
+
+### 13.2 ONT-42b sesiones 1 y 2 integradas en dev
+
+| Tarea | Commit | Contenido |
+|---|---|---|
+| B1 | `6490533` | RED D-01b, `xfail strict`; tools con `action` deben anunciar `actions` |
+| B2 | `e2f2d8b` | `resolve_gap` (id, ref, sufijo, subcadena) en spec, fix_test y verify |
+| B3 | `e38380a` | `build_spec` emite `change{nodes,files}` |
+| B4 | `fbb77d3` | `sort_gaps` con clase de prioridad antes del score |
+| B5 | `a7f8fb6` | cadena de intérpretes, `ro_paths`, centinela `WRONG_TREE` |
+| B6 | `5bfe98b` | `awaiting` derivado de la causa; `barrier n/a` en root externo; `env_left` |
+| B7 | `207e8e7` | `pinning_tests` escanea cuerpos completos y constantes referenciadas |
+| B8 | `a34b5ac` | selección ordenada con cap 24, veredictos parciales, split pin/validate |
+
+Rango integrado: `6490533..a34b5ac` (8 commits).
+
+### 13.3 B9 dogfood: DEFECTIVE (PLAN_GAP)
+
+- **Reporte de ejecución:** `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/ont42_b9_plangap.md`.
+- **Commit de Pragma (NO integrado):** `5a3c98b` en la rama `worktree-agent-a783d592846aab250` (worktree `.claude/worktrees/agent-a783d592846aab250`), sobre `a34b5ac`. Suite de esa rama: 633 passed, 0 xfailed. No está en `dev` (`git branch --contains` lo confirma).
+- **Veredicto:** B9 no logra ACCEPT. Dos llamadas `fix_test` con `root=<worktree>` devuelven REJECT con `SANDBOX_UNAVAILABLE`. Ninguna ejecuta tests (`ran` ausente, `job: null`, `mode: async`). No hay `unsandboxed` ni `WRONG_TREE`.
+
+Evidencia por llamada:
+
+| # | Llamada | Veredicto | selection | Iteraciones / env |
+|---|---|---|---|---|
+| 0 | `spec` D-01b | OK | – | 736 tokens |
+| 1 | `fix_test` abre ciclo `72871021d7de` | OPEN, `awaiting: patch` | – | 3 restantes |
+| 2 | `fix_test` con `cycle` | REJECT SANDBOX_UNAVAILABLE | direct 2, pins 0, transitive_dropped 14; selected 24 | 3 restantes; env_retries 1; env_left 9 |
+| 3 | `fix_test` tras relajar 2 tests | REJECT SANDBOX_UNAVAILABLE | direct 4, pins 0, transitive_dropped 16; selected 24 | 3 restantes; env_retries 2; env_left 8 |
+
+**Causa raíz (confirmada por Pragma en código):**
+
+1. **RC1, conflicto de constantes.** `SELECTION_CAP = 24` (`engine/threads_ops.py:32`, B8) es mayor que `TESTS_PER_ITERATION = 20` (`engine/threads_verify.py:80`). `plan_tests` entra en modo `async` cuando hay más de 20 tests. Con 24 seleccionados, siempre cae en `async`.
+2. **RC2, rechazo fail-closed del dispatcher.** `_autoevol_dispatcher` (`server.py`, ~línea 5317) rechaza todo root no confiable (F3). Pueue ejecuta en el host sin bwrap. Un root ajeno devuelve `available: False`, que se mapea a `SANDBOX_UNAVAILABLE`.
+3. **Consecuencia.** Mientras haya más de 20 candidatos, ningún worktree obtiene ACCEPT por ejecución real. El plan no previó el choque entre B8 (objetivo ≤20 con recorte a 24) y F3. Con 38 candidatos, el recorte a 24 no cumple el objetivo.
+
+**Hallazgo adicional (sin diagnosticar):** `pins=0` en ambas llamadas, aunque `spec` lista 10 tests `pin` para D-01b. La selección de B8 no usa los pins de B7 en este caso. Requiere revisión en el re-plan.
+
+**Defecto de tests (en `5a3c98b`, no integrado):** `test_ont42_gap_priority` y `test_ont42_spec_change` asumían D-01b abierto. Al cerrar D-01b (commit de Pragma), pasaron a ser vacuos sobre repo real. Pragma los relajó. Deben reescribirse con fixtures sintéticos, no integrarse relajados.
+
+**Valor del dogfood:** el juez, al juzgarse a sí mismo, detectó un gap de su propia selección y de su modo de ejecución. Es la premisa de autoevaluación funcionando. Se cumple el criterio de aceptación de B9 (no hubo ACCEPT falso).
+
+**Routing:** G2 → Archon (re-plan, PLAN_GAP, Full).
+
+**Opciones para Archon (de Pragma):**
+
+1. Bajar `SELECTION_CAP` a 20 en `fix_test`/`verify` no `apply`. Cambia el contrato de 42b aprobado; requiere pasar por el pipeline.
+2. Lotes sync re-entrantes de ≤20 tests en sandbox. **Recomendación del orquestador.** Es el mismo mecanismo que exige la condición 10 de Ontos para el gate C4 (suite completa en lotes). Un solo mecanismo para ambos casos.
+3. Extraer el constructor de argv de `sandbox_run` para que Pueue envuelva bwrap. Fuera de alcance según la auditoría.
+
+### 13.4 Estado tras B9
+
+- C1–C3 no iniciados (detención por instrucción si B9 no logra ACCEPT).
+- Ciclo `72871021d7de` abierto en el store del backend (`env_left` 8).
+- No se tocó sysctl, TTY, `harness_reconnect` ni `pueue clean` durante B9.
+
+### 13.5 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: L3 VERIFIED @e36a608"] --> A1["A.1: ONT-42a T8 live VERIFIED"]
+    A1 --> A2["A.2: ONT-42b B1-B8 integrados @a34b5ac"]
+    A2 --> A3["A.3: B9 DEFECTIVE PLAN_GAP"]
+    A3 --> A4["A.4: Archon re-plan (pendiente)"]
+    A4 --> A5["A.5: Ontos audita re-plan (pendiente)"]
+    A3 -.-> X["5a3c98b: no integrado (worktree)"]
+```
+
+### 13.6 Reinforcement Graphs
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42a harness reconnect"] --> M1["M1: planned ✅"]
+    M1 --> M2["M2: implemented ✅"]
+    M2 --> M3["M3: verified incl. T8 live ✅"]
+    M3 --> M4["M4: documented (Graphos G2) ✅"]
+```
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42 juez autonomo y evolve"] --> M1["M1: planned (Archon / Orchestrator) ✅"]
+    M1 --> M2["M2: audited (Ontos) APPROVED CON CONDICIONES ✅"]
+    M2 --> M3["M3: implemented 42b B1-B8 (Pragma) ✅"]
+    M3 --> M4["M4: verified 42b B9 (Dokimos) ⛔ PLAN_GAP"]
+    M4 --> M5["M5: re-plan (Archon) ⏳"]
+    M5 --> M6["M6: implemented 42c (Pragma) ⏳"]
+    M6 --> M7["M7: verified 42c (Dokimos) ⏳"]
+    M7 --> M8["M8: documented (Graphos) ⏳"]
+    M8 --> M9["M9: committed (Hermon) ⏳"]
+```
+
+### 13.7 Chain and Rollup Check
+
+- Documento previo: `feature_20261106_181608_l3_token_contract.md`. Esta sección se añade al mismo documento; no crea documento nuevo.
+- `feature_rollup.md` (Rollup 3) ya cubre hasta este documento. El siguiente rollup corresponde al 5.º documento tras Rollup 3, que aún no existe.
+
+### 13.8 Routing (Orchestrator)
+
+- **Siguiente:** Archon (re-plan de B9, PLAN_GAP, Full). Debe incluir: diagnóstico de `pins=0`, opción 2 o alternativa justificada, y reescritura de los dos tests con fixtures sintéticos.
+- **Después:** Ontos audita el re-plan. Luego Pragma (B9 real, C1–C3).
+- **Hermon:** no aplica. No hay VERIFIED.
