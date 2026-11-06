@@ -325,7 +325,7 @@ def verify_change(
             cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, sandbox_available=False, trusted=trusted
         )
     result = runner(plan["tests"])
-    if plan["mode"] == "async":
+    if plan["mode"] == "async" and result.get("available") is not False:
         result = {**result, "status": PENDING}
     out = decide(cmp, target_gap=target_gap, tests=result, barrier=barrier, budgets=budgets, trusted=trusted)
     out["tests"] = {"mode": plan["mode"], "selected": len(plan["tests"]), "estimate_s": plan["estimate_s"]}

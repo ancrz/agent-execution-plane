@@ -102,7 +102,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
   5. `default_primitives(action="list"|"info"|"run", name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
 - **Domain 2 — State Governance & Process Introspection**:
-  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff", node=..., a=..., b=..., probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
+  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
   6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
   7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
   8. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
@@ -4984,7 +4984,108 @@ async def default_primitives(
 # ---------------------------------------------------------------------------
 # Tool #17: autoevol (Milestone ONT-40) - read-only thread graph
 # ---------------------------------------------------------------------------
-_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff")
+_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal")
+_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal")
+_AUTOEVOL_TEST_TIMEOUT_S = 120
+_AUTOEVOL_TESTS_MAX = 20
+
+
+def _autoevol_pytest_cmd(tree: Path, tests: list[str]) -> str:
+    py = ".venv/bin/python" if (tree / ".venv" / "bin" / "python").exists() else "python3"
+    return shlex.join([py, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests[:_AUTOEVOL_TESTS_MAX]])
+
+
+def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
+    py = parsed if isinstance(parsed, dict) and parsed.get("tool") == "pytest" else None
+    if py is None and isinstance(parsed, dict) and isinstance(parsed.get("pytest"), dict):
+        py = parsed["pytest"]
+    if not isinstance(py, dict):
+        return None
+    return {
+        "ran": int(py.get("total", 0)),
+        "passed": int(py.get("passed", 0)),
+        "failed": int(py.get("failed", 0)),
+        "errors": int(py.get("errors", 0)),
+    }
+
+
+def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
+    """run_tests inyectado: sandbox_run(parse='pytest', N<=20, timeout 120). bwrap caido: plano solo en el arbol propio."""
+
+    def run(tests: list[str]) -> dict[str, Any]:
+        cmd = _autoevol_pytest_cmd(tree, tests)
+
+        async def _call() -> str:
+            return await sandbox_run(
+                command=cmd,
+                parse="pytest",
+                working_dir=str(tree),
+                ro_paths=[str(tree)],
+                env={"PYTHONDONTWRITEBYTECODE": "1"},
+                timeout=_AUTOEVOL_TEST_TIMEOUT_S,
+                verbosity="detail",
+            )
+
+        res = json.loads(anyio.from_thread.run(_call))
+        if res.get("status") == "ERROR" and "timed out" in str(res.get("error", "")).lower():
+            return {"timeout": True, "failed": 0, "errors": 0}
+        counts = _pytest_counts(res.get("parsed"))
+        if counts is not None:
+            return counts
+        if "bwrap:" in str(res.get("stderr", "")) + str(res.get("stderr_tail", "")):
+            return _autoevol_plain_pytest(tree, cmd) if trusted else {"available": False}
+        if res.get("status") in ("DEGRADED", "PERMISSION_DENIED", "PARAM_ERROR"):
+            return {"available": False}
+        return {"ran": 0, "failed": 0, "errors": 1 if res.get("exit_code") else 0, "no_summary": True}
+
+    return run
+
+
+def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv literal, cwd del arbol propio, sin shell
+            shlex.split(cmd), cwd=tree, capture_output=True, text=True, timeout=_AUTOEVOL_TEST_TIMEOUT_S, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return {"timeout": True, "failed": 0, "errors": 0, "unsandboxed": True}
+    except OSError:
+        return {"available": False}
+    counts = _pytest_counts(_parse_pytest_output(proc.stdout + "\n" + proc.stderr)) or {"ran": 0, "failed": 0, "errors": 1}
+    return {**counts, "unsandboxed": True}
+
+
+def _autoevol_dispatcher(tree: Path) -> Any:
+    """dispatch_job inyectado: async_job_dispatch (Pueue) cuando el lote supera N=20 tests o 60 s."""
+
+    def dispatch(tests: list[str]) -> dict[str, Any]:
+        async def _call() -> str:
+            return await async_job_dispatch(
+                action="dispatch",
+                command=_autoevol_pytest_cmd(tree, tests),
+                label="autoevol-verify",
+                working_dir=str(tree),
+                verbosity="summary",
+            )
+
+        res = json.loads(anyio.from_thread.run(_call))
+        if res.get("status") == "queued":
+            return {"job": str(res.get("task_id"))}
+        return {"job": None, "available": False}
+
+    return dispatch
+
+
+def _autoevol_job_poller(job: str) -> dict[str, Any]:
+    """Estado de un job async: PENDING hasta que el log trae el resumen de pytest; luego conteos."""
+    if not str(job).isdigit():
+        return {"available": False}
+
+    async def _call() -> str:
+        return await async_job_dispatch(action="log", task_id=int(job), lines=200, verbosity="summary")
+
+    text = json.dumps(json.loads(anyio.from_thread.run(_call))).replace("\\n", "\n")
+    counts = _pytest_counts(_parse_pytest_output(text))
+    return counts if counts is not None else {"status": "PENDING"}
 
 
 @mcp.tool(structured_output=False)
@@ -5000,6 +5101,12 @@ async def autoevol(
     select_fields: list[str] | None = None,
     verbosity: str = "summary",
     agent_id: str = "default",
+    gap: str | None = None,
+    base: str | None = None,
+    cycle: str | None = None,
+    job: str | None = None,
+    apply: bool = False,
+    restart: bool = False,
 ) -> str:
     """
     [AUTOEVOL / THREAD GRAPH] Vista de solo lectura de la estructura y las promesas de AEP (ONT-40).
@@ -5012,7 +5119,19 @@ async def autoevol(
       - 'diff': diff semántico entre dos R (`a`, `b`; `b` omitido = árbol actual) con impacted_tests.
     `probe=True` (tier >= 5r-x): observaciones de runtime en un hijo aislado, fuera de R.
     `select_fields` proyecta claves de primer nivel (ej: ["gaps"], no ["id"]).
-    Las acciones 'spec', 'verify', 'heal' y 'evolve' quedan fuera de ONT-40 (INVALID_ACTION).
+    ONT-41 (self-healing, N0-N3): el agente parchea, la tool juzga. No razona ni modifica el repo (salvo heal+apply).
+      - 'spec' (tier >= 4r--): mini-SDD determinista de un gap (`gap`); terse <= 400 tokens.
+      - 'verify' (tier >= 5r-x): veredicto ACCEPT/REJECT/PENDING del arbol parcheado contra la base (`base` =
+        snapshot; si no, git HEAD; si no, BASE_UNAVAILABLE). Respeta la barrera de recarga del front: SERVING_LKG
+        rechaza; RELOAD_PENDING/RELOAD_FAILED llevan `retry_after_s`. `job` sondea un lote async.
+      - 'fix_test' (tier >= 5r-x): ciclo re-entrante gap->parche->test. Sin `cycle` abre uno (id del servidor) y
+        devuelve awaiting:'patch'; con `cycle` evalua el parche; maximo 3 iteraciones; la 3.a fallida es EXHAUSTED
+        con la sugerencia de heal (bloqueo de 10 min salvo `restart`). Nunca revierte por su cuenta.
+      - 'heal' (lectura/dry-run tier >= 4r--; `apply=True` exige tier >= 6rw- y un workspace_snapshot previo):
+        restaura desde el LKG solo los modulos rotos. Un EXHAUSTED con tier < 6rw- queda en el JSONL de eventos
+        hasta una llamada con tier >= 6rw- que lo espeja al ledger.
+    El tier se resuelve en cada llamada; los tests corren en sandbox (N<=20, timeout 120 s).
+    La accion 'evolve' queda fuera de ONT-40/41 (INVALID_ACTION).
     """
     from engine import threads as _threads
 
@@ -5037,10 +5156,68 @@ async def autoevol(
     if root and (CapabilityGuard.is_path_blacklisted(str(tree)) or not tree.is_dir()):
         payload = {"status": "ERROR", "error": f"root '{root}' no es un directorio legible permitido."}
         return attach_envelope(payload, tracker, verbosity=verbosity, summary="Invalid root.")
-    octal = int(get_effective_chmod_tier()["octal"])
+    tier_info = get_effective_chmod_tier()
+    octal = int(tier_info["octal"])
     terse = (verbosity or "").lower() in ("terse", "brief")
 
+    def _ops() -> str:
+        from engine import threads_ops as ops
+        from engine import threads_spec, threads_verify
+
+        trusted = not root or tree.resolve() == REPO_ROOT.resolve()
+        if act in ("verify", "fix_test") and octal < ops.MIN_VERIFY_OCTAL:
+            payload = {"status": "PERMISSION_DENIED", "error": f"{act} requiere tier >= 5r-x.", "chmod_tier": tier_info["tier"]}
+            return attach_envelope(payload, tracker, verbosity=verbosity, summary=f"{act}: permission denied.")
+        snapshot: Path | None = None
+        if base:
+            snapshot = Path(base).expanduser()
+            if CapabilityGuard.is_path_blacklisted(str(snapshot)) or not snapshot.is_dir():
+                payload = {"status": "ERROR", "error": f"base '{base}' no es un directorio legible permitido."}
+                return attach_envelope(payload, tracker, verbosity=verbosity, summary="Invalid base.")
+        barrier = get_reload_barrier()
+        serving_lkg = bool(_get_live_meta().get("serving_from") == "lkg")
+        if act == "spec":
+            if not gap:
+                result: dict[str, Any] = {"status": "ERROR", "error": "El parametro 'gap' es obligatorio para 'spec'."}
+            else:
+                result = threads_spec.build_spec(_threads.analyze(tree), gap, terse=terse)
+        elif act == "heal":
+            result = ops.run_heal(
+                tree,
+                apply=bool(apply and trusted),
+                octal=octal if trusted else min(octal, 5),
+                snapshot_fn=_lkg_snapshot_fn,
+                terse=terse,
+            )
+        else:
+            runner = _autoevol_test_runner(tree, trusted)
+            dispatcher = _autoevol_dispatcher(tree)
+            common: dict[str, Any] = {
+                "gap": gap,
+                "snapshot": snapshot,
+                "barrier": barrier,
+                "serving_lkg": serving_lkg,
+                "run_tests": runner,
+                "dispatch_job": dispatcher,
+                "poll_job": _autoevol_job_poller,
+                "job": job,
+                "trusted": trusted,
+                "terse": terse,
+            }
+            if act == "verify":
+                result = ops.run_verify(tree, **common)
+            else:
+                result = ops.run_fix_test(threads_verify.CycleStore(), tree, cycle=cycle, restart=restart, **common)
+        mirror = ops.mirror_events(octal, str(tier_info["tier"]), agent_id) if act != "spec" else None
+        if mirror and mirror.get("mirrored"):
+            result["mirrored"] = mirror["mirrored"]
+        return attach_envelope(
+            _project(result), tracker, verbosity=verbosity, summary=f"autoevol {act}: {result.get('status', 'OK')}."
+        )
+
     def _run() -> str:
+        if act in _AUTOEVOL_OPS:
+            return _ops()
         analysis = _threads.analyze(tree)
         probes_status: str | None = None
         if probe:
