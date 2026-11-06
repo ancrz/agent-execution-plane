@@ -68,6 +68,20 @@ def _read_stat(proc_root: Path, pid: int) -> dict[str, int] | None:
         return None
 
 
+# Claude Code installs versioned binaries (e.g. ~/.local/share/claude/versions/2.1.318); the resolved exe is a semver.
+_VERSIONED_CLAUDE_RE = re.compile(r"^/.+/claude/versions/\d+\.\d+\.\d+$")
+
+
+def _harness_name(exe: str) -> str:
+    """Map a resolved /proc/<pid>/exe target to a harness key ("" if unknown). Never uses comm/argv."""
+    base = os.path.basename(exe)
+    if base in HARNESS_RECONNECT:
+        return base
+    if "/../" not in exe and _VERSIONED_CLAUDE_RE.fullmatch(exe):
+        return "claude"
+    return ""
+
+
 def find_harness(proc_root: str | Path, start_pid: int, uid: int) -> dict[str, Any]:
     """Walk the real ancestry of `start_pid` looking for a known harness.
 
@@ -82,7 +96,7 @@ def find_harness(proc_root: str | Path, start_pid: int, uid: int) -> dict[str, A
             break
         seen.add(pid)
         try:
-            exe_base = os.path.basename(os.readlink(root / str(pid) / "exe"))
+            exe_base = _harness_name(os.readlink(root / str(pid) / "exe"))
             owner = (root / str(pid)).stat().st_uid
         except OSError:
             exe_base, owner = "", -1
@@ -286,7 +300,7 @@ def acquire_lock(uid: int | None = None) -> int:
     base = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{u}"
     if not os.path.isdir(base):
         raise NoRuntimeDirError(base)
-    fd = os.open(os.path.join(base, LOCK_NAME), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    fd = os.open(os.path.join(base, LOCK_NAME), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as exc:
