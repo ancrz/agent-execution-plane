@@ -7,7 +7,7 @@
 - **Architect:** Archon (plan Execution Plan, Stage 1). Fuente: `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/ont42a_plan.md`
 - **Baseline:** `dev` en `37eb60d` (commit `docs(ONT-41)`), rama `dev`, árbol de trabajo limpio al inicio de la activación G1.
 - **Chain position:** documento 14 de la cadena desde el rollup 2. El próximo rollup (`feature_rollup.md`) toca en el documento 15 (ver §13).
-- **Status:** PLANIFICADO. Pendiente de auditoría de Ontos (Full, Stage 3). No se ha escrito código. No se ha hecho commit.
+- **Status:** VERIFIED excluyendo T8 (Dokimos re-verificación sobre `c52861c`, ver §16). T8 smoke en vivo pendiente (user-gated). Commit de documentación pendiente (Hermon).
 - **Decisiones del orquestador incorporadas:**
   - Pregunta abierta 1 (typed-prompt hazard): **ACEPTAR y documentar como limitación** (`caveats` en el output de `plan` y SDD §Validate). No se usa Ctrl-U no verificado.
   - Pregunta abierta 2 (sysctl `dev.tty.legacy_tiocsti` y alcance de `sudo -n`): la resuelve Pragma en modo solo lectura dentro de T2, antes de escribir el helper.
@@ -248,4 +248,71 @@ flowchart LR
     M4 --> M5["M5: documented (Graphos G2, README/STATE/CHANGELOG) pending"]
     M5 --> M6["M6: committed (Hermon) pending"]
     M6 --> M7["M7: live smoke T8 (usuario) pending"]
+```
+
+## 16. Veredicto Dokimos ONT-42a, re-verificación: VERIFIED excluyendo T8 (Graphos G2)
+
+- **Fuente:** re-verificación de Dokimos sobre `dev` @ `c52861c` (informe entregado por el orquestador en esta activación).
+- **Clasificación:** VERIFIED excluyendo T8. T8 (smoke en vivo de `execute`) es user-gated y no se ha ejecutado.
+- **Ruta:** Graphos G2 → Orquestador → Hermon (commit de documentación). Push retenido. T8 fuera de alcance hasta autorización explícita del usuario.
+- **Ciclos:** Pragma↔Dokimos: 1 de 3 (ciclo 1 DEFECTIVE, §15). Archon↔Ontos: 0 revisiones.
+- **Suite:** 562 passed, 6 xfailed (incluye ONT-41). ruff limpio.
+
+### 16.1 Estado de hallazgos del ciclo 1
+
+| ID | Estado | Evidencia |
+|---|---|---|
+| L1 (bloqueante) | Cerrado | `feb088c`: `find_harness` reconoce el binario versionado `claude/versions/X.Y.Z` y mantiene uid y ascendencia real. Verificado en vivo (§16.2). |
+| L2 | Refutado (sin cambios) | Dependía de L1; no requirió acción propia. |
+| L3 | Cerrado | `0578484`: el reaper cubre backends del árbol LKG, `_drain_and_terminate` se espera en shutdown y `os._exit` tras el worker. Marcador xfail estricto retirado. |
+| Menor: lockfile sin `O_NOFOLLOW` | Cerrado | Incluido en `feb088c`. |
+| Menor: restore del sysctl sin reintento | No reportado en esta re-verificación | Queda como observación abierta. |
+
+### 16.2 Verificación en vivo
+
+- `aep_ctl ipc harness_reconnect` en modo `plan` (solo lectura): harness `claude` pid 112908, tty `/dev/pts/2`, ruta `tty_inject`.
+- `execute` (T8): no ejecutado. Requiere tier 7rwx, `confirm=true` por llamada y consentimiento explícito del usuario (helper sudo, `dev.tty.legacy_tiocsti` abierto durante menos de 2 s, TIOCSTI).
+
+### 16.3 Observación no bloqueante (backlog)
+
+- **o1:** anclar `_VERSIONED_CLAUDE_RE` a `$HOME/.local/share/claude/versions` en lugar de aceptar cualquier ruta `claude/versions/X.Y.Z`. Endurecimiento; no bloquea.
+
+### 16.4 Riesgo abierto
+
+- `sudo use_pty` puede sustituir stdin del helper (falla cerrado a manual). No reportado como resuelto; se validará en T8.
+
+### 16.5 Métricas
+
+- Archon↔Ontos: 0 revisiones (APPROVED C1 a C14 más enmienda fd-stdin).
+- Pragma↔Dokimos: 1 ciclo.
+- Dokimos approximation ratio: no reportado.
+
+### 16.6 Enrutado
+
+Graphos G2 → Orquestador → Hermon (documentación). No se invoca Archon (sin PLAN_GAP). T8 queda como decisión del usuario.
+
+### 16.7 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-42a implementado (T1 a T7, worktree)"] --> A1["A.1: Dokimos ciclo 1 DEFECTIVE (L1, L3) ✅"]
+    A1 --> A2["A.2: fix L1 (feb088c) y L3 (0578484) ✅"]
+    A2 --> A3["A.3: VERIFIED excluyendo T8 @ c52861c ✅ (current)"]
+    A3 --> A4["A.4: documentado (Graphos G2) ✅"]
+    A4 --> A5["A.5: commit de documentación (Hermon) pending"]
+    A5 --> A6["A.6: T8 smoke en vivo (usuario, user-gated) pending"]
+```
+
+### 16.8 Reinforcement Graph (intent ONT-42a, actualizado)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42a harness_reconnect"] --> M1["M1: planned (Archon / Orchestrator) ✅"]
+    M1 --> M2["M2: audited (Ontos, 0 revisiones) ✅"]
+    M2 --> M3["M3: implemented T1 a T7 (Pragma) ✅"]
+    M3 --> M4["M4: verified (Dokimos) ✅ excluyendo T8"]
+    M4 -. "LOGIC_ERROR L1 y L3 (cerrados)" .-> M3
+    M4 --> M5["M5: documented (Graphos G2) ✅"]
+    M5 --> M6["M6: committed (Hermon) pending"]
+    M6 --> M7["M7: live smoke T8 (usuario, user-gated) pending"]
 ```

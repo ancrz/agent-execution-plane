@@ -7,7 +7,7 @@
 - **Architect:** Archon (plan delivered by the orchestrator; facts verified against `e3f7725`)
 - **Baseline:** `dev` = `origin/dev` = `e3f7725` (ONT-40 VERIFIED; ONT-40b committed as `a61b3f1`)
 - **Budget constraints:** max 12 turns, no commit (Hermon not invoked)
-- **Status:** EN PLAN (Full), plan revisado ciclo 2 entregado por Archon, pendiente de re-auditoría de Ontos (ciclo 2 de 3). No code written.
+- **Status:** VERIFIED (Dokimos re-verificación sobre `c52861c`, ver §19). Pragma↔Dokimos: 2 ciclos. Commit de documentación pendiente (Hermon); push no autorizado.
 - **Normative SDD:** not supplied in this G1 activation. Acceptance is therefore carried in §5 as the plan states it; Ontos must confirm the SDD reference.
 
 ## 1. Intent & Premises
@@ -470,4 +470,64 @@ flowchart LR
     M5 -. "LOGIC_ERROR F7 y F8" .-> M4
     M5 --> M6["M6: documented (Graphos G2) pending"]
     M6 --> M7["M7: committed (Hermon) pending"]
+```
+
+## 19. Veredicto Dokimos ONT-41, re-verificación: VERIFIED (Graphos G2)
+
+- **Fuente:** re-verificación de Dokimos sobre `dev` @ `c52861c` (informe entregado por el orquestador en esta activación).
+- **Clasificación:** VERIFIED. Sin LOGIC_ERROR, PLAN_GAP ni DEPENDENCY_ISSUE pendientes.
+- **Ruta:** Graphos G2 → Orquestador → Hermon (commit de documentación). Push retenido.
+- **Ciclos:** Pragma↔Dokimos consumidos: 2 de 3 (ciclo 1 DEFECTIVE F1 a F5; ciclo 2 DEFECTIVE F7 y F8).
+- **Suite:** 562 passed, 6 xfailed. ruff limpio. 0 huérfanos.
+
+### 19.1 Estado de hallazgos
+
+| ID | Estado | Evidencia |
+|---|---|---|
+| F1 | Cerrado | Tests nuevos o cambiados entran en `impacted_tests`. |
+| F2 | Cerrado | Runner real: `ran` igual a `selected`; `ran < selected` da TESTS_FAIL. |
+| F3 | Cerrado | Árbol no confiable no llega a pueue. |
+| F4 | Cerrado | Intérprete roto (127) da `available: False`. |
+| F5 | Cerrado | Id inexistente: exit 4, ran 0, REJECT. |
+| F6 | Cerrado | Huérfanos de `aep_backend.py` cubiertos por el reaper del árbol LKG (`0578484`, ver ONT-42a §16). |
+| F7 | Cerrado | Pytest ausente (exit 1, sin fallos) clasificado como ambiental (`8da09d0`). Marcador xfail estricto retirado (`68ca542`). |
+| F8 | Cerrado | Poller async con estado de pueue y timeout (`8da09d0`, test en `c52861c`). Probado contra pueue real. |
+
+### 19.2 Observaciones no bloqueantes (backlog; no bloquean VERIFIED)
+
+- **o2:** `os._exit` tras `asyncio.run(worker.run())` en `aep_backend.py` (`0578484`) omite el `atexit` de `GLOBAL_SOCKET_MUX.stop`. Benigno; autocura.
+- **o3:** un job exitoso sin resumen de pytest se trata como ambiental (`available: False`). Criterio conservador.
+
+### 19.3 Métricas
+
+- Pragma↔Dokimos: 2 ciclos.
+- Archon↔Ontos: 1 revisión (ciclo 1 BLOCKED, §14; ciclo 2 APPROVED con condiciones, §16).
+- Dokimos approximation ratio: no reportado.
+
+### 19.4 Enrutado
+
+Graphos G2 → Orquestador → Hermon. Sin PLAN_GAP: no se invoca Archon.
+
+### 19.5 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-41 implementado @ 37eb60d"] --> A1["A.1: Dokimos ciclo 1 DEFECTIVE, F1 a F5 cerrados ✅"]
+    A1 --> A2["A.2: Dokimos ciclo 2 DEFECTIVE, F7 y F8 cerrados ✅"]
+    A2 --> A3["A.3: VERIFIED, F1 a F8 cerrados @ c52861c ✅ (current)"]
+    A3 --> A4["A.4: documentado (Graphos G2) ✅"]
+    A4 --> A5["A.5: commit de documentación (Hermon) pending"]
+    A5 --> A6["A.6: push a origin/dev (autorización del usuario) pending"]
+```
+
+### 19.6 Reinforcement Graph (ONT-41, actualizado)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-41 autoevol spec/verify/fix_test/heal + LKG"] --> M4["M4: implemented (Pragma) ✅"]
+    M4 --> M5["M5: verified (Dokimos, 562 passed, 6 xfailed) ✅"]
+    M5 -. "LOGIC_ERROR F7 y F8 (ciclo 2 cerrado)" .-> M4
+    M5 --> M6["M6: documented (Graphos G2) ✅"]
+    M6 --> M7["M7: committed (Hermon) pending"]
+    M7 --> M8["M8: pushed to origin/dev (autorización del usuario) pending"]
 ```
