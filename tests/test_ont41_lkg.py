@@ -65,6 +65,21 @@ def test_lkg_home_not_anchored_to_file() -> None:
     for name in ("lkg_home", "key_dir", "tree_path", "save", "list_keys", "latest", "verify"):
         names = {n.id for n in ast.walk(fns[name]) if isinstance(n, ast.Name)}
         assert "__file__" not in names, name
+    # Runtime check: lkg_home() honors AEP_DATA_HOME, never the module location.
+    import tempfile
+
+    old = os.environ.get("AEP_DATA_HOME")
+    tmp_home = tempfile.mkdtemp(prefix="aep-lkg-home-")
+    os.environ["AEP_DATA_HOME"] = tmp_home
+    try:
+        home = aep_lkg.lkg_home()
+    finally:
+        if old is None:
+            os.environ.pop("AEP_DATA_HOME", None)
+        else:
+            os.environ["AEP_DATA_HOME"] = old
+    assert str(home).startswith(tmp_home)
+    assert REPO not in Path(home).parents
 
 
 def test_stdlib_only() -> None:
@@ -78,6 +93,10 @@ def test_stdlib_only() -> None:
             mods.add((n.module or "").split(".")[0])
     assert mods <= set(sys.stdlib_module_names), mods - set(sys.stdlib_module_names)
     assert "engine" not in mods
+    # The module's self-hash must describe exactly this source (drift detection, B1).
+    import hashlib
+
+    assert aep_lkg.LKG_MODULE_HASH == hashlib.sha256(SOURCE.read_bytes()).hexdigest()
 
 
 def test_save_layout_and_manifest(tmp_path: Path) -> None:

@@ -115,3 +115,12 @@ def test_corrupt_lkg_refused(world: dict[str, Any]) -> None:
 def test_no_server_import() -> None:
     src = (REPO / "engine" / "threads_heal.py").read_text()
     assert "import server" not in src and "from server" not in src
+    # Runtime check: importing the module (and calling its entry point's module) must not pull in server.
+    import subprocess
+    import sys
+
+    probe = "import sys; from engine import threads_heal; assert callable(threads_heal.heal); print('server' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", probe], cwd=REPO, capture_output=True, text=True, timeout=60, check=False)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "False"
+    assert threads_heal.heal.__module__ == "engine.threads_heal"
