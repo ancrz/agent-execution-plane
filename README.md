@@ -977,7 +977,45 @@ In complex development ecosystems with multiple active agent harnesses (Antigrav
 - Determines parent process names (e.g. `Antigravity`, `node` / Claude Code, `codex`, `bash`).
 - Compares process startup time against `git log -1 --format=%ct`.
 - Emits diagnostic warnings for instances serving stale bytecode.
-- **Topos Safety Invariant**: Warn-only; **never terminates or kills running processes automatically**.
+- **Topos Safety Invariant**: Warn-only; **never terminates or kills running processes automatically** (unless `--reap-stale` opt-in is passed, which only terminates orphaned `PPID=1` processes).
+
+### 10.2 Live Plane: Zero-Downtime Hot-Swap (`ONT-39`)
+
+Agent harnesses (Claude Code, Antigravity, Codex) retain long-lived MCP connections. Re-registering an MCP server does not restart active client sessions.
+
+**Live Plane** decouples the MCP transport from the execution worker through a high-resilience architecture:
+
+```mermaid
+flowchart TD
+    H["Agent Harness (Claude / agy / Codex)"] -- "stdio / MCP" --> F["aep_front.py (Low-level Server)"]
+    F -- "AF_UNIX socketpair (JSON-lines)" --> B["aep_backend.py (Worker: FastMCP Tools)"]
+    subgraph HotSwap ["Fail-Safe Hot-Swap Protocol"]
+        B1["Gen N (Active)"]
+        B2["Candidate Gen N+1"]
+        B2 -- "1. health check (20s)" --> B2_OK{"Health OK?"}
+        B2_OK -- Yes --> PROMOTE["Promote N+1 & Route new calls"]
+        PROMOTE --> DRAIN["Drain in-flight Gen N (max 30s) -> SIGTERM"]
+        B2_OK -- No --> KEEP["Retain Gen N & Surface last_reload_error"]
+    end
+    F --> HotSwap
+```
+
+- **Front (`aep_front.py`)**: Thin, low-level MCP server. Zero argument validation against cached schemas; passthrough directly to the active backend. Monitors `code_fingerprint` before tool calls (with 1s debounce).
+- **Backend (`aep_backend.py`)**: Private worker process running the full FastMCP tool manager.
+- **Fail-Safe Swap**: Candidate Gen N+1 is probed via `health` before promotion. If broken (syntax error, broken import), Gen N remains active and `last_reload_error` is reported in `discover`.
+- **In-flight Drainage**: Ongoing calls on Gen N complete without interruption.
+- **Tier Governance**:
+  - `7rwx` / `6rw-` / `5r-x`: Auto-swap enabled by default.
+  - `4r--`: Watch-only mode (no swap; reports `stale=true`).
+  - Overrides: `AEP_HOTSWAP=0` falls back to legacy `server.py`; `AEP_HOTSWAP_MODE=watch` forces watch-only.
+
+#### REGLA DEL AGENTE (Verificación de Reload)
+> [!IMPORTANT]
+> **REGLA DEL AGENTE (SDD §5):** Después de editar código o de un reload, llamar inmediatamente a `discover(action="capabilities", verbosity="terse")` y exigir:
+> - `stale == false`
+> - `code_fingerprint_loaded == code_fingerprint_disk`
+>
+> Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
 [↑ Back to top](#top)
 
