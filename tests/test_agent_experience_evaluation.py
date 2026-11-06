@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CTL = PROJECT_ROOT / "scripts" / "aep-ctl"
 
@@ -48,6 +50,10 @@ def test_invalid_control_action_returns_remediation() -> None:
     assert result["valid"] == ["usage", "mounts", "disks"]
 
 
+@pytest.mark.skipif(
+    bool(os.environ.get("AEP_IN_SANDBOX")),
+    reason="Nested bubblewrap sandbox cannot create user namespaces inside jail when AEP_IN_SANDBOX is set (D-16)",
+)
 def test_sandbox_hides_the_host_workspace() -> None:
     """The default sandbox must not expose the AEP checkout implicitly."""
     import server

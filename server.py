@@ -677,7 +677,7 @@ async def discover(
                 tracker,
                 verbosity=verbosity,
                 summary=f"Tactical playbook loaded ({source}, Rules of Engagement ready).",
-                next_action="Select a workflow recipe (WF-1..WF-9) or canonical call from quick_reference.",
+                next_action=f"Select a workflow recipe ({first_wf}..{last_wf}) or canonical call from quick_reference.",  # noqa: S608
             )
 
         elif act in ("discover", "match", "route", "search", "recommend"):
@@ -4840,6 +4840,21 @@ try:
     ensure_ipc_server_started()
 except Exception as e:
     logger.warning("No se pudo iniciar el daemon de IPC socket pool al cargar server.py: %s", e)
+
+
+# Synchronize dynamic tool counts in discover docstring & metadata (D-11)
+_total_fastmcp_tools = len(mcp._tool_manager._tools)
+if discover.__doc__:
+    discover.__doc__ = discover.__doc__.replace(
+        "para las herramientas FastMCP",
+        f"para las {_total_fastmcp_tools} herramientas FastMCP",
+    )
+_disc_tool = mcp._tool_manager._tools.get("discover")
+if _disc_tool and _disc_tool.description:
+    _disc_tool.description = _disc_tool.description.replace(
+        "para las herramientas FastMCP",
+        f"para las {_total_fastmcp_tools} herramientas FastMCP",
+    )
 
 
 if __name__ == "__main__":
