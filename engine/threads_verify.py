@@ -123,6 +123,7 @@ def summarize(analysis: Any) -> dict[str, Any]:
     return {
         "root": analysis.root_hash,
         "gaps": sorted(g.id for g in analysis.gaps),
+        "gap_meta": {g.id: [g.ref, g.score] for g in analysis.gaps if g.ref},
         "codep": sorted(c[0] for c in analysis.scc.codependencies if c),
         "hashes": hashes,
         "public": sorted(public),

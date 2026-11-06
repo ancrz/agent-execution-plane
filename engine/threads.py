@@ -20,6 +20,7 @@ Determinismo (F11): ninguna iteración depende del orden de hash ni de rutas abs
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import logging
@@ -629,8 +630,49 @@ def _score(graph: ThreadGraph, rank: dict[str, float], gaps: list[Gap]) -> None:
         g.score = round(g.severity * centrality * g.reach, 6)
 
 
+_SIMILAR_MAX = 5
+_ALTERNATIVES_MAX = 3
+
+
 def sort_gaps(gaps: list[Gap]) -> list[Gap]:
     return sorted(gaps, key=lambda g: (-g.score, -g.severity, g.id))
+
+
+def resolve_in(gaps: Iterable[Gap], ref: str) -> tuple[Gap | None, dict[str, Any]]:
+    """AE-1: id exacto -> `gap.ref` exacto (sin mayúsculas) -> sufijo único -> subcadena única.
+
+    Devuelve `(gap, extra)`. Varios gaps con el mismo ref: el de mayor score y `extra['alternatives']`.
+    Sin coincidencia o ambigüedad no resoluble: `(None, {'similar': [...]})`.
+    """
+    pool = list(gaps)
+    needle = (ref or "").strip()
+    low = needle.lower()
+    if not low:
+        return None, {"similar": []}
+    exact = next((g for g in pool if g.id == needle), None)
+    if exact is not None:
+        return exact, {}
+    by_ref = sorted((g for g in pool if g.ref and g.ref.lower() == low), key=lambda g: (-g.score, -g.severity, g.id))
+    if by_ref:
+        extra = {"alternatives": [g.id for g in by_ref[1 : 1 + _ALTERNATIVES_MAX]]} if len(by_ref) > 1 else {}
+        return by_ref[0], extra
+    suffix = [g for g in pool if g.id.lower().endswith(low)]
+    substr = [g for g in pool if low in g.id.lower()]
+    for matches in (suffix, substr):
+        if len(matches) == 1:
+            return matches[0], {}
+    ambiguous = suffix or substr
+    if ambiguous:
+        return None, {"similar": sorted(g.id for g in ambiguous)[:_SIMILAR_MAX]}
+    names = {g.id: g.id for g in pool} | {g.ref.lower(): g.id for g in pool if g.ref}
+    close = difflib.get_close_matches(low, [n.lower() for n in names], n=_SIMILAR_MAX, cutoff=0.6)
+    lowered = {n.lower(): v for n, v in names.items()}
+    return None, {"similar": sorted({lowered[c] for c in close})[:_SIMILAR_MAX]}
+
+
+def resolve_gap(analysis: Analysis, ref: str) -> tuple[Gap | None, dict[str, Any]]:
+    """`resolve_in` sobre los gaps de un `Analysis`."""
+    return resolve_in(analysis.gaps, ref)
 
 
 def _analysis_fields(a: Analysis) -> dict[str, Any]:

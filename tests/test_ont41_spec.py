@@ -95,8 +95,8 @@ def test_unknown_omission_edge_falls_back_to_generic_template() -> None:
 
 def test_not_found_returns_similar() -> None:
     gap = Gap("omission:fn:a:in:covers", "omission", "fn:a", 0.3, "x")
-    out = spec.build_spec(_fake([gap]), "covers")
-    assert out == {"status": "NOT_FOUND", "gap": "covers", "similar": ["omission:fn:a:in:covers"]}
+    out = spec.build_spec(_fake([gap]), "omission:fn:a:on:covers")  # AE-1: 'covers' ya resuelve por sufijo único; ahora NOT_FOUND usa coincidencia aproximada
+    assert out == {"status": "NOT_FOUND", "gap": "omission:fn:a:on:covers", "similar": ["omission:fn:a:in:covers"]}
 
 
 def test_scope_files_per_node_type() -> None:

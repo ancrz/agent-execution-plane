@@ -108,6 +108,24 @@ def base_summary(
     return None, ""
 
 
+def resolve_target(base: dict[str, Any] | None, ref: str | None) -> tuple[str | None, dict[str, Any] | None]:
+    """AE-1: resuelve `ref` (id, ref `D-xx`, sufijo o subcadena) contra los gaps de la base congelada.
+
+    Devuelve `(id_canónico, None)` o `(None, payload NOT_FOUND)`. Sin `ref` o sin base no resuelve nada.
+    """
+    if not ref or base is None:
+        return ref, None
+    meta = base.get("gap_meta", {})
+    pool = [
+        th.Gap(gid, "", "", 0.0, "", ref=str(meta.get(gid, ["", 0.0])[0]), score=float(meta.get(gid, ["", 0.0])[1]))
+        for gid in base.get("gaps", [])
+    ]
+    gap, found = th.resolve_in(pool, ref)
+    if gap is None:
+        return None, {"status": "NOT_FOUND", "gap": ref[:80], "similar": found.get("similar", [])}
+    return gap.id, None
+
+
 def judge(
     base: dict[str, Any] | None,
     tree: Path | str,
@@ -171,6 +189,9 @@ def run_verify(
 ) -> dict[str, Any]:
     """`autoevol(verify)`: veredicto sin estado contra la base (snapshot o HEAD). Sin base: BASE_UNAVAILABLE."""
     base, source = base_summary(tree, snapshot)
+    gap, missing = resolve_target(base, gap)
+    if missing is not None:
+        return missing
     state = barrier_state(barrier if trusted else None, serving_lkg and trusted)
     tests_result = poll_job(job) if (job and poll_job is not None) else None
     decision = judge(
@@ -268,6 +289,9 @@ def _open_cycle(
     base, source = base_summary(tree, snapshot, allow_tree=True)
     if base is None:
         return {"status": "ERROR", "verdict": tv.REJECT, "reasons": [tv.BASE_UNAVAILABLE]}
+    gap, missing = resolve_target(base, gap)
+    if missing is not None or gap is None:
+        return missing or {"status": "NOT_FOUND", "gap": ""}
     opened = store.open_cycle(gap, base, restart=restart)
     if opened.get("status") != "OK":
         return opened

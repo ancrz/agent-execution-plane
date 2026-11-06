@@ -187,10 +187,9 @@ def _fit(payload: dict[str, Any], budget: int, shrinkable: tuple[str, ...]) -> d
 
 def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> dict[str, Any]:
     """Mini-SDD del gap `gap_id`: specify, plan, tasks, validate, alcance, tests impactados y nombre canónico."""
-    gap = next((g for g in analysis.gaps if g.id == gap_id), None)
+    gap, found = th.resolve_gap(analysis, gap_id)
     if gap is None:
-        near = sorted(g.id for g in analysis.gaps if gap_id and gap_id in g.id)[:5]
-        return {"status": "NOT_FOUND", "gap": gap_id, "similar": near}
+        return {"status": "NOT_FOUND", "gap": gap_id, "similar": found.get("similar", [])}
     what, task = _template(gap)
     files = [f for f in _files_for(analysis, gap.node) if f]
     tests = th.impacted_tests(analysis.graph, [gap.node])
@@ -214,6 +213,8 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
             "tests": tests[:_TERSE_TESTS],
             "tests_total": len(tests),
         }
+        if found:
+            payload["alternatives"] = found["alternatives"]
         return _fit(payload, TERSE_MAX_TOKENS, ("tests", "files"))
     payload = {
         "status": "OK",
@@ -226,4 +227,6 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
         "name": name,
     }
     payload["validate"] = {**validate, "tests": tests[:20], "tests_total": len(tests)}
+    if found:
+        payload["alternatives"] = found["alternatives"]
     return _fit(payload, SUMMARY_MAX_TOKENS, ("plan", "tasks"))
