@@ -634,8 +634,17 @@ _SIMILAR_MAX = 5
 _ALTERNATIVES_MAX = 3
 
 
+_PRIORITY_KINDS = frozenset({"open_discrepancy", "claim_drift", "probe_drift"})
+
+
+def gap_class(gap: Gap) -> int:
+    """Clase de prioridad (AE-5): 0 = discrepancia abierta o drift (ya declarado/medido), 1 = omisión y resto estructural."""
+    return 0 if gap.kind in _PRIORITY_KINDS else 1
+
+
 def sort_gaps(gaps: list[Gap]) -> list[Gap]:
-    return sorted(gaps, key=lambda g: (-g.score, -g.severity, g.id))
+    """Clase de prioridad primero; dentro de cada clase, el orden por score. Solo ordena: no toca el grafo ni R."""
+    return sorted(gaps, key=lambda g: (gap_class(g), -g.score, -g.severity, g.id))
 
 
 def resolve_in(gaps: Iterable[Gap], ref: str) -> tuple[Gap | None, dict[str, Any]]:
