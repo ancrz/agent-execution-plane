@@ -22,9 +22,6 @@ def _versioned_tree(root: Path, exe: str = VERSIONED) -> Path:
     return root
 
 
-@pytest.mark.xfail(
-    strict=True, reason="L1: Claude Code installs versioned binaries; basename(exe) is a semver, not 'claude'"
-)
 def test_l1_find_harness_recognises_versioned_claude_binary(tmp_path: Path) -> None:
     res = hr.find_harness(_versioned_tree(tmp_path), 300, os.getuid())
     assert res["found"] and res["pid"] == 100 and res["harness"] == "claude"
@@ -51,9 +48,6 @@ def test_l2_plan_reports_ancestry_even_when_route_is_noop(tmp_path: Path) -> Non
     assert plan["recommended_route"] == "noop" and plan["harness"] == "claude" and plan["tty"] == "/dev/pts/3"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="L3: reap_backends_of(root) misses LKG-served/retired backends under AEP_DATA_HOME/lkg/*/tree"
-)
 def test_l3_reaper_covers_lkg_tree_backends(tmp_path: Path) -> None:
     from tests.test_ont41_front import reap_backends_of
 

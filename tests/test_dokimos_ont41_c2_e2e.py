@@ -59,10 +59,6 @@ def test_real_runner_executes_every_selected_test_beyond_20() -> None:
     assert _decide({**res, "ran": 20}, 25)["reasons"] == [tv.TESTS_FAIL]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F7: sandbox without pytest module exits 1 with zeros; classified TESTS_FAIL (consumes iteration)",
-)
 def test_real_runner_missing_pytest_module_is_environmental(tmp_path: Path) -> None:
     tree = _tree(tmp_path, "def test_ok():\n    assert True\n")
     res = _run_in_worker(server._autoevol_test_runner(tree, False), ["tests/test_x.py::test_ok"])
