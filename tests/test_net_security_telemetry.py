@@ -4,7 +4,7 @@ Native Memory-First Network & Security Telemetry: Architectural Purification,
 Container Decoupling, and Semantic Neutralization.
 
 Verifies all 8 Quality Gates:
-  - Gate 1: FastMCP 16-Tool Invariant (zero bloat, exactly 16 tools).
+  - Gate 1: FastMCP 17-Tool Invariant (zero bloat, exactly 17 tools).
   - Gate 2: Enhanced Schema & Preconditions in CONTROL_PLANE_SCHEMA.
   - Gate 3: In-Memory TCP Port Probing via asyncio/socket (fd_delta == 0).
   - Gate 4: Kernel /proc/net Introspection (tcp, udp, dev, arp, little-endian hex IP decoding).
@@ -28,9 +28,9 @@ from engine.privilege import CONTROL_PLANE_SCHEMA, tactical_playbook
 
 
 def test_gate1_exactly_16_fastmcp_tools() -> None:
-    """Gate 1: FastMCP 16-Tool Invariant: strictly 16 tools registered in server.py."""
+    """Gate 1: FastMCP 17-Tool Invariant: strictly 17 tools registered in server.py."""
     tools = server.mcp._tool_manager._tools
-    assert len(tools) == 16, f"Expected strictly 16 tools, found {len(tools)}: {list(tools.keys())}"
+    assert len(tools) == 17, f"Expected strictly 17 tools, found {len(tools)}: {list(tools.keys())}"
     expected_tools = {
         "topos_audit_dag",
         "discover",
@@ -48,6 +48,7 @@ def test_gate1_exactly_16_fastmcp_tools() -> None:
         "kanban_board",
         "playbook_run",
         "default_primitives",
+        "autoevol",
     }
     assert set(tools.keys()) == expected_tools
 
@@ -220,7 +221,7 @@ async def test_gate7_self_describing_schema_reflection() -> None:
     raw_schema = await server.discover(action="schema")
     res = json.loads(raw_schema)
     assert res["status"] == "OK"
-    assert res["tools_count"] == 16
+    assert res["tools_count"] == 17
     assert "tools" in res
     assert "preconditions" in res
     assert "control_plane_domains" in res

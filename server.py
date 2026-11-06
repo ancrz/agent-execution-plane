@@ -80,7 +80,7 @@ logger = logging.getLogger("aep.server")
 
 _INSTRUCTIONS = """# Agent Execution Plane (AEP) — Tactical Suite & Instructions (EAES-v2)
 
-AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 16 typed JSON-RPC tools (19 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under 4-tier Unix chmod octal privilege governance:
+AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on Ubuntu/Linux. It exposes 17 typed JSON-RPC tools (19 capabilities) backed by low-level Linux kernel primitives (`memfd_create` volatile RAM execution, `/dev/shm/aep.sock` AF_UNIX multiplexed IPC & `/dev/shm/aep_pool` warm session pool, Bubblewrap namespace sandboxing, Landlock LSM confinement, `bpftrace` eBPF observability, Pueue async queues, and `sqlite-vec` hybrid semantic memory) under 4-tier Unix chmod octal privilege governance:
 - **7rwx** (Root / Passwordless Sudo): Unrestricted system-wide & kernel scope, raw packet capture, eBPF tracing, system unit mutation, netfilter hardening.
 - **6rw-** (Standard User RW): Bounded user scope, user-space systemd units (`systemctl --user`), in-RAM anonymous exec (`memfd_create`), SQLite RW, user Pueue dispatch.
 - **5r-x** (Restricted / Container RO-Exec): Read-only workspace bind, in-RAM anonymous execution permitted, template inspection & syntax linting, query tools active.
@@ -92,7 +92,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-11`) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
-## 2. Complete 16-Tool Suite Map (6 Operational Domains)
+## 2. Complete 17-Tool Suite Map (6 Operational Domains)
 - **Domain 1 — Orientation, Synthesis & In-RAM Execution**:
   1. `discover(use_case="", action="discover"|"capabilities"|"playbook", limit=3, verbosity="summary")`
   2. `artifact_lint_and_build(action="build"|"catalog"|"select"|"hydrate", name=..., template_name=..., agent_id=..., verbosity="summary")` *(1-step isolated Go build in `/dev/shm/aep_pool` + atomic `os.replace` & `kanban.upsert_build_task`: `template_name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard"`)*
@@ -100,6 +100,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
   5. `default_primitives(action="list"|"info"|"run", name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
 - **Domain 2 — State Governance & Process Introspection**:
+  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff", node=..., a=..., b=..., probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
   6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
   7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
   8. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
@@ -117,10 +118,10 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   16. `playbook_run(action="run"|"batch"|"create"|"list"|"prune", name="aep-self-diagnostic", vars={}, steps=[...], return_only="last"|"summary"|"all", select_fields=[...], agent_id=..., verbosity="summary")` *(supports `$prev.*`, `$steps.<id>.*`, `$cache.<key>.*`, `$slot.<key>.*` piping and `store_as` shared RAM handoffs)*
 
 ## 3. Rules of Engagement (Token Efficiency, Batching & Multi-Agent Concurrency)
-- **Compact Verbosity**: Always pass `verbosity="summary"` (supported across all 16/16 tools) for 70-98% token savings.
+- **Compact Verbosity**: Always pass `verbosity="summary"` (supported across all 17/17 tools) for 70-98% token savings.
 - **Single-Turn Ephemeral Batch & Field Projection (`Spec OM-7`)**: Chain multi-tool workflows in 1 LLM turn using `playbook_run(action="batch", steps=[...], return_only="last", select_fields=["status","pid","fd_count"])` (also supported on saved playbooks with `action="run"`). Failed step diagnostics (`failed_steps`) are always preserved.
 - **Zero-Token Multi-Agent RAM Handoffs (`/dev/shm/aep_pool`)**: Pass `params={"session_id": "shared-id"}` and `store_as="key"` on steps so collaborating agents (`archon`, `pragma`, `dokimos`, `graphos`, `hermon`) read `$cache.<key>.<field>` directly from `/dev/shm` RAM without re-serializing JSON through the prompt.
-- **Collision-Free Multi-Agent Concurrency**: All 16 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
+- **Collision-Free Multi-Agent Concurrency**: All 17 tools (Pico-Jenkins Go builds in `/dev/shm` + atomic `os.replace`, Pico-Kanban `upsert_build_task`, Pico-Ansible playbooks, SHA-256 audit chain, and RAM micro-snapshots) are thread/process-safe under concurrent multi-agent execution.
 - **Snapshot Before Mutation**: Before mutating SQLite or catalog state, take a 0.28ms RAM snapshot: `aep_ctl(domain="backup", action="micro_snapshot", name="pre_edit")`.
 - **Multi-Agent RAM Capability Caching (GAP-DOC-02)**: Subagents must call `discover(action="capabilities", session_id="<shared-id>", verbosity="terse")` to read cached capabilities directly from RAM slot, eliminating redundant 1.2k-1.9k token re-discovery taxes (>95% savings).
 - **Tactical Security & Incident Workflows (ONT-32)**: Use WF-10 ('Native Network Telemetry & Port Observability') and WF-11 ('Security Observability & Netfilter Hardening' with netfilter mitigation and Landlock verification).
@@ -288,7 +289,7 @@ def _get_git_commit() -> str:
 
 
 def _get_schema_hash() -> str:
-    """Compute deterministic SHA-256 fingerprint across all 16 FastMCP registered tool schemas (Directive OM-1)."""
+    """Compute deterministic SHA-256 fingerprint across all FastMCP registered tool schemas (Directive OM-1)."""
     try:
         import hashlib
 
@@ -631,7 +632,7 @@ async def discover(
                 payload["swap_fence_orphan"] = True
             if v_mode not in ("terse", "cached"):
                 payload["session_hint"] = (
-                    "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities from RAM and save >95% tokens."
+                    "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities (>95% token savings)."
                 )
 
             if select_fields and isinstance(select_fields, list):
@@ -657,7 +658,7 @@ async def discover(
                 sev = "WARN"
             else:
                 summary = f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities)."
-                next_action = "Call discover(action='playbook') for tactical workflows or invoke a ready tool."
+                next_action = "Call discover(action='playbook') for workflows or invoke a ready tool."
                 sev = "INFO"
 
             return attach_envelope(
@@ -4210,6 +4211,7 @@ def _playbook_dispatch() -> dict[str, Any]:
         "visual_inspect": visual_inspect,
         "kernel_trace": kernel_trace,
         "topos_audit_dag": topos_audit_dag,
+        "autoevol": autoevol,
         "kanban_board": kanban_board,
         "artifact_lint_and_build": artifact_lint_and_build,
     }
@@ -4912,6 +4914,122 @@ async def default_primitives(
             verbosity=verbosity,
             summary=f"Invalid action '{action}'.",
         )
+
+
+
+# ---------------------------------------------------------------------------
+# Tool #17: autoevol (Milestone ONT-40) - read-only thread graph
+# ---------------------------------------------------------------------------
+_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff")
+
+
+@mcp.tool(structured_output=False)
+async def autoevol(
+    action: str = "graph",
+    node: str | None = None,
+    a: str | None = None,
+    b: str | None = None,
+    probe: bool = False,
+    root: str | None = None,
+    persist: bool = True,
+    limit: int = 10,
+    select_fields: list[str] | None = None,
+    verbosity: str = "summary",
+    agent_id: str = "default",
+) -> str:
+    """
+    [AUTOEVOL / THREAD GRAPH] Vista de solo lectura de la estructura y las promesas de AEP (ONT-40).
+    Extrae un grafo de hilos (tools, acciones, capacidades, funciones, estado, tests, claims, presupuestos)
+    con raíz Merkle R sobre la condensación SCC, brechas por omisión, drift declarado-vs-observado y ranking.
+      - 'graph': R, conteos, SCC y brechas abiertas (terse < 300 tokens). Persiste la generación solo con tier >= 6rw-.
+      - 'gaps': brechas rankeadas por score (severidad x centralidad x alcance); `limit`, `select_fields`.
+      - 'thread': inspecciona un hilo (`node`): aristas, alcance, centralidad, hash e impacted_tests.
+      - 'log': historial de generaciones del grafo (solo lectura).
+      - 'diff': diff semántico entre dos R (`a`, `b`; `b` omitido = árbol actual) con impacted_tests.
+    `probe=True` (tier >= 5r-x): observaciones de runtime en un hijo aislado, fuera de R.
+    Las acciones 'spec', 'verify', 'heal' y 'evolve' quedan fuera de ONT-40 (INVALID_ACTION).
+    """
+    from engine import threads as _threads
+
+    tracker = RequestTelemetry("autoevol", action)
+    act = (action or "graph").strip().lower()
+
+    def _project(payload: dict[str, Any]) -> dict[str, Any]:
+        if select_fields and isinstance(select_fields, list):
+            return project_fields(payload, select_fields)
+        return payload
+
+    if act not in _AUTOEVOL_ACTIONS:
+        planned = act in _threads._PLANNED_ACTIONS
+        payload: dict[str, Any] = {
+            "status": "INVALID_ACTION",
+            "error": f"Acción '{action}' {'prevista fuera de ONT-40' if planned else 'no reconocida'}. Válidas: {', '.join(_AUTOEVOL_ACTIONS)}.",
+            "valid_actions": list(_AUTOEVOL_ACTIONS),
+        }
+        return attach_envelope(payload, tracker, verbosity=verbosity, summary=f"Invalid action '{action}'.")
+
+    tree = Path(root).expanduser() if root else PROJECT_DIR
+    if root and (CapabilityGuard.is_path_blacklisted(str(tree)) or not tree.is_dir()):
+        payload = {"status": "ERROR", "error": f"root '{root}' no es un directorio legible permitido."}
+        return attach_envelope(payload, tracker, verbosity=verbosity, summary="Invalid root.")
+    octal = int(get_effective_chmod_tier()["octal"])
+    terse = (verbosity or "").lower() in ("terse", "brief")
+
+    def _run() -> str:
+        analysis = _threads.analyze(tree)
+        probes_status: str | None = None
+        if probe:
+            from engine.threads_probes import run_probes
+
+            probes = run_probes(tree, tier_octal=octal)
+            probes_status = str(probes.get("status"))
+            analysis_used = _threads.with_probes(analysis, {**probes, "observations": probes.get("observations", [])})
+        else:
+            analysis_used = analysis
+        if act == "graph":
+            payload = _threads.graph_payload(analysis_used, terse=terse)
+            persisted = {"persisted": False, "reason": "persist=False"}
+            if persist:
+                persisted = _threads.persist_generation(analysis_used, tier_octal=octal, agent_id=agent_id)
+            payload["persisted"] = bool(persisted.get("persisted"))
+            if probes_status is not None:
+                payload["probe"] = probes_status
+            payload["status"] = "OK"
+            return attach_envelope(
+                _project(payload),
+                tracker,
+                verbosity=verbosity,
+                summary=f"Thread graph R={analysis_used.root_hash[:12]} gaps_open={len(analysis_used.gaps)}.",
+                next_action="Use autoevol(action='gaps') to rank open gaps.",
+            )
+        if act == "gaps":
+            payload = _threads.gaps_payload(analysis_used, limit=min(limit, 3) if terse else limit)
+            payload["status"] = "OK"
+            if probes_status is not None:
+                payload["probe"] = probes_status
+            return attach_envelope(
+                _project(payload),
+                tracker,
+                verbosity=verbosity,
+                summary=f"{payload['gaps_open']} open gaps.",
+                next_action="Inspect a gap node with autoevol(action='thread', node=<id>).",
+            )
+        if act == "thread":
+            payload = _threads.thread_payload(analysis_used, node or "", limit=limit)
+            return attach_envelope(_project(payload), tracker, verbosity=verbosity, summary=f"Thread {node}: {payload['status']}.")
+        if act == "log":
+            payload = _threads.list_generations(limit=limit)
+            payload["status"] = "OK"
+            return attach_envelope(_project(payload), tracker, verbosity=verbosity, summary=f"{payload['total']} generations.")
+        if act == "diff":
+            payload = _threads.diff_generations(a or "", b, current=analysis_used, limit=limit) if a else {
+                "status": "ERROR",
+                "error": "El parámetro 'a' (R o id de generación) es obligatorio para 'diff'.",
+            }
+            return attach_envelope(_project(payload), tracker, verbosity=verbosity, summary=f"diff: {payload['status']}.")
+        return attach_envelope({"status": "INVALID_ACTION"}, tracker, verbosity=verbosity)
+
+    return await anyio.to_thread.run_sync(_run)
 
 
 # ---------------------------------------------------------------------------

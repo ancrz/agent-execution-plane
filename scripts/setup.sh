@@ -136,9 +136,10 @@ run_predict() {
             ;;
     esac
     echo "----------------------------------------------------------"
-    echo "FastMCP 16-Tool Degradation Posture:"
+    echo "FastMCP 17-Tool Degradation Posture:"
     echo "  - topos_audit_dag: ACTIVE (Pure In-RAM DAG Verification)"
     echo "  - discover: ACTIVE (Reflects $TIER & Capabilities)"
+    echo "  - autoevol: ACTIVE ($( [[ "$TIER" == "7rwx" || "$TIER" == "6rw-" ]] && echo "Thread Graph + Generation Persistence" || echo "Thread Graph Read-Only, No Persistence" ))"
     echo "  - aep_ctl: ACTIVE (9 Domains Fail-Soft Degradation)"
     echo "  - default_primitives: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED (Auditor Mode: PERMISSION_DENIED)" || echo "ACTIVE (In-RAM System Probes)" )"
     echo "  - artifact_execute_in_ram: $( [[ "$TIER" == "4r--" ]] && echo "DISABLED (Auditor Mode)" || echo "ACTIVE (memfd_create)" )"

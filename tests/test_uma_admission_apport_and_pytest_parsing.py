@@ -363,14 +363,14 @@ FAILED tests/test_core.py::test_fail
 
 
 # ==============================================================================
-# Gate 10: FastMCP 16-Tool Invariant Preservation
+# Gate 10: FastMCP 17-Tool Invariant Preservation
 # ==============================================================================
 
 
 def test_gate10_fastmcp_16_tool_invariant() -> None:
-    """Strictly preserve exactly 16 polymorphic FastMCP tools with uniform verbosity."""
+    """Strictly preserve exactly 17 polymorphic FastMCP tools with uniform verbosity."""
     tools = server.mcp._tool_manager.list_tools()
-    assert len(tools) == 16, f"Expected 16 tools, got {len(tools)}"
+    assert len(tools) == 17, f"Expected 17 tools, got {len(tools)}"
 
     tool_names = {t.name for t in tools}
     expected_tools = {
@@ -390,6 +390,7 @@ def test_gate10_fastmcp_16_tool_invariant() -> None:
         "topos_audit_dag",
         "playbook_run",
         "default_primitives",
+        "autoevol",
     }
     assert tool_names == expected_tools
 

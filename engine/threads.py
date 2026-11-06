@@ -425,12 +425,36 @@ def open_discrepancies(graph: ThreadGraph) -> list[Gap]:
     ]
 
 
+def _weakly_covered(graph: ThreadGraph) -> set[str]:
+    """Funciones alcanzadas por `consumes` desde un nodo con cobertura directa (cobertura débil).
+
+    Req fuerte (cobertura directa) rige para tool/acción; para funciones basta la débil: un test que
+    ejercita `analyze()` cubre transitivamente lo que `analyze()` consume. Una función que nadie
+    referencia desde código cubierto sigue siendo un gap.
+    """
+    seeds = [nid for nid in graph.nodes if graph.in_edges(nid, "covers")]
+    seen: set[str] = set()
+    queue = list(seeds)
+    while queue:
+        cur = queue.pop()
+        for e in graph.out_edges(cur, "consumes"):
+            if e.dst not in seen:
+                seen.add(e.dst)
+                queue.append(e.dst)
+        for e in graph.out_edges(cur, "implemented_by"):
+            if e.dst not in seen:
+                seen.add(e.dst)
+                queue.append(e.dst)
+    return {n for n in seen if graph.nodes[n].type == "function"}
+
+
 def omission_gaps(graph: ThreadGraph) -> list[Gap]:
     """Gap(n) = Req(tipo(n)) \\ aristas(n). Funciones: solo públicas. Estado: solo tablas."""
     gaps: list[Gap] = []
+    weak = _weakly_covered(graph)
     for nid in sorted(graph.nodes):
         node = graph.nodes[nid]
-        if node.type == "function" and not node.attrs.get("public"):
+        if node.type == "function" and (not node.attrs.get("public") or nid in weak):
             continue
         if node.type == "state" and node.attrs.get("kind") != "table":
             continue

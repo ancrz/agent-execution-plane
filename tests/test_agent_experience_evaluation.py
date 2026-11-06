@@ -199,7 +199,7 @@ def test_discover_binary_readiness_and_tactical_playbook() -> None:
 
 
 def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
-    """All 16 tools include envelope+telemetry, support ergonomic aliases, and prevent JSON-RPC frame overflow."""
+    """All 17 tools include envelope+telemetry, support ergonomic aliases, and prevent JSON-RPC frame overflow."""
     import server
     from engine.telemetry import MAX_SAFE_JSON_BYTES
 
@@ -454,7 +454,7 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
         assert infer_severity(st) == "INFO", f"Expected INFO for {st}, got {infer_severity(st)}"
 
     # Verify all 16 MCP tools accept verbosity uniformly and _INSTRUCTIONS exposes the full 16-tool suite map
-    assert "Complete 16-Tool Suite Map" in server._INSTRUCTIONS
+    assert "Complete 17-Tool Suite Map" in server._INSTRUCTIONS
     assert "herramientas ofensivas" not in server._INSTRUCTIONS.lower()
     for tool_name in (
         "discover",

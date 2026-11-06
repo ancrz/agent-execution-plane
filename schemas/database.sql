@@ -112,3 +112,19 @@ CREATE TABLE IF NOT EXISTS security_audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_security_audit_agent ON security_audit_log(agent_id);
 CREATE INDEX IF NOT EXISTS idx_security_audit_action ON security_audit_log(action);
+
+-- ONT-40 autoevol: generaciones del grafo de hilos (pico-git de estructura y promesas).
+-- engine/threads.py replica este CREATE IF NOT EXISTS como red de seguridad (paridad testeada).
+CREATE TABLE IF NOT EXISTS threads_gen (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    root_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    git_commit TEXT NOT NULL DEFAULT '',
+    code_fingerprint TEXT NOT NULL DEFAULT '',
+    py_version TEXT NOT NULL DEFAULT '',
+    node_count INTEGER NOT NULL DEFAULT 0,
+    edge_count INTEGER NOT NULL DEFAULT 0,
+    gaps_open INTEGER NOT NULL DEFAULT 0,
+    codep_count INTEGER NOT NULL DEFAULT 0,
+    snapshot_z BLOB
+);

@@ -10,7 +10,7 @@ Covers:
    - Return modes ("all", "last", "summary").
    - DAG ordering with topos_guard.
 4. aep_ctl(domain="ipc"): CLI and RPC control-plane actions (status, ping, lease, release, reap, pool, metrics).
-5. FastMCP 16-Tool Invariant: Confirms exactly 15 tools are registered without bloating the tool namespace.
+5. FastMCP 17-Tool Invariant: Confirms exactly 15 tools are registered without bloating the tool namespace.
 """
 
 from __future__ import annotations
@@ -293,13 +293,13 @@ class TestAepCtlIpcDomain:
 
 
 # ==============================================================================
-# 6. FastMCP 16-Tool Invariant Test
+# 6. FastMCP 17-Tool Invariant Test
 # ==============================================================================
 
 class TestFastMcpToolInvariant:
     def test_strictly_16_tools_registered(self):
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 16, f"Expected strictly 16 FastMCP tools, got {len(tools)}: {[t.name for t in tools]}"
+        assert len(tools) == 17, f"Expected strictly 17 FastMCP tools, got {len(tools)}: {[t.name for t in tools]}"
 
 
 # ==============================================================================

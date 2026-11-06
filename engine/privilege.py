@@ -263,7 +263,13 @@ _CAPABILITIES = {
     ),
     "kernel_observability": (0, 4, "kernel", ["kernel_trace"], "Telemetría de kernel eBPF: requiere FULL (CAP_BPF)"),
     "visual_actuation": (5, 5, "self", ["visual_inspect"], "Renderizar y capturar UIs headless (/dev/shm)"),
-    "topos_audit": (4, 4, "self", ["topos_audit_dag"], "Auditar DAGs y bloquear co-dependencias"),
+    "topos_audit": (
+        4,
+        4,
+        "self",
+        ["topos_audit_dag", "autoevol"],
+        "Auditar DAGs, co-dependencias, hilos (autoevol)",
+    ),
     "task_management": (
         6,
         6,
@@ -321,7 +327,7 @@ _CAP_KEYWORDS = {
     "crash_forensics": "crash core dump forensic coredump diagnose fault alerts router ticket new proactive journalctl systemd errors crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
     "kernel_observability": "kernel trace ebpf bpf syscall observe probe openat execve landlock denials trazar sondear llamadas sistema",
     "visual_actuation": "visual screenshot render headless ui browser page html dom layout playwright chromium visual captura renderizar pantalla navegador",
-    "topos_audit": "audit dag graph dependency cycle codependency architecture code review structural verification validation plan auditar grafo dependencia ciclo arquitectura",
+    "topos_audit": "audit dag graph dependency cycle codependency architecture code review structural verification validation plan auditar grafo dependencia ciclo arquitectura autoevol",
     "task_management": "task kanban board create advance promote demote reevaluate archive unarchive manage weigh track milestone state tarea tablero crear avanzar promover degradar reevaluar archivar desarchivar gestionar ponderar seguir",
     "automation": "automate playbook run create list prune workflow chain pipeline steps gc clean orchestrate automatizar ejecutar crear listar podar orquestar flujo secuencia pasos limpiar",
     "backup_admin": "backup restore recover rotation hot snapshot sqlite wal quarantine golden micro_snapshot copia seguridad restaurar",
@@ -364,6 +370,12 @@ CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             TIER_6RW: "Execute in anonymous RAM (memfd_create)",
             TIER_5RX: "Execute in anonymous RAM (isolated)",
             TIER_4R: "Disabled (status: PERMISSION_DENIED)",
+        },
+        "autoevol": {
+            TIER_7RWX: "Graph RW",
+            TIER_6RW: "Graph RW",
+            TIER_5RX: "Graph RO",
+            TIER_4R: "Graph RO",
         },
         "process_inspect": {
             TIER_7RWX: "Inspect all system PIDs, FDs, and sockets",
@@ -653,6 +665,7 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
         "when_to_use": "Before executing multi-step plans or code changes to verify zero circular co-dependencies (A <-> B).",
         "canonical_calls": [
             'topos_audit_dag(tasks=["plan", "code", "verify"], dependencies={"plan": [], "code": ["plan"], "verify": ["code"]})',
+            'autoevol(action="gaps")',
         ],
     },
     "ephemeral_sandbox": {

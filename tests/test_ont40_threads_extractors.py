@@ -93,6 +93,7 @@ def test_forbidden_threads_to_server_edge(tmp_path: Path) -> None:
 
 def test_r_deterministic_across_hashseed_and_path(tmp_path: Path) -> None:
     """F11: PYTHONHASHSEED y ruta distintos dan la misma R."""
+    assert ex.module_name("engine/threads.py") == "engine.threads"
     copy = tmp_path / "copy_elsewhere"
     shutil.copytree(REPO, copy, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", ".claude"))
     code = "import sys; sys.path.insert(0, sys.argv[1]); from engine import threads; print(threads.analyze(sys.argv[1], use_cache=False).root_hash)"

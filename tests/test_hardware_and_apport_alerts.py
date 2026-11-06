@@ -2,7 +2,7 @@
 Test Battery: Hardware Domain & Accelerator Admission (GAP-CP-05) and Apport Crash Alerts (GAP-OM-20)
 
 Milestone ONT-36 / M97 (10 Gates):
-- Gate 1: FastMCP 16-Tool Invariant Preservation
+- Gate 1: FastMCP 17-Tool Invariant Preservation
 - Gate 2: Control Plane 9 Domains & Hardware Schema Reflection
 - Gate 3: Hardware Inventory Probe (CPU & Memory Telemetry)
 - Gate 4: Fail-Soft Accelerator Enumeration on DRM/Headless/Container (R-3)
@@ -31,14 +31,14 @@ from engine.hardware import (
 from engine.privilege import ALL_TIERS, CHMOD_DEGRADATION_MATRIX, CONTROL_PLANE_SCHEMA
 
 # ==============================================================================
-# Gate 1: FastMCP 16-Tool Invariant Preservation
+# Gate 1: FastMCP 17-Tool Invariant Preservation
 # ==============================================================================
 
 
 def test_gate1_fastmcp_16_tool_invariant() -> None:
-    """Strictly preserve exactly 16 polymorphic FastMCP tools without endpoint proliferation."""
+    """Strictly preserve exactly 17 polymorphic FastMCP tools without endpoint proliferation."""
     tools = server.mcp._tool_manager._tools
-    assert len(tools) == 16, f"Expected exactly 16 tools, got {len(tools)}"
+    assert len(tools) == 17, f"Expected exactly 17 tools, got {len(tools)}"
 
     expected_tools = {
         "topos_audit_dag",
@@ -47,6 +47,7 @@ def test_gate1_fastmcp_16_tool_invariant() -> None:
         "artifact_lint_and_build",
         "artifact_execute_in_ram",
         "default_primitives",
+        "autoevol",
         "process_inspect",
         "async_job_dispatch",
         "diagnose_system_crashes",

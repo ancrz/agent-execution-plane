@@ -2,8 +2,8 @@
 Tests for Milestone ONT-29: AEP External Consumption Gaps Remediation & Chrysalis Bridge Stabilization.
 
 Verifies:
-  - Gate 1: FastMCP strictly maintains exactly 16 tools (zero footprint expansion).
-  - Gate 2: GAP-OM-19 FastMCP single-encoding (output_schema is None on all 16 tools).
+  - Gate 1: FastMCP strictly maintains exactly 17 tools (zero footprint expansion).
+  - Gate 2: GAP-OM-19 FastMCP single-encoding (output_schema is None on all 17 tools).
   - Gate 3: GAP-OM-16 Envelope deduplication & stub telemetry in brief/terse; output_bytes(brief) < output_bytes(summary).
   - Gate 4: GAP-OM-17 Bernstein resource audit, 2-tuple return contract, WARN on hazard, BLOCKED on mutual co-dep.
   - Gate 5: GAP-CP-04 Workspace snapshot & byte-identical restore round-trip, 50MB cap, CapabilityGuard blacklist.
@@ -35,9 +35,9 @@ from engine.topos_guard import ToposGuard, ToposVerdict
 
 
 def test_gate1_exactly_16_fastmcp_tools() -> None:
-    """The FastMCP server MUST strictly expose exactly 16 tools."""
+    """The FastMCP server MUST strictly expose exactly 17 tools."""
     tools = server.mcp._tool_manager._tools
-    assert len(tools) == 16, f"Expected exactly 16 tools, found {len(tools)}: {list(tools.keys())}"
+    assert len(tools) == 17, f"Expected exactly 17 tools, found {len(tools)}: {list(tools.keys())}"
     expected_tools = {
         "topos_audit_dag",
         "discover",
@@ -45,6 +45,7 @@ def test_gate1_exactly_16_fastmcp_tools() -> None:
         "artifact_lint_and_build",
         "artifact_execute_in_ram",
         "default_primitives",
+        "autoevol",
         "process_inspect",
         "async_job_dispatch",
         "diagnose_system_crashes",
@@ -60,7 +61,7 @@ def test_gate1_exactly_16_fastmcp_tools() -> None:
 
 
 def test_gate2_fastmcp_single_encoding_gap_om19() -> None:
-    """All 16 tools must have output_schema is None (structured_output=False)."""
+    """All 17 tools must have output_schema is None (structured_output=False)."""
     tools = server.mcp._tool_manager._tools
     for tool_name, tool in tools.items():
         assert tool.output_schema is None, f"Tool {tool_name} has output_schema {tool.output_schema}; must be None"

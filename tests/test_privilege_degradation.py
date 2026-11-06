@@ -3,11 +3,11 @@ Quality Assurance Test Battery: Milestone ONT-33
 Predictive Privilege-Aware Setup Pipeline & Chmod Graceful Degradation Matrix
 
 Implements the 8 Quality Gates specified in the Ontos-approved plan:
-  Gate 1: FastMCP 16-Tool Invariant Gate
+  Gate 1: FastMCP 17-Tool Invariant Gate
   Gate 2: 4-Tier Chmod Classification & Prober Gate
   Gate 3: Setup Script Non-Interactive & Tier Reporting Gate
   Gate 4: Capabilities Matrix & Schema Synchrony Gate
-  Gate 5: 16-Tool Graceful Degradation Contracts Gate
+  Gate 5: 17-Tool Graceful Degradation Contracts Gate
   Gate 6: Control Plane 8-Domain Degradation Gate
   Gate 7: Zero-Hangs Non-Interactive Guarantee (Timeout <= 3s) Gate
   Gate 8: Semantic Sanitization & Least-Privilege Gate
@@ -41,12 +41,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 # ==============================================================================
-# Gate 1: FastMCP 16-Tool Invariant Gate
+# Gate 1: FastMCP 17-Tool Invariant Gate
 # ==============================================================================
 def test_gate1_fastmcp_16_tool_invariant() -> None:
-    """Gate 1: Verify exactly 16 polymorphic tools are registered in server.py (zero tool sprawl)."""
+    """Gate 1: Verify exactly 17 polymorphic tools are registered in server.py (zero tool sprawl)."""
     tools = server.mcp._tool_manager._tools
-    assert len(tools) == 16, f"FastMCP tool invariant violated: expected exactly 16 tools, got {len(tools)}"
+    assert len(tools) == 17, f"FastMCP tool invariant violated: expected exactly 17 tools, got {len(tools)}"
 
     expected_tools = {
         "topos_audit_dag",
@@ -55,6 +55,7 @@ def test_gate1_fastmcp_16_tool_invariant() -> None:
         "artifact_lint_and_build",
         "artifact_execute_in_ram",
         "default_primitives",
+        "autoevol",
         "process_inspect",
         "async_job_dispatch",
         "diagnose_system_crashes",
@@ -68,8 +69,8 @@ def test_gate1_fastmcp_16_tool_invariant() -> None:
     }
     assert set(tools.keys()) == expected_tools, f"Tool set mismatch: {set(tools.keys()) ^ expected_tools}"
 
-    # Verify all 16 tools are documented in _INSTRUCTIONS and include chmod octal tier headers
-    assert "Complete 16-Tool Suite Map" in server._INSTRUCTIONS
+    # Verify all 17 tools are documented in _INSTRUCTIONS and include chmod octal tier headers
+    assert "Complete 17-Tool Suite Map" in server._INSTRUCTIONS
     assert "4-tier Unix chmod octal privilege governance" in server._INSTRUCTIONS
     for tname in expected_tools:
         assert tname in server._INSTRUCTIONS, f"Tool {tname} missing from server._INSTRUCTIONS"
@@ -151,7 +152,7 @@ def test_gate3_setup_cli_consistency() -> None:
     assert res_predict.returncode == 0
     assert "AEP Predictive Privilege Probing & Degradation Matrix" in res_predict.stdout
     assert "Detected Chmod Tier: 6rw-" in res_predict.stdout
-    assert "FastMCP 16-Tool Degradation Posture" in res_predict.stdout
+    assert "FastMCP 17-Tool Degradation Posture" in res_predict.stdout
 
 
 # ==============================================================================
@@ -168,7 +169,7 @@ def test_gate4_capabilities_matrix_synchrony() -> None:
         assert caps_data["effective_chmod_tier"] in ALL_TIERS
         assert "chmod_octal" in caps_data
         assert "degradation_matrix" in caps_data
-        assert len(caps_data["degradation_matrix"]["tools"]) == 16
+        assert len(caps_data["degradation_matrix"]["tools"]) == 17
         assert len(caps_data["degradation_matrix"]["domains"]) == 9
 
         # Test discover(action="schema")
@@ -184,10 +185,10 @@ def test_gate4_capabilities_matrix_synchrony() -> None:
 
 
 # ==============================================================================
-# Gate 5: 16-Tool Graceful Degradation Contracts Gate
+# Gate 5: 17-Tool Graceful Degradation Contracts Gate
 # ==============================================================================
 def test_gate5_tool_degradation_contracts() -> None:
-    """Gate 5: Confirm all 16 tools degrade gracefully without unhandled exceptions across tiers."""
+    """Gate 5: Confirm all 17 tools degrade gracefully without unhandled exceptions across tiers."""
     async def _run() -> None:
         # In Tier 4 (auditor), execution tools must degrade fail-soft
         with patch.dict(os.environ, {"AEP_FORCE_TIER": TIER_4R}):

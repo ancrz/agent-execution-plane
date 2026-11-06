@@ -238,6 +238,25 @@ class _Imports:
     names: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
+class _FnIndex(set):
+    """Conjunto de ids de función con índice de métodos de nombre único (resolución débil `obj.metodo`)."""
+
+    uniq: dict[str, str]
+
+    def __init__(self, funcs: dict[str, Any]) -> None:
+        super().__init__(funcs)
+        counts: dict[str, list[str]] = {}
+        for fid in sorted(funcs):
+            counts.setdefault(fid.rsplit(".", 1)[-1], []).append(fid)
+        self.uniq = {
+            name: ids[0] for name, ids in counts.items() if len(ids) == 1 and not name.startswith("_") and len(name) > 4
+        }
+
+    def weak(self, chain: list[str]) -> str | None:
+        """`obj.metodo` con `metodo` único en el proyecto (cobertura/consumo débil, sin tipos)."""
+        return self.uniq.get(chain[-1]) if len(chain) >= 2 else None
+
+
 @dataclass(slots=True)
 class _FuncInfo:
     node_id: str
@@ -367,7 +386,7 @@ def extract_code(graph: ThreadGraph, src: Sources, info: ExtractionInfo) -> dict
             imports.names.setdefault(local, target)
         module_imports[mod] = imports
 
-    fn_ids = set(funcs)
+    fn_ids = _FnIndex(funcs)
     for fn in funcs.values():
         ctx_imports = module_imports.get(fn.module, _Imports())
         _add_function_edges(graph, fn, ctx_imports, fn_ids, class_names, project, tables)
@@ -441,7 +460,7 @@ def _add_function_edges(
     graph: ThreadGraph,
     fn: _FuncInfo,
     imports: _Imports,
-    fn_ids: set[str],
+    fn_ids: _FnIndex,
     class_names: dict[str, set[str]],
     project: set[str],
     tables: set[str],
@@ -457,7 +476,7 @@ def _add_function_edges(
         expanded = _expand(chain, fn, imports, project)
         if expanded is None:
             continue
-        target = _resolve_fn(expanded, fn_ids, class_names, project)
+        target = _resolve_fn(expanded, fn_ids, class_names, project) or fn_ids.weak(chain)
         if target and target != fn.node_id:
             graph.add_edge(fn.node_id, target, "consumes")
     # SQL: escrituras y lecturas sobre tablas conocidas.
@@ -662,6 +681,7 @@ def extract_capabilities(graph: ThreadGraph, src: Sources, tools: dict[str, dict
 @dataclass(slots=True)
 class _TestRefs:
     fns: set[str] = field(default_factory=set)
+    mods: set[str] = field(default_factory=set)
     tool_calls: list[tuple[str, dict[str, str]]] = field(default_factory=list)  # (tool, kwargs constantes)
     budgets: list[tuple[str, dict[str, str], str, int]] = field(default_factory=list)  # tool, kw, op, limit
 
@@ -690,7 +710,7 @@ def _collect_test_refs(
     node: ast.AST,
     ctx: _FuncInfo,
     imports: _Imports,
-    fn_ids: set[str],
+    fn_ids: _FnIndex,
     class_names: dict[str, set[str]],
     project: set[str],
     tool_names: set[str],
@@ -711,13 +731,19 @@ def _collect_test_refs(
                     helpers[chain[0]], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen
                 )
                 refs.fns |= sub.fns
+                refs.mods |= sub.mods
                 refs.tool_calls += sub.tool_calls
                 refs.budgets += sub.budgets
             expanded = _expand(chain, ctx, imports, project)
             if expanded is not None:
-                target = _resolve_fn(expanded, fn_ids, class_names, project)
+                target = _resolve_fn(expanded, fn_ids, class_names, project) or fn_ids.weak(chain)
                 if target:
                     refs.fns.add(target)
+                else:
+                    for k in range(len(expanded), 0, -1):
+                        if ".".join(expanded[:k]) in project:
+                            refs.mods.add(".".join(expanded[:k]))
+                            break
         if isinstance(n, ast.Call):
             callee = _chain(n.func)
             if callee:
@@ -763,7 +789,7 @@ def extract_tests(
 ) -> None:
     """Nodos `test`, aristas `covers` (test -> tool/acción/función) y nodos `budget`."""
     project = _project_modules(src.code)
-    fn_ids = set(funcs)
+    fn_ids = _FnIndex(funcs)
     class_names: dict[str, set[str]] = {}
     for f in funcs.values():
         if f.cls:
@@ -800,6 +826,8 @@ def extract_tests(
             refs = _collect_test_refs(node, ctx, imports, fn_ids, class_names, project, tool_names, helpers, set())
             for fid in sorted(refs.fns):
                 graph.add_edge(tid, fid, "covers")
+            for mname in sorted(refs.mods):
+                graph.add_edge(tid, f"module:{mname}", "covers")
             for tool, kws in refs.tool_calls:
                 graph.add_edge(tid, f"tool:{tool}", "covers")
                 for aid in _call_action_ids(tool, kws, tools):
