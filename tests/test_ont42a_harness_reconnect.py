@@ -362,6 +362,78 @@ def test_ipc_unknown_mode_is_error() -> None:
     assert res["status"] == "ERROR" and res["valid"] == ["plan", "execute"]
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# T5: D-25 (commit drift is informational; fingerprint / LKG / unavailable fingerprint decide stale).
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def _discover(monkeypatch: pytest.MonkeyPatch, *, loaded_fp: str, disk_fp: str, lkg: bool = False, front: bool = False, verbosity: str = "detail", drift: bool = True) -> dict:
+    import asyncio
+    import json
+
+    import server
+
+    monkeypatch.setattr(server, "LOADED_COMMIT", "old1111" if drift else "new2222")
+    monkeypatch.setattr(server, "_read_git_head_commit", lambda: "new2222")
+    monkeypatch.setattr(server, "LOADED_FINGERPRINT", loaded_fp)
+    monkeypatch.setattr(server, "code_fingerprint", lambda *_a, **_k: disk_fp)
+    monkeypatch.setattr(server, "_is_front_stale", lambda: front)
+    if lkg:
+        orig = server._get_live_meta
+        monkeypatch.setattr(server, "_get_live_meta", lambda: {**orig(), "serving_from": "lkg"})
+    return json.loads(asyncio.run(server.discover(action="capabilities", verbosity=verbosity, force_refresh=True)))
+
+
+def test_d25_docs_only_commit_is_not_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _discover(monkeypatch, loaded_fp="fp1", disk_fp="fp1")
+    assert data["stale"] is False and data["commit_drift"] is True
+    assert "restart" not in data["next_action"].lower() and "docs-only" in data["next_action"]
+
+
+def test_d25_code_changing_commit_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _discover(monkeypatch, loaded_fp="fp1", disk_fp="fp2")
+    assert data["stale"] is True and data["commit_drift"] is True and "fingerprint mismatch" in data["summary"]
+
+
+def test_d25_lkg_is_stale_without_commit_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _discover(monkeypatch, loaded_fp="fp1", disk_fp="fp1", lkg=True, drift=False)
+    assert data["stale"] is True and "LKG" in data["summary"]
+
+
+@pytest.mark.parametrize("loaded", ["", "unknown"])
+def test_d25_unavailable_fingerprint_stays_conservative(monkeypatch: pytest.MonkeyPatch, loaded: str) -> None:
+    data = _discover(monkeypatch, loaded_fp=loaded, disk_fp="fp1")
+    assert data["stale"] is True and "fingerprint unavailable" in data["summary"]
+
+
+def test_d25_no_drift_emits_no_commit_drift_nor_pointer(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import json
+
+    import server
+
+    monkeypatch.setattr(server, "_is_front_stale", lambda: False)
+    data = json.loads(asyncio.run(server.discover(action="capabilities", verbosity="detail", force_refresh=True)))
+    assert "commit_drift" not in data and "harness_reconnect" not in data.get("next_action", "")
+
+
+def test_front_stale_points_to_reconnect_plan_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    stale = _discover(monkeypatch, loaded_fp="fp1", disk_fp="fp1", front=True)
+    assert stale["front_stale"] is True and hr.RECONNECT_POINTER in stale["next_action"]
+    assert '"mode":"plan"' in hr.RECONNECT_POINTER and "execute" not in hr.RECONNECT_POINTER
+
+
+def test_heal_points_to_reconnect_plan_when_front_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import json
+
+    import server
+
+    monkeypatch.setattr(server, "_is_front_stale", lambda: True)
+    res = json.loads(asyncio.run(server.autoevol(action="heal", verbosity="detail")))
+    assert json.dumps(hr.RECONNECT_POINTER)[1:-1] in json.dumps(res)
+
+
 def test_helper_script_compiles_and_fails_closed_without_tty() -> None:
     """Runs the helper as the current user with a non-tty stdin: it must exit before reading the sysctl."""
     import subprocess

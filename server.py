@@ -48,6 +48,7 @@ from engine.backup import (
 )
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
+from engine.harness_reconnect import RECONNECT_POINTER
 from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
 from engine.ipc_pool import (
     GLOBAL_SESSION_POOL,
@@ -620,11 +621,15 @@ async def discover(
 
             repo_head = _read_git_head_commit()
             disk_fp = code_fingerprint(REPO_ROOT)
-            commit_stale = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
-            fp_stale = bool(LOADED_FINGERPRINT and disk_fp and LOADED_FINGERPRINT != disk_fp)
+            commit_drift = bool(LOADED_COMMIT != "unknown" and repo_head != "unknown" and LOADED_COMMIT != repo_head)
+            # D-25 (ONT-42a): a commit that does not change the code fingerprint (docs-only) is informational drift.
+            # Conservative: if the fingerprint cannot be compared, a HEAD change still counts as stale (C10d).
+            fp_unavailable = LOADED_FINGERPRINT in ("", "unknown") or disk_fp in ("", "unknown", None)
+            fp_stale = bool(not fp_unavailable and LOADED_FINGERPRINT != disk_fp)
             live_meta = _get_live_meta()
             # ONT-41: a snapshot (LKG) is by definition not the code on disk: stale is forced.
-            is_stale = commit_stale or fp_stale or live_meta["serving_from"] == "lkg"
+            is_stale = fp_stale or live_meta["serving_from"] == "lkg" or (commit_drift and fp_unavailable)
+            front_stale_now = _is_front_stale()
 
             from engine.hardware import probe_accelerators
             try:
@@ -640,7 +645,7 @@ async def discover(
                 "code_fingerprint_loaded": LOADED_FINGERPRINT,
                 "code_fingerprint_disk": disk_fp,
                 "stale": is_stale,
-                "front_stale": _is_front_stale(),
+                "front_stale": front_stale_now,
                 "backend_generation": live_meta["backend_generation"],
                 "last_swap_at": live_meta["last_swap_at"],
                 "last_reload_error": live_meta["last_reload_error"],
@@ -652,6 +657,8 @@ async def discover(
                 "accelerators": ([acc.get("device", "card") for acc in accels_overview] if v_mode in ("terse", "cached") else accels_overview),
             }
             payload.update(caps_meta)
+            if commit_drift:  # D-25: emitted only when true (token budget)
+                payload["commit_drift"] = True
             # ONT-39 D-19/D-20: integrity counters/flags are emitted only when non-default (token budget).
             if live_meta["failure_kind"]:
                 payload["failure_kind"] = live_meta["failure_kind"]
@@ -687,12 +694,14 @@ async def discover(
 
             if is_stale:
                 payload["severity"] = "WARN"
-                if commit_stale and fp_stale:
+                if commit_drift and fp_stale:
                     reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}; code fingerprint mismatch"
-                elif commit_stale:
-                    reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}"
-                else:
+                elif commit_drift:
+                    reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}; code fingerprint unavailable"
+                elif fp_stale:
                     reason = f"code fingerprint mismatch (working tree changes against loaded {LOADED_COMMIT})"
+                else:
+                    reason = "serving from LKG snapshot"
                 summary = f"AEP process is STALE ({reason})."
                 next_action = f"Restart this AEP instance (PID {os.getpid()}) or hot-swap to load commit {repo_head}."
                 sev = "WARN"
@@ -704,7 +713,11 @@ async def discover(
             else:
                 summary = f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities)."
                 next_action = "Call discover(action='playbook') for workflows or invoke a ready tool."
+                if commit_drift:
+                    next_action = "HEAD moved by a commit that does not change code (docs-only); no reload needed. " + next_action
                 sev = "INFO"
+            if front_stale_now:  # D-25: the reload trigger is the front, and the pointer is a plan (read-only) call
+                next_action = f"{next_action} Front stale: {RECONNECT_POINTER}"
 
             return attach_envelope(
                 payload,
@@ -5254,6 +5267,8 @@ async def autoevol(
                 snapshot_fn=_lkg_snapshot_fn,
                 terse=terse,
             )
+            if _is_front_stale():  # ONT-42a: heal only points to the (read-only) reconnect plan
+                result["next_action"] = RECONNECT_POINTER
         else:
             runner = _autoevol_test_runner(tree, trusted)
             dispatcher = _autoevol_dispatcher(tree, trusted)

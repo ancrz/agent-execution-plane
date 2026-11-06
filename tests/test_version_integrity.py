@@ -71,6 +71,8 @@ def test_discover_drift_simulation_warn_and_next_action(monkeypatch: pytest.Monk
     """Simulated drift causes stale=True, severity=WARN, and restart instructions with PID and hash."""
     monkeypatch.setattr(server, "LOADED_COMMIT", "old1111")
     monkeypatch.setattr(server, "_read_git_head_commit", lambda: "new2222")
+    # D-25 (ONT-42a): a commit alone is informational; stale needs a code fingerprint change.
+    monkeypatch.setattr(server, "LOADED_FINGERPRINT", "loaded-fp-0000")
 
     raw = asyncio.run(server.discover(action="capabilities", verbosity="detail", force_refresh=True))
     data = json.loads(raw)

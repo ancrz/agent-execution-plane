@@ -28,6 +28,8 @@ HARNESS_RECONNECT: dict[str, str] = {"claude": "/mcp reconnect {server}"}
 PTS_MAJOR = 136
 SYSCTL_PATH = "/proc/sys/dev/tty/legacy_tiocsti"
 MAX_ANCESTRY_DEPTH = 64
+# Pointer emitted by discover/heal only when front_stale is true (token budget). A pure string, no new capability.
+RECONNECT_POINTER = 'aep_ctl(domain="ipc", action="harness_reconnect", params={"mode":"plan"})'
 
 # Typed-prompt hazard and TIOCSTI risk are always surfaced by `plan` (C9).
 CAVEATS: tuple[str, ...] = (
