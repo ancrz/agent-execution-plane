@@ -319,6 +319,57 @@ def decide(
     return out
 
 
+def run_tests_batched(
+    tests: list[str],
+    run_tests: Callable[[list[str]], dict[str, Any]],
+    *,
+    batch_size: int = TESTS_PER_ITERATION,
+) -> dict[str, Any]:
+    """G1 / Condición 10: ejecuta lotes síncronos de <= `batch_size` tests dentro del sandbox y agrega conteos.
+
+    Corta en el primer fallo de infraestructura (`wrong_tree`, `available: False`, `timeout`, `no_summary`).
+    """
+    step = max(1, int(batch_size or TESTS_PER_ITERATION))
+    chunks = [tests[i : i + step] for i in range(0, len(tests), step)]
+    if len(chunks) <= 1:
+        return run_tests(tests)
+    ran = passed = failed = errors = 0
+    exit_code: int | None = 0
+    unsandboxed = False
+    for chunk in chunks:
+        res = run_tests(chunk)
+        if (
+            res.get("wrong_tree")
+            or res.get("available") is False
+            or res.get("timeout")
+            or res.get("no_summary")
+            or str(res.get("status", "")).upper() == PENDING
+        ):
+            return res
+        ran += int(res.get("ran", 0) or 0)
+        passed += int(res.get("passed", 0) or 0)
+        failed += int(res.get("failed", 0) or 0)
+        errors += int(res.get("errors", 0) or 0)
+        if res.get("unsandboxed"):
+            unsandboxed = True
+        rc = res.get("exit_code")
+        if isinstance(rc, int) and rc != 0 and exit_code == 0:
+            exit_code = rc
+    if failed + errors > 0 and exit_code == 0:
+        exit_code = 1
+    out: dict[str, Any] = {
+        "ran": ran,
+        "passed": passed,
+        "failed": failed,
+        "errors": errors,
+        "exit_code": exit_code,
+        "batches": len(chunks),
+    }
+    if unsandboxed:
+        out["unsandboxed"] = True
+    return out
+
+
 def verify_change(
     base: dict[str, Any] | None,
     new: dict[str, Any],
@@ -331,6 +382,7 @@ def verify_change(
     budgets: list[dict[str, Any]] | None = None,
     estimate_s: float | None = None,
     trusted: bool = True,
+    batch_sync: bool = False,
 ) -> dict[str, Any]:
     """Una iteración completa: barrera -> comparación estática -> (solo si es limpia) tests -> veredicto.
 
@@ -352,14 +404,22 @@ def verify_change(
             }
         return static
     plan = plan_tests(impacted_tests, estimate_s=estimate_s)
-    runner = dispatch_job if plan["mode"] == "async" else run_tests
-    if runner is None:
-        return decide(
-            cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, sandbox_available=False, trusted=trusted
-        )
-    result = runner(plan["tests"])
-    if plan["mode"] == "async" and result.get("available") is not False:
-        result = {**result, "status": PENDING}
+    # G1: cuando batch_sync=True y TESTS_PER_ITERATION > 0, >20 tests se ejecutan por lotes síncronos en bwrap
+    # (sirve tanto para SELECTION_CAP=24 en worktrees no confiables como para suite completa en apply=True).
+    use_batched = batch_sync and plan["mode"] == "async" and TESTS_PER_ITERATION > 0 and run_tests is not None
+    if use_batched and run_tests is not None:
+        result = run_tests_batched(plan["tests"], run_tests, batch_size=TESTS_PER_ITERATION)
+        eff_mode = "batched"
+    else:
+        runner = dispatch_job if plan["mode"] == "async" else run_tests
+        if runner is None:
+            return decide(
+                cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, sandbox_available=False, trusted=trusted
+            )
+        result = runner(plan["tests"])
+        eff_mode = plan["mode"]
+        if eff_mode == "async" and result.get("available") is not False:
+            result = {**result, "status": PENDING}
     out = decide(
         cmp,
         target_gap=target_gap,
@@ -369,8 +429,10 @@ def verify_change(
         trusted=trusted,
         selected=len(plan["tests"]),
     )
-    out["tests"] = {"mode": plan["mode"], "selected": len(plan["tests"]), "estimate_s": plan["estimate_s"]}
-    if plan["mode"] == "async":
+    out["tests"] = {"mode": eff_mode, "selected": len(plan["tests"]), "estimate_s": plan["estimate_s"]}
+    if result.get("batches"):
+        out["tests"]["batches"] = result["batches"]
+    if eff_mode == "async":
         out["job"] = result.get("job")
     return out
 
@@ -510,6 +572,22 @@ class CycleStore:
     def _put(self, dfd: int, name: str, obj: dict[str, Any]) -> None:
         ev.write_file_atomic(dfd, name, json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
+    def _reap_orphan_cycles(self, dfd: int, gap: str, now: float) -> int:
+        """G4: limpia ciclos vencidos (TTL) y ciclos OPEN huérfanos previos para el mismo `(uid, gap)`."""
+        reaped = 0
+        for fname in ev.list_names(dfd):
+            if not (fname.startswith("cycle_") and fname.endswith(".json")):
+                continue
+            rec = self._read_json(dfd, fname)
+            if rec is None or rec.get("uid") != self._uid:
+                continue
+            expired = (now - float(rec.get("updated", 0))) > CYCLE_TTL_SECONDS
+            same_open = rec.get("gap") == gap and rec.get("state") == OPEN
+            if expired or same_open:
+                ev.remove_file(dfd, fname)
+                reaped += 1
+        return reaped
+
     def open_cycle(self, gap: str, base: dict[str, Any], *, restart: bool = False) -> dict[str, Any]:
         """Abre un ciclo para `gap` con la base congelada. Rechaza durante el bloqueo de 10 min salvo `restart`."""
         if not gap or len(gap) > _GAP_ID_MAX:
@@ -523,6 +601,7 @@ class CycleStore:
                 lock = self._read_json(dfd, lock_name)
                 if lock and float(lock.get("until", 0)) > now:
                     return {"status": "LOCKED", "retry_after_s": round(float(lock["until"]) - now, 1)}
+            self._reap_orphan_cycles(dfd, gap, now)
             for _ in range(8):
                 cycle_id = new_cycle_id()
                 record = {

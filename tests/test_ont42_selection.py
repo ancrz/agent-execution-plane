@@ -110,3 +110,51 @@ def test_spec_splits_pin_from_validate(tmp_path: Path) -> None:
     assert out["validate"]["pin"] == [_tid(1), _tid(2)]
     terse = spec.build_spec(analysis, analysis.gaps[0].id, terse=True)
     assert terse["pin"] == [_tid(1), _tid(2)] and terse["tests"] == [_tid(0)]
+
+
+def test_g1_batched_sandbox_runner_executes_over_20_without_async_reject() -> None:
+    batches: list[int] = []
+
+    def run(chunk: list[str]) -> dict:
+        batches.append(len(chunk))
+        return {"ran": len(chunk), "passed": len(chunk), "failed": 0, "errors": 0, "exit_code": 0}
+
+    agg = tv.run_tests_batched([f"t{i:02d}" for i in range(24)], run, batch_size=20)
+    assert batches == [20, 4] and agg["ran"] == 24 and agg["passed"] == 24 and agg["batches"] == 2
+    base = {"gaps": ["g1"], "hashes": {"fn:a.f": "1"}, "public": ["fn:a.f"], "direct": ["fn:a.f"], "root": "r", "codep": []}
+    new = {"gaps": [], "hashes": {"fn:a.f": "2"}, "public": ["fn:a.f"], "direct": ["fn:a.f"], "root": "r2", "codep": []}
+    verdict = tv.verify_change(
+        base,
+        new,
+        impacted_tests=[f"t{i:02d}" for i in range(24)],
+        run_tests=run,
+        dispatch_job=lambda _t: {"job": None, "available": False},
+        trusted=False,
+        batch_sync=True,
+    )
+    assert verdict["verdict"] == tv.ACCEPT and verdict["tests"]["mode"] == "batched" and verdict["tests"]["batches"] == 2
+
+
+def test_g2_private_helper_inherits_caller_pins(tmp_path: Path) -> None:
+    g = ThreadGraph()
+    g.add_node(Node("function", "fn:m._helper", "h", {"module": "m", "qual": "_helper", "public": False}))
+    g.add_node(Node("function", "fn:m.public_entry", "h", {"module": "m", "qual": "public_entry", "public": True}))
+    g.add_edge("fn:m.public_entry", "fn:m._helper", "consumes")
+    g.add_node(Node("test", _tid(0), "h", {}))
+    g.add_edge(_tid(0), "fn:m._helper", "covers")
+    g.add_node(Node("test", _tid(1), "h", {}))
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    (tmp_path / "tests" / "t.py").write_text(
+        "def test_000():\n    pass\n\ndef test_001():\n    assert res == 'public_entry'\n",
+        encoding="utf-8",
+    )
+    sel, info = ops.select_tests(SimpleNamespace(graph=g), {"changed": ["fn:m._helper"], "changed_tests": []}, tmp_path)
+    assert sel == [_tid(0), _tid(1)] and info["direct"] == 1 and info["pins"] == 1
+
+
+def test_g4_open_cycle_reaps_orphan_open_cycle_for_same_gap(tmp_path: Path) -> None:
+    store = tv.CycleStore(base_dir=tmp_path / "shm")
+    c1 = store.open_cycle("gap:1", {"gaps": ["gap:1"]})["cycle_id"]
+    assert store.load(c1) is not None
+    c2 = store.open_cycle("gap:1", {"gaps": ["gap:1"]})["cycle_id"]
+    assert c2 != c1 and store.load(c1) is None and store.load(c2) is not None

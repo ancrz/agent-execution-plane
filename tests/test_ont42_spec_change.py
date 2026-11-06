@@ -56,11 +56,26 @@ def test_terse_change_caps_files_and_fits_budget() -> None:
     assert _tokens(terse) <= spec.TERSE_MAX_TOKENS
 
 
-def test_real_repo_open_discrepancy_resolves_to_implementation() -> None:
-    analysis = th.analyze(REPO)
-    opens = [g for g in analysis.gaps if g.kind == "open_discrepancy"]
-    assert opens, "D-01b debe estar abierto (B1)"
-    for gap in opens:
-        out = spec.build_spec(analysis, gap.id, terse=True)
-        assert _tokens(out) <= spec.TERSE_MAX_TOKENS
-        assert out["change"]["files"]
+def test_real_repo_open_discrepancy_resolves_to_implementation(tmp_path: Path) -> None:
+    # G3: fixture sintetico con open_discrepancy real extraido por AST + invariante sobre REPO si hubiera abiertos
+    (tmp_path / "engine").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "engine" / "mod.py").write_text("def run_op():\n    return 42\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_mod.py").write_text(
+        "import pytest\nfrom engine import mod\n\n"
+        "@pytest.mark.xfail(strict=True, reason='D-88')\n"
+        "def test_op():\n    assert mod.run_op() == 42\n",
+        encoding="utf-8",
+    )
+    syn = th.analyze(tmp_path, use_cache=False)
+    opens = [g for g in syn.gaps if g.kind == "open_discrepancy"]
+    assert len(opens) == 1 and opens[0].ref == "D-88"
+    out = spec.build_spec(syn, opens[0].id, terse=True)
+    assert _tokens(out) <= spec.TERSE_MAX_TOKENS
+    assert out["change"]["files"] == ["engine/mod.py"]
+
+    repo_analysis = th.analyze(REPO)
+    for gap in (g for g in repo_analysis.gaps if g.kind == "open_discrepancy"):
+        repo_out = spec.build_spec(repo_analysis, gap.id, terse=True)
+        assert _tokens(repo_out) <= spec.TERSE_MAX_TOKENS
+        assert repo_out["change"]["files"]

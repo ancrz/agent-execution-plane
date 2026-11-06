@@ -30,6 +30,7 @@ from engine import threads_heal, threads_pins
 from engine import threads_verify as tv
 
 SELECTION_CAP = 24  # B8: tope de tests por verify en ejecuciones no `apply` (la suite completa es del gate C4)
+PIN_CALLER_CAP = 10  # G2: tope de pins heredados de callers publicos cuando se edita un helper privado (paridad con spec)
 MIN_VERIFY_OCTAL = 5
 MIN_APPLY_OCTAL = 6
 TERSE_BUDGET = 350
@@ -168,6 +169,29 @@ def _transitive_depth1(graph: Any, changed: list[str]) -> list[str]:
     return sorted(found)
 
 
+def _pin_tests(graph: Any, changed: list[str], tree: Path | str, direct: list[str]) -> list[str]:
+    """G2: pins directos de `changed` + hasta `PIN_CALLER_CAP` pins de callers del mismo modulo si `changed` es privado."""
+    covered = set(direct)
+    own_pins = [t for t in threads_pins.pinning_tests(graph, changed, tree) if t not in covered]
+    priv_callers: list[str] = []
+    for cid in changed:
+        node = graph.nodes.get(cid)
+        if node is None or node.type != "function" or node.attrs.get("public", True):
+            continue
+        mod = node.attrs.get("module")
+        for e in graph.in_edges(cid, "consumes"):
+            src = graph.nodes.get(e.src)
+            if src is not None and src.type == "function" and src.attrs.get("module") == mod:
+                priv_callers.append(e.src)
+    if not priv_callers:
+        return own_pins
+    seen = covered | set(own_pins)
+    trans_set = set(_transitive_depth1(graph, changed))
+    raw_caller_pins = [t for t in threads_pins.pinning_tests(graph, priv_callers, tree) if t not in seen]
+    caller_pins = sorted(raw_caller_pins, key=lambda t: (t not in trans_set, t))[:PIN_CALLER_CAP]
+    return own_pins + caller_pins
+
+
 def select_tests(
     analysis: th.Analysis, cmp: dict[str, Any], tree: Path | str, *, apply: bool = False
 ) -> tuple[list[str], dict[str, Any]]:
@@ -179,9 +203,10 @@ def select_tests(
     graph = analysis.graph
     changed = list(cmp["changed"])
     own = sorted(t for t in cmp["changed_tests"] if t in graph.nodes)
+    direct = own + [t for t in _direct_cover_tests(graph, changed) if t not in own]
     tiers = [
-        own + [t for t in _direct_cover_tests(graph, changed) if t not in own],
-        threads_pins.pinning_tests(graph, changed, tree),
+        direct,
+        _pin_tests(graph, changed, tree, direct),
         _transitive_depth1(graph, changed),
     ]
     ordered: list[str] = []
@@ -240,6 +265,7 @@ def judge(
             dispatch_job=dispatch_job,
             barrier=barrier,
             trusted=trusted,
+            batch_sync=True,
         )
     out["selection"] = selection
     if out.get("verdict") == tv.ACCEPT and (selection["transitive_dropped"] or selection.get("head_dropped")):
