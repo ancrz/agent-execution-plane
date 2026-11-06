@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import tomllib
 import uuid
 from pathlib import Path
 from typing import Any
@@ -196,6 +197,24 @@ def _read_git_head_commit() -> str:
 
 LOADED_COMMIT: str = _read_git_head_commit()
 LOADED_TIME: float = time.time()
+
+
+def _get_server_version() -> str:
+    """Read server version from pyproject.toml via tomllib with fallback to 'unknown' (D-12)."""
+    try:
+        pyproj_path = PROJECT_DIR / "pyproject.toml"
+        if pyproj_path.exists():
+            with open(pyproj_path, "rb") as f:
+                data = tomllib.load(f)
+                ver = data.get("project", {}).get("version")
+                if ver:
+                    return f"v{ver}" if not str(ver).startswith("v") else str(ver)
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return "unknown"
+
+
+SERVER_VERSION: str = _get_server_version()
 
 
 def _get_git_commit() -> str:
@@ -513,7 +532,7 @@ async def discover(
                 accels_overview = []
 
             caps_meta = {
-                "server_version": "v0.2.8",
+                "server_version": SERVER_VERSION,
                 "git_commit": LOADED_COMMIT,
                 "loaded_commit": LOADED_COMMIT,
                 "repo_head": repo_head,

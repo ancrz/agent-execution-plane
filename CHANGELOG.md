@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-11-05
+
+### Added
+- **Unified FastMCP Architecture Stabilization (Milestones ONT-29..ONT-38)**:
+  - **ONT-29**: Remediate external consumption gaps, deduplicate response envelopes, and enforce FastMCP single-encoding.
+  - **ONT-30**: Cross-harness schema evolution signaling (`tools.listChanged`), multi-runner ergonomics, and resilient DAG resource fallback.
+  - **ONT-31**: Dual-plane Kali MCP offensive/defensive primitives and SDD specifications.
+  - **ONT-32**: Native in-RAM network and security telemetry with container decoupling.
+  - **ONT-33**: Predictive privilege setup and 4-tier chmod degradation matrix (`7rwx`, `6rw-`, `5r-x`, `4r--`).
+  - **ONT-34**: Built-in runtime primitives engine (`default_primitives`), expanding suite to 16 tools and 19 capabilities.
+  - **ONT-35**: Resolve version stamp integrity drift, multi-harness sync, and sandbox ergonomics.
+  - **ONT-36**: Hardware domain, accelerator admission, and proactive Apport crash alerts.
+  - **ONT-37**: UMA admission ergonomics, Apport RFC822 streaming, and pytest anti-masking failure extraction.
+  - **ONT-38**: Eliminate README drift, sync 16-tool degradation documentation, and align repository directory structure.
+
 ## [0.2.7] - 2026-10-31
 
 ### Added

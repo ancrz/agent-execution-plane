@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-execution-plane"
-version = "0.1.0"
+version = "0.2.8"
 description = "Agent Execution Plane (AEP) - Unified FastMCP Server"
 readme = "README.md"
 requires-python = ">=3.14"
