@@ -4988,12 +4988,13 @@ async def default_primitives(
 _AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal")
 _AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
-_AUTOEVOL_TESTS_MAX = 20
+_AUTOEVOL_ENV_EXIT_CODES = (126, 127)  # no ejecutable / no encontrado: fallo de entorno, no de logica
 
 
 def _autoevol_pytest_cmd(tree: Path, tests: list[str]) -> str:
+    """Comando pytest con TODOS los tests dados (sin truncar). El troceo N<=20 lo decide `plan_tests` aguas arriba."""
     py = ".venv/bin/python" if (tree / ".venv" / "bin" / "python").exists() else "python3"
-    return shlex.join([py, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests[:_AUTOEVOL_TESTS_MAX]])
+    return shlex.join([py, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests])
 
 
 def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
@@ -5030,14 +5031,18 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
         res = json.loads(anyio.from_thread.run(_call))
         if res.get("status") == "ERROR" and "timed out" in str(res.get("error", "")).lower():
             return {"timeout": True, "failed": 0, "errors": 0}
+        exit_code = res.get("exit_code")
         counts = _pytest_counts(res.get("parsed"))
-        if counts is not None:
-            return counts
         if "bwrap:" in str(res.get("stderr", "")) + str(res.get("stderr_tail", "")):
             return _autoevol_plain_pytest(tree, cmd) if trusted else {"available": False}
         if res.get("status") in ("DEGRADED", "PERMISSION_DENIED", "PARAM_ERROR"):
             return {"available": False}
-        return {"ran": 0, "failed": 0, "errors": 1 if res.get("exit_code") else 0, "no_summary": True}
+        # F4: 126/127 o salida != 0 sin resumen de pytest = fallo de infraestructura (SANDBOX_UNAVAILABLE, ambiental).
+        if exit_code in _AUTOEVOL_ENV_EXIT_CODES or (counts is None and (res.get("status") == "EXEC_FAILED" or exit_code)):
+            return {"available": False}
+        if counts is not None:
+            return {**counts, "exit_code": exit_code} if isinstance(exit_code, int) else counts
+        return {"ran": 0, "failed": 0, "errors": 0, "no_summary": True}
 
     return run
 
@@ -5051,14 +5056,25 @@ def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
         return {"timeout": True, "failed": 0, "errors": 0, "unsandboxed": True}
     except OSError:
         return {"available": False}
-    counts = _pytest_counts(_parse_pytest_output(proc.stdout + "\n" + proc.stderr)) or {"ran": 0, "failed": 0, "errors": 1}
-    return {**counts, "unsandboxed": True}
+    if proc.returncode in _AUTOEVOL_ENV_EXIT_CODES:
+        return {"available": False}
+    counts = _pytest_counts(_parse_pytest_output(proc.stdout + "\n" + proc.stderr))
+    if counts is None:
+        return {"available": False} if proc.returncode else {"ran": 0, "failed": 0, "errors": 0, "no_summary": True}
+    return {**counts, "exit_code": proc.returncode, "unsandboxed": True}
 
 
-def _autoevol_dispatcher(tree: Path) -> Any:
-    """dispatch_job inyectado: async_job_dispatch (Pueue) cuando el lote supera N=20 tests o 60 s."""
+def _autoevol_dispatcher(tree: Path, trusted: bool) -> Any:
+    """dispatch_job inyectado: async_job_dispatch (Pueue) cuando el lote supera N=20 tests o 60 s.
+
+    Pueue ejecuta en el host sin bwrap: solo se despacha para el arbol propio (`trusted`). Un `root` ajeno se rechaza
+    fail-closed (SANDBOX_UNAVAILABLE) en lugar de ejecutar codigo no confiable fuera del sandbox (F3).
+    """
 
     def dispatch(tests: list[str]) -> dict[str, Any]:
+        if not trusted:
+            return {"job": None, "available": False}
+
         async def _call() -> str:
             return await async_job_dispatch(
                 action="dispatch",
@@ -5192,7 +5208,7 @@ async def autoevol(
             )
         else:
             runner = _autoevol_test_runner(tree, trusted)
-            dispatcher = _autoevol_dispatcher(tree)
+            dispatcher = _autoevol_dispatcher(tree, trusted)
             common: dict[str, Any] = {
                 "gap": gap,
                 "snapshot": snapshot,

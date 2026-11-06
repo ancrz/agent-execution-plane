@@ -281,14 +281,14 @@ def test_test_runner_wraps_sandbox_run_parse_pytest(monkeypatch: pytest.MonkeyPa
     assert _run_in_worker(server._autoevol_test_runner(tmp_path, False), ["t"]) == {"available": False}
     monkeypatch.setattr(server, "sandbox_run", _fake_sandbox({"status": "DEGRADED"}))
     assert _run_in_worker(run, ["t"]) == {"available": False}
-    assert server._autoevol_pytest_cmd(tmp_path, [f"t{i}" for i in range(30)]).count(" t") == 20
+    assert server._autoevol_pytest_cmd(tmp_path, [f"t{i}" for i in range(33)]).count(" t") == 33  # F2: sin truncar
 
 
 def test_dispatcher_and_poller_use_async_job_dispatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(server, "async_job_dispatch", _fake_sandbox({"status": "queued", "task_id": 5}))
-    assert _run_in_worker(server._autoevol_dispatcher(tmp_path), ["t"]) == {"job": "5"}
+    assert _run_in_worker(server._autoevol_dispatcher(tmp_path, True), ["t"]) == {"job": "5"}
     monkeypatch.setattr(server, "async_job_dispatch", _fake_sandbox({"status": "PUEUE_ERROR"}))
-    assert _run_in_worker(server._autoevol_dispatcher(tmp_path), ["t"])["available"] is False
+    assert _run_in_worker(server._autoevol_dispatcher(tmp_path, True), ["t"])["available"] is False
     assert server._autoevol_job_poller("abc") == {"available": False}
     log = {"status": "OK", "output": "...\\n2 passed in 1.2s\\n"}
     monkeypatch.setattr(server, "async_job_dispatch", _fake_sandbox(log))
