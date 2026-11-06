@@ -11,7 +11,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVER="$PROJECT_ROOT/server.py"
+
+# Live Plane Hot-Swap (ONT-39): aep_front.py by default; AEP_HOTSWAP=0 falls back to legacy server.py
+if [[ "${AEP_HOTSWAP:-1}" == "0" ]]; then
+    SERVER="$PROJECT_ROOT/server.py"
+else
+    SERVER="$PROJECT_ROOT/aep_front.py"
+fi
 VENV_PY="$HOME/.local/share/agent-os/venv/bin/python"
 
 # Preferir el venv si puede importar sqlite_vec (tier semántico); si no, python3 (fail-soft).
@@ -27,4 +33,4 @@ export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 # Asegurar que las herramientas de usuario (pueue, aep-ctl, sondas Go) resuelvan en PATH.
 export PATH="$HOME/.local/bin:$HOME/.local/share/agent-os/bin:$PATH"
 cd "$PROJECT_ROOT"
-exec "$AEP_PYTHON" "$SERVER"
+exec "$AEP_PYTHON" "$SERVER" "$@"
