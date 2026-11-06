@@ -81,6 +81,12 @@ assert_ok "Go diagnostic probes execute cleanly (socket-monitor, fd-rescuer, lan
 # Test 6: Verify aep-sync.sh --check passes cleanly
 assert_ok "aep-sync.sh --check FastMCP validation" ./scripts/aep-sync.sh --check
 
+# ONT-41 TC8: launcher passthrough, lkg/ 0700 provisioning and syntax of the touched scripts
+assert_ok "ONT-41 scripts pass bash -n" bash -c 'for f in scripts/aep-mcp-launch.sh scripts/setup.sh scripts/aep-sync.sh; do bash -n "$f" || exit 1; done'
+assert_ok "launcher exports AEP_RELOAD_BARRIER_S and AEP_DATA_HOME when set" grep -q 'export AEP_RELOAD_BARRIER_S' scripts/aep-mcp-launch.sh
+assert_ok "setup.sh provisions lkg/ with mode 0700" grep -qF 'chmod 700 "$AEP_LKG_DIR"' scripts/setup.sh
+assert_ok "aep-sync --audit uses the state-file classifier" grep -q 'aep_audit_state.py' scripts/aep-sync.sh
+
 echo "=========================================================="
 echo "  Test Summary: $TESTS_PASSED passed, $TESTS_FAILED failed"
 echo "=========================================================="

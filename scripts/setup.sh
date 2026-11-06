@@ -450,6 +450,10 @@ VIRTUAL_ENV="$VENV_DIR" uv pip install -q sqlite-vec fastembed playwright
 mkdir -p "$HOME/.local/share/agent-os"
 ln -sfn "$VENV_DIR" "$HOME/.local/share/agent-os/venv"
 
+# ONT-41: last-known-good store (private, 0700). AEP_DATA_HOME overrides the data home (same as aep_lkg.lkg_home()).
+AEP_LKG_DIR="${AEP_DATA_HOME:-$HOME/.local/share/agent-os}/lkg"
+mkdir -p "$AEP_LKG_DIR" && chmod 700 "$AEP_LKG_DIR"
+
 # Pre-cache de modelo semántico BAAI/bge-small-en-v1.5
 if "$VENV_DIR/bin/python" -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')" &>/dev/null; then
     log_success "Entorno semántico listo (modelo bge-small-en-v1.5 cacheado)."

@@ -30,6 +30,11 @@ else
 fi
 
 export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# ONT-41 passthrough (runbook): both are optional and only exported when set by the caller.
+#   AEP_RELOAD_BARRIER_S  seconds the front waits for a pending swap before autoevol(verify|fix_test) (default 15).
+#   AEP_DATA_HOME         data home holding lkg/ (default ~/.local/share/agent-os); aep_lkg.lkg_home() honours it.
+[[ -n "${AEP_RELOAD_BARRIER_S:-}" ]] && export AEP_RELOAD_BARRIER_S
+[[ -n "${AEP_DATA_HOME:-}" ]] && export AEP_DATA_HOME
 # Asegurar que las herramientas de usuario (pueue, aep-ctl, sondas Go) resuelvan en PATH.
 export PATH="$HOME/.local/bin:$HOME/.local/share/agent-os/bin:$PATH"
 cd "$PROJECT_ROOT"
