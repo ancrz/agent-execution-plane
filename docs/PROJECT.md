@@ -61,3 +61,21 @@ AEP is undergoing a structured 7-phase consolidation roadmap to achieve 1:1 pari
 \n
 - **Milestone ONT-12: Autonomous Setup & Python 3.14** (Dual-mode bootstrapper & updater `scripts/setup.sh`, Python 3.14 Production LTS migration, hermetic `uv` venv, Go toolchain self-provisioning, static probes `socket-monitor` & `fd-rescuer`, Pueue daemon, bwrap, 7 verification gates) — VERIFIED & COMMITTED (Task 113 PROMOTED 0.9250 TRUST) ✅.
 - **Milestone ONT-13: Kernel Sandboxing & Anti-Poisoning Backups** (RE as SDD for Linux primitives, in-process Landlock LSM sandboxing `engine/landlock.py`, anti-poisoning hot backup engine & quarantine `engine/backup.py`, volatile RAM micro-snapshots `engine/db.py`, eBPF security probing `server.py`, Go static Landlock probe `diagnostic/go/landlock-guard`, CLI integration `scripts/aep-ctl`, and verification suite) — VERIFIED & PROMOTED (Task 114 Score: 0.9250 TRUST) ✅.
+
+## 4. Architecture Decisions and Open Questions (ONT-40, 2026-11-06)
+
+### 4.1 Decisions taken
+
+- **Tool count 16 → 17 (user decision, SDD §0).** `autoevol` is a meta domain that fits no existing tool. The capability count stays at 19 (DQ-4).
+- **Read-only first.** ONT-40 writes nothing to the tree. Self-healing (ONT-41) and auto-commit (ONT-42) are separate, gated intents.
+- **Persistence gated by tier (DQ-3).** `threads_gen` and the ledger persist only at tier ≥ `6rw-`. At `4r--` the result returns with `persisted:false`.
+- **Probes are opt-in and outside the Merkle root (DQ-2).** Observations carry their own `obs_hash`, so the root stays deterministic.
+- **Historical markers (DQ-5).** Historical text is marked `(histórico)`, `(historical)` or `<!-- aep:hist -->`. The CHANGELOG is excluded from claims.
+- **Auto-push authorized for ONT-42 only (AP-1, user).** Conditions: tier `7rwx` or `6rw-`, reachable remote, verify = ACCEPT, tests green. Never `--force`, never `main`, never history rewrite.
+
+### 4.2 Open questions (for Ontos, not yet decided)
+
+- Does the premise «extraction without executing code» hold once probes exist (O-2)?
+- Is the `threads → privilege` edge a dependency to add to the plan (O-7)?
+- How does a probe timeout appear: observation or gap (O-8)?
+- Which tests does T14 cover (O-3)?

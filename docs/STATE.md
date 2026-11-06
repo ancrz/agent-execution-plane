@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-11-06 · Servidor MCP: **16 tools** (ONT-34) · Rama: `dev` · ONT-39 Live Plane hot-swap: **VERIFIED** (ONT-39b hardening D-18..D-21: **VERIFIED**, commiteado en dev) · ONT-40 `autoevol`: **PLANIFICADO** (SDD aprobado, sin código) · Histórico 2026-10-24: Hardening & Secret Masking **COMPLETO**, Tarea 110 **PROMOTED (0.9958 TRUST)**
+> Fecha: 2026-11-06 · Servidor MCP: **16 tools** (ONT-34) · Rama: `dev` · ONT-39 Live Plane hot-swap: **VERIFIED** (ONT-39b hardening D-18..D-21: **VERIFIED**, commiteado en dev) · ONT-40 `autoevol`: **EN PLAN, Ontos BLOCKED ciclo 1, en revisión por Archon** (sin código) · Histórico 2026-10-24: Hardening & Secret Masking **COMPLETO**, Tarea 110 **PROMOTED (0.9958 TRUST)**
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -57,7 +57,7 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 
 ## Pendientes
 
-- **ONT-40 `autoevol` (PLANIFICADO):** grafo de hilos read-only (`engine/threads.py`, tool 17 con `graph`/`gaps`/`thread`/`log`/`diff`). SDD aprobado: `docs/sdd/sdd_ont40_autoevol_thread_graph.md` (sin seguimiento en git). Después: ONT-41 (`spec`/`verify`/`heal`) y ONT-42 (`evolve`, auto-commit gateado).
+- **ONT-40 `autoevol` (EN PLAN, Ontos BLOCKED ciclo 1, en revisión por Archon):** grafo de hilos read-only (`engine/threads.py`, tool 17 con `graph`/`gaps`/`thread`/`log`/`diff`). Plan: `docs/pipeline/feature_20261106_011249_ont40_autoevol.md` (T0..T17; auditoría Ontos ciclo 1 BLOCKED con F1-F16 en su sección 14). SDD: `docs/sdd/sdd_ont40_autoevol_thread_graph.md`, rastreado en git desde `6a0601d`; sus §7 (decisiones) y §8 (ciclo fix→test) están **sin commit** en el working tree. Después: ONT-41 (`spec`/`verify`/`heal`) y ONT-42 (`evolve`, auto-commit gateado).
 - **Roadmap Completo (33 → 15 tools MCP), Endurecimiento Post-Consolidación y Optimización Híbrida de Persistencia SQLite (mmap 256MB / 64MB cache): 100% CERRADOS y VERIFICADOS por Dokimos across Gates 1 to 5.**
 - **Línea base final: 15 herramientas FastMCP cubriendo 16 capacidades (1:1 parity), consultas vectoriales a velocidad de RAM con persistencia total en disco para colaboración multiagente, enmascaramiento de secretos activo. Tarea 110 PROMOTED (0.9958 TRUST).**
 - Listo para Stage 6 (Hermon: commit atómico convencional y release).

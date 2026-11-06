@@ -141,3 +141,41 @@ flowchart LR
     - Kanban task card creation and score progression during builds must be atomic via `upsert_build_task()` executed inside `transaction_immediate()`, eliminating TOCTOU race conditions.
     - Vector embeddings must be computed outside SQLite write transactions to minimize write-lock hold times and prevent primary key contention on vector virtual tables.
     - Saved playbooks (`action="run"`) must maintain full architectural parity with ephemeral batches (`action="batch"`), including slot leasing, inter-step parameter piping, session cache propagation, and server-side field projection.
+
+---
+
+## Rollup 2: ONT-29 to ONT-39 (Graphos G1, 2026-11-06)
+
+- **Document ID**: `feature_rollup.md` (section "Rollup 2")
+- **Covers**: 11 chain documents after the rollup of 2026-10-30: ONT-29, ONT-30, ONT-31, ONT-32, ONT-33, ONT-34, ONT-35, ONT-36, ONT-37, ONT-38, ONT-39 (`feature_20261106_000100_ont39_live_plane_hot_swap.md`).
+- **Trigger**: the every-5th-document rule was not applied at documents 5 (ONT-33) and 10 (ONT-38). This section closes the gap. The next document, `feature_20261106_011249_ont40_autoevol.md`, is 12th in the chain since the rollup. The next rollup falls at the 15th document.
+- **Note**: the heading of section 1 reads "Documents 1-16" and its body reads "1 to 24". The numbering is inconsistent in the original and is not corrected here.
+
+### 2.1 Milestone history
+
+| Intent | Document verdict | Key result | Ontos cycles |
+|---|---|---|---|
+| ONT-29 External consumption gaps and Chrysalis bridge | VERIFIED & PROMOTED | GAP-OM-17: Bernstein shared-write checks in `topos_audit_dag` (`resources`) | APPROVED, 0 co-dependencies |
+| ONT-30 Schema evolution and runner ergonomics | VERIFIED & PROMOTED (99/99) | Cross-harness schema evolution | APPROVED, 0 co-dependencies (5 tasks) |
+| ONT-31 RE as SDD, Kali MCP and native Antigravity | VERIFIED & PROMOTED | Dual-plane offensive and defensive primitives | APPROVED, 0 co-dependencies (6 tasks) |
+| ONT-32 Native memory-first network telemetry | VERIFIED & PROMOTED | Architectural purification, container decoupling | APPROVED |
+| ONT-33 Predictive privilege-aware setup | VERIFIED & PROMOTED | `sudo -n` non-interactive probing, chmod degradation matrix | APPROVED, 0 co-dependencies (5 tasks) |
+| ONT-34 FastMCP tool 16 (`default_primitives`) | VERIFIED (123/123) | 15 to 16 tools, 18 to 19 capabilities, factory decoupling | APPROVED, 0 co-dependencies (9 tasks) |
+| ONT-35 Version stamp integrity and sync | VERIFIED (133/133) | GAP-RT-04 drift freeze, GAP-RT-03 multi-harness sync | not recorded in document |
+| ONT-36 Hardware domain and apport alerts | VERIFIED (143/143) | GAP-CP-05 admission, GAP-OM-20 alerts | 1 BLOCKED (R1-R5), then APPROVED |
+| ONT-37 UMA admission, apport RFC822, pytest parsing | VERIFIED (153/153) | GAP-DX-06, GAP-OM-21, GAP-DX-07 | 1 BLOCKED, then APPROVED |
+| ONT-38 README SSoT drift mitigation | VERIFIED & COMPLETED (153/153) | README synchronized to 16 tools, 19 capabilities, 9 domains | not recorded in document |
+| ONT-39 / ONT-39b Live plane hot-swap | VERIFIED (L1 175 passed; fix cycle 179; ONT-39b 198 passed, 6 xfailed) | Front and backend split, fail-safe swap, D-18..D-21 hardening | not recorded in document; ONT-39b committed as `3515a22` |
+
+### 2.2 Invariants that held across the period
+
+1. Tool count moved only once, 15 to 16 (ONT-34). From ONT-35 onward it stayed at 16 until ONT-40 proposes 17 by explicit user decision.
+2. Zero co-dependencies in every Ontos approval. Two BLOCKED cycles (ONT-36, ONT-37) were resolved by remediation, not by waiver.
+3. The `sudo -n` non-interactive rule (ONT-33) and secret masking (GAP-SEC-01) carried through all later intents.
+4. Single source of truth for the tool count was enforced by `scripts/aep-sync.sh --check` from ONT-35 onward.
+
+### 2.3 Open items carried into ONT-40
+
+- D-01 (verbosity claim against measured budget) remains open until L3. It is an xfail in the test suite.
+- The ONT-39b state (`3515a22`) is committed. Its verification report is `verification_report_20261106_ont39_live_plane.md`.
+- ONT-40 plan, its observations O-1 to O-8, and the task DAG: `feature_20261106_011249_ont40_autoevol.md`.

@@ -109,3 +109,27 @@ Disparadores automáticos (sin bucle desbocado):
 3. Un `SyntaxError` o una función nueva sin test aparece como gap con el alcance correcto.
 4. R es determinista (dos extracciones del mismo árbol dan la misma R) y cambia ante cualquier cambio semántico.
 5. `graph` en terse cuesta menos de 300 tokens y la extracción completa tarda menos de 2 s.
+
+## 7. Decisiones (2026-11-06, después del plan de Archon)
+
+| ID | Decisión | Quién |
+|---|---|---|
+| DQ-1 | §6.2 se corrige así: en HEAD, D-08, D-11, D-12 y D-14 **ausentes** y D-01 **presente** (sigue abierto hasta L3, es xfail strict) | Orquestador |
+| DQ-2 | Se aprueba la capa `probes` (`probe=True`): subproceso `python -I` en el árbol destino, timeout de 10 s, solo lectura y BD temporal. Sus observaciones quedan **fuera de R** con su propio `obs_hash`, para no romper el determinismo | Orquestador |
+| DQ-3 | `threads_gen` y el ledger se persisten solo con tier ≥ `6rw-`. En `4r--` se devuelve R con `persisted:false` | Orquestador |
+| DQ-4 | `autoevol` se integra en la capacidad `topos_audit` (integridad estructural). Se mantienen **19 capacidades** y 17 tools | Orquestador |
+| DQ-5 | Marcador histórico explícito `(histórico)`, `(historical)` o `<!-- aep:hist -->`. El CHANGELOG queda excluido de los claims | Orquestador |
+| AP-1 | **Auto-push autorizado por el usuario.** Condiciones (ONT-42): tier `7rwx`/`6rw-`, remoto alcanzable, `verify` = ACCEPT y tests verdes. Se empuja `autoevol/<gap>` y el fast-forward de `dev`. **Nunca** `--force`, nunca `main`, nunca reescribir historia. Si el push falla, se reporta y no se reintenta con fuerza | Usuario |
+
+**Premisa (usuario):** solo un agente que puede evaluarse a sí mismo puede evolucionar una herramienta que a su vez lo evoluciona. La consola es una limitación; el agente usa la capacidad de mayor alcance disponible.
+
+## 8. Ciclo fix → test en tiempo real (aprovecha el Live Plane)
+
+Como el reload es en vivo (ONT-39), el ciclo de corrección no reinicia nada:
+
+1. **Selección de tests por el grafo:** `impacted_tests(Δ) = covers⁻¹(alcance(nodos_cambiados))`. Solo se ejecutan los tests que cubren los hilos alcanzados por el cambio; la suite completa queda para la compuerta final.
+   - **ONT-40:** `thread` y `diff` ya devuelven `impacted_tests` (solo lectura).
+2. **Barrera de recarga (obligatoria antes de probar):** tras el parche, esperar a que `backend_generation` se incremente y a que `code_fingerprint_loaded == code_fingerprint_disk` (con timeout). Si hay `last_reload_error` de tipo determinista, el test **no se ejecuta**: el fix falló en la importación, y eso se devuelve como resultado del ciclo. Así nunca se prueba código viejo.
+3. **Ejecución:** los tests seleccionados corren vía `sandbox_run(parse="pytest")`, o `async_job_dispatch` si tardan más de 60 s. Las tools en vivo se prueban contra el backend recién promovido.
+4. **Veredicto incremental:** `Gaps(G') ⊊ Gaps(G)` más los tests seleccionados en verde dan `fix_ok`; si no, se hace rollback por hilo (LKG) y se devuelve el diff.
+   - **ONT-41:** `autoevol(action="fix_test", gap=..)` orquesta los pasos 1 a 4, con un máximo de 3 iteraciones por gap.

@@ -1017,6 +1017,33 @@ flowchart TD
 >
 > Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
+### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40)
+
+Each intent is linked to its milestones and to the agent responsible for each one. Status is updated at every pipeline activation. Source of truth: `docs/MILESTONES.md`.
+
+**ONT-39 Live Plane hot-swap (VERIFIED):**
+
+```mermaid
+flowchart LR
+    I["Intent: Live Plane hot-swap (ONT-39)"] --> M1["M1: planned (Archon / Orchestrator) ✅"]
+    M1 --> M2["M2: implemented (Pragma) ✅"]
+    M2 --> M3["M3: verified (Dokimos, 175 passed; ONT-39b 198 passed) ✅"]
+    M3 --> M4["M4: documented (Graphos) ✅"]
+    M4 --> M5["M5: committed (Hermon, ONT-39b `3515a22`) ✅"]
+```
+
+**ONT-40 autoevol thread graph (EN PLAN, Full):**
+
+```mermaid
+flowchart LR
+    I["Intent: autoevol thread graph (ONT-40)"] --> M1["M1: planned (Archon) and documented (Graphos G1) ✅"]
+    M1 --> M2["M2: audited (Ontos) pending"]
+    M2 --> M3["M3: implemented Phase A, T0-T12 (Pragma)"]
+    M3 --> M4["M4: integrated Phase B, T13-T15, under fence (Pragma)"]
+    M4 --> M5["M5: verified, acceptance T16-T17 (Dokimos)"]
+    M5 --> M6["M6: documented and committed (Graphos G2, Hermon)"]
+```
+
 [↑ Back to top](#top)
 
 ---
