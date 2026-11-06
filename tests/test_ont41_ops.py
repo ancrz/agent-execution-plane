@@ -319,3 +319,12 @@ def test_docs_and_playbook_carry_the_self_heal_rule() -> None:
     assert 'autoevol(action="heal")' in recipe and len(recipe.encode()) < 3000
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "Self-Healing N0-N3" in readme and '"fix_test"' in readme and "17_Tools" in readme
+
+
+def test_async_job_dispatch_log_degrades_without_pueue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F8: el poller depende de la accion `log`; sin demonio pueue degrada (no cuelga)."""
+    import asyncio
+
+    monkeypatch.setattr(server, "_ensure_pueue_daemon", lambda: None)
+    out = json.loads(asyncio.run(server.async_job_dispatch(action="log", task_id=5, verbosity="summary")))
+    assert out["status"] == "DEGRADED"

@@ -93,3 +93,28 @@ def test_poller_job_without_summary_stays_pending_forever_documented(monkeypatch
 
     monkeypatch.setattr(server, "async_job_dispatch", fake)
     assert _run_in_worker(server._autoevol_job_poller, "5") == {"status": "PENDING"}
+
+
+def test_poller_terminal_pueue_state_without_summary_is_environmental(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F8: Done/Failed en pueue sin resumen de pytest ya no deja el ciclo PENDING."""
+    import json
+
+    async def fake(**_kw: Any) -> str:
+        return json.dumps({"status": "OK", "tasks": {"5": {"status": {"Failed": {"result": "Failed"}}}}})
+
+    monkeypatch.setattr(server, "async_job_dispatch", fake)
+    assert _run_in_worker(server._autoevol_job_poller, "5") == {"available": False}
+
+
+def test_dispatch_command_carries_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, Any] = {}
+
+    async def fake(**kw: Any) -> str:
+        import json
+
+        seen.update(kw)
+        return json.dumps({"status": "queued", "task_id": 7})
+
+    monkeypatch.setattr(server, "async_job_dispatch", fake)
+    assert _run_in_worker(server._autoevol_dispatcher(tmp_path, True), ["t"]) == {"job": "7"}
+    assert seen["command"].startswith("timeout 900 ")
