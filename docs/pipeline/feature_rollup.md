@@ -179,3 +179,14 @@ flowchart LR
 - D-01 (verbosity claim against measured budget) remains open until L3. It is an xfail in the test suite.
 - The ONT-39b state (`3515a22`) is committed. Its verification report is `verification_report_20261106_ont39_live_plane.md`.
 - ONT-40 plan, its observations O-1 to O-8, and the task DAG: `feature_20261106_011249_ont40_autoevol.md`.
+
+## Rollup 3: ONT-40 a L3 (Graphos G1, 2026-11-06)
+
+Cadena desde Rollup 2: `feature_20261106_011249_ont40_autoevol.md` → `feature_20261106_080856_ont41_autoevol_heal.md` → `feature_20261106_172315_ont42a_harness_reconnect.md` → `feature_20261106_181608_l3_token_contract.md` → `feature_20261106_182001_ont42_judge_evolve.md`.
+
+- **ONT-40 / ONT-41:** `autoevol` gana graph, gaps, spec, verify, fix_test y heal con LKG y self-heal del plano en vivo. VERIFIED.
+- **ONT-42a:** `harness_reconnect` (RE-as-SDD). VERIFIED excepto T8 (smoke en vivo con sudo y TIOCSTI, user-gated).
+- **L3:** contrato de tokens D-01..D-05 (summary compacto, detail sin cambios). VERIFIED con 0 ciclos de fix. Suite 576 passed, ruff limpio, 17 herramientas y 19 capacidades.
+- **Backlog ONT-42:** D-01b, AE-1..AE-6. Su plan está en `feature_20261106_182001_ont42_judge_evolve.md`: 42b (B1 a B9, juez autónomo) y 42c (C1 a C7, `evolve`). DAG APPROVED. Pendiente Ontos.
+
+**Invariantes preservadas:** 17 herramientas y 19 capacidades; R (raíz Merkle) sin cambio de esquema; el juez no hace commits (git entra por puerto inyectado); push solo con autorización explícita.
