@@ -122,3 +122,197 @@ def test_decision_tree_routes(kwargs: dict, route: str) -> None:
     plan = hr.decision_tree(**kwargs)
     assert plan["recommended_route"] == route
     assert plan["caveats"] and "typed-prompt" in plan["caveats"][0]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# execute(): every collaborator is a double. Nothing here opens /dev/pts, writes /proc/sys or runs sudo.
+# ---------------------------------------------------------------------------------------------------------------
+
+
+class _Rec:
+    def __init__(self, *, sysctl: list[str | None] | None = None, helper: object = (0, "{}", False), lock: object = 5) -> None:
+        self.sysctl = list(sysctl or ["0", "0"])
+        self.helper = helper
+        self.lock = lock
+        self.audits: list[tuple[str, dict]] = []
+        self.helper_calls = 0
+        self.released: list[int] = []
+        self.audit_ok = True
+
+    def adapters(self) -> hr.Adapters:
+        def read() -> str | None:
+            return self.sysctl.pop(0) if len(self.sysctl) > 1 else self.sysctl[0]
+
+        def lock() -> int:
+            if isinstance(self.lock, Exception):
+                raise self.lock
+            return int(self.lock)  # type: ignore[arg-type]
+
+        def helper(*_a: object, **_k: object) -> tuple[int, str, bool]:
+            self.helper_calls += 1
+            if isinstance(self.helper, Exception):
+                raise self.helper
+            return self.helper  # type: ignore[return-value]
+
+        def audit(status: str, details: dict) -> bool:
+            self.audits.append((status, details))
+            if not self.audit_ok:
+                raise RuntimeError("ledger ro")
+            return True
+
+        return hr.Adapters(
+            read_sysctl=read,
+            acquire_lock=lock,
+            release_lock=self.released.append,
+            open_tty=lambda _p: os.open(os.devnull, os.O_RDWR),
+            check_fd=lambda _fd, _rdev, _uid: (True, "ok"),
+            run_helper=helper,
+            audit=audit,
+        )
+
+
+def _proc(tmp_path: Path) -> Path:
+    _mk_proc(tmp_path, 100, 1, "/usr/bin/claude", _pts_nr(3))
+    _mk_proc(tmp_path, 200, 100, "/usr/bin/python3")
+    return tmp_path
+
+
+def _run(tmp_path: Path, rec: _Rec, **over: object) -> dict:
+    kw: dict = dict(tier="7rwx", confirm=True, front_stale=True, proc_root=_proc(tmp_path), start_pid=200, adapters=rec.adapters())
+    kw.update(over)
+    return hr.execute(**kw)
+
+
+def test_execute_happy_path_and_audit_pair(tmp_path: Path) -> None:
+    rec = _Rec()
+    res = _run(tmp_path, rec)
+    assert res["status"] == "OK" and res["route"] == "tty_inject" and res["audit_degraded"] is False
+    assert [s for s, _ in rec.audits] == ["ATTEMPT", "OK"]
+    assert rec.helper_calls == 1 and rec.released == [5]
+    assert "mcp reconnect" not in str(rec.audits)
+
+
+@pytest.mark.parametrize(
+    ("over", "reason"),
+    [
+        (dict(tier="6rw-"), "tier_insufficient"),
+        (dict(tier="FULL"), "tier_insufficient"),
+        (dict(confirm=False), "confirm_required"),
+        (dict(confirm="yes"), "confirm_required"),
+        (dict(server="bad name;"), "payload_not_allowed"),
+        (dict(start_pid=999), "harness_not_in_ancestry"),
+        (dict(uid=os.getuid() + 1), "harness_uid_mismatch"),
+    ],
+)
+def test_execute_rejections_never_reach_helper(tmp_path: Path, over: dict, reason: str) -> None:
+    rec = _Rec()
+    res = _run(tmp_path, rec, **over)
+    assert res["status"] == "REJECTED" and res["reason"] == reason
+    assert rec.helper_calls == 0 and rec.audits  # rejections are audited
+
+
+def test_execute_noop_when_front_not_stale(tmp_path: Path) -> None:
+    rec = _Rec()
+    res = _run(tmp_path, rec, front_stale=False)
+    assert res["status"] == "NOOP" and rec.helper_calls == 0
+
+
+def test_execute_unsupported_when_sysctl_absent(tmp_path: Path) -> None:
+    rec = _Rec(sysctl=[None])
+    res = _run(tmp_path, rec)
+    assert res["status"] == "UNSUPPORTED" and res["route"] == "manual" and rec.helper_calls == 0
+
+
+def test_execute_busy_and_no_runtime_dir(tmp_path: Path) -> None:
+    assert _run(tmp_path, _Rec(lock=hr.LockBusyError("x")))["status"] == "BUSY"
+    res = _run(tmp_path, _Rec(lock=hr.NoRuntimeDirError("x")))
+    assert res["status"] == "REJECTED" and res["reason"] == "no_runtime_dir"
+
+
+def test_execute_sysctl_restored_when_helper_raises(tmp_path: Path) -> None:
+    rec = _Rec(helper=RuntimeError("boom"))
+    res = _run(tmp_path, rec)
+    assert res["status"] == "FAIL" and res["reason"].startswith("helper_error") and rec.released == [5]
+
+
+def test_execute_sysctl_restored_when_helper_times_out(tmp_path: Path) -> None:
+    res = _run(tmp_path, _Rec(helper=(-15, "", True)))
+    assert res["status"] == "FAIL" and res["reason"] == "helper_timeout"
+
+
+def test_execute_restore_mismatch_is_critical(tmp_path: Path) -> None:
+    rec = _Rec(sysctl=["0", "1"])
+    res = _run(tmp_path, rec)
+    assert res["status"] == "FAIL" and res["severity"] == "CRITICAL" and res["reason"] == "sysctl_not_restored"
+    assert rec.audits[-1][0] == "FAIL"
+
+
+def test_execute_restore_mismatch_wins_over_helper_ok(tmp_path: Path) -> None:
+    assert _run(tmp_path, _Rec(sysctl=["0", "1"], helper=(0, "{}", False)))["severity"] == "CRITICAL"
+
+
+@pytest.mark.parametrize(("rc", "reason"), [(3, "sysctl_absent"), (4, "ioctl_refused"), (6, "stdin_mismatch")])
+def test_execute_helper_unsupported_codes_fall_back_to_manual(tmp_path: Path, rc: int, reason: str) -> None:
+    res = _run(tmp_path, _Rec(helper=(rc, "{}", False)))
+    assert res["status"] == "UNSUPPORTED" and res["reason"] == reason and res["route"] == "manual"
+
+
+def test_execute_other_helper_rc_fails(tmp_path: Path) -> None:
+    assert _run(tmp_path, _Rec(helper=(5, "{}", False)))["status"] == "FAIL"
+
+
+def test_execute_audit_failure_degrades_but_still_runs(tmp_path: Path) -> None:
+    rec = _Rec()
+    rec.audit_ok = False
+    res = _run(tmp_path, rec)
+    assert res["status"] == "OK" and res["audit_degraded"] is True
+    assert [s for s, _ in rec.audits][0] == "ATTEMPT"  # attempted before the injection
+
+
+def test_execute_tty_validation_failure_is_rejected(tmp_path: Path) -> None:
+    rec = _Rec()
+    ad = rec.adapters()
+    ad.check_fd = lambda _fd, _rdev, _uid: (False, "rdev_mismatch")
+    res = _run(tmp_path, rec, adapters=ad)
+    assert res["status"] == "REJECTED" and "rdev_mismatch" in res["reason"] and rec.helper_calls == 0
+    assert rec.released == [5]
+
+
+def test_build_plan_is_read_only_and_flags_route(tmp_path: Path) -> None:
+    plan = hr.build_plan(front_stale=True, proc_root=_proc(tmp_path), start_pid=200, adapters=_Rec().adapters())
+    assert plan["recommended_route"] == "tty_inject" and plan["tty"] == "/dev/pts/3"
+
+
+def test_dry_adapters_never_touch_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AEP_HARNESS_RECONNECT_DRY", "1")
+    res = hr.execute(tier="7rwx", confirm=True, front_stale=True, proc_root=_proc(tmp_path), start_pid=200)
+    assert res["status"] == "OK" and res["audit_degraded"] is True
+
+
+def test_acquire_lock_contention_and_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    fd = hr.acquire_lock()
+    try:
+        assert (tmp_path / hr.LOCK_NAME).stat().st_mode & 0o777 == 0o600
+        with pytest.raises(hr.LockBusyError):
+            hr.acquire_lock()
+    finally:
+        hr.release_lock(fd)
+    hr.release_lock(hr.acquire_lock())
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "missing"))
+    with pytest.raises(hr.NoRuntimeDirError):
+        hr.acquire_lock()
+
+
+def test_helper_script_compiles_and_fails_closed_without_tty() -> None:
+    """Runs the helper as the current user with a non-tty stdin: it must exit before reading the sysctl."""
+    import subprocess
+    import sys
+
+    compile(hr.HELPER_SCRIPT, "<helper>", "exec")
+    good = hr.build_payload("claude", "x").hex()  # type: ignore[union-attr]
+    r = subprocess.run([sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT, "136", "3", good], stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    assert r.returncode == 6 and b"stdin_mismatch" in r.stdout
+    bad = subprocess.run([sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT, "136", "3", b"rm -rf /\r".hex()], stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    assert bad.returncode == 2 and b"payload_rejected" in bad.stdout
+    assert subprocess.run([sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT], stdin=subprocess.DEVNULL, capture_output=True, check=False).returncode == 2
