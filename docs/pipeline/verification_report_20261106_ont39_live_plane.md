@@ -140,3 +140,80 @@ collected 181 items
 - **aep-sync check:** Clean (`[ok] Validación superada`)
 - **Combined live plane tests:** 10 passed (`test_live_plane_ont39.py` + `test_live_plane_fixes.py`)
 - **Verdict:** **VERIFIED** -> Ready for Hermon commit.
+
+---
+
+## 7. Ciclo de endurecimiento de integridad (ONT-39b)
+
+- **Fecha:** 2026-11-06
+- **Modo de pipeline:** Short (plan inline del orquestador; Pragma → Dokimos → Graphos G2 → Hermon)
+- **Veredicto:** **VERIFIED** (Dokimos, 0 críticos tras el ciclo de fix)
+- **Ciclos de fix:** 1 (Pragma, tras la revisión de Dokimos)
+- **Camino de resolución elegido:** endurecimiento in situ del hot-swap en `aep_front.py` y `aep_backend.py`, sin cambiar la arquitectura de dos procesos. Camino estándar (Python stdlib, sin dependencias nuevas).
+- **Alcance (blast radius):** supervisor del front (stdio de todos los clientes MCP), ciclo de swap y generaciones del backend, telemetría `discover(action="capabilities")` en `server.py`, `.gitignore` (fence), scripts de arranque. Sin cambios en tools públicas ni en esquemas.
+- **Fuera de alcance:** commit (lo hará Hermon) y ONT-40/41/42.
+
+### 7.1 Decisiones de integridad (SDD `docs/sdd/sdd_ont39_live_plane_hot_swap.md` §9)
+
+| ID | Problema | Resolución | Evidencia (tests en `tests/test_live_plane_integrity.py`) |
+|---|---|---|---|
+| **D-18** | El error de recarga quedaba pegajoso: un swap correcto o un retorno al código sano no lo limpiaba, y el error se propagaba a candidatos vía entorno. | `set_meta` acepta `None` explícito. El error va solo al backend ACTIVO. Un swap correcto o el retorno al código en ejecución deja `last_reload_error=None` y severidad INFO. | `test_d18_reload_error_cleared_after_successful_swap`, `test_d18_reverting_to_running_code_clears_error`, `test_d18_set_backend_meta_accepts_explicit_none_and_server_prefers_meta`, `test_d18_front_does_not_propagate_reload_error_env` |
+| **D-19** | Tormenta de reintentos ante código roto. | Clasificación `deterministic` (traceback o SyntaxError: fija `failed_fingerprint`) y `transient` (timeout, spawn o `list` fallido: backoff 1/2/4 s, máx. 3 intentos, luego fija fingerprint). `swap_attempts` expuesto. `AEP_HOTSWAP_DEBOUNCE_S` configurable. | `test_d19_broken_code_single_spawn_attempt`, `test_d19_transient_failure_does_not_pin_fingerprint_and_is_capped`, `test_d19_transient_health_timeout_e2e_retries_with_backoff` |
+| **D-20** | Swap sobre estado multiarchivo a medio escribir. | (a) Quiescencia: swap solo si el fingerprint es idéntico en dos lecturas separadas por `AEP_HOTSWAP_QUIESCE_MS` (300 ms). (b) Fence explícito `.aep_swap_fence` (en `.gitignore`), revalidado tras `swap_lock` y antes de promover; huérfano si mtime > 600 s (`swap_fence_orphan=true`). `swap_fenced` reportado; `stale` sigue honesto. | `test_d20a_quiescence_blocks_swap_while_files_change`, `test_d20b_fence_blocks_swap_and_reports`, `test_d20b_orphan_fence_is_ignored_and_reported`, `test_swap_fence_state_semantics`, `test_fence_is_gitignored`, `test_d20b_fence_appearing_during_quiescence_aborts_swap`, `test_d20b_fence_appearing_before_promotion_terminates_candidate` |
+| **D-21** | Un front no arrancaba si `engine/fingerprint.py` estaba roto. | Copia mínima autocontenida de `code_fingerprint` en `aep_front.py`, usada solo como fallback. Hash idéntico al del engine. | `test_d21_fallback_fingerprint_matches_engine_implementation`, `test_d21_front_starts_when_engine_fingerprint_is_broken` |
+| **D-5 (logs)** | Logs de backend compartidos entre fronts y sin limpieza por front. | Logs `aep_backend_<front_pid>_gen<N>.log`; retención de 5 por `front_pid`; logs de fronts muertos con más de 1 día eliminados. | `test_d5_backend_log_name_includes_front_pid`, `test_d5_per_front_log_retention_and_dead_front_cleanup` |
+| **Limpieza de procesos** | Fugas de FD o procesos hijos si falla el spawn. | `_spawn_backend` libera FDs y termina el hijo ante fallo de spawn. | `test_spawn_failure_releases_fds_and_child` |
+
+### 7.2 Hallazgos de Dokimos 1-6 y su resolución
+
+**Estado: CERRADO.** Los seis hallazgos de Dokimos y su resolución (fix cycle 1) se detallan abajo.
+
+| # | Hallazgo (texto de Dokimos) | Resolución | Estado |
+|---|---|---|---|
+| 1 | Media. El fence se evaluaba una sola vez, antes de la quiescencia y del lock. | RESUELTO: el fence se reevalúa tras adquirir `swap_lock` y antes de promover; el candidato termina sin marcar fallo. Tests: fence durante la quiescencia y fence antes de promover. | RESUELTO |
+| 2 | Media. `failed_fingerprint` se fijaba también ante fallos transitorios. | RESUELTO: clasificación `deterministic` (traceback en el log) / `transient` (timeout, spawn o `list`); backoff 1/2/4 s, máx. 3 intentos; tras el 3.º fallo se fija el fingerprint; `failure_kind` en el meta; `AEP_HOTSWAP_HEALTH_TIMEOUT_S`. Tests unit y e2e. | RESUELTO |
+| 3 | Baja. `_spawn_backend` fugaba `log_fd`, sockets o el proceso si `Popen` o `initialize` lanzaban. | RESUELTO: `try/except` con cierre de descriptores y `kill` del proceso. Test sin fugas. | RESUELTO |
+| 4 | Baja. `test_t_f2` podía validar el log de otro front. | RESUELTO: abre exactamente `aep_backend_{front_pid}_gen1.log`. | RESUELTO |
+| 5 | Baja. El playbook #10 perdió los nombres de campo. | RESUELTO: nombres restaurados dentro del presupuesto de 3000 bytes. | RESUELTO |
+| 6 | Baja. La quiescencia inestable añade hasta 300 ms de latencia. | ACEPTADO sin acción: no hay bucle caliente. | ACEPTADO |
+
+Duración: `AEP_HOTSWAP_DEBOUNCE_S`; suite 61 s -> 50 s.
+
+Los cuatro IDs de integridad (D-18..D-21) tienen tests asociados en §7.1. Esos tests no prueban por sí solos que los hallazgos 1-6 queden cerrados.
+
+### 7.3 Resultados de verificación
+
+```
+pytest: 198 passed, 6 xfailed (50.8 s)
+ruff check .: All checks passed
+scripts/aep-sync.sh --check: [ok] Validación superada
+```
+
+- **Verificación en vivo (orquestador, Claude Code):** hot-swap Gen 1 → Gen 2 sin reconexión del cliente; fail-safe ante `SyntaxError` (se conservó Gen 2 y el error quedó registrado); recuperación a Gen 3 tras corregir el código.
+- **Verificación Antigravity L1/L2 y pipeline local de Claude:** reportadas por el orquestador (sin artefacto adjunto en el repo).
+- **Requisito operativo:** `aep_front.py` cambió, así que el front de Claude Code en vivo necesita una reconexión `/mcp`. Los backends hot-swap no lo necesitan.
+
+### 7.4 Métricas
+
+| Métrica | Valor |
+|---|---|
+| Modo | Short |
+| Ciclos de fix (Pragma ↔ Dokimos) | 1 de 3 |
+| Hallazgos críticos tras el fix | 0 |
+| Tests | 198 passed, 6 xfailed |
+| Duración de la suite | 50.8 s |
+| Dokimos | VERIFIED |
+
+### 7.5 Estado evolutivo
+
+```mermaid
+flowchart LR
+    A["A: ONT-39 Live Plane (VERIFIED L1)"] --> A1["A.1: Fix F1-F4 (VERIFIED, 179 passed)"]
+    A1 --> A2["A.2: Hardening D-18..D-21 (VERIFIED, 198 passed)"]
+    A2 --> B["B: Pendiente Hermon (commit)"]
+```
+
+### 7.6 Artefactos fuera de este reporte
+
+- `docs/sdd/sdd_ont40_autoevol_thread_graph.md` (sin seguimiento en git). Diseño aprobado por el usuario. Tool 17 `autoevol`, grafo de hilos Merkle, fases ONT-40/41/42. Pasa a la lista de pendientes de `docs/COMPACT.md`.
+- `tests/test_live_plane_integrity.py` (sin seguimiento en git): suite de D-18..D-21 y logs por front.

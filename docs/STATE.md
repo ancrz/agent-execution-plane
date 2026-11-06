@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-10-24 · Servidor MCP: **15 tools** (16 capacidades con mapeo 1:1) · Rama: `main` · Semgrep: 0 findings · Hardening & Secret Masking: **COMPLETO** · Optimización SQLite mmap Híbrida: **COMPLETO** · Tarea 110: **PROMOTED (0.9958 TRUST)**
+> Fecha: 2026-11-06 · Servidor MCP: **16 tools** (ONT-34) · Rama: `dev` · ONT-39 Live Plane hot-swap: **VERIFIED** (ONT-39b hardening D-18..D-21: **VERIFIED**, commiteado en dev) · ONT-40 `autoevol`: **PLANIFICADO** (SDD aprobado, sin código) · Histórico 2026-10-24: Hardening & Secret Masking **COMPLETO**, Tarea 110 **PROMOTED (0.9958 TRUST)**
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -32,6 +32,8 @@ eficiencia**. Infra: venv `~/.local/share/agent-os/venv`; DB `~/.local/share/age
 - **Desacoplamiento de hilos en automatización de navegador (GAP-RT-01):** `visual_inspect` ejecuta la API sincrónica de Playwright en un pool `ThreadPoolExecutor` aislado para evitar colisiones con el bucle de eventos `asyncio` de FastMCP.
 
 ## Hecho (arco completo)
+
+- **ONT-39 Live Plane Hot-Swap (VERIFIED) + ONT-39b Integridad (VERIFIED):** front MCP estable (`aep_front.py`, stdio) y backend intercambiable (`aep_backend.py`, socketpair). Swap fail-safe (validate-before-promote, drenaje de llamadas en vuelo). ONT-39b cierra D-18 (error no pegajoso), D-19 (anti-tormenta con backoff 1/2/4 s), D-20 (quiescencia + `.aep_swap_fence`) y D-21 (fingerprint de fallback en el front), con logs por `front_pid`. Verificación: pytest 198 passed / 6 xfailed, ruff limpio, `aep-sync --check` OK, prueba en vivo Gen1→Gen2→Gen3. Detalle: `docs/pipeline/verification_report_20261106_ont39_live_plane.md` §7 y `docs/sdd/sdd_ont39_live_plane_hot_swap.md` §9.
 sqlite-vec (memoria híbrida) · 5 specs Omarchy (aep_ctl, crash routing, skills hub, man-pages,
 headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 15 tools; poda de esquemas huérfanos; Claude Code desconectado por defecto con opt-in `--with-claude`) · shell-agnóstico · Pueue ·
 bpftrace (sudo -n) · Pico-Kanban unificado (tablero, tareas, avance, promoción/degradación, reevaluación, archivado/desarchivado reversible con dry-run) ·
@@ -54,6 +56,8 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 - **Optimización Híbrida de Persistencia SQLite con Memory-Mapped I/O (PRAGMA mmap_size 256MB & 64MB Cache Pool — ONT-09 CERRADO y VERIFICADO por Dokimos):** Estandarización de los 5 puntos de conexión SQLite del runtime (`catalog.py`, `kanban.py`, `crash_router.py`, `playbook.py`, `docs_vectorizer.py`) sobre la factoría centralizada `engine/db.py:get_db_connection`. Perfil híbrido optimizado: kernel Linux proyecta el archivo en RAM vía `PRAGMA mmap_size = 268435456` (256MB zero-copy I/O) y `PRAGMA cache_size = -64000` (64MB pool de páginas B-Tree) manteniendo concurrencia total con `PRAGMA journal_mode = WAL`, `synchronous = NORMAL`, `temp_store = MEMORY` y `busy_timeout = 10000` (10s de resiliencia ante ráfagas). Telemetría expuesta en `artifact_catalog(action="reindex")` (`storage_engine` y `db_telemetry`). Prueba de estrés multihilo (10 workers, 1,000 operaciones lectura/escritura) superada en 0.125s sin errores de bloqueo ni pérdida de datos (`PRAGMA integrity_check = ok`). Semgrep 0 hallazgos (1,198 reglas), exactamente 15 esquemas FastMCP confirmados, y Tarea Kanban 110 PROMOTED con 0.9958 TRUST.
 
 ## Pendientes
+
+- **ONT-40 `autoevol` (PLANIFICADO):** grafo de hilos read-only (`engine/threads.py`, tool 17 con `graph`/`gaps`/`thread`/`log`/`diff`). SDD aprobado: `docs/sdd/sdd_ont40_autoevol_thread_graph.md` (sin seguimiento en git). Después: ONT-41 (`spec`/`verify`/`heal`) y ONT-42 (`evolve`, auto-commit gateado).
 - **Roadmap Completo (33 → 15 tools MCP), Endurecimiento Post-Consolidación y Optimización Híbrida de Persistencia SQLite (mmap 256MB / 64MB cache): 100% CERRADOS y VERIFICADOS por Dokimos across Gates 1 to 5.**
 - **Línea base final: 15 herramientas FastMCP cubriendo 16 capacidades (1:1 parity), consultas vectoriales a velocidad de RAM con persistencia total en disco para colaboración multiagente, enmascaramiento de secretos activo. Tarea 110 PROMOTED (0.9958 TRUST).**
 - Listo para Stage 6 (Hermon: commit atómico convencional y release).

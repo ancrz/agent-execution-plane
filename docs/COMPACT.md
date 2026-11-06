@@ -1,13 +1,13 @@
-# Context Compaction Guidance — AEP (Milestone ONT-39 Live Plane Hot-Swap Synchronized)
+# Context Compaction Guidance — AEP (ONT-39 Live Plane verificado + ONT-39b hardening)
 
 **Preserve**:
-- Pipeline State: Full Topos cerrado / ONT-39 Live Plane Hot-Swap implementado y verificado.
-- Active Baseline: 16 FastMCP tools, dual-process architecture (`aep_front.py` stdio + `aep_backend.py` socketpair worker), pure stdlib `engine/fingerprint.py`, capabilities hot-swap telemetry (`backend_generation`, `code_fingerprint_disk`, `stale`). SSoT version `0.2.8` (`v0.2.8`).
-- Verification Invariant: 175 passed (including 6 criteria e2e in `test_live_plane_ont39.py`), 6 xfailed (strict token budgets / contract gaps D-01..D-05), 0 failed. `ruff check .` clean, `aep-sync.sh --check` OK.
-- Recent Milestones:
-  - ONT-38b-L1: Verification harness (`aep-agy-probe.sh`), token budgets, SSoT versioning 0.2.8.
-  - ONT-39: Live plane hot-swap (`aep_front.py`, `aep_backend.py`, `engine/fingerprint.py`), zero FD leaks, in-flight drain, fail-safe rollback, tier governance, Rule of Engagement #10.
-- Next Milestone: L3 Token Budget optimization & contract gap fixes (D-01..D-05).
+- Pipeline: ONT-39 Live Plane hot-swap cerrado. ONT-39b (D-18..D-21) VERIFIED en modo Short, commiteado en dev. Baseline 16 tools, SSoT `0.2.8`.
+- Verificación: pytest 198 passed / 6 xfailed (50.8 s), ruff limpio, `aep-sync.sh --check` OK. En vivo: hot-swap Gen1→Gen2 sin reconexión, fail-safe ante SyntaxError (se conservó Gen2), recuperación a Gen3.
+- Reconexión: el front de Claude Code requiere `/mcp` (cambió `aep_front.py`). Los backends hot-swap no.
+- Sin commit: `aep_front.py`, `aep_backend.py`, `server.py`, `engine/privilege.py`, `tests/test_live_plane_fixes.py`, `docs/sdd/sdd_ont39_*.md`, `.gitignore`. Sin seguimiento: `docs/sdd/sdd_ont40_autoevol_thread_graph.md`, `tests/test_live_plane_integrity.py`.
+- Siguiente: ONT-40 `autoevol` read-only (`engine/threads.py` + tool 17); después L3/L4 (D-01..D-07) como primer uso real.
+- Política self-healing: nunca revertir el working tree automáticamente; solo restauración por hilo con snapshot previo.
+- Política de ramas: auto-commit solo en `autoevol/*`, fast-forward a `dev` solo tras ACCEPT; push gateado por el usuario.
 
 **Drop**:
-- Verbose test runner logs, subagent execution traces, intermediate diffs, and resolved audit findings.
+- Salidas verbosas de pytest, trazas de subagentes, diffs intermedios, planes superados y errores ya resueltos.
