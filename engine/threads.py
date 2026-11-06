@@ -450,6 +450,54 @@ def _weakly_covered(graph: ThreadGraph) -> set[str]:
     return {n for n in seen if graph.nodes[n].type == "function"}
 
 
+COVERAGE_DIRECT = "direct"
+COVERAGE_TRANSITIVE = "transitive"
+COVERAGE_NONE = "none"
+
+
+def coverage_map(graph: ThreadGraph) -> dict[str, str]:
+    """Capa de cobertura (ONT-41 TA1) para cada función: `direct` (un test la referencia),
+    `transitive` (solo alcanzada por consumes desde código cubierto) o `none`.
+
+    Es una vista de solo lectura: NO añade aristas ni altera Req, gaps ni R.
+    """
+    weak = _weakly_covered(graph)
+    out: dict[str, str] = {}
+    for n in graph.nodes_of("function"):
+        if any(graph.nodes[e.src].type == "test" for e in graph.in_edges(n.id, "covers")):
+            out[n.id] = COVERAGE_DIRECT
+        elif n.id in weak:
+            out[n.id] = COVERAGE_TRANSITIVE
+        else:
+            out[n.id] = COVERAGE_NONE
+    return out
+
+
+def node_coverage(graph: ThreadGraph, node_id: str, cmap: dict[str, str] | None = None) -> str:
+    """Cobertura de un nodo cualquiera: funciones vía `coverage_map`; el resto, `direct` si algún test lo cubre
+    (acciones: también por sus alias, igual que en `omission_gaps`)."""
+    if node_id not in graph.nodes:
+        return COVERAGE_NONE
+    if graph.nodes[node_id].type == "function":
+        return (cmap if cmap is not None else coverage_map(graph)).get(node_id, COVERAGE_NONE)
+    holders = [node_id, *alias_members(graph, node_id)]
+    for h in holders:
+        if any(graph.nodes[e.src].type == "test" for e in graph.in_edges(h, "covers")):
+            return COVERAGE_DIRECT
+    return COVERAGE_NONE
+
+
+def coverage_summary(graph: ThreadGraph) -> dict[str, int]:
+    """Conteos de cobertura de funciones, totales y solo públicas."""
+    cmap = coverage_map(graph)
+    summary = {"functions": len(cmap), "direct": 0, "transitive": 0, "none": 0, "public_none": 0}
+    for fid, level in cmap.items():
+        summary[level] += 1
+        if level == COVERAGE_NONE and graph.nodes[fid].attrs.get("public"):
+            summary["public_none"] += 1
+    return summary
+
+
 def omission_gaps(graph: ThreadGraph) -> list[Gap]:
     """Gap(n) = Req(tipo(n)) \\ aristas(n). Funciones: solo públicas. Estado: solo tablas."""
     gaps: list[Gap] = []
@@ -673,6 +721,9 @@ _OWN_PREFIXES = (
     "state:threads_gen",
     "budget:autoevol",
     "test:tests/test_ont40",
+    "test:tests/test_ont41",
+    "fn:aep_lkg",
+    "module:aep_lkg",
 )
 
 
@@ -707,6 +758,7 @@ def graph_payload(analysis: Analysis, *, terse: bool = False) -> dict[str, Any]:
                 "lazy_only_codependencies": len(analysis.scc.lazy_only_codependencies),
             },
             "hazards": len(analysis.hazards),
+            "coverage": coverage_summary(analysis.graph),
             "py_version": analysis.info.py_version,
             "git_commit": analysis.git_commit,
             "code_fingerprint": analysis.code_fp,
@@ -760,6 +812,7 @@ def thread_payload(analysis: Analysis, node_id: str, *, limit: int = 20) -> dict
         "reach": len(reach),
         "centrality": round(analysis.rank.get(anchor, 1.0 / n) * n, 6),
         "missing": [f"{d}:{k}" for d, k in missing_edges(analysis.graph, node)],
+        "coverage": node_coverage(analysis.graph, node_id),
         "impacted_tests": tests[:limit],
         "impacted_tests_total": len(tests),
     }

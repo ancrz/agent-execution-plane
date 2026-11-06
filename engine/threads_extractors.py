@@ -114,7 +114,13 @@ def read_sources(root: Path | str) -> Sources:
     base = Path(root).resolve()
     src = Sources(root=base)
     code_files: list[Path] = []
-    for name in ("server.py", "aep_front.py", "aep_backend.py"):
+    top_level = {"server.py", "aep_front.py", "aep_backend.py"}
+    # TA0 (ONT-41): todo `aep_*.py` de nivel superior entra en el grafo (p. ej. aep_lkg.py); su ausencia se tolera.
+    try:
+        top_level.update(p.name for p in base.glob("aep_*.py") if p.is_file() and not p.is_symlink())
+    except OSError:
+        pass
+    for name in sorted(top_level):
         p = base / name
         if p.is_file():
             code_files.append(p)
