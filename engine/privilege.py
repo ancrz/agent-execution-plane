@@ -972,13 +972,28 @@ def capability_manifest() -> dict:
         req_bins = _CAP_BINARIES.get(name, [])
         missing_bins = [b for b in req_bins if not prereqs.get(b, {}).get("installed", False)]
         tactical = _CAP_TACTICAL.get(name, {})
-        caps[name] = {
+        is_ready = (bits > 0) and (len(missing_bins) == 0)
+        mode = None
+        if name == "crash_forensics":
+            has_coredumpctl = prereqs.get("coredumpctl", {}).get("installed", False)
+            has_var_crash = Path("/var/crash").is_dir()
+            if has_coredumpctl:
+                is_ready = (bits > 0) and ("journalctl" not in missing_bins)
+                mode = "coredumpctl"
+            elif has_var_crash:
+                is_ready = bits > 0
+                mode = "apport_fallback"
+            else:
+                is_ready = False
+                mode = "none"
+
+        cap_dict: dict[str, Any] = {
             "perm": f"{bits}{_PERM_TABLE[bits]}",  # p.ej. "4r--", "7rwx"
             "octal_now": bits,
             "octal_diminished": dim,
             "octal_full": full,
             "unlocks_with_full": full > dim,
-            "ready": (bits > 0) and (len(missing_bins) == 0),
+            "ready": is_ready,
             "required_binaries": req_bins,
             "missing_binaries": missing_bins,
             "scope": scope if bits else "none",
@@ -988,6 +1003,9 @@ def capability_manifest() -> dict:
             "canonical_calls": tactical.get("canonical_calls", []),
             "keywords": _CAP_KEYWORDS.get(name, ""),
         }
+        if mode is not None:
+            cap_dict["mode"] = mode
+        caps[name] = cap_dict
     return {
         "what_is_this": "AEP MCP: plano de ejecución para GESTIONAR LA AUTONOMÍA de agentes de IA. "
         "Gobernanza y ejecución determinista de telemetría de sistemas y observabilidad de seguridad (RAM exec, sandbox, eBPF, "

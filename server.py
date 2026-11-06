@@ -478,6 +478,8 @@ async def discover(
                         "ready": v["ready"],
                         "tools": v["tools"],
                     }
+                    if "mode" in v:
+                        entry["mode"] = v["mode"]
                     if v.get("canonical_calls"):
                         entry["canonical_call"] = v["canonical_calls"][0]
                     if v.get("missing_binaries"):
