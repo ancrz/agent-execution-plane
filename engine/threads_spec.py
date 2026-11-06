@@ -15,13 +15,15 @@ import json
 import re
 from typing import Any
 
-from engine import matcher
+from engine import matcher, threads_pins
 from engine import threads as th
 
 TERSE_MAX_TOKENS = 400
 SUMMARY_MAX_TOKENS = 1500
 _TERSE_TASKS = 3
 _TERSE_TESTS = 3
+_TERSE_PIN = 2
+_SUMMARY_PIN = 10
 _SIMILAR = 3
 _SUMMARY_NODES = 8
 _SUMMARY_FILES = 6
@@ -135,7 +137,7 @@ def _files_for(analysis: th.Analysis, node_id: str) -> list[str]:
 def _change_targets(analysis: th.Analysis, gap: th.Gap) -> dict[str, list[str]]:
     """AE-2: dónde se edita realmente. Para open_discrepancy: test xfail -> covers -> implemented_by -> fn/archivos.
 
-    Para el resto de gaps el objetivo es el propio nodo. El split pin/validate de los tests es de B8, no de aquí.
+    Para el resto de gaps el objetivo es el propio nodo. El split pin/validate de los tests está en `build_spec` (B8).
     """
     graph = analysis.graph
     if gap.kind != "open_discrepancy":
@@ -223,6 +225,13 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
     tests = th.impacted_tests(analysis.graph, [gap.node])
     name = canonical_name(analysis, gap.node)
     change = _change_targets(analysis, gap)
+    # B8: `pin` = tests que fijan el comportamiento viejo del nodo a editar (B7); `validate.tests` = cobertura directa.
+    covered = set(tests)
+    pin = [
+        t
+        for t in threads_pins.pinning_tests(analysis.graph, change["nodes"] or [gap.node], getattr(analysis, "root", None))
+        if t not in covered
+    ]
     validate = {
         "gap_must_close": gap.id,
         "no_new_gaps": True,
@@ -242,9 +251,11 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
             "tests": tests[:_TERSE_TESTS],
             "tests_total": len(tests),
         }
+        if pin:
+            payload["pin"] = pin[:_TERSE_PIN]
         if found:
             payload["alternatives"] = found["alternatives"]
-        return _fit(payload, TERSE_MAX_TOKENS, ("tests", "files"))
+        return _fit(payload, TERSE_MAX_TOKENS, ("pin", "tests", "files"))
     payload = {
         "status": "OK",
         "gap": {"id": gap.id, "kind": gap.kind, "node": gap.node, "ref": gap.ref, "score": gap.score, "reach": gap.reach},
@@ -257,6 +268,8 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
         "name": name,
     }
     payload["validate"] = {**validate, "tests": tests[:20], "tests_total": len(tests)}
+    if pin:
+        payload["validate"]["pin"] = pin[:_SUMMARY_PIN]
     if found:
         payload["alternatives"] = found["alternatives"]
     return _fit(payload, SUMMARY_MAX_TOKENS, ("plan", "tasks"))

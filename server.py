@@ -5459,6 +5459,7 @@ async def autoevol(
                 "job": job,
                 "trusted": trusted,
                 "terse": terse,
+                "apply": bool(apply and trusted),  # B8: con apply no se aplica el tope de seleccion
             }
             if act == "verify":
                 result = ops.run_verify(tree, **common)

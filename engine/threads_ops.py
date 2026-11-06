@@ -26,9 +26,10 @@ from typing import Any
 
 from engine import threads as th
 from engine import threads_events as ev
-from engine import threads_heal
+from engine import threads_heal, threads_pins
 from engine import threads_verify as tv
 
+SELECTION_CAP = 24  # B8: tope de tests por verify en ejecuciones no `apply` (la suite completa es del gate C4)
 MIN_VERIFY_OCTAL = 5
 MIN_APPLY_OCTAL = 6
 TERSE_BUDGET = 350
@@ -141,6 +142,68 @@ def resolve_target(base: dict[str, Any] | None, ref: str | None) -> tuple[str | 
     return gap.id, None
 
 
+def _direct_cover_tests(graph: Any, changed: list[str]) -> list[str]:
+    """Tests con arista `covers` directa a un nodo cambiado o a lo que lo implementa."""
+    found: set[str] = set()
+    for cid in changed:
+        if cid not in graph.nodes:
+            continue
+        targets = [cid, *(e.src for e in graph.in_edges(cid, "implemented_by"))]
+        for tgt in targets:
+            found.update(e.src for e in graph.in_edges(tgt, "covers") if graph.nodes[e.src].type == "test")
+    return sorted(found)
+
+
+def _transitive_depth1(graph: Any, changed: list[str]) -> list[str]:
+    """Tests que cubren a los consumidores inmediatos (profundidad 1) de los nodos cambiados."""
+    found: set[str] = set()
+    for cid in changed:
+        if cid not in graph.nodes:
+            continue
+        for e in graph.in_edges(cid):
+            if e.kind not in th.HASH_EDGE_KINDS:
+                continue
+            for tgt in (e.src, *(i.src for i in graph.in_edges(e.src, "implemented_by"))):
+                found.update(c.src for c in graph.in_edges(tgt, "covers") if graph.nodes[c.src].type == "test")
+    return sorted(found)
+
+
+def select_tests(
+    analysis: th.Analysis, cmp: dict[str, Any], tree: Path | str, *, apply: bool = False
+) -> tuple[list[str], dict[str, Any]]:
+    """B8: own_tests -> covers directos -> pins (B7) -> transitivos prof. 1. Tope SELECTION_CAP salvo `apply`.
+
+    Devuelve (ids `test:...` ordenados por prioridad y deduplicados, `selection`). `selection.partial` = el tope
+    dejo tests fuera: el veredicto ACCEPT lo marca `partial:true` (nunca se aplica el tope con `apply`).
+    """
+    graph = analysis.graph
+    changed = list(cmp["changed"])
+    own = sorted(t for t in cmp["changed_tests"] if t in graph.nodes)
+    tiers = [
+        own + [t for t in _direct_cover_tests(graph, changed) if t not in own],
+        threads_pins.pinning_tests(graph, changed, tree),
+        _transitive_depth1(graph, changed),
+    ]
+    ordered: list[str] = []
+    seen: set[str] = set()
+    sizes: list[int] = []
+    for tier in tiers:
+        fresh = [t for t in tier if t not in seen]
+        seen.update(fresh)
+        ordered.extend(fresh)
+        sizes.append(len(fresh))
+    direct_n, pins_n, trans_n = sizes
+    kept = ordered if apply else ordered[:SELECTION_CAP]
+    k_direct = min(direct_n, len(kept))
+    k_pins = min(pins_n, max(0, len(kept) - direct_n))
+    k_trans = max(0, len(kept) - direct_n - pins_n)
+    selection: dict[str, Any] = {"direct": k_direct, "pins": k_pins, "transitive_dropped": trans_n - k_trans}
+    head_dropped = (direct_n - k_direct) + (pins_n - k_pins)
+    if head_dropped:
+        selection["head_dropped"] = head_dropped  # el tope mordio tests directos/pins: es mas grave que descartar transitivos
+    return kept, selection
+
+
 def judge(
     base: dict[str, Any] | None,
     tree: Path | str,
@@ -151,6 +214,7 @@ def judge(
     dispatch_job: Callable[[list[str]], dict[str, Any]] | None,
     trusted: bool,
     tests_result: dict[str, Any] | None = None,
+    apply: bool = False,
 ) -> dict[str, Any]:
     """Una iteracion: analiza el arbol parcheado y decide contra la base congelada."""
     if base is None:
@@ -159,29 +223,33 @@ def judge(
     new = tv.summarize(analysis)
     cmp = tv.compare(base, new)
     # F1: los nodos test: nuevos/cambiados forman parte de lo que debe ejecutarse (no solo covers^-1 del codigo).
-    own_tests = [t for t in cmp["changed_tests"] if t in analysis.graph.nodes]
-    impacted = test_node_args(sorted(set(th.impacted_tests(analysis.graph, cmp["changed"])) | set(own_tests)))
+    selected, selection = select_tests(analysis, cmp, tree, apply=apply)
+    impacted = test_node_args(selected)
     if tests_result is not None:
         out = tv.decide(
             cmp, target_gap=gap, tests=tests_result, barrier=barrier, trusted=trusted, selected=len(impacted)
         )
         out["tests"] = {"mode": "async", "selected": len(impacted)}
-        return out
-    return tv.verify_change(
-        base,
-        new,
-        impacted_tests=impacted,
-        target_gap=gap,
-        run_tests=run_tests,
-        dispatch_job=dispatch_job,
-        barrier=barrier,
-        trusted=trusted,
-    )
+    else:
+        out = tv.verify_change(
+            base,
+            new,
+            impacted_tests=impacted,
+            target_gap=gap,
+            run_tests=run_tests,
+            dispatch_job=dispatch_job,
+            barrier=barrier,
+            trusted=trusted,
+        )
+    out["selection"] = selection
+    if out.get("verdict") == tv.ACCEPT and (selection["transitive_dropped"] or selection.get("head_dropped")):
+        out["partial"] = True  # el tope oculto tests: un ACCEPT no equivale a suite completa
+    return out
 
 
 def _verdict_payload(decision: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {"status": "OK", "verdict": decision["verdict"], "reasons": decision["reasons"]}
-    for key in ("fixed", "gaps", "tests", "job", "detail", "warnings"):
+    for key in ("fixed", "gaps", "tests", "selection", "partial", "job", "detail", "warnings"):
         if key in decision:
             out[key] = decision[key]
     out.update(extra or {})
@@ -201,6 +269,7 @@ def run_verify(
     job: str | None,
     trusted: bool,
     terse: bool,
+    apply: bool = False,
 ) -> dict[str, Any]:
     """`autoevol(verify)`: veredicto sin estado contra la base (snapshot o HEAD). Sin base: BASE_UNAVAILABLE."""
     base, source = base_summary(tree, snapshot)
@@ -218,6 +287,7 @@ def run_verify(
         dispatch_job=dispatch_job,
         trusted=trusted,
         tests_result=tests_result,
+        apply=apply,
     )
     extra: dict[str, Any] = {"base": source} if source else {}
     binfo = barrier_info(barrier)
@@ -242,6 +312,7 @@ def run_fix_test(
     job: str | None,
     trusted: bool,
     terse: bool,
+    apply: bool = False,
 ) -> dict[str, Any]:
     """`autoevol(fix_test)` re-entrante. Sin `cycle` abre uno (base congelada); con `cycle` evalua el parche."""
     budget = TERSE_BUDGET if terse else SUMMARY_BUDGET
@@ -265,6 +336,7 @@ def run_fix_test(
         dispatch_job=dispatch_job,
         trusted=trusted,
         tests_result=tests_result,
+        apply=apply,
     )
     binfo = barrier_info(barrier)
     reasons = set(decision["reasons"])

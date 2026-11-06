@@ -35,7 +35,7 @@ def test_open_discrepancy_change_follows_covers_then_implemented_by() -> None:
     assert change["nodes"] == ["fn:pkg.mod.run_job", "fn:pkg.other.go"]
     assert change["files"] == ["pkg/mod.py", "pkg/other.py"]
     assert "tests/x.py" not in change["files"]  # el test xfail no es el objetivo de edición
-    assert "pin" not in out["validate"]  # el split pin/validate es de B8
+    assert "pin" not in out["validate"]  # sin tests en disco no hay pins (B8: split pin/validate)
 
 
 def test_non_discrepancy_change_is_the_node_itself() -> None:
