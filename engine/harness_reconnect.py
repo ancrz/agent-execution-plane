@@ -11,6 +11,7 @@ missing link resolves to route `manual` / `unsupported` and never changes host s
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -163,14 +164,36 @@ def find_harness(
         if st is None:
             break
         pid = st["ppid"]
+    if norm:
+        peers: list[tuple[int, int]] = []
+        with contextlib.suppress(OSError):
+            for entry in root.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                cand_pid = int(entry.name)
+                try:
+                    if entry.stat().st_uid != uid:
+                        continue
+                    if _harness_name(os.readlink(entry / "exe")) != norm:
+                        continue
+                except OSError:
+                    continue
+                cand_st = _read_stat(root, cand_pid)
+                has_pts = 0 if (cand_st and cand_st.get("tty_nr", 0) > 0) else 1
+                peers.append((has_pts, cand_pid))
+        if peers:
+            peers.sort()
+            return {"found": True, "reason": "peer_process", "pid": peers[0][1], "harness": norm}
     if norm in ("agy", "codex"):
-        # Out-of-band RPC harnesses (agy language_server, codex app-server) can be targeted directly by the agent.
-        return {"found": True, "reason": "target_override", "pid": start_pid, "harness": norm}
+        # Out-of-band CLI/RPC harnesses (agy, codex) can be targeted via CLI/socket even without an active TUI process.
+        return {"found": True, "reason": "target_override", "pid": None, "harness": norm}
     return {"found": False, "reason": "harness_not_in_ancestry"}
 
 
-def resolve_tty(proc_root: str | Path, harness_pid: int) -> dict[str, Any]:
+def resolve_tty(proc_root: str | Path, harness_pid: int | None) -> dict[str, Any]:
     """Resolve the harness controlling TTY once from `/proc/<pid>/stat` tty_nr. Only pts (major 136) accepted."""
+    if not harness_pid:
+        return {"ok": False, "reason": "no_controlling_tty"}
     st = _read_stat(Path(proc_root), harness_pid)
     if st is None or st["tty_nr"] == 0:
         return {"ok": False, "reason": "no_controlling_tty"}
@@ -277,6 +300,7 @@ def decision_tree(
 # Exit codes: 0 ok | 2 bad args/payload | 3 sysctl absent | 4 ioctl refused | 5 restore mismatch | 6 stdin mismatch.
 # ---------------------------------------------------------------------------------------------------------------
 HELPER_SCRIPT = r"""
+import contextlib
 import fcntl, json, os, re, signal, stat, sys, termios
 
 SYSCTL = "/proc/sys/dev/tty/legacy_tiocsti"
@@ -756,4 +780,68 @@ def certify_loopback(
         **details,
         "audit_degraded": not audit_ok,
     }
+
+
+def probe_console_reach(
+    server: str = DEFAULT_SERVER,
+    *,
+    proc_root: str | Path = "/proc",
+    start_pid: int | None = None,
+    uid: int | None = None,
+    adapters: Adapters | None = None,
+) -> dict[str, Any]:
+    """Audit the console & TUI self-management reach across all supported harnesses (`claude`, `agy`, `codex`, `gemini`)."""
+    ad = adapters or real_adapters()
+    me = os.getuid() if uid is None else uid
+    spid = os.getpid() if start_pid is None else start_pid
+    srv = validate_server(server) or DEFAULT_SERVER
+    dry = os.environ.get("AEP_HARNESS_RECONNECT_DRY") == "1"
+    matrix: dict[str, dict[str, Any]] = {}
+    for hname in SUPPORTED_HARNESSES:
+        bin_path = None if dry else shutil.which(hname)
+        plan = build_plan(
+            front_stale=True,
+            server=srv,
+            proc_root=proc_root,
+            start_pid=spid,
+            uid=me,
+            target_harness=hname,
+            force=True,
+            adapters=ad,
+        )
+        cli_mcp_registered = False
+        cli_probe_detail = "dry_mode" if dry else "cli_absent"
+        if bin_path and not dry:
+            cmd = (
+                [bin_path, "mcp", "list"]
+                if hname == "agy"
+                else ([bin_path, "mcp", "get", srv] if hname in ("claude", "codex") else [bin_path, "--version"])
+            )
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=4, check=False)  # noqa: S603
+                out = (proc.stdout or "") + (proc.stderr or "")
+                cli_mcp_registered = srv in out and ("enabled" in out.lower() or "connected" in out.lower())
+                cli_probe_registered_line = next((ln.strip() for ln in out.splitlines() if srv in ln or "Status:" in ln or "enabled:" in ln), "")
+                cli_probe_detail = cli_probe_registered_line[:120] or f"rc={proc.returncode}"
+            except (OSError, subprocess.SubprocessError) as exc:
+                cli_probe_detail = f"error:{type(exc).__name__}"
+        matrix[hname] = {
+            "installed": bool(bin_path),
+            "binary_path": bin_path,
+            "cli_mcp_registered": cli_mcp_registered,
+            "cli_probe_detail": cli_probe_detail,
+            "active_pid": plan["harness_pid"],
+            "controlling_tty": plan["tty"],
+            "rpc_available": plan["rpc_available"],
+            "recommended_route": plan["recommended_route"],
+            "requires_sudo_tiocsti": plan["recommended_route"] == "tty_inject",
+        }
+    return {
+        "status": "OK",
+        "primitive": PRIMITIVE_NAME,
+        "mode": "matrix",
+        "server": srv,
+        "harnesses": matrix,
+    }
+
 

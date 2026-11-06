@@ -3388,7 +3388,7 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
     target_harness = eff.get("harness")
     target_harness = str(target_harness) if target_harness is not None else None
     force = eff.get("force") is True
-    if mode not in ("plan", "execute", "certify"):
+    if mode not in ("plan", "execute", "certify", "matrix"):
         return {"status": "ERROR", "error": f"mode desconocido: {mode}", "valid": ["plan", "execute"]}
 
     def _audit(status: str, details: dict[str, Any]) -> bool:
@@ -3406,6 +3406,8 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
         return True
 
     adapters = _hr.real_adapters(audit=_audit)
+    if mode == "matrix":
+        return _hr.probe_console_reach(server=server_name or _hr.DEFAULT_SERVER, adapters=adapters)
     if mode == "certify":
         msg = str(eff.get("message") or "hello world")
         return _hr.certify_loopback(message=msg, target_harness=target_harness, adapters=adapters)
