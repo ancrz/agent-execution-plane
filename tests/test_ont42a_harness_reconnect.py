@@ -442,6 +442,14 @@ def test_console_reach_battery_across_installed_harnesses(tmp_path: Path) -> Non
     ctl_mat = _ctl(params={"mode": "matrix"})
     assert ctl_mat["status"] == "OK" and set(ctl_mat["harnesses"]) == {"claude", "agy", "codex", "gemini"}
 
+    # 4. When agy or codex runs in a console (/dev/pts/4), kernel tty_inject takes precedence over rpc_reload
+    for hname, exe in (("agy", "/usr/local/bin/agy"), ("codex", "/usr/local/bin/codex")):
+        sub = tmp_path / f"pts_{hname}"
+        _mk_proc(sub, 500, 1, exe, _pts_nr(4))
+        p_pts = hr.build_plan(front_stale=True, target_harness=hname, proc_root=sub, start_pid=500, adapters=ad)
+        assert p_pts["tty"] == "/dev/pts/4" and p_pts["recommended_route"] == "tty_inject"
+
+
 
 
 def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) -> None:

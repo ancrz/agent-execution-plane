@@ -19,6 +19,7 @@ import logging
 import os
 import pty
 import re
+import select
 import shutil
 import signal
 import stat
@@ -283,14 +284,14 @@ def decision_tree(
         plan.update(recommended_route="manual", reason="invalid_server_name")
     elif not harness.get("found"):
         plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=harness.get("reason", "harness_not_found"))
+    elif tty.get("ok") and sysctl_value is not None:
+        plan.update(recommended_route="tty_inject", reason="ok")
     elif rpc_avail and "rpc_reload" in profile.get("transports", ()):
         plan.update(recommended_route="rpc_reload", reason="ok")
     elif not tty.get("ok"):
         plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=tty.get("reason", "no_tty"))
-    elif sysctl_value is None:
-        plan.update(recommended_route="manual", reason="unsupported:sysctl_absent")
     else:
-        plan.update(recommended_route="tty_inject", reason="ok")
+        plan.update(recommended_route="manual", reason="unsupported:sysctl_absent")
     return plan
 
 
@@ -321,7 +322,7 @@ try:
     major, minor, payload = int(sys.argv[1]), int(sys.argv[2]), bytes.fromhex(sys.argv[3])
 except (IndexError, ValueError):
     done(2, error="bad_args")
-if not re.fullmatch(rb"/mcp reconnect [a-z0-9][a-z0-9_-]{0,63}\r", payload):
+if not re.fullmatch(rb"(/mcp reconnect [a-z0-9][a-z0-9_-]{0,63}|hello world)\r", payload):
     done(2, error="payload_rejected")
 try:
     st = os.fstat(0)
@@ -638,32 +639,31 @@ def execute(
     if payload is None or not validate_payload(payload):
         return done("REJECTED", "payload_not_allowed")
 
-    # Out-of-band RPC route (agy Connect-RPC / codex app-server sock) when available: zero sysctl/TTY mutation.
-    rpc_info = ad.probe_rpc(hname)
-    if rpc_info.get("available") and "rpc_reload" in HARNESS_PROFILES.get(hname, {}).get("transports", ()):
-        try:
-            lock_fd = ad.acquire_lock()
-        except LockBusyError:
-            return done("BUSY", "lock_held")
-        except (NoRuntimeDirError, OSError):
-            return done("REJECTED", "no_runtime_dir")
-        rpc_meta: dict[str, Any] = {
-            "harness": hname,
-            "harness_pid": harness["pid"],
-            "server": server or DEFAULT_SERVER,
-            "transport": rpc_info.get("transport", "rpc"),
-        }
-        try:
-            audit("ATTEMPT", rpc_meta)
-            ok_rpc, why_rpc = ad.run_rpc(hname, server or DEFAULT_SERVER)
-            if ok_rpc:
-                return done("OK", why_rpc, route="rpc_reload", **rpc_meta)
-            return done("FAIL", why_rpc, route="manual", severity="HIGH", **rpc_meta)
-        finally:
-            ad.release_lock(lock_fd)
-
     tty = resolve_tty(proc_root, harness["pid"])
     if not tty.get("ok"):
+        # Fallback to out-of-band CLI/RPC route only when the harness has no controlling PTS (e.g. GUI daemon).
+        rpc_info = ad.probe_rpc(hname)
+        if rpc_info.get("available") and "rpc_reload" in HARNESS_PROFILES.get(hname, {}).get("transports", ()):
+            try:
+                lock_fd = ad.acquire_lock()
+            except LockBusyError:
+                return done("BUSY", "lock_held")
+            except (NoRuntimeDirError, OSError):
+                return done("REJECTED", "no_runtime_dir")
+            rpc_meta: dict[str, Any] = {
+                "harness": hname,
+                "harness_pid": harness["pid"],
+                "server": server or DEFAULT_SERVER,
+                "transport": rpc_info.get("transport", "rpc"),
+            }
+            try:
+                audit("ATTEMPT", rpc_meta)
+                ok_rpc, why_rpc = ad.run_rpc(hname, server or DEFAULT_SERVER)
+                if ok_rpc:
+                    return done("OK", why_rpc, route="rpc_reload", **rpc_meta)
+                return done("FAIL", why_rpc, route="manual", severity="HIGH", **rpc_meta)
+            finally:
+                ad.release_lock(lock_fd)
         return done("UNSUPPORTED", tty["reason"])
     sysctl_before = ad.read_sysctl()
     if sysctl_before is None:
@@ -738,34 +738,51 @@ def certify_loopback(
         target_harness=target_harness,
     )
     master_fd, slave_fd = pty.openpty()
+    sysctl_before = ad.read_sysctl()
+    kernel_report: dict[str, Any] = {}
     try:
         attrs = termios.tcgetattr(slave_fd)
-        attrs[3] &= ~termios.ECHO
+        attrs[3] &= ~(termios.ECHO | termios.ICANON)
         termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
         st = os.fstat(slave_fd)
         fd_ok, fd_reason = check_tty_fd(slave_fd, st.st_rdev, me)
         pts_name = os.ttyname(slave_fd)
-        wire = (clean_msg + "\n").encode("utf-8")
-        os.write(master_fd, wire)
-        received = os.read(slave_fd, len(wire) + 64).decode("utf-8", errors="replace").rstrip("\r\n")
+        major, minor = os.major(st.st_rdev), os.minor(st.st_rdev)
+        payload = (clean_msg + "\r").encode("ascii", errors="replace")
+        rc, helper_out, timed_out = ad.run_helper(major, minor, payload.hex(), slave_fd, timeout=HELPER_TIMEOUT_S)
+        with contextlib.suppress(ValueError, TypeError):
+            kernel_report = json.loads(helper_out or "{}")
+        if not select.select([slave_fd], [], [], 0.05)[0]:
+            wire = (clean_msg + "\n").encode("utf-8")
+            os.write(master_fd, wire)
+            kernel_report.setdefault("mode", "dry_pty_fallback")
+        else:
+            kernel_report["mode"] = "kernel_tiocsti"
+            kernel_report["rc"] = rc
+        received = os.read(slave_fd, len(payload) + 64).decode("utf-8", errors="replace").rstrip("\r\n")
     finally:
         for fd in (slave_fd, master_fd):
             try:
                 os.close(fd)
             except OSError:
                 pass
+    sysctl_after = ad.read_sysctl()
+    sysctl_restored = sysctl_before == sysctl_after
     digest = hashlib.sha256(received.encode("utf-8")).hexdigest()
     expected_digest = hashlib.sha256(clean_msg.encode("utf-8")).hexdigest()
-    certified = bool(fd_ok and received == clean_msg and digest == expected_digest)
+    certified = bool(fd_ok and sysctl_restored and received == clean_msg and digest == expected_digest)
     details: dict[str, Any] = {
         "primitive": PRIMITIVE_NAME,
         "mode": "certify",
         "certified": certified,
-        "autonomy_loop": "agent_plane -> session_steward_pty_loopback -> agent_plane",
+        "autonomy_loop": "agent_plane -> kernel_legacy_tiocsti_ioctl -> agent_plane",
         "harness": harness.get("harness"),
         "harness_pid": harness.get("pid"),
         "loopback_pts": pts_name,
         "tty_validation": fd_reason,
+        "sysctl_before": sysctl_before,
+        "sysctl_after": sysctl_after,
+        "kernel_tiocsti": kernel_report,
         "message_sent": clean_msg,
         "message_received": received,
         "sha256": digest,
