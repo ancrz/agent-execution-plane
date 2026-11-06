@@ -29,6 +29,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import NotificationOptions
 
 from engine import headless_display, matcher
+from engine import lkg_ctl as _lkg_ctl
 from engine.backup import (
     clear_micro_snapshots,
     create_backup,
@@ -3247,6 +3248,11 @@ def _flatten_mounts(nodes: list[dict[str, Any]], out: list[dict[str, Any]]) -> N
             _flatten_mounts(children, out)
 
 
+def _lkg_snapshot_fn(files: list[str]) -> dict[str, Any]:
+    """Adaptador snapshot_fn(files) -> workspace_snapshot del repo real (antes de cualquier restore LKG)."""
+    return create_workspace_snapshot(path=REPO_ROOT, name=f"lkg_pre_restore_{int(time.time())}")
+
+
 @mcp.tool(structured_output=False)
 async def aep_ctl(
     domain: str = "schema",
@@ -3488,6 +3494,15 @@ async def aep_ctl(
                 )
                 snap_name = eff_name if eff_name and eff_name != target_path else None
                 res_obj = restore_workspace_snapshot(path=target_path, name=snap_name)
+            elif a in _lkg_ctl.ACTIONS:
+                res_obj = _lkg_ctl.lkg_ctl(
+                    a,
+                    eff_name,
+                    repo_root=REPO_ROOT,
+                    tier_octal=int(get_effective_chmod_tier()["octal"]),
+                    apply=bool((params or {}).get("apply")),
+                    snapshot_fn=_lkg_snapshot_fn,
+                )
             else:
                 res_obj = {"status": "ERROR", "error": f"Acción de backup desconocida: {a}", "valid": valid_actions}
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
@@ -3513,6 +3528,12 @@ async def aep_ctl(
                     "socket_active": GLOBAL_SOCKET_MUX.is_running,
                     "session_pool": pool_status,
                     "mux": mux_status,
+                }
+                _lm = _get_live_meta()
+                res_obj["plane"] = {
+                    "generation": _lm["backend_generation"],
+                    "serving_from": _lm["serving_from"] or "repo",
+                    "swap_attempts": _lm["swap_attempts"],
                 }
             elif a == "ping":
                 ensure_ipc_server_started()

@@ -352,6 +352,23 @@ def domain_backup(action: str, name: str | None) -> Any:
                 "message": f"Mutaciones de backup deshabilitadas en nivel {chmod_tier}; degradado a verificación.",
             }
 
+    if action in ("lkg_status", "lkg_diff", "lkg_restore"):
+        from engine import lkg_ctl
+
+        def _snap(_files: list[str]) -> Any:
+            from engine.backup import create_workspace_snapshot
+
+            return create_workspace_snapshot(path=PROJECT_ROOT)
+
+        return lkg_ctl.lkg_ctl(
+            action,
+            name,
+            repo_root=os.environ.get("AEP_REPO_ROOT") or PROJECT_ROOT,
+            tier_octal=int(get_effective_chmod_tier()["octal"]),
+            apply=os.environ.get("AEP_LKG_APPLY") == "1",
+            snapshot_fn=_snap,
+        )
+
     from engine.backup import (
         clear_micro_snapshots,
         create_backup,

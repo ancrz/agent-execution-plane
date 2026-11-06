@@ -572,6 +572,9 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
             "quarantine_status",
             "workspace_snapshot",
             "workspace_restore",
+            "lkg_status",
+            "lkg_diff",
+            "lkg_restore",
         ],
         "arg": "[slot_number|name]",
         "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots (catalog only), workspace snapshots/restores, canary integrity, and quarantine.",
@@ -582,6 +585,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
                 "verify_and_auto_recover", "verify_integrity", "micro_snapshot",
                 "restore_micro_snapshot", "list_micro_snapshots", "clear_micro_snapshots",
                 "golden", "restore_golden", "quarantine_status", "workspace_snapshot", "workspace_restore",
+                "lkg_status", "lkg_diff", "lkg_restore",
             ]
         },
     },
