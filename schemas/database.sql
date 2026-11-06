@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS crash_events (
     event_timestamp TEXT,
     coredump_info TEXT,                         -- JSON crudo de coredumpctl
     resolved INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    source TEXT DEFAULT 'coredump'             -- coredump | apport | aep_backend | aep_front (ONT-41 TC4)
 );
 
 -- Pico-Kanban: tablero de estados abstracto para gestión agéntica y ponderación de artefactos.

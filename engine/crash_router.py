@@ -13,8 +13,10 @@ PROPIA conexión; NO importa catalog.py. El DDL autoritativo de crash_events viv
 schemas/database.sql; _init_table() aquí es solo una red de seguridad idempotente.
 """
 
+import hashlib
 import json
 import logging
+import os
 import shutil
 import signal
 import sqlite3
@@ -22,6 +24,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from engine import threads_events as _ev
 from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
 from engine.privilege import capability_tier, privilege_prefix
 
@@ -39,9 +42,25 @@ CREATE TABLE IF NOT EXISTS crash_events (
     event_timestamp TEXT,
     coredump_info TEXT,                 -- JSON crudo de coredumpctl
     resolved INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    source TEXT DEFAULT 'coredump'      -- coredump | apport | aep_backend | aep_front (ONT-41 TC4)
 );
 """
+
+CRASH_SOURCES = frozenset({"coredump", "apport", "aep_backend", "aep_front"})
+
+# ONT-41 TC4: plane_events kinds that count as crash-worthy -> (source, executable label). Everything else is ignored.
+PLANE_EVENT_WHITELIST: dict[str, tuple[str, str]] = {
+    "BACKEND_DROPPED": ("aep_backend", "aep_backend.py"),
+    "SWAP_FAILED": ("aep_backend", "aep_backend.py"),
+    "LKG_START_FAILED": ("aep_front", "aep_front.py"),
+    "LKG_UNAVAILABLE": ("aep_front", "aep_front.py"),
+    "SERVING_LKG": ("aep_front", "aep_front.py"),
+}
+PLANE_EVENT_FIELDS = ("generation", "failure_kind", "reason", "error", "key", "drops_in_window")
+PLANE_EVENT_MAX_LINES = 5000
+PLANE_FIELD_MAX_CHARS = 256
+PLANE_SPOOL_PREFIX = "plane_events_"
 
 
 class CrashRouter:
@@ -51,6 +70,14 @@ class CrashRouter:
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 conn.executescript(_CRASH_DDL)
+                self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Idempotent: a DB created before ONT-41 gets `source TEXT DEFAULT 'coredump'` (old rows read as coredump)."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(crash_events)")}
+        if "source" not in cols:
+            conn.execute("ALTER TABLE crash_events ADD COLUMN source TEXT DEFAULT 'coredump'")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -92,8 +119,8 @@ class CrashRouter:
                     try:
                         cur = conn.execute(
                             """INSERT OR IGNORE INTO crash_events
-                               (fingerprint, pid, signal, executable, event_timestamp, coredump_info)
-                               VALUES (?, ?, ?, ?, ?, ?)""",
+                               (fingerprint, pid, signal, executable, event_timestamp, coredump_info, source)
+                               VALUES (?, ?, ?, ?, ?, ?, 'coredump')""",
                             (fp, pid, str(e.get("sig", "")), exe, ts, json.dumps(e)),
                         )
                         if cur.rowcount:
@@ -102,18 +129,94 @@ class CrashRouter:
                         logger.debug("Failed to insert crash event %s: %s", fp, ex)
         return new
 
+    @staticmethod
+    def _alert_row(row: sqlite3.Row) -> dict[str, Any]:
+        d = dict(row)
+        if d.get("source") in (None, "coredump"):
+            d.pop("source", None)  # default source keeps the historical payload shape
+        return d
+
+    @staticmethod
+    def _spool_dir() -> str:
+        return os.environ.get("AEP_FRONT_SPOOL_DIR") or str(_ev.state_dir_path())
+
+    def sync_plane_events(self, spool_dir: str | None = None) -> int:
+        """Ingest `plane_events_<uid>.jsonl` (+ `.1`) from the private spool. FAIL-SOFT: returns 0 on any problem.
+
+        Limits: <= 5000 lines per file, whitelisted kinds and fields, truncated strings; parametrized SQL; dedup by
+        fingerprint (`aep:<uid>:<sha256(line)[:24]>`); `source` always comes from the closed enum.
+        """
+        uid = os.geteuid()
+        names = [f"{PLANE_SPOOL_PREFIX}{uid}.jsonl.1", f"{PLANE_SPOOL_PREFIX}{uid}.jsonl"]
+        rows: list[tuple[str, Any, str, str, str, str, str]] = []
+        try:
+            with _ev.state_dir(spool_dir or self._spool_dir()) as dfd:
+                for name in names:
+                    try:
+                        blob = _ev.read_file(dfd, name)
+                    except OSError as exc:
+                        logger.debug("plane_events spool %s skipped: %s", name, exc)
+                        continue
+                    for raw in (blob or b"").splitlines()[:PLANE_EVENT_MAX_LINES]:
+                        row = self._plane_row(raw, uid)
+                        if row:
+                            rows.append(row)
+        except OSError as exc:
+            logger.debug("plane_events spool unavailable: %s", exc)
+            return 0
+        if not rows:
+            return 0
+        new = 0
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                for fp, pid, sig, exe, ts, info, src in rows:
+                    try:
+                        cur = conn.execute(
+                            """INSERT OR IGNORE INTO crash_events
+                               (fingerprint, pid, signal, executable, event_timestamp, coredump_info, source)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            (fp, pid, sig, exe, ts, info, src),
+                        )
+                        new += int(bool(cur.rowcount))
+                    except sqlite3.Error as ex:
+                        logger.debug("Failed to insert plane event %s: %s", fp, ex)
+        return new
+
+    @staticmethod
+    def _plane_row(raw: bytes, uid: int) -> tuple[str, Any, str, str, str, str, str] | None:
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        mapped = PLANE_EVENT_WHITELIST.get(str(obj.get("kind", "")))
+        if mapped is None or mapped[0] not in CRASH_SOURCES:
+            return None
+        pid = obj.get("pid")
+        pid = pid if isinstance(pid, int) and not isinstance(pid, bool) else None
+        info: dict[str, Any] = {"source": mapped[0], "kind": obj["kind"]}
+        for key in PLANE_EVENT_FIELDS:
+            val = obj.get(key)
+            if isinstance(val, str):
+                info[key] = val[:PLANE_FIELD_MAX_CHARS]
+            elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                info[key] = val
+        fp = f"aep:{uid}:{hashlib.sha256(raw).hexdigest()[:24]}"
+        return (fp, pid, str(obj["kind"]), mapped[1], str(obj.get("ts", ""))[:64], json.dumps(info), mapped[0])
+
     def pending_alerts(self, resolve_after_report: bool = False) -> list[dict[str, Any]]:
         conn_fn = self._conn_rw if resolve_after_report else self._conn_ro
         with conn_fn() as conn:
             if resolve_after_report:
                 with transaction_immediate(conn):
                     rows = conn.execute(
-                        "SELECT id, pid, signal, executable, event_timestamp, coredump_info "
+                        "SELECT id, pid, signal, executable, event_timestamp, coredump_info, source "
                         "FROM crash_events WHERE resolved = 0 ORDER BY id DESC"
                     ).fetchall()
                     alerts = []
                     for r in rows:
-                        d = dict(r)
+                        d = self._alert_row(r)
                         try:
                             d["coredump_info"] = json.loads(d["coredump_info"])
                         except json.JSONDecodeError as e:
@@ -126,12 +229,12 @@ class CrashRouter:
                         conn.execute("UPDATE crash_events SET resolved = 1 WHERE resolved = 0")
             else:
                 rows = conn.execute(
-                    "SELECT id, pid, signal, executable, event_timestamp, coredump_info "
+                    "SELECT id, pid, signal, executable, event_timestamp, coredump_info, source "
                     "FROM crash_events WHERE resolved = 0 ORDER BY id DESC"
                 ).fetchall()
                 alerts = []
                 for r in rows:
-                    d = dict(r)
+                    d = self._alert_row(r)
                     try:
                         d["coredump_info"] = json.loads(d["coredump_info"])
                     except json.JSONDecodeError as e:
@@ -234,8 +337,8 @@ class CrashRouter:
                     try:
                         cur = conn.execute(
                             """INSERT OR IGNORE INTO crash_events
-                               (fingerprint, pid, signal, executable, event_timestamp, coredump_info)
-                               VALUES (?, ?, ?, ?, ?, ?)""",
+                               (fingerprint, pid, signal, executable, event_timestamp, coredump_info, source)
+                               VALUES (?, ?, ?, ?, ?, ?, 'apport')""",
                             (fp, pid, sig, exe, date_str, json.dumps(info)),
                         )
                         if cur.rowcount:
@@ -248,7 +351,7 @@ class CrashRouter:
     def check(self, resolve_after_report: bool = False) -> dict[str, Any]:
         new_core = self.sync_coredumps()
         new_app = self.sync_apport()
-        new = new_core + new_app
+        new = new_core + new_app + self.sync_plane_events()
         alerts = self.pending_alerts(resolve_after_report)
 
         has_coredumpctl = shutil.which("coredumpctl") is not None
