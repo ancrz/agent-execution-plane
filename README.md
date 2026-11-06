@@ -897,7 +897,7 @@ To eliminate headless process hangs, `scripts/setup.sh` and `engine/privilege.py
   ./scripts/setup.sh --predict
   ```
 
-### 9.2b Self-Healing N0-N3 (ONT-41)
+### 9.2b Self-Healing N0-N3 (ONT-41) + N4 reconnect (ONT-42a)
 
 The front (`aep_front.py`, never hot-swapped: changing it requires a user reconnection) keeps the plane alive while the agent edits its own code:
 
@@ -907,8 +907,9 @@ The front (`aep_front.py`, never hot-swapped: changing it requires a user reconn
 | **N1** | LKG save | After each healthy promotion the tree (`aep_lkg.py` set + `templates/**`, `schemas/*`, `scripts/aep-ctl`, `pyproject.toml`) is snapshotted under `~/.local/share/agent-os/lkg/` (0700, sha-verified manifest). |
 | **N2** | Crash-window fallback | 3 backend drops in 60 s start a backend from the newest verified LKG tree (`serving_from: lkg`); data still anchors to the real repo (`AEP_REPO_ROOT`). |
 | **N3** | Agent-assisted heal | `autoevol(heal)` lists broken modules, `spec` describes the gap, the agent patches, `fix_test`/`verify` judge (reload barrier, sandboxed tests N<=20); `aep_ctl backup lkg_restore` restores files (dry-run first, tier >= 6rw-). |
+| **N4** | Harness reconnect (ONT-42a) | `aep_ctl(domain="ipc", action="harness_reconnect", params={"mode":"plan"})` is read-only at any tier. `mode="execute"` needs tier 7rwx and `confirm=true` per call: a sudo helper opens `dev.tty.legacy_tiocsti` for under 2 s, types `/mcp reconnect <server>` into the harness TTY via TIOCSTI and restores the sysctl (verified; mismatch = CRITICAL). Any missing link falls back to the manual command. Every attempt is audited. Caveat: text already typed in the prompt is submitted with it. `AEP_HARNESS_RECONNECT_DRY=1` (tests only) disables all host side effects. |
 
-**Agent rule:** when `serving_from` is `lkg` or a reload error is reported, do not revert by hand: run `autoevol(action="heal")`, patch, then `autoevol(action="fix_test")`. After 3 failed iterations the cycle is EXHAUSTED (10 min lock; `restart=True` to override) and `heal` is the suggested path. Plane events spool to `plane_events_<uid>.jsonl` and are ingested into `crash_events.source` (`aep_front` / `aep_backend`) by `diagnose_system_crashes`. `scripts/aep-sync.sh --audit` separates `front_stale` (reconnect) from `backend_stale` (auto-swap).
+**Agent rule:** when `serving_from` is `lkg` or a reload error is reported, do not revert by hand: run `autoevol(action="heal")`, patch, then `autoevol(action="fix_test")`. After 3 failed iterations the cycle is EXHAUSTED (10 min lock; `restart=True` to override) and `heal` is the suggested path. Plane events spool to `plane_events_<uid>.jsonl` and are ingested into `crash_events.source` (`aep_front` / `aep_backend`) by `diagnose_system_crashes`. D-25: a commit that does not change the code fingerprint is `commit_drift` (informational), not `stale`. `scripts/aep-sync.sh --audit` separates `front_stale` (reconnect) from `backend_stale` (auto-swap).
 
 ### 9.3 FastMCP 17 Polymorphic Tools Graceful Degradation Matrix
 
