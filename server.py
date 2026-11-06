@@ -357,6 +357,15 @@ def _json_type(spec: Any) -> str:
     return str(t or "any")
 
 
+# D-01b: tools whose docstring has no parseable `action="a"|"b"` / `action:` list; this table wins over doc parsing.
+_TOOL_ACTIONS: dict[str, list[str]] = {
+    "artifact_lint_and_build": ["build", "lint", "catalog", "select", "hydrate"],
+    "async_job_dispatch": ["dispatch", "inspect", "status", "log"],
+    "default_primitives": ["list", "info", "run"],
+    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal"],
+}
+
+
 def _actions_from_doc(doc: str) -> list[str]:
     """Best-effort action names from a tool docstring: `action="a"|"b"` or an `action:` bullet list."""
     m = re.search(r'action="([a-z_]+(?:"\|"[a-z_]+)+)"', doc)
@@ -431,7 +440,9 @@ def _compact_tools_schema(payload: dict[str, Any]) -> dict[str, Any]:
             params.append(token)
             if pname == "action" and isinstance(pspec.get("enum"), list):
                 actions = [str(x) for x in pspec["enum"]]
-        if not actions:
+        if tname in _TOOL_ACTIONS:
+            actions = list(_TOOL_ACTIONS[tname])
+        elif not actions:
             actions = _actions_from_doc((meta or {}).get("description") or "")
         compact_tools[tname] = {"params": params, "actions": actions}
     out = {k: v for k, v in payload.items() if k not in ("tools", "degradation_matrix", "preconditions")}

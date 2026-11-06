@@ -9,14 +9,11 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-
 import server
 
 _PER_DOMAIN = frozenset({"aep_ctl"})
 
 
-@pytest.mark.xfail(strict=True, reason="D-01b")
 def test_every_action_tool_advertises_actions_in_schema_summary() -> None:
     payload = json.loads(asyncio.run(server.discover(action="schema", verbosity="summary", force_refresh=True)))
     tools = payload["tools"]
