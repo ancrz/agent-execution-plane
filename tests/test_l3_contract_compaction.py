@@ -33,3 +33,22 @@ def test_compact_tools_schema_shape() -> None:
     out = server._compact_tools_schema(payload)
     assert out["tools"] == {"t": {"params": ["n:integer=3", "s:string"], "actions": ["x", "y"]}}
     assert "degradation_matrix" not in out and "preconditions" not in out
+
+
+def test_compact_control_plane_defaults_and_exceptions() -> None:
+    base = {"privilege_tier": "DIMINISHED", "required_fs": [], "deterministic": True}
+    schema = {
+        "d": {
+            "actions": ["a", "b", "c"],
+            "description": "prose",
+            "preconditions": {
+                "a": dict(base),
+                "b": dict(base),
+                "c": {**base, "privilege_tier": "FULL"},
+            },
+        }
+    }
+    domains, defaults = server._compact_control_plane(schema)
+    assert defaults == base
+    assert domains["d"]["exceptions"] == {"c": {"privilege_tier": "FULL"}}
+    assert "preconditions" not in domains["d"] and "description" not in domains["d"]

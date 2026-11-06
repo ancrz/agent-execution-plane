@@ -376,6 +376,36 @@ def _actions_from_doc(doc: str) -> list[str]:
     return list(dict.fromkeys(names))[:16]
 
 
+def _compact_control_plane(schema: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """D-04: summary view of the control-plane schema -> (domains, defaults).
+
+    Preconditions are declared once as global `defaults` (most common value per key, computed across all
+    actions); each domain lists only per-action deviations under `exceptions`. Prose descriptions are detail-only.
+    """
+    all_pre = [p for spec in schema.values() for p in (spec.get("preconditions") or {}).values()]
+    keys = {k for p in all_pre for k in p}
+    defaults: dict[str, Any] = {}
+    for k in sorted(keys):
+        counts: dict[str, tuple[int, Any]] = {}
+        for p in all_pre:
+            v = p.get(k)
+            enc = json.dumps(v, sort_keys=True)
+            counts[enc] = (counts.get(enc, (0, v))[0] + 1, v)
+        defaults[k] = max(counts.values(), key=lambda x: x[0])[1]
+    out: dict[str, Any] = {}
+    for dom, spec in schema.items():
+        entry = {k: v for k, v in spec.items() if k not in ("preconditions", "description")}
+        exceptions = {
+            act: {k: v for k, v in p.items() if defaults.get(k) != v}
+            for act, p in (spec.get("preconditions") or {}).items()
+            if any(defaults.get(k) != v for k, v in p.items())
+        }
+        if exceptions:
+            entry["exceptions"] = exceptions
+        out[dom] = entry
+    return out, defaults
+
+
 def _compact_tools_schema(payload: dict[str, Any]) -> dict[str, Any]:
     """D-01: summary view of discover(schema): {tool: {params: [name:type=default], actions}}.
 
@@ -3411,11 +3441,16 @@ async def aep_ctl(
 
         # 1. Explicit schema discovery without dummy domain
         if d in ("schema", "--schema", "") or a in ("schema", "--schema"):
+            compact_schema = (verbosity or "detail").strip().lower() in ("summary", "brief", "terse")
             schema_payload: dict[str, Any] = {
                 "status": "OK",
                 "tool": "aep-ctl",
                 "domains": CONTROL_PLANE_SCHEMA,
             }
+            if compact_schema:
+                schema_payload["domains"], schema_payload["precondition_defaults"] = _compact_control_plane(
+                    CONTROL_PLANE_SCHEMA
+                )
             if d in CONTROL_PLANE_SCHEMA:
                 schema_payload["domain"] = d
                 schema_payload["schema"] = CONTROL_PLANE_SCHEMA[d]

@@ -125,7 +125,6 @@ def test_xfail_d03b_indexed_projection_preserves_list() -> None:
     assert isinstance(suggested, list), f"Expected list for suggested_capability, got {type(suggested)}"
 
 
-@pytest.mark.xfail(strict=True, reason="D-04: aep_ctl(schema, summary) currently exceeds 1500 tokens")
 def test_xfail_d04_aep_ctl_schema_summary_token_budget() -> None:
     """aep_ctl(action='schema', verbosity='summary') < 1500 tokens."""
     res = asyncio.run(server.aep_ctl(action="schema", verbosity="summary"))
