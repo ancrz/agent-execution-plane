@@ -613,12 +613,19 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         },
     },
     "ipc": {
-        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"],
-        "arg": "[session_id]",
-        "description": "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management.",
+        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache", "harness_reconnect"],
+        "arg": "[session_id] | harness_reconnect params: mode=plan|execute, confirm=true, server",
+        "description": (
+            "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management. "
+            "harness_reconnect (MCP only): plan is read-only at any tier; execute needs 7rwx and confirm=true."
+        ),
         "preconditions": {
-            act: {"privilege_tier": "DIMINISHED", "required_fs": ["/dev/shm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
-            for act in ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"]
+            **{
+                act: {"privilege_tier": "DIMINISHED", "required_fs": ["/dev/shm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
+                for act in ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"]
+            },
+            # Per-action tier (not per mode): execute is gated to 7rwx inside the handler; plan works at any tier.
+            "harness_reconnect": {"privilege_tier": "FULL", "required_fs": ["/proc"], "fail_soft_behavior": "DEGRADED", "deterministic": True},
         },
     },
     "hardware": {

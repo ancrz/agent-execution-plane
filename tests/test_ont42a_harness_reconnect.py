@@ -304,6 +304,64 @@ def test_acquire_lock_contention_and_fail_closed(tmp_path: Path, monkeypatch: py
         hr.acquire_lock()
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# T3/T4: schema (interdep) and the aep_ctl ipc branch.
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def test_schema_declares_harness_reconnect_with_valid_tier() -> None:
+    from engine.privilege import CONTROL_PLANE_SCHEMA
+
+    ipc = CONTROL_PLANE_SCHEMA["ipc"]
+    assert "harness_reconnect" in ipc["actions"]
+    pre = ipc["preconditions"]["harness_reconnect"]
+    assert pre["privilege_tier"] in ("FULL", "DIMINISHED")  # never "7rwx" (test_net_security_telemetry contract)
+    assert pre["deterministic"] is True and "fail_soft_behavior" in pre
+    assert set(ipc["actions"]) == set(ipc["preconditions"])
+    for old in ("status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"):
+        assert old in ipc["actions"]
+
+
+def _ctl(**kw: object) -> dict:
+    import asyncio
+    import json
+
+    import server
+
+    return json.loads(asyncio.run(server.aep_ctl(domain="ipc", action="harness_reconnect", **kw)))  # type: ignore[arg-type]
+
+
+def test_ipc_plan_is_read_only_and_carries_caveats(monkeypatch: pytest.MonkeyPatch) -> None:
+    import server
+
+    monkeypatch.setattr(server, "_is_front_stale", lambda: True)
+    res = _ctl(params={"mode": "plan"})
+    assert res["status"] == "OK" and res["mode"] == "plan"
+    assert res["recommended_route"] in {"manual", "tty_inject", "gui_unsupported"}
+    assert any("typed-prompt" in c for c in res["caveats"])
+
+
+def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
+    import server
+
+    recorded: list[str] = []
+    monkeypatch.setattr(server, "record_audit_event", lambda *_a, **k: recorded.append(k["status"]))
+    monkeypatch.setattr(server, "_is_front_stale", lambda: True)
+    monkeypatch.setattr(server, "get_effective_chmod_tier", lambda *a, **k: {"tier": "4r--"})
+    low = _ctl(params={"mode": "execute", "confirm": True})
+    assert low["status"] == "REJECTED" and low["reason"] == "tier_insufficient"
+    monkeypatch.setattr(server, "get_effective_chmod_tier", lambda *a, **k: {"tier": "7rwx"})
+    no_confirm = _ctl(params={"mode": "execute"})
+    assert no_confirm["reason"] == "confirm_required"
+    assert _ctl(params={"mode": "execute", "confirm": "true"})["reason"] == "confirm_required"  # strict bool, not truthy
+    assert recorded == ["REJECTED", "REJECTED", "REJECTED"] and no_confirm["audit_degraded"] is False
+
+
+def test_ipc_unknown_mode_is_error() -> None:
+    res = _ctl(params={"mode": "yolo"})
+    assert res["status"] == "ERROR" and res["valid"] == ["plan", "execute"]
+
+
 def test_helper_script_compiles_and_fails_closed_without_tty() -> None:
     """Runs the helper as the current user with a non-tty stdin: it must exit before reading the sysctl."""
     import subprocess

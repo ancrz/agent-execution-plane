@@ -3254,6 +3254,52 @@ def _lkg_snapshot_fn(files: list[str]) -> dict[str, Any]:
     return create_workspace_snapshot(path=REPO_ROOT, name=f"lkg_pre_restore_{int(time.time())}")
 
 
+def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: str) -> dict[str, Any]:
+    """ONT-42a: aep_ctl(ipc, harness_reconnect). `plan` is read-only at any tier; `execute` needs 7rwx + confirm=true."""
+    from engine import harness_reconnect as _hr
+
+    eff: dict[str, Any] = dict(params) if isinstance(params, dict) else {}
+    if isinstance(args, dict):
+        eff = {**eff, **args}
+    mode = str(eff.get("mode") or "plan").strip().lower()
+    server_name = eff.get("server")
+    server_name = str(server_name) if server_name is not None else None
+    if mode not in ("plan", "execute"):
+        return {"status": "ERROR", "error": f"mode desconocido: {mode}", "valid": ["plan", "execute"]}
+
+    def _audit(status: str, details: dict[str, Any]) -> bool:
+        with catalog._get_rw_conn() as conn:
+            record_audit_event(
+                conn,
+                agent_id=agent_id,
+                tool_name="aep_ctl",
+                action="ipc.harness_reconnect",
+                capability_tier=capability_tier(),
+                status=status,
+                details=details,
+                target="harness_reconnect",
+            )
+        return True
+
+    adapters = _hr.real_adapters(audit=_audit)
+    if mode == "plan":
+        plan = _hr.build_plan(
+            front_stale=_is_front_stale(),
+            server=server_name,
+            session_type=os.environ.get("XDG_SESSION_TYPE", ""),
+            adapters=adapters,
+        )
+        return {"status": "OK", "mode": "plan", **plan}
+    res = _hr.execute(
+        tier=str(get_effective_chmod_tier().get("tier")),
+        confirm=eff.get("confirm") is True,
+        front_stale=_is_front_stale(),
+        server=server_name,
+        adapters=adapters,
+    )
+    return {"mode": "execute", **res}
+
+
 @mcp.tool(structured_output=False)
 async def aep_ctl(
     domain: str = "schema",
@@ -3570,6 +3616,8 @@ async def aep_ctl(
             elif a == "cache":
                 sid = eff_name.strip() if eff_name and eff_name.strip() else "ctl-default"
                 res_obj = GLOBAL_SESSION_POOL.cache_get(session_id=sid, agent_id=agent_id or "aep-ctl")
+            elif a == "harness_reconnect":
+                res_obj = _ipc_harness_reconnect(params, args, agent_id or "aep-ctl")
             else:
                 res_obj = {"status": "ERROR", "error": f"Acción de ipc desconocida: {a}", "valid": valid_actions}
             return attach_envelope(res_obj, tracker, verbosity=verbosity)
