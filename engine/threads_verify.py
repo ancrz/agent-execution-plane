@@ -55,6 +55,8 @@ RELOAD_PENDING = "RELOAD_PENDING"
 SERVING_LKG = "SERVING_LKG"
 SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
 BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
+NO_TESTS_EXECUTED = "NO_TESTS_EXECUTED"
+ENV_RETRIES_EXHAUSTED = "ENV_RETRIES_EXHAUSTED"
 
 REJECT_REASONS: tuple[str, ...] = (
     BASE_UNAVAILABLE,
@@ -66,8 +68,10 @@ REJECT_REASONS: tuple[str, ...] = (
     CODEP,
     NO_PROGRESS,
     NO_DIRECT_COVERAGE,
+    NO_TESTS_EXECUTED,
     TESTS_FAIL,
     BUDGET,
+    ENV_RETRIES_EXHAUSTED,
 )
 
 # --- Presupuestos (T0 cerrado) ----------------------------------------------------------------------------
@@ -75,6 +79,7 @@ TESTS_PER_ITERATION = 20
 SYNC_MAX_SECONDS = 60.0
 EST_SECONDS_PER_TEST = 2.5  # spike T0: 42 s para 19 tests dentro de bwrap
 MAX_ITERATIONS = 3
+MAX_ENV_RETRIES = 10  # rechazos ambientales por ciclo antes de cerrarlo (no consumen iteracion)
 LOCK_SECONDS = 600.0
 CYCLE_TTL_SECONDS = 3600.0
 LIST_CAP = 10
@@ -91,7 +96,7 @@ EXHAUSTED = "EXHAUSTED"
 EXPIRED = "EXPIRED"
 TERMINAL_STATES: frozenset[str] = frozenset({ACCEPTED, EXHAUSTED})
 
-_SUMMARY_TYPES = ("function", "action", "tool", "state")
+_SUMMARY_TYPES = ("function", "action", "tool", "state", "test")
 _HASH_LEN = 12
 
 
@@ -146,6 +151,8 @@ def compare(base: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
         "introduced": sorted(new_gaps - base_gaps),
         "codep": sorted(new.get("codep", [])),
         "changed": changed,
+        "changed_tests": [i for i in changed if i.startswith("test:")],
+        "touches_public": any(i in public for i in changed),
         "uncovered_public": sorted(i for i in changed_fns if i in public and i not in direct),
         "uncovered_private": sorted(i for i in changed_fns if i not in public and i not in direct),
     }
@@ -211,15 +218,23 @@ def plan_tests(tests: list[str], *, estimate_s: float | None = None) -> dict[str
     return {"mode": mode, "tests": ordered, "estimate_s": round(est, 1)}
 
 
-def _tests_reasons(tests: dict[str, Any] | None, *, trusted: bool) -> tuple[list[str], bool]:
-    """(motivos, pendiente). `tests` es el resultado del runner inyectado."""
+def _tests_reasons(
+    tests: dict[str, Any] | None, *, trusted: bool, selected: int | None = None
+) -> tuple[list[str], bool]:
+    """(motivos, pendiente). `tests` es el resultado del runner inyectado; `selected` = tests que debian correr."""
     if tests is None:
         return [], False
     if str(tests.get("status", "")).upper() == PENDING:
         return [], True
     if tests.get("available") is False or (tests.get("unsandboxed") and not trusted):
         return [SANDBOX_UNAVAILABLE], False
-    if tests.get("timeout") or int(tests.get("failed", 0) or 0) + int(tests.get("errors", 0) or 0) > 0:
+    failed = int(tests.get("failed", 0) or 0) + int(tests.get("errors", 0) or 0)
+    if tests.get("timeout") or failed > 0:
+        return [TESTS_FAIL], False
+    ran = int(tests.get("ran", 0) or 0)
+    exit_code = tests.get("exit_code")
+    # F5: verde = pytest salio 0 y corrio al menos todo lo seleccionado; 0 tests ejecutados nunca es verde.
+    if (exit_code not in (None, 0)) or (selected and ran < selected):
         return [TESTS_FAIL], False
     return [], False
 
@@ -240,6 +255,8 @@ def decide(
     base_available: bool = True,
     sandbox_available: bool = True,
     trusted: bool = True,
+    selected: int | None = None,
+    no_tests: bool = False,
 ) -> dict[str, Any]:
     """Veredicto. Acumula TODOS los motivos aplicables, en el orden fijo de `REJECT_REASONS`."""
     reasons: list[str] = []
@@ -266,10 +283,12 @@ def decide(
             detail["uncovered_public"] = _capped(cmp["uncovered_public"])
         if cmp["uncovered_private"]:
             warnings.append(f"private changed without direct test: {len(cmp['uncovered_private'])}")
-    test_reasons, pending = _tests_reasons(tests, trusted=trusted)
+    test_reasons, pending = _tests_reasons(tests, trusted=trusted, selected=selected)
     reasons.extend(test_reasons)
     if tests is not None and tests.get("unsandboxed") and trusted:
         warnings.append("unsandboxed")
+    if no_tests:
+        reasons.append(NO_TESTS_EXECUTED)
     over = _budget_over(budgets)
     if over:
         reasons.append(BUDGET)
@@ -315,8 +334,16 @@ def verify_change(
         return decide(None, barrier=barrier, base_available=False)
     cmp = compare(base, new)
     static = decide(cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, trusted=trusted)
-    if static["verdict"] == REJECT or not impacted_tests:
+    if static["verdict"] == REJECT:
         static["tests"] = {"selected": 0}
+        return static
+    if not impacted_tests:
+        static["tests"] = {"selected": 0}
+        # F1: un parche que toca tests/ o un nodo publico sin ningun test ejecutado no puede aceptarse.
+        if cmp["changed_tests"] or cmp["touches_public"]:
+            return decide(cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, trusted=trusted, no_tests=True) | {
+                "tests": {"selected": 0}
+            }
         return static
     plan = plan_tests(impacted_tests, estimate_s=estimate_s)
     runner = dispatch_job if plan["mode"] == "async" else run_tests
@@ -327,7 +354,15 @@ def verify_change(
     result = runner(plan["tests"])
     if plan["mode"] == "async" and result.get("available") is not False:
         result = {**result, "status": PENDING}
-    out = decide(cmp, target_gap=target_gap, tests=result, barrier=barrier, budgets=budgets, trusted=trusted)
+    out = decide(
+        cmp,
+        target_gap=target_gap,
+        tests=result,
+        barrier=barrier,
+        budgets=budgets,
+        trusted=trusted,
+        selected=len(plan["tests"]),
+    )
     out["tests"] = {"mode": plan["mode"], "selected": len(plan["tests"]), "estimate_s": plan["estimate_s"]}
     if plan["mode"] == "async":
         out["job"] = result.get("job")
@@ -516,6 +551,36 @@ class CycleStore:
                 ev.remove_file(dfd, name)
                 return {"cycle_id": cycle_id, "state": EXPIRED}
             return rec
+
+    def note_environmental(self, cycle_id: str, reasons: list[str]) -> dict[str, Any]:
+        """Cuenta un rechazo ambiental (no consume iteracion). Al pasar de MAX_ENV_RETRIES cierra el ciclo (EXHAUSTED)."""
+        rec = self.load(cycle_id)
+        if rec is None or rec.get("state") in (EXPIRED, *TERMINAL_STATES):
+            return {"count": 0, "exhausted": False}
+        count = int(rec.get("env_retries", 0)) + 1
+        rec["env_retries"] = count  # `updated` no se refresca: el TTL de 1 h sigue acotando el ciclo
+        exhausted = count > MAX_ENV_RETRIES
+        if exhausted:
+            rec["state"] = EXHAUSTED
+            rec["history"].append(
+                {"it": rec["iteration"], "verdict": REJECT, "reasons": [ENV_RETRIES_EXHAUSTED, *reasons][:LIST_CAP], "ts": self._clock()}
+            )
+        with self._GUARD, ev.state_dir(self._dir) as dfd:
+            self._put(dfd, cycle_file_name(self._uid, cycle_id), rec)
+        if exhausted:
+            ev.append_event(
+                "cycle_terminal",
+                {
+                    "cycle_id": cycle_id,
+                    "gap": rec["gap"],
+                    "state": EXHAUSTED,
+                    "iterations": rec["iteration"],
+                    "reasons": [ENV_RETRIES_EXHAUSTED],
+                },
+                base_dir=self._dir,
+                clock=self._clock,
+            )
+        return {"count": count, "exhausted": exhausted}
 
     def record(self, cycle_id: str, decision: dict[str, Any]) -> dict[str, Any]:
         """Aplica un veredicto de `decide`/`verify_change`. EXHAUSTED/ACCEPTED son terminales y se anotan en el JSONL."""

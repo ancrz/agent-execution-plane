@@ -125,9 +125,13 @@ def judge(
     analysis = th.analyze(Path(tree), use_cache=False)
     new = tv.summarize(analysis)
     cmp = tv.compare(base, new)
-    impacted = test_node_args(th.impacted_tests(analysis.graph, cmp["changed"]))
+    # F1: los nodos test: nuevos/cambiados forman parte de lo que debe ejecutarse (no solo covers^-1 del codigo).
+    own_tests = [t for t in cmp["changed_tests"] if t in analysis.graph.nodes]
+    impacted = test_node_args(sorted(set(th.impacted_tests(analysis.graph, cmp["changed"])) | set(own_tests)))
     if tests_result is not None:
-        out = tv.decide(cmp, target_gap=gap, tests=tests_result, barrier=barrier, trusted=trusted)
+        out = tv.decide(
+            cmp, target_gap=gap, tests=tests_result, barrier=barrier, trusted=trusted, selected=len(impacted)
+        )
         out["tests"] = {"mode": "async", "selected": len(impacted)}
         return out
     return tv.verify_change(
@@ -229,7 +233,15 @@ def run_fix_test(
     binfo = barrier_info(barrier)
     reasons = set(decision["reasons"])
     if decision["verdict"] == tv.REJECT and reasons and reasons <= ENVIRONMENTAL:
+        env = store.note_environmental(cycle, sorted(reasons))
+        if env.get("exhausted"):
+            out = _verdict_payload(
+                {"verdict": tv.REJECT, "reasons": [tv.ENV_RETRIES_EXHAUSTED]},
+                {"cycle": cycle, "state": tv.EXHAUSTED, "consumed": False, "env_retries": env["count"]},
+            )
+            return fit(out, budget)
         out = _verdict_payload(decision, {"cycle": cycle, "consumed": False, "awaiting": "reload"})
+        out["env_retries"] = env.get("count", 0)
         out["iterations_left"] = max(0, rec["max_iterations"] - rec["iteration"])
         if binfo:
             out["barrier"] = binfo
