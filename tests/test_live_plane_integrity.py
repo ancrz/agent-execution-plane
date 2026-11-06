@@ -29,8 +29,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-FENCE = PROJECT_ROOT / ".aep_swap_fence"
+REAL_FENCE = PROJECT_ROOT / ".aep_swap_fence"
+FENCE = REAL_FENCE  # rebound per test to an isolated tmp path by the autouse fixture (D-22)
 DEBOUNCE_WAIT_S = 0.05  # debounce is 0 in these tests (AEP_HOTSWAP_DEBOUNCE_S)
+
+
+@pytest.fixture(autouse=True)
+def _bind_fence(isolated_swap_fence: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """D-22: FENCE apunta al fence aislado (conftest); el real PROJECT_ROOT/.aep_swap_fence no se toca."""
+    monkeypatch.setattr(sys.modules[__name__], "FENCE", isolated_swap_fence)
+    return isolated_swap_fence
 
 
 @contextlib.asynccontextmanager
@@ -558,3 +566,45 @@ def test_spawn_failure_releases_fds_and_child(monkeypatch: pytest.MonkeyPatch) -
         assert len(set(os.listdir("/proc/self/fd")) - before) <= 0
 
     asyncio.run(_run())
+
+
+def test_d22_real_fence_untouched_and_isolated_tests_unaffected(tmp_path: Path) -> None:
+    """With a real fence present, an isolated front still swaps and the real fence is never modified."""
+    import aep_front
+
+    existed = REAL_FENCE.exists()
+    if not existed:
+        REAL_FENCE.write_text("d22 regression sentinel\n", encoding="utf-8")
+    before = (REAL_FENCE.read_bytes(), REAL_FENCE.stat().st_mtime_ns)
+    probe = PROJECT_ROOT / "engine" / "_ont39_probe_d22.py"
+    try:
+        # in-process semantics follow the isolated path, not the real fence
+        assert aep_front.swap_fence_path() == FENCE
+        assert aep_front.swap_fence_state() == (False, False)
+
+        async def _run() -> None:
+            async with front_session() as session:
+                d1 = await caps(session)
+                assert d1.get("swap_fenced", False) is False
+                await asyncio.sleep(DEBOUNCE_WAIT_S)
+                FENCE.write_text("isolated\n", encoding="utf-8")
+                probe.write_text("# d22 probe\n", encoding="utf-8")
+                d2 = await caps(session)
+                assert d2["swap_fenced"] is True and d2["backend_generation"] == 1
+                FENCE.unlink()
+                d3 = await caps(session)
+                assert d3["backend_generation"] == 2 and d3["stale"] is False
+
+        asyncio.run(_run())
+        assert (REAL_FENCE.read_bytes(), REAL_FENCE.stat().st_mtime_ns) == before
+    finally:
+        probe.unlink(missing_ok=True)
+        if not existed:
+            REAL_FENCE.unlink(missing_ok=True)
+
+
+def test_d22_default_fence_path_without_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    import aep_front
+
+    monkeypatch.delenv("AEP_SWAP_FENCE_PATH", raising=False)
+    assert aep_front.swap_fence_path() == REAL_FENCE

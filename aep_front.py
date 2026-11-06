@@ -52,6 +52,7 @@ BACKEND_LOG_DIR = Path.home() / ".local" / "share" / "agent-os" / "logs"
 FRONT_PID: int = os.getpid()
 
 SWAP_FENCE_NAME = ".aep_swap_fence"
+SWAP_FENCE_PATH_ENV = "AEP_SWAP_FENCE_PATH"
 SWAP_FENCE_ORPHAN_AFTER_S = 600.0
 DEFAULT_QUIESCE_MS = 300
 DEAD_FRONT_LOG_MAX_AGE_S = 86400.0
@@ -132,10 +133,19 @@ def transient_backoff_seconds(failure_number: int) -> float:
     return float(2 ** (max(1, failure_number) - 1))
 
 
+def swap_fence_path() -> Path:
+    """Fence location: AEP_SWAP_FENCE_PATH if set (D-22, test isolation), else PROJECT_ROOT/.aep_swap_fence.
+
+    Resolved at every call so every fence check (initial, under swap_lock, pre-promotion) agrees.
+    """
+    override = os.environ.get(SWAP_FENCE_PATH_ENV, "").strip()
+    return Path(override) if override else PROJECT_ROOT / SWAP_FENCE_NAME
+
+
 def swap_fence_state() -> tuple[bool, bool]:
     """Return (fenced, orphan). A fence older than SWAP_FENCE_ORPHAN_AFTER_S is ignored (orphan)."""
     try:
-        st = (PROJECT_ROOT / SWAP_FENCE_NAME).stat()
+        st = swap_fence_path().stat()
     except OSError:
         return False, False
     if time.time() - st.st_mtime > SWAP_FENCE_ORPHAN_AFTER_S:

@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -280,6 +281,19 @@ def test_criterion_5_tier_watch_mode() -> None:
     asyncio.run(_run())
 
 
+async def _stable_fds(pid: int, needed: int = 3, max_s: float = 2.0) -> set[str]:
+    """Muestrea el conjunto de FD hasta `needed` lecturas iguales consecutivas (máx. `max_s`)."""
+    deadline = time.monotonic() + max_s
+    prev = get_process_fds(pid)
+    streak = 1
+    while streak < needed and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+        cur = get_process_fds(pid)
+        streak = streak + 1 if len(cur) == len(prev) else 1
+        prev = cur
+    return prev
+
+
 def test_criterion_6_zero_fd_leak() -> None:
     """C6: 10 successive swaps result in zero file descriptor leaks (fd_delta == 0)."""
     async def _run() -> None:
@@ -290,7 +304,7 @@ def test_criterion_6_zero_fd_leak() -> None:
 
         # Let the initial connection stabilize
         await asyncio.sleep(0.5)
-        initial_fds = get_process_fds(os.getpid())
+        initial_fds = await _stable_fds(os.getpid())
 
         # Perform 10 swaps
         for i in range(10):
@@ -310,7 +324,7 @@ def test_criterion_6_zero_fd_leak() -> None:
                 await old_conn.terminate()
 
         await asyncio.sleep(0.5)
-        final_fds = get_process_fds(os.getpid())
+        final_fds = await _stable_fds(os.getpid())
 
         # Check FD delta
         fd_delta = len(final_fds) - len(initial_fds)
