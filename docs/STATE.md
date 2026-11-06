@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-11-06 · Servidor MCP: **17 tools / 19 capacidades** · Rama: `dev` (`c52861c`, 36 commits por delante de `origin/dev` `e3f7725`; push retenido hasta autorización explícita del usuario) · ONT-39 Live Plane: **VERIFIED** · ONT-40 `autoevol`: **VERIFIED** · ONT-41 `autoevol` spec/verify/fix_test/heal + LKG + self-healing N0-N3: **VERIFIED** (Dokimos re-verificación: 562 passed / 6 xfailed, ruff limpio, 0 huérfanos; F1 a F8 cerrados) · ONT-42a `aep_ctl ipc harness_reconnect`: **VERIFIED excluyendo T8** (L1 y L3 cerrados; L1 verificado en vivo sobre harness claude pid 112908) · Siguiente: Hermon (commit de documentación) -> push de `dev` (autorización del usuario) -> T8 smoke en vivo (user-gated) -> reconexión `/mcp` -> L3 (D-01..D-05) -> ONT-42 `evolve`
+> Fecha: 2026-11-06 · Servidor MCP: **17 tools / 19 capacidades** · Rama: `dev` (`e36a608`; push retenido hasta autorización explícita del usuario) · ONT-39 Live Plane: **VERIFIED** · ONT-40 `autoevol`: **VERIFIED** · ONT-41 `autoevol` spec/verify/fix_test/heal + LKG + self-healing N0-N3: **VERIFIED** · ONT-42a `aep_ctl ipc harness_reconnect`: **VERIFIED excluyendo T8** · L3 contrato de tokens (D-01..D-05): **VERIFIED** (Dokimos en vivo; suite 576 passed, 0 xfail, ruff limpio; autoevol gaps 103 → 97) · Siguiente: Hermon (commit de documentación, sin push) -> ONT-42 (AE-1..AE-6 + D-01b, bloqueante para `autoevol evolve` y auto-commit) -> T8 smoke en vivo (user-gated)
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -59,8 +59,19 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 - **ONT-41 autoevol write-path + Self-Healing N0-N3 (VERIFIED, Dokimos re-verificación sobre `c52861c`):** `spec`/`verify`/`fix_test`/`heal`, LKG content-addressed (`aep_lkg.py`), front N0-N2 + barrera, `aep_ctl lkg_*`, `crash_events.source`, `--audit` D-24. Pragma↔Dokimos: 2 ciclos de fix (F1 a F8 cerrados; F7 y F8 probados contra pueue real). Suite 562 passed / 6 xfailed, ruff limpio. Registro: `docs/pipeline/feature_20261106_080856_ont41_autoevol_heal.md` §19.
 - **ONT-42a `aep_ctl ipc harness_reconnect` (VERIFIED excluyendo T8, Dokimos sobre `c52861c`):** detección de harness por ascendencia reconocida para `claude/versions/X.Y.Z` (L1, `feb088c`), reaper del árbol LKG (L3, `0578484`), lockfile `O_NOFOLLOW`. Archon↔Ontos: 0 revisiones. Pragma↔Dokimos: 1 ciclo. L1 verificado en vivo (`plan`: harness claude pid 112908, tty `/dev/pts/2`, ruta `tty_inject`); `execute` no ejecutado. Registro: `docs/pipeline/feature_20261106_172315_ont42a_harness_reconnect.md` §16.
 
+- **L3 Contrato de tokens (D-01..D-05, Short, VERIFIED sobre `e36a608`):** `discover(schema, summary)` compactado a `{tool:{params,actions}}` (`4af584d`, 18 k → 2.2 k tokens); `aep_ctl(schema, summary)` con `defaults` + excepciones (`5999cb1`, 3.8 k → 1.3 k); `aep_ctl(ipc status)` sin `mux.pool` duplicado en `summary` (`9b2f11e`, 458 → 312); `select_fields` con `unresolved_fields` y listas preservadas (`8068f8b`); `summary` plano sin `envelope`/`telemetry` en `playbook_run`, `artifact_catalog`, `kanban_board` (`e36a608`). `detail` intacto. Pragma↔Dokimos: 0 ciclos de fix. Registro: `docs/pipeline/feature_20261106_181608_l3_token_contract.md`.
+
 ## Pendientes
 
+- **ONT-42 (insumo: backlog del primer ciclo real de autoevol, bloqueante para `autoevol evolve` y auto-commit):**
+  - D-01b LOW: 4 tools sin `actions` en `summary` (`artifact_lint_and_build`, `async_job_dispatch`, `default_primitives`, `autoevol`); constante `_TOOL_ACTIONS` + test.
+  - AE-1: la spec no acepta referencia corta de D-01.
+  - AE-2: la spec no apunta al código a cambiar.
+  - AE-3: `verify`/`fix_test` con root sin `.venv` devuelve `SANDBOX_UNAVAILABLE` siempre (falta fallback al `.venv` canónico; causa confirmada).
+  - AE-4: `fix_test` no avanza (`awaiting reload`, `consumed:false` perpetuo).
+  - AE-5: el ranking de gaps entierra `open_discrepancy`.
+  - AE-6: no predice tests que fijan comportamiento viejo.
+  - Conclusión: autoevol cuenta gaps bien, pero no es aún juez autónomo.
 - **ONT-42a T8 (smoke en vivo `execute`, user-gated):** pendiente de consentimiento explícito del usuario. Riesgo abierto: `sudo use_pty` puede sustituir stdin (falla cerrado a manual). Plan: `docs/pipeline/feature_20261106_172315_ont42a_harness_reconnect.md`; SDD: `docs/sdd/sdd_ont42a_harness_reconnect.md`.
 - **Roadmap Completo (33 → 15 tools MCP), Endurecimiento Post-Consolidación y Optimización Híbrida de Persistencia SQLite (mmap 256MB / 64MB cache): 100% CERRADOS y VERIFICADOS por Dokimos across Gates 1 to 5.**
 - **Línea base final: 15 herramientas FastMCP cubriendo 16 capacidades (1:1 parity), consultas vectoriales a velocidad de RAM con persistencia total en disco para colaboración multiagente, enmascaramiento de secretos activo. Tarea 110 PROMOTED (0.9958 TRUST).**

@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-562_Passed_%2B_6_xfail_(D--01..D--05)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-576_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1033,7 +1033,7 @@ flowchart TD
 >
 > Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
-### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a)
+### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3)
 
 Each intent is linked to its milestones and to the agent responsible for each one. Status is updated at every pipeline activation. Source of truth: `docs/MILESTONES.md`.
 
@@ -1080,6 +1080,18 @@ flowchart LR
     M3 --> M4["M4: verified (Dokimos, excluding T8; 1 fix cycle) ✅"]
     M4 --> M5["M5: committed in dev (feb088c, 0578484) ✅"]
     M5 --> M6["M6: live smoke T8 (user-gated) pending"]
+```
+
+**L3 token contract, D-01..D-05 (VERIFIED on `dev` @ `e36a608`; Short mode):**
+
+```mermaid
+flowchart LR
+    I["Intent: L3 token contract (D-01..D-05)"] --> M1["M1: planned (Orchestrator, Short) ✅"]
+    M1 --> M2["M2: implemented (Pragma, 5 commits) ✅"]
+    M2 --> M3["M3: verified (Dokimos, 576 passed, 0 xfail; 0 fix cycles) ✅"]
+    M3 --> M4["M4: documented (Graphos G2) ✅"]
+    M4 --> M5["M5: committed in docs (Hermon) pending"]
+    M3 --> B1["Backlog: ONT-42 AE-1..AE-6 + D-01b (autoevol) ⛔"]
 ```
 
 
