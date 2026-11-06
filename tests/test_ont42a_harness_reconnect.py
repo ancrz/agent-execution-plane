@@ -434,6 +434,19 @@ def test_heal_points_to_reconnect_plan_when_front_stale(monkeypatch: pytest.Monk
     assert json.dumps(hr.RECONNECT_POINTER)[1:-1] in json.dumps(res)
 
 
+def test_isolation_fixture_blocks_sysctl_write_pts_and_sudo_helper() -> None:
+    import subprocess
+
+    assert os.environ["AEP_HARNESS_RECONNECT_DRY"] == "1"
+    with pytest.raises(AssertionError):
+        open("/proc/sys/dev/tty/legacy_tiocsti", "w")  # noqa: SIM115
+    with pytest.raises(AssertionError):
+        os.open("/dev/pts/0", os.O_RDONLY)
+    with pytest.raises(AssertionError):
+        subprocess.Popen(["sudo", "-n", "/usr/bin/python3", "-c", hr.HELPER_SCRIPT])  # noqa: S603
+    hr.read_sysctl()  # read-only access stays allowed
+
+
 def test_helper_script_compiles_and_fails_closed_without_tty() -> None:
     """Runs the helper as the current user with a non-tty stdin: it must exit before reading the sysctl."""
     import subprocess
