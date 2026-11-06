@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **ONT-40 `autoevol` (tool 17, read-only)**: thread graph (`engine/threads*.py`) with Merkle root over the SCC condensation, omission gaps, declared-vs-observed drift, PageRank ranking and `impacted_tests`; opt-in probes layer outside R; tier-gated `threads_gen` persistence with SHA-256 ledger entry only for new roots. Tool count 16 -> 17 (capabilities stay at 19).
+
 ## [0.2.8] - 2026-11-05
 
 ### Added

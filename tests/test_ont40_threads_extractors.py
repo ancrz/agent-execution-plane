@@ -39,7 +39,7 @@ def test_autoevol():
 '''
 
 
-def _tree(tmp: Path, *, readme: str = "autoevol(action=\"list\") 16 tools\n") -> Path:
+def _tree(tmp: Path, *, readme: str = "autoevol(action=\"list\") 20 tools\n") -> Path:
     (tmp / "engine").mkdir()
     (tmp / "tests").mkdir()
     (tmp / "schemas").mkdir()

@@ -444,7 +444,7 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
 
 
 def test_self_evolutionary_loop_and_ram_probes() -> None:
-    """ONT-19 & ONT-20: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and 16/16 verbosity."""
+    """ONT-19 & ONT-20: Verify zero-warning template builds, memfd RAM execution fd_delta=0, and 17/17 verbosity."""
     import inspect
 
     import server
@@ -453,7 +453,7 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     for st in ("ARCHIVED", "UNARCHIVED", "PRUNED", "DEMOTED", "REEVALUATED", "REINDEXED", "CLEAN"):
         assert infer_severity(st) == "INFO", f"Expected INFO for {st}, got {infer_severity(st)}"
 
-    # Verify all 16 MCP tools accept verbosity uniformly and _INSTRUCTIONS exposes the full 16-tool suite map
+    # Verify all 17 MCP tools accept verbosity uniformly and _INSTRUCTIONS exposes the full 17-tool suite map
     assert "Complete 17-Tool Suite Map" in server._INSTRUCTIONS
     assert "herramientas ofensivas" not in server._INSTRUCTIONS.lower()
     for tool_name in (

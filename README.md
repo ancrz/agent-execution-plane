@@ -39,8 +39,8 @@
    - [Architectural Breakdown of the 4 Layers](#architectural-breakdown-of-the-4-layers)
    - [Detailed Layer Specifications](#detailed-layer-specifications)
 3. [High-Performance Linux Kernel Primitives → Resilient Agentic Capabilities](#3-high-performance-linux-kernel-primitives--resilient-agentic-capabilities)
-4. [Catalog of 16 MCP Tools (19 Capabilities)](#4-catalog-of-16-mcp-tools-19-capabilities)
-   - [Master Reference Tables for 16 FastMCP Tools](#master-reference-tables-for-16-fastmcp-tools)
+4. [Catalog of 17 MCP Tools (19 Capabilities)](#4-catalog-of-17-mcp-tools-19-capabilities)
+   - [Master Reference Tables for 17 FastMCP Tools](#master-reference-tables-for-17-fastmcp-tools)
    - [Factory Decoupling: Runtime Primitives vs. Template Synthesis](#factory-decoupling-runtime-primitives-vs-template-synthesis)
    - [Lifecycle and Skill Chaining](#lifecycle-and-skill-chaining)
 5. [Hybrid Semantic Memory (sqlite-vec) & Hot SQLite Concurrency](#5-hybrid-semantic-memory-sqlite-vec--hot-sqlite-concurrency)
@@ -127,7 +127,7 @@ flowchart LR
 flowchart TD
     subgraph L3["Layer 3: Agentic Interface"]
         Agent["AI Agents (Claude Code / Antigravity / Codex / Gemini)"]
-        MCP["FastMCP Server (server.py) — 16 tools (19 capabilities)"]
+        MCP["FastMCP Server (server.py) — 17 tools (19 capabilities)"]
         Agent -->|stdio / JSON-RPC| MCP
     end
     subgraph L2["Layer 2: Execution, Persistence & Security Engines (engine/)"]
@@ -256,7 +256,7 @@ flowchart LR
 
 ---
 
-## 4. Catalog of 16 MCP Tools (19 Capabilities)
+## 4. Catalog of 17 MCP Tools (19 Capabilities)
 
 ```mermaid
 flowchart TD
@@ -294,9 +294,9 @@ flowchart TD
     end
 ```
 
-### Master Reference Tables for 16 FastMCP Tools
+### Master Reference Tables for 17 FastMCP Tools
 
-The plane exposes 16 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-34, FastMCP Tool #16 (`default_primitives`) is registered to provide direct runtime diagnostic probing (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`) in pure Python/kernel memory, decoupling basic system introspection from the Go compilation and synthesis factory while strictly preserving all 5 Go template files in `templates/` as synthesis scaffolding.
+The plane exposes 17 RPC tools organized across operational domains plus the root entry point. All tools return typed, deterministic JSON strings ensuring zero unhandled exceptions (*fail-soft*). Under Milestone ONT-29, all tools are registered with `structured_output=False` to enforce FastMCP single-encoding (eliminating double-encoded JSON escaping in `structuredContent.result` and slashing client-side response payload size by ~41%), alongside envelope deduplication and compact telemetry stubs in `brief` and `terse` verbosity modes (`output_bytes(brief) < output_bytes(summary)`). Under Milestone ONT-30, FastMCP wraps server initialization with `NotificationOptions(tools_changed=True)` to broadcast `capabilities.tools.listChanged = True` to MCP clients, establishing transparent dynamic schema evolution signaling across harnesses. Under Milestone ONT-34, FastMCP Tool #16 (`default_primitives`) is registered to provide direct runtime diagnostic probing (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`) in pure Python/kernel memory, decoupling basic system introspection from the Go compilation and synthesis factory while strictly preserving all 5 Go template files in `templates/` as synthesis scaffolding.
 
 #### Root Entry Point & Autonomy Manifest
 
@@ -308,7 +308,7 @@ The plane exposes 16 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), introspects tool schemas across all 16 FastMCP tools (`action="schema"`), or returns the systems engineering tactical guide (`action="playbook"`, including native network telemetry recipes `WF-10` and `WF-11` and quick reference commands `network_telemetry_probe` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
+| `discover` | `DIMINISHED` | `discover(use_case: str = "", action: str = "discover", limit: int = 3, verbosity: str = "detail", session_id: Optional[str] = None, sid: Optional[str] = None, store_as: Optional[str] = None, force_refresh: bool = False, select_fields: Optional[List[str]] = None) -> str` | Polymorphic orientation router: maps natural language intents to recommended capabilities (`action="discover"` with confidence gating), outputs the `chmod/777` autonomy manifest + host binary readiness (`action="capabilities"`), introspects tool schemas across all 17 FastMCP tools (`action="schema"`), or returns the systems engineering tactical guide (`action="playbook"`, including native network telemetry recipes `WF-10` and `WF-11` and quick reference commands `network_telemetry_probe` and `incident_protocol_audit`). Mitigates the multi-agent 'Re-Discovery Tax' via automatic RAM session caching (`/dev/shm`), `verbosity="terse"` / `"cached"` stub mode (~249 tokens, >96% savings), named slots (`store_as`), server-side field projection (`select_fields`), and exposes ONT-30 schema drift/observability metadata (`server_version`, `git_commit`, `schema_hash`, `pid`, `process_start_time`, `uptime_seconds`). | `action="discover"`: `{"status": "OK", "confidence": "HIGH"|"LOW", ...}`<br/>`action="capabilities"` (`verbosity="terse"`): `{"status": "OK", "cache_status": "CACHED", "source": "ram_session_cache", ...}` | Empty parameters return `status: "PARAM_ERROR"`; unrecognized actions return `status: "INVALID_ACTION"`. |
 | `artifact_lint_and_build` | `DIMINISHED` | `artifact_lint_and_build(action: str = "build", name: Optional[str] = None, artifact_name: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None, category: Optional[str] = None, go_source: Optional[str] = None, template_name: Optional[str] = None, source_template: Optional[str] = None, params: Optional[Dict[str, Any]] = None, cue_contract: str = "", limit: int = 5) -> str` | Unified pipeline to browse templates (`catalog`), rank by relevance (`select`), hydrate Go source (`hydrate`), and compile binaries with `go vet`/`golangci-lint` validation (`build`, with `lint` and `vet` action aliases), including 1-step zero-config template shortcut (`template_name` auto-fills defaults and reuses active Kanban tasks). | Action-dependent typed JSON (`status`, `templates`, `matches`, `go_source`, `artifact_id`, `binary_path`). | Structured responses with `status: "PARAM_ERROR"` on missing inputs, `status: "HYDRATE_ERROR"` on template failures, and `status: "INVALID_ACTION"` on invalid actions. |
 | `artifact_execute_in_ram` | `DIMINISHED` | `artifact_execute_in_ram(name: str, artifact_name: Optional[str] = None, args: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, stdin: Optional[str] = None, timeout: int = 30) -> str` | Loads the ELF binary into an anonymous volatile descriptor via `memfd_create` and executes directly in RAM via `/proc/self/fd/<fd>`. Supports `artifact_name` alias, `env` and `stdin` injection, and configurable `timeout` (1–120s, default 30s). Measures latency and records execution metrics in SQLite. | `{"status": "SUCCESS"|"EXEC_FAILED", "exit_code": int, "latency_ms": float, "output": Any, "metric_recorded": bool}` | Non-zero exit codes return structured JSON with `stderr` and update historical failure rates. |
 | `artifact_catalog` | `DIMINISHED` | `artifact_catalog(action: str = "browse", category: Optional[str] = None, query: Optional[str] = None, intent: Optional[str] = None, name: Optional[str] = None, artifact_name: Optional[str] = None, limit: int = 10, force: bool = False, apply: bool = False) -> str` | Unified semantic memory. `action="browse"`: lists/searches by confidence or semantic top-K (`query`). `action in ("info", "get", "show")`: lightweight inspection of full artifact metadata (including `binary_size_bytes`) without dumping binary blobs. `action="query"`: hybrid cache search. `action="reindex"`: heals sqlite-vec vectors. `action="prune"`: safe GC. | `{"status": "OK"|"CACHE_HIT"|"CACHE_MISS", ...}` | Gracefully degrades to relational confidence ranking if vector extensions are unavailable. |
@@ -348,6 +348,7 @@ The plane exposes 16 RPC tools organized across operational domains plus the roo
 | `query_system_docs` | `DIMINISHED` | `query_system_docs(query: str = "", q: Optional[str] = None, limit: int = 3, ingest_command: Optional[str] = None) -> str` | Offline semantic vectorizer of Ubuntu `man` pages on `system_docs.db` (`sqlite-vec`). Resolves exact syntax in <5 ms without web lookups. Supports `q` query alias. `ingest_command` allows on-demand ingestion. | `{"status": "OK", "query": str, "results": [{"command": str, "section": str, "distance": float, "chunk_text": str}]}` | Lazy loader. Degrades gracefully with actionable instructions if vector dependencies are missing. |
 | `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True, include_base64: bool = False, verbosity: str = "summary") -> str` | Renders local (`file://`) or remote URLs in headless Chromium via Playwright offloaded to a thread worker. Uses compact volatile RAM (`/dev/shm`) screenshot mode by default (`include_base64=False`, `verbosity="summary"`, `-98.9%` token footprint with `screenshot_path`, `screenshot_sha256`, and `text_excerpt`). | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_path": str, "screenshot_sha256": str, "text_excerpt": str}` | Returns `status: "DISPLAY_UNAVAILABLE"` if Playwright/Chromium is absent or on timeout (25s). |
 | `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: Union[List[str], List[Dict[str, Any]]], dependencies: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, deps: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, resources: Optional[Dict[str, Any]] = None) -> str` | Guardian of the Topos Integrity Protocol. Features polymorphic DAG input support (`tasks` as `list[str]` or `list[dict]`, `dependencies`/`deps` as `dict` or edge `list[dict]`) and shared state resource auditing (`resources`). Under Milestone ONT-30 (`GAP-DX-05`), provides resilient task-level resource fallback: when `resources` is omitted or unpassable by schema-cached clients, automatically parses task dictionaries for `writes`/`write`, `reads`/`read`, and `contract` definitions to extract resource sets and execute Bernstein hazard detection without schema errors. Executes topological sorting, cycle detection, Bernstein condition write-set hazard detection (`ToposVerdict.WARN` on uncoordinated writers without contract), and shared mutable state co-dependency checking (`ToposVerdict.BLOCKED` on mutual reader/writer coupling without an interface node). Populates edge relationship classifications (`dependency`, `interdependency`, `co-dependency`) while strictly preserving the 2-tuple return contract. | Approved: `{"verdict": "APPROVED", "details": [...], "edges": [...]}`<br/>Warn: `{"verdict": "WARN", "hazards": [...], "details": [...]}`<br/>Blocked: `{"verdict": "BLOCKED", "cycle": [...], "remediation": [...], "details": [...]}` | Deterministic in-memory algorithm with zero external dependencies and zero I/O operations. |
+| `autoevol` | `DIMINISHED` | `autoevol(action="graph"\|"gaps"\|"thread"\|"log"\|"diff", node=None, a=None, b=None, probe=False, root=None, persist=True, limit=10, select_fields=None, verbosity="summary")` | Read-only thread graph of AEP (tools, actions, capabilities, functions, SQL state, tests, claims, budgets): Merkle root R over the SCC condensation, omission gaps (`Req(t)`), declared-vs-observed drift, PageRank ranking and `impacted_tests`. `probe=True` (tier >= 5r-x) adds runtime observations outside R. Generations persist (`threads_gen` + SHA-256 ledger) only at tier >= 6rw-. Actions `spec`, `verify`, `heal`, `evolve` are out of ONT-40 (`INVALID_ACTION`). | `{status, root, nodes, edges, gaps_open, codep, own_gaps, persisted}` (terse < 300 tokens) | Never executes target code statically; probes are fail-open (timeout is an observation, not a gap). |
 
 #### Domain 6: Automation via Orchestration — Pico-Playbooks (1 Tool)
 
@@ -376,7 +377,7 @@ Under Milestone ONT-34, AEP establishes a clean architectural boundary between *
 
 ### Lifecycle and Skill Chaining
 
-The following diagram illustrates how an autonomous agent deterministically chains AEP's 16 tools across a complete execution cycle, integrating self-discovery, topological auditing, artifact synthesis, volatile RAM execution, async parallel queues, and proactive self-healing:
+The following diagram illustrates how an autonomous agent deterministically chains AEP's 17 tools across a complete execution cycle, integrating self-discovery, topological auditing, artifact synthesis, volatile RAM execution, async parallel queues, and proactive self-healing:
 
 ```mermaid
 flowchart TD
@@ -780,16 +781,16 @@ flowchart TD
      - Deterministic 32-bit IPv4 hex decoding (`socket.inet_ntoa` with little-endian struct packing) and socket inode-to-PID correlation.
      - Pure in-memory packet header dissection via big-endian `struct.unpack` (`!6s6sH`, `!BBHHHBBH4s4s`, `!HHIIBBHHH`) for Ethernet, IPv4, TCP, UDP, and ARP frames, plus `/dev/shm` volatile PCAP buffer decoding without external packet decoders.
   4. **Self-Describing Schema Reflection & Precondition Contracts**:
-     - `discover(action="schema")`: Introspectively extracts typed parameter signatures, types, defaults, docstrings, and execution scope (`DIMINISHED`/`FULL`) across all 16 FastMCP tools, with in-RAM session caching (`_shared_session_cache`).
+     - `discover(action="schema")`: Introspectively extracts typed parameter signatures, types, defaults, docstrings, and execution scope (`DIMINISHED`/`FULL`) across all 17 FastMCP tools, with in-RAM session caching (`_shared_session_cache`).
      - `CONTROL_PLANE_SCHEMA` in `engine/privilege.py`: Enforces explicit execution preconditions (`privilege_tier`, `required_fs`, `fail_soft_behavior`, `deterministic`) across all control plane actions.
   5. **Deterministic Netfilter Hardening & Perimeter Defense (`aep_ctl domain="security"`)**:
      - Deterministic, idempotent host firewall and netfilter mitigation (`aep_ctl security threat_mitigate <ip>`), ruleset auditing (`nftables_inspect`), and firewall status checks (`firewall_status`).
      - Fail-soft execution: In unprivileged (`DIMINISHED`) environments, generates structured `SIMULATED` drop contracts without throwing exceptions or interrupting autonomous agent workflows.
   6. **Semantic Sanitization & Pure Single-Plane Integration**:
      - Purged all legacy trigger keywords (*kali, pentest, exploit, offensive*) across documentation, schemas, and docstrings in favor of clean systems engineering nomenclature (*Network Telemetry*, *Security Observability*, *Netfilter Hardening*).
-     - Decoupled Antigravity global configuration (`~/.gemini/config/mcp_config.json`) by removing containerized satellites, running 100% of telemetry through the native 16 FastMCP tools.
-- **Strict FastMCP 16-Tool Invariant Preservation**:
-  - Exactly 16 tools registered on the primary AEP host server (`server.py`). All network probing, kernel socket analysis, and perimeter security capabilities are seamlessly absorbed into `aep_ctl(domain="network")`, `aep_ctl(domain="security")`, and `kernel_trace(mode="network_sniff")`.
+     - Decoupled Antigravity global configuration (`~/.gemini/config/mcp_config.json`) by removing containerized satellites, running 100% of telemetry through the native 16 FastMCP tools. (histórico)
+- **Strict FastMCP 16-Tool Invariant Preservation**: (histórico)
+  - Exactly 16 tools registered on the primary AEP host server (`server.py`). All network probing, kernel socket analysis, and perimeter security capabilities are seamlessly absorbed into `aep_ctl(domain="network")`, `aep_ctl(domain="security")`, and `kernel_trace(mode="network_sniff")`. (histórico)
 
 ---
 
@@ -843,7 +844,7 @@ flowchart TD
 AEP establishes a **4-tier Unix chmod octal model** (`7rwx`, `6rw-`, `5r-x`, `4r--`) paired with a
 non-blocking predictive prober (`sudo -n true` with `<=3s` timeout and process-level caching via `_PrivilegeCache`).
 This architecture completely eliminates interactive password prompt hangs on `stdin` while guaranteeing
-graceful fail-soft degradation across all **16 FastMCP tools** and **9 `aep_ctl` control-plane domains**.
+graceful fail-soft degradation across all **17 FastMCP tools** and **9 `aep_ctl` control-plane domains**.
 
 ```mermaid
 flowchart TD
@@ -896,13 +897,14 @@ To eliminate headless process hangs, `scripts/setup.sh` and `engine/privilege.py
   ./scripts/setup.sh --predict
   ```
 
-### 9.3 FastMCP 16 Polymorphic Tools Graceful Degradation Matrix
+### 9.3 FastMCP 17 Polymorphic Tools Graceful Degradation Matrix
 
-Every tool in the canonical FastMCP suite (`len(_tools) == 16`) adapts its behavior deterministically to the detected tier, returning structured fail-soft responses rather than throwing unhandled exceptions:
+Every tool in the canonical FastMCP suite (`len(_tools) == 17`) adapts its behavior deterministically to the detected tier, returning structured fail-soft responses rather than throwing unhandled exceptions:
 
 | Tool Name | Tier `7rwx` (Root / Full Sudo) | Tier `6rw-` (User RW / Standard) | Tier `5r-x` (Restricted / RO-Exec) | Tier `4r--` (Auditor / RO-Observer) |
 | :--- | :--- | :--- | :--- | :--- |
 | `topos_audit_dag` | Full graph audit & resource hazard check | Full graph audit & resource hazard check | Full graph audit & resource hazard check | Full graph audit (pure in-RAM verification) |
+| `autoevol` | Graph + generation persistence (probes opt-in) | Graph + persistence | Read-only graph, no persistence (probes opt-in) | Read-only graph, no persistence, no probes |
 | `discover` | Full capability & schema reflection (`7rwx`) | Full capability & schema reflection (`6rw-`) | Reflects `5r-x` tier & read-only tools | Reflects `4r--` tier & auditor mode |
 | `artifact_catalog` | Full RW indexing, query, and pruning | Full RW indexing, query, and safe GC | Read-only query & template browse | Read-only query (metadata inspection only) |
 | `artifact_lint_and_build` | Full build, hydrate, vet, & compile in RAM | User-space compile in `/dev/shm` / tmpfs | Template inspection & syntax linting | Template inspection (build disabled) |
@@ -1110,7 +1112,7 @@ flowchart TD
     PROV --> P1["Pueue Daemon Musl Auto-download<br/>(~/.local/bin/pueue, pueued -d)"]
     PROV --> S1["Omarchy Skills Hub Symlinks<br/>(Claude · Gemini · Codex)"]
     PROV --> S2["Git Pre-commit Hook Tracked<br/>(core.hooksPath=scripts/hooks)"]
-    PROV --> S3["aep-sync.sh Auto-Plug & Hot Reload<br/>(FastMCP 16 tools, Connect-RPC RefreshMcpServers)"]
+    PROV --> S3["aep-sync.sh Auto-Plug & Hot Reload<br/>(FastMCP 17 tools, Connect-RPC RefreshMcpServers)"]
 ```
 
 ### 12.3 Python 3.14 Production LTS Baseline
@@ -1126,7 +1128,7 @@ flowchart TD
 
 ```
 agent-execution-plane/
-├── server.py                       # FastMCP server (16 RPC tools, 19 capabilities)
+├── server.py                       # FastMCP server (17 RPC tools, 19 capabilities)
 ├── engine/
 │   ├── db.py                       # Hot SQLite WAL connections, BEGIN IMMEDIATE, anti-deadlock
 │   ├── backup.py                   # Hot streaming backup engine, 5 FIFO slots, auto-recovery & quarantine
@@ -1214,10 +1216,11 @@ agent-execution-plane/
 | Pico-Kanban (Scoring) | ✅ Operational | Abstract board in `artifacts.db`; promotes artifacts to `reusable` by multidimensional score |
 | Pico-Playbooks (Automation) | ✅ Operational | Orchestrates tools/artifacts into Topos-validated DAGs; E2E execution and confidence scoring |
 | Catalog Discovery | ✅ Operational | `artifact_catalog`: confidence browsing + semantic top-K |
-| Omarchy & IPC (8 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `security` with `firewall_status`, `nftables_inspect`, `threat_mitigate`, `ipc`, `audit usage`, and `workspace_snapshot`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool, batch projection, cross-agent discovery caching, Chrysalis bridge stabilization, FastMCP dynamic schema evolution (`tools.listChanged = True`), multi-harness process observability, and DX runner polish (109/109 tests passing in AEP, 100% pass rate) |
-| Network & Security Telemetry (ONT-32) | ✅ Operational | Pure in-RAM network probing, /proc/net kernel introspection, packet header dissection, netfilter hardening, dynamic schema reflection, container decoupling, and 15-tool invariant strictly preserved |
+| Omarchy & IPC (8 specs) | ✅ Operational | `aep_ctl` (9 domains incl. `security` with `firewall_status`, `nftables_inspect`, `threat_mitigate`, `ipc`, `audit usage`, and `workspace_snapshot`), crash routing, skills hub, man-pages, headless Playwright display, `/dev/shm/aep.sock` + 16-slot RAM pool, batch projection, cross-agent discovery caching, Chrysalis bridge stabilization, FastMCP dynamic schema evolution (`tools.listChanged = True`), multi-harness process observability, and DX runner polish (109/109 tests passing in AEP, 100% pass rate) | <!-- aep:hist -->
+| Network & Security Telemetry (ONT-32) | ✅ Operational | Pure in-RAM network probing, /proc/net kernel introspection, packet header dissection, netfilter hardening, dynamic schema reflection, container decoupling, and 15-tool invariant strictly preserved | <!-- aep:hist -->
 | 4-Tier Privilege & Degradation (ONT-33) | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (19 capabilities), 4-tier chmod octal matrix (`7rwx`/`6rw-`/`5r-x`/`4r--`), zero-sudo-hang probing |
-| Default Primitives & Factory Decoupling (ONT-34) | ✅ Operational | FastMCP Tool #16 (`default_primitives`), pure in-RAM system probes, template scaffolding preservation, 16 tools / 19 capabilities invariant certified (123/123 tests passing) |
+| Default Primitives & Factory Decoupling (ONT-34) | ✅ Operational | FastMCP Tool #16 (`default_primitives`), pure in-RAM system probes, template scaffolding preservation, 16 tools / 19 capabilities invariant certified (123/123 tests passing) | <!-- aep:hist -->
+| Thread Graph `autoevol` (ONT-40) | ✅ Operational | FastMCP Tool #17 (`autoevol`): Merkle R over SCC condensation, omission gaps, drift, PageRank, `impacted_tests`, opt-in probes, tier-gated `threads_gen` persistence; 17 tools / 19 capabilities |
 | Version Stamp Integrity & Multi-Harness Sync (ONT-35) | ✅ Operational | Runtime commit freeze (`loaded_commit` vs `repo_head` drift detection), non-destructive multi-harness sync audit (`aep-sync.sh --audit`), and sandbox ergonomics (133/133 tests passing) |
 | Hardware Admission & Apport Alerts (ONT-36) | ✅ Operational | Hardware control plane domain (`inventory`, `accelerators`, `admit` with 4096 MiB desktop safety margin, GAP-CP-05), Apport crash alerts sync (`artifacts.db` deduplication, GAP-OM-20), single-encoding flat telemetry (143/143 tests passing) |
 | UMA Admission & Pytest Anti-Masking (ONT-37) | ✅ Operational | UMA auto-routing to GTT (`vram_total <= 2048` and `gtt_total > 2 * vram_total`, GAP-DX-06), leaf defensive routing for numeric device parameters, Apport RFC822 streaming forensics with 64 KiB cap & POSIX signal mapping (`SIGABRT`, GAP-OM-21), sandbox pytest anti-masking (`exit_code_masked=True`), extended metrics (`deselected`, `xfailed`, `xpassed`, `coverage`), and `stdout_tail` line deduplication (153/153 tests passing, 100% pass rate) |

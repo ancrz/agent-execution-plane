@@ -30,7 +30,7 @@ from engine.telemetry import RequestTelemetry, attach_envelope
 from engine.topos_guard import ToposGuard, ToposVerdict
 
 # ==============================================================================
-# Gate 1 & 2: FastMCP 16 Tools & Single-Encoding Invariant (GAP-OM-19)
+# Gate 1 & 2: FastMCP 17 Tools & Single-Encoding Invariant (GAP-OM-19)
 # ==============================================================================
 
 

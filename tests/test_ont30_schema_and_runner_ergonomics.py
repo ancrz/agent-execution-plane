@@ -25,7 +25,7 @@ import server
 from engine.topos_guard import ToposVerdict
 
 # ==============================================================================
-# Gate 1: FastMCP 16 Tools Invariant
+# Gate 1: FastMCP 17 Tools Invariant
 # ==============================================================================
 
 
