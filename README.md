@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-153%2F153_Passed_(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-477_Passed_%2B_6_xfail_(D--01..D--05)-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1032,7 +1032,7 @@ flowchart TD
 >
 > Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
-### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40)
+### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41)
 
 Each intent is linked to its milestones and to the agent responsible for each one. Status is updated at every pipeline activation. Source of truth: `docs/MILESTONES.md`.
 
@@ -1057,6 +1057,18 @@ flowchart LR
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
+
+**ONT-41 autoevol write-path & self-healing N0-N3 (IMPLEMENTED in dev; Dokimos verification pending):**
+
+```mermaid
+flowchart LR
+    I["Intent: autoevol spec/verify/fix_test/heal + LKG self-healing (ONT-41)"] --> M1["M1: planned (Archon / Ontos APPROVED, cycle 2) ✅"]
+    M1 --> M2["M2: implemented A, B1, C1, C2 (Pragma, worktrees) ✅"]
+    M2 --> M3["M3: verified (Dokimos) pending"]
+    M3 --> M4["M4: documented (Graphos/orchestrator) ✅"]
+    M4 --> M5["M5: pushed to origin/dev (Hermon) pending"]
+```
+
 
 [↑ Back to top](#top)
 

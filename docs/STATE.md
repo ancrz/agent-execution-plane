@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-11-06 · Servidor MCP: **17 tools** (ONT-40) · Rama: `dev` · ONT-39 Live Plane hot-swap: **VERIFIED** (ONT-39b hardening D-18..D-21: **VERIFIED**, commiteado en dev) · ONT-40 `autoevol`: **VERIFIED** (commiteado y empujado a origin/dev) · ONT-40b: **commiteado** (`a61b3f1`) · ONT-41 `autoevol` spec/verify/heal + LKG: **EN PLAN Full, ciclo 2 tejido, pendiente de re-auditoría de Ontos** · Histórico 2026-10-24: Hardening & Secret Masking **COMPLETO**, Tarea 110 **PROMOTED (0.9958 TRUST)**
+> Fecha: 2026-11-06 · Servidor MCP: **17 tools / 19 capacidades** · Rama: `dev` (`e8f13b8`, 18 commits por delante de `origin/dev`; push retenido hasta el VERIFIED de Dokimos) · ONT-39 Live Plane: **VERIFIED** · ONT-40 `autoevol`: **VERIFIED** · ONT-41 `autoevol` spec/verify/fix_test/heal + LKG + self-healing N0-N3: **IMPLEMENTADO en dev** (477 passed / 6 xfailed, ruff limpio, gaps 103, own_gaps 0; dogfooding en vivo de spec/heal/verify OK); **verificación de Dokimos pendiente** (cortada por el límite de la API) · Siguiente: Dokimos -> G2 -> Hermon (push) -> reconexión `/mcp` (front de C1; rollback con el tag `pre-ont41-front`) -> L3 (D-01..D-05) -> ONT-42
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -58,7 +58,7 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 
 ## Pendientes
 
-- **ONT-41 `autoevol` spec / verify / heal + LKG + self-heal del plano (EN PLAN Full, ciclo 2 tejido, pendiente de re-auditoría de Ontos):** plan: `docs/pipeline/feature_20261106_080856_ont41_autoevol_heal.md` (T0 spike; Fase A `threads_spec`/`threads_verify`/cobertura; Fase B1 `aep_lkg.py`/`threads_heal`; Fase C front N0/N1/N2 + barrera + spool, meta, aep_ctl, crash_router, aep-sync audit, autoevol; TD1 gate + dogfooding). Sin SDD en esta entrada de G1: Ontos debe exigir la referencia. Pendiente: re-auditoría de Ontos del plan ciclo 2 (§15 del `feature_...ont41_autoevol_heal.md`; ciclo 2 de 3); después ONT-42 (`evolve`, auto-commit gateado).
+- **ONT-41 (IMPLEMENTADO, pendiente de Dokimos):** fases A (cobertura direct/transitive, `threads_spec`, `threads_verify` + ciclo, `threads_events`), B1 (`aep_lkg.py`, `threads_heal`), C1 (anclajes `REPO_ROOT`/`AEP_REPO_ROOT`, front N0-N2 + barrera `_barrier` + spool `plane_events_<uid>.jsonl` + `/dev/shm/aep_front_<pid>.json`, meta) y C2 (`aep_ctl backup lkg_*`, `crash_events.source`, acciones de autoevol, `--audit` D-24, docs y scripts). Commits `ebed65c..e8f13b8`. Plan: `docs/pipeline/feature_20261106_080856_ont41_autoevol_heal.md` §15/§16. Riesgos: playbook en 2990/3000; runners reales sin probar en integración.
 - **Roadmap Completo (33 → 15 tools MCP), Endurecimiento Post-Consolidación y Optimización Híbrida de Persistencia SQLite (mmap 256MB / 64MB cache): 100% CERRADOS y VERIFICADOS por Dokimos across Gates 1 to 5.**
 - **Línea base final: 15 herramientas FastMCP cubriendo 16 capacidades (1:1 parity), consultas vectoriales a velocidad de RAM con persistencia total en disco para colaboración multiagente, enmascaramiento de secretos activo. Tarea 110 PROMOTED (0.9958 TRUST).**
 - Listo para Stage 6 (Hermon: commit atómico convencional y release).
