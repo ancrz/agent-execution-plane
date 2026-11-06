@@ -281,5 +281,5 @@ def test_gate8_playbook_tactical_recipes_discoverability() -> None:
     roe = d.get("rules_of_engagement", [])
     assert any("TACTICAL SANDBOX RECIPES (ONT-30)" in rule for rule in roe)
 
-    # Verify instructions reference WF-1..WF-9
-    assert "WF-1..WF-9" in server._INSTRUCTIONS
+    # Verify instructions reference WF-1..WF-11
+    assert "WF-1..WF-11" in server._INSTRUCTIONS

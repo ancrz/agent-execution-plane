@@ -88,7 +88,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
-2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-9`, `WF-10..WF-11`) and canonical calls.
+2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-11`) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
 ## 2. Complete 16-Tool Suite Map (6 Operational Domains)
@@ -416,7 +416,7 @@ async def discover(
         - 'discover' (default; alias: 'match', 'route', 'search', 'recommend'): enruta `use_case` (o `intent`/`query`) -> capacidad sugerida + llamada canónica.
         - 'capabilities': devuelve el manifiesto estilo chmod/777 (r=sensar, w=actuar, x=ejecutar), prerrequisitos reales instalados y llamadas canónicas.
         - 'playbook' (o 'tactical_guide'): entrega recetas multi-paso, reglas de ahorro de tokens y referencia rápida de ingeniería de sistemas.
-    - 'schema': reflexión introspectiva de esquemas, parámetros, tipos y condiciones previas para las 15 herramientas FastMCP.
+    - 'schema': reflexión introspectiva de esquemas, parámetros, tipos y condiciones previas para las herramientas FastMCP.
       Parámetros de eficiencia de tokens (Spec OM-7 / Cloudflare Premise):
         - `session_id` / `sid`: espacio de sesión compartido en RAM para reutilizar manifiestos entre agentes.
         - `store_as`: almacena el resultado bajo una clave nombrada en el SessionPool para piping en RAM ($cache.<store_as>).
@@ -597,11 +597,14 @@ async def discover(
                 if "status" not in payload:
                     payload["status"] = "OK"
 
+            tools_cnt = payload.get("tools_count") or len(mcp._tool_manager._tools)
+            domains_list = payload.get("control_plane_domains")
+            domains_cnt = len(domains_list) if domains_list is not None else len(CONTROL_PLANE_SCHEMA)
             return attach_envelope(
                 payload,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Tools schema reflection loaded ({source}, {payload.get('tools_count', 15)} tools, {len(payload.get('control_plane_domains', []))} domains).",
+                summary=f"Tools schema reflection loaded ({source}, {tools_cnt} tools, {domains_cnt} domains).",
                 next_action="Invoke ready tool with verified schema parameters.",
             )
 
@@ -623,17 +626,21 @@ async def discover(
             if store_as and store_as.strip():
                 GLOBAL_SESSION_POOL.cache_set(eff_sid, eff_agent, store_as.strip(), pb)
 
+            wf_recipes = pb.get("workflow_recipes", [])
+            first_wf = wf_recipes[0].get("id", "WF-1") if wf_recipes else "WF-1"
+            last_wf = wf_recipes[-1].get("id", f"WF-{len(wf_recipes)}") if wf_recipes else "WF-1"
+
             if v_mode in ("terse", "cached"):
                 payload = {
                     "status": "OK",
                     "cache_status": cache_status,
                     "source": source,
                     "session_id": eff_sid,
-                    "workflow_recipes_count": len(pb.get("workflow_recipes", [])),
+                    "workflow_recipes_count": len(wf_recipes),
                     "quick_reference_count": len(pb.get("quick_reference", {})),
                     "rules_of_engagement": pb.get("rules_of_engagement", []),
                     "token_savings_pct": 95.0,
-                    "hint": "Playbook táctico ya cargado en RAM slot. Use recetas WF-1..WF-6 o force_refresh=True.",
+                    "hint": f"Playbook táctico ya cargado en RAM slot. Use recetas {first_wf}..{last_wf} o force_refresh=True.",
                 }
             else:
                 payload = dict(pb)
@@ -2902,6 +2909,9 @@ async def sandbox_run(
         if env and isinstance(env, dict):
             for k, v in env.items():
                 bwrap_cmd.extend(["--setenv", str(k), str(v)])
+
+        # Signal inside jail that process is running under AEP sandbox (D-16)
+        bwrap_cmd.extend(["--setenv", "AEP_IN_SANDBOX", "1"])
 
         if resolved_wd:
             bwrap_cmd.extend(["--chdir", resolved_wd])
