@@ -17,6 +17,16 @@ def isolated_swap_fence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 
 @pytest.fixture(autouse=True)
+def canonical_venv_for_autoevol(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ONT-42b B5: un worktree no tiene `.venv`; la cadena de interprete de autoevol usa el venv que ejecuta la suite."""
+    import sys
+
+    srv = sys.modules.get("server")
+    if srv is not None and sys.prefix != sys.base_prefix:
+        monkeypatch.setattr(srv, "_autoevol_canonical_venv", lambda: Path(sys.prefix))
+
+
+@pytest.fixture(autouse=True)
 def isolated_front_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """ONT-41: LKG store, front state file and plane_events spool live under tmp (never ~/.local or /dev/shm)."""
     base = tmp_path / "front_state"

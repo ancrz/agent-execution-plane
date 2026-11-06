@@ -54,6 +54,7 @@ RELOAD_BLOCKED = "RELOAD_BLOCKED"
 RELOAD_PENDING = "RELOAD_PENDING"
 SERVING_LKG = "SERVING_LKG"
 SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
+WRONG_TREE = "WRONG_TREE"
 BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
 NO_TESTS_EXECUTED = "NO_TESTS_EXECUTED"
 ENV_RETRIES_EXHAUSTED = "ENV_RETRIES_EXHAUSTED"
@@ -64,6 +65,7 @@ REJECT_REASONS: tuple[str, ...] = (
     RELOAD_BLOCKED,
     RELOAD_PENDING,
     SANDBOX_UNAVAILABLE,
+    WRONG_TREE,
     NEW_GAPS,
     CODEP,
     NO_PROGRESS,
@@ -79,6 +81,7 @@ TESTS_PER_ITERATION = 20
 SYNC_MAX_SECONDS = 60.0
 EST_SECONDS_PER_TEST = 2.5  # spike T0: 42 s para 19 tests dentro de bwrap
 MAX_ITERATIONS = 3
+MAX_WRONG_TREE_STREAK = 2  # WRONG_TREE consecutivos que cierran el ciclo (determinista, no transitorio)
 MAX_ENV_RETRIES = 10  # rechazos ambientales por ciclo antes de cerrarlo (no consumen iteracion)
 LOCK_SECONDS = 600.0
 CYCLE_TTL_SECONDS = 3600.0
@@ -227,6 +230,8 @@ def _tests_reasons(
         return [], False
     if str(tests.get("status", "")).upper() == PENDING:
         return [], True
+    if tests.get("wrong_tree"):
+        return [WRONG_TREE], False
     if tests.get("available") is False or (tests.get("unsandboxed") and not trusted):
         return [SANDBOX_UNAVAILABLE], False
     failed = int(tests.get("failed", 0) or 0) + int(tests.get("errors", 0) or 0)
@@ -560,11 +565,15 @@ class CycleStore:
             return {"count": 0, "exhausted": False}
         count = int(rec.get("env_retries", 0)) + 1
         rec["env_retries"] = count  # `updated` no se refresca: el TTL de 1 h sigue acotando el ciclo
-        exhausted = count > MAX_ENV_RETRIES
+        streak = int(rec.get("wrong_tree_streak", 0)) + 1 if WRONG_TREE in reasons else 0
+        rec["wrong_tree_streak"] = streak
+        wrong_tree_dead = streak >= MAX_WRONG_TREE_STREAK
+        exhausted = count > MAX_ENV_RETRIES or wrong_tree_dead
+        final_reasons = [WRONG_TREE] if wrong_tree_dead else [ENV_RETRIES_EXHAUSTED]
         if exhausted:
             rec["state"] = EXHAUSTED
             rec["history"].append(
-                {"it": rec["iteration"], "verdict": REJECT, "reasons": [ENV_RETRIES_EXHAUSTED, *reasons][:LIST_CAP], "ts": self._clock()}
+                {"it": rec["iteration"], "verdict": REJECT, "reasons": [*final_reasons, *reasons][:LIST_CAP], "ts": self._clock()}
             )
         with self._GUARD, ev.state_dir(self._dir) as dfd:
             self._put(dfd, cycle_file_name(self._uid, cycle_id), rec)
@@ -576,12 +585,12 @@ class CycleStore:
                     "gap": rec["gap"],
                     "state": EXHAUSTED,
                     "iterations": rec["iteration"],
-                    "reasons": [ENV_RETRIES_EXHAUSTED],
+                    "reasons": final_reasons,
                 },
                 base_dir=self._dir,
                 clock=self._clock,
             )
-        return {"count": count, "exhausted": exhausted}
+        return {"count": count, "exhausted": exhausted, **({"reasons": final_reasons} if exhausted else {})}
 
     def record(self, cycle_id: str, decision: dict[str, Any]) -> dict[str, Any]:
         """Aplica un veredicto de `decide`/`verify_change`. EXHAUSTED/ACCEPTED son terminales y se anotan en el JSONL."""
@@ -597,6 +606,7 @@ class CycleStore:
         verdict = str(decision.get("verdict", REJECT))
         now = self._clock()
         state, iteration = next_state(rec["state"], verdict, rec["iteration"], max_iterations=rec["max_iterations"])
+        rec["wrong_tree_streak"] = 0  # una decision no ambiental corta la racha de WRONG_TREE
         rec["history"].append(
             {"it": iteration, "verdict": verdict, "reasons": list(decision.get("reasons", []))[:LIST_CAP], "ts": now}
         )

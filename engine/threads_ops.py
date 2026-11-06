@@ -35,7 +35,7 @@ TERSE_BUDGET = 350
 SUMMARY_BUDGET = 1500
 ENVELOPE_RESERVE = 130
 ENVIRONMENTAL: frozenset[str] = frozenset(
-    {tv.SERVING_LKG, tv.RELOAD_PENDING, tv.BASE_UNAVAILABLE, tv.SANDBOX_UNAVAILABLE}
+    {tv.SERVING_LKG, tv.RELOAD_PENDING, tv.BASE_UNAVAILABLE, tv.SANDBOX_UNAVAILABLE, tv.WRONG_TREE}
 )
 _SHRINK_ORDER = ("detail", "warnings", "diff", "threads", "files", "reasons")
 HEAL_SUGGESTION = 'autoevol(action="heal")'
@@ -257,7 +257,7 @@ def run_fix_test(
         env = store.note_environmental(cycle, sorted(reasons))
         if env.get("exhausted"):
             out = _verdict_payload(
-                {"verdict": tv.REJECT, "reasons": [tv.ENV_RETRIES_EXHAUSTED]},
+                {"verdict": tv.REJECT, "reasons": env.get("reasons") or [tv.ENV_RETRIES_EXHAUSTED]},
                 {"cycle": cycle, "state": tv.EXHAUSTED, "consumed": False, "env_retries": env["count"]},
             )
             return fit(out, budget)

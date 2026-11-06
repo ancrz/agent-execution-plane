@@ -5156,10 +5156,63 @@ _PUEUE_TERMINAL_RE = re.compile(r'"(?:Done|Failed)"\s*:|"status"\s*:\s*"(?:Done|
 _AUTOEVOL_ENV_EXIT_CODES = (126, 127)  # no ejecutable / no encontrado: fallo de entorno, no de logica
 
 
-def _autoevol_pytest_cmd(tree: Path, tests: list[str]) -> str:
-    """Comando pytest con TODOS los tests dados (sin truncar). El troceo N<=20 lo decide `plan_tests` aguas arriba."""
-    py = ".venv/bin/python" if (tree / ".venv" / "bin" / "python").exists() else "python3"
-    return shlex.join([py, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests])
+_AUTOEVOL_WRONG_TREE_EXIT = 97  # centinela: `engine` no resuelve bajo el arbol auditado
+# Centinela y pytest en el MISMO proceso bwrap (cwd=tree, mismo env). argv[1]=arbol auditado, argv[2:]=args de pytest.
+_AUTOEVOL_SENTINEL = (
+    "import sys, pathlib\n"
+    "tree = pathlib.Path(sys.argv[1]).resolve()\n"
+    "try:\n"
+    "    import engine\n"
+    "    ok = pathlib.Path(engine.__file__).resolve().is_relative_to(tree)\n"
+    "except Exception:\n"
+    "    ok = False\n"
+    "if not ok:\n"
+    f"    sys.exit({_AUTOEVOL_WRONG_TREE_EXIT})\n"
+    "import pytest\n"
+    "sys.exit(pytest.main(sys.argv[2:]))\n"
+)
+
+
+def _autoevol_canonical_venv() -> Path:
+    return REPO_ROOT / ".venv"
+
+
+def _autoevol_interpreter(tree: Path) -> dict[str, Any] | None:
+    """Cadena de interprete: tree/.venv -> REPO_ROOT/.venv -> None (SANDBOX_UNAVAILABLE, fail-closed).
+
+    `tree/.venv` de un worktree es codigo NO confiable: se ejecuta, pero solo dentro de bwrap (ro, sin red). El venv
+    canonico se monta como ro-bind explicito junto con la raiz base del interprete (uv); NUNCA REPO_ROOT, que expondria
+    `.git`, el `engine` canonico y secretos al codigo no confiable (condicion 3).
+    """
+    tree = tree.resolve()
+    for cand in (tree / ".venv", _autoevol_canonical_venv()):
+        try:
+            venv = cand.resolve()
+            py = venv / "bin" / "python"
+            real = py.resolve()
+            if not (py.exists() and real.is_file()):
+                continue
+            # raiz base del interprete resuelto (p. ej. ~/.local/share/uv/python): mismo criterio que sandbox_run.
+            base_root = real.parents[2] if len(real.parents) >= 3 else real.parents[1]
+        except (OSError, RuntimeError, IndexError):
+            continue
+        if not base_root.exists():
+            continue
+        ro = list(dict.fromkeys(str(p) for p in (tree, venv, base_root)))
+        return {"python": str(py), "ro_paths": ro}
+    return None
+
+
+def _autoevol_pytest_cmd(tree: Path, tests: list[str], interp: dict[str, Any] | None = None) -> str:
+    """Comando pytest con TODOS los tests dados (sin truncar). El troceo N<=20 lo decide `plan_tests` aguas arriba.
+
+    Un solo proceso: el centinela WRONG_TREE precede a pytest. Sin interprete utilizable falla (LookupError).
+    """
+    interp = interp or _autoevol_interpreter(tree)
+    if interp is None:
+        raise LookupError("no interpreter for autoevol tests")
+    argv = [interp["python"], "-c", _AUTOEVOL_SENTINEL, str(tree.resolve()), "-q", "-p", "no:cacheprovider", *tests]
+    return shlex.join(argv)
 
 
 def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
@@ -5180,15 +5233,18 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
     """run_tests inyectado: sandbox_run(parse='pytest', N<=20, timeout 120). bwrap caido: plano solo en el arbol propio."""
 
     def run(tests: list[str]) -> dict[str, Any]:
-        cmd = _autoevol_pytest_cmd(tree, tests)
+        interp = _autoevol_interpreter(tree)
+        if interp is None:
+            return {"available": False}
+        cmd = _autoevol_pytest_cmd(tree, tests, interp)
 
         async def _call() -> str:
             return await sandbox_run(
                 command=cmd,
                 parse="pytest",
                 working_dir=str(tree),
-                ro_paths=[str(tree)],
-                env={"PYTHONDONTWRITEBYTECODE": "1"},
+                ro_paths=interp["ro_paths"],
+                env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(tree.resolve())},
                 timeout=_AUTOEVOL_TEST_TIMEOUT_S,
                 verbosity="detail",
             )
@@ -5197,6 +5253,8 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
         if res.get("status") == "ERROR" and "timed out" in str(res.get("error", "")).lower():
             return {"timeout": True, "failed": 0, "errors": 0}
         exit_code = res.get("exit_code")
+        if exit_code == _AUTOEVOL_WRONG_TREE_EXIT:  # C4: antes de 126/127/sin-resumen (serian SANDBOX_UNAVAILABLE)
+            return {"wrong_tree": True}
         counts = _pytest_counts(res.get("parsed"))
         if "bwrap:" in str(res.get("stderr", "")) + str(res.get("stderr_tail", "")):
             return _autoevol_plain_pytest(tree, cmd) if trusted else {"available": False}
@@ -5225,6 +5283,8 @@ def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
         return {"timeout": True, "failed": 0, "errors": 0, "unsandboxed": True}
     except OSError:
         return {"available": False}
+    if proc.returncode == _AUTOEVOL_WRONG_TREE_EXIT:
+        return {"wrong_tree": True}
     if proc.returncode in _AUTOEVOL_ENV_EXIT_CODES:
         return {"available": False}
     counts = _pytest_counts(_parse_pytest_output(proc.stdout + "\n" + proc.stderr))
@@ -5245,11 +5305,14 @@ def _autoevol_dispatcher(tree: Path, trusted: bool) -> Any:
     def dispatch(tests: list[str]) -> dict[str, Any]:
         if not trusted:
             return {"job": None, "available": False}
+        interp = _autoevol_interpreter(tree)
+        if interp is None:
+            return {"job": None, "available": False}
 
         async def _call() -> str:
             return await async_job_dispatch(
                 action="dispatch",
-                command=f"timeout {_AUTOEVOL_JOB_TIMEOUT_S} {_autoevol_pytest_cmd(tree, tests)}",
+                command=f"timeout {_AUTOEVOL_JOB_TIMEOUT_S} {_autoevol_pytest_cmd(tree, tests, interp)}",
                 label="autoevol-verify",
                 working_dir=str(tree),
                 verbosity="summary",
