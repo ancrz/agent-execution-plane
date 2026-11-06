@@ -1034,16 +1034,15 @@ flowchart LR
     M4 --> M5["M5: committed (Hermon, ONT-39b `3515a22`) ✅"]
 ```
 
-**ONT-40 autoevol thread graph (EN PLAN, Full):**
+**ONT-40 autoevol thread graph (VERIFIED; committed in dev):**
 
 ```mermaid
 flowchart LR
-    I["Intent: autoevol thread graph (ONT-40)"] --> M1["M1: planned (Archon) and documented (Graphos G1) ✅"]
-    M1 --> M2["M2: audited (Ontos) pending"]
-    M2 --> M3["M3: implemented Phase A, T0-T12 (Pragma)"]
-    M3 --> M4["M4: integrated Phase B, T13-T15, under fence (Pragma)"]
-    M4 --> M5["M5: verified, acceptance T16-T17 (Dokimos)"]
-    M5 --> M6["M6: documented and committed (Graphos G2, Hermon)"]
+    I["Intent: autoevol thread graph (ONT-40)"] --> M1["M1: planned (Archon / Ontos APPROVED, cycle 2) ✅"]
+    M1 --> M2["M2: implemented (Pragma, T0-T18, commits 68e0af9..90886d9) ✅"]
+    M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
+    M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
+    M4 --> M5["M5: committed (Hermon) ✅"]
 ```
 
 [↑ Back to top](#top)

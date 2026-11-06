@@ -106,7 +106,7 @@ flowchart LR
     M98 --> M99["M99: Milestone ONT-38 README.md SSoT Drift Mitigation & Complete 16-Tool/9-Domain Synchronization (VERIFIED 153/153 Tests) ✅"]
     M99 --> M100["M100: Milestone ONT-39 Live Plane Hot-Swap, dual-process front/backend (VERIFIED L1 175 passed, fix cycle 179 passed) ✅"]
     M100 --> M101["M101: Milestone ONT-39b Integrity Hardening D-18..D-21 (sticky error, anti-storm, quiescence and fence, fallback fingerprint) (VERIFIED 198 passed, 6 xfailed) ✅"]
-    M101 --> M102["M102: Milestone ONT-40 autoevol Thread Graph, read-only (EN PLAN, Full: plan woven by Graphos G1, pending Ontos audit; not implemented)"]
+    M101 --> M102["M102: Milestone ONT-40 autoevol Thread Graph, read-only, tool 17 (VERIFIED 261 passed, 6 xfailed; ONT-40b commiteado en dev) ✅"]
 ```
 
 ## 2. Milestone Matrix
@@ -152,7 +152,7 @@ flowchart LR
 | **Hardware Admission & Apport Alerts (ONT-36)** | Hardware domain in aep_ctl (inventory, accelerators, admit with 4096 MiB desktop safety margin, GAP-CP-05); Apport crash alerts sync in artifacts.db with status OK and deduplication fingerprint, plus envelope deduplication & t stub (GAP-OM-20); strict 16-tool FastMCP invariant. | Archon, Graphos, Ontos, Pragma, Dokimos, Hermon | `engine/hardware.py`, `engine/privilege.py`, `engine/crash_router.py`, `engine/telemetry.py`, `scripts/aep-ctl`, `server.py`, `tests/test_hardware_and_apport_alerts.py` | **VERIFIED & COMPLETED (10/10 Gates Passed, 143/143 Suite Passed) ✅** |
 | **UMA Admission, Apport RFC822 & Pytest Anti-Masking (ONT-37)** | UMA-aware hardware admission in `engine/hardware.py` (auto-route to GTT, named params, actionable rejection, GAP-DX-06); Apport RFC822 streaming forensics in `engine/crash_router.py` (64 KiB cap, POSIX signal mapping, GAP-OM-21); `sandbox_run(parse="pytest")` extended metrics (`deselected`, `xfailed`, `xpassed`, `coverage`), anti-masking failure check & brief `stdout_tail` deduplication (GAP-DX-07); FastMCP 16-tool invariant preservation. | Archon, Graphos, Ontos, Pragma, Dokimos, Hermon | `engine/hardware.py`, `engine/privilege.py`, `engine/crash_router.py`, `server.py`, `scripts/aep-ctl`, `tests/test_uma_admission_apport_and_pytest_parsing.py` | **VERIFIED & COMPLETED (10/10 Gates Passed, 153/153 Suite Passed) ✅** |
 | **Live Plane Hot-Swap (ONT-39 / ONT-39b)** | Permanent MCP front with fail-safe backend hot-swap (`aep_front.py`, `aep_backend.py`, `engine/fingerprint.py`); integrity hardening D-18 (non-sticky reload error), D-19 (deterministic/transient classification, backoff), D-20 (quiescence and `.aep_swap_fence`), D-21 (self-contained front fingerprint), per-front logs. | Orchestrator, Pragma, Dokimos, Graphos | `aep_front.py`, `aep_backend.py`, `engine/fingerprint.py`, `server.py`, `engine/privilege.py`, `tests/test_live_plane_integrity.py` | **VERIFIED (ONT-39b: 198 passed, 6 xfailed) ✅; committed in dev (`d6a23d8`…`3515a22`)** |
-| **autoevol Thread Graph (ONT-40)** | Read-only thread graph with Merkle integrity and gap detection; tool 17 `autoevol` (`graph`, `gaps`, `thread`, `log`, `diff`). ONT-41 and ONT-42 follow. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/threads.py` (planned), `server.py` | **EN PLAN (Full): plan woven by Graphos G1 (`feature_20261106_011249_ont40_autoevol.md`), pending Ontos audit; not implemented** |
+| **autoevol Thread Graph (ONT-40)** | Read-only thread graph with Merkle integrity and gap detection; tool 17 `autoevol` (`graph`, `gaps`, `thread`, `log`, `diff`). ONT-41 and ONT-42 follow. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/threads*.py`, `server.py`, `aep_front.py` | **VERIFIED (Dokimos: 261 passed, 6 xfailed; Ontos ciclo 2 APPROVED). M1-M4 ✅; ONT-40b sin commit, commit pendiente (Hermon). Registro: `feature_20261106_011249_ont40_autoevol.md` §16** |
 | **README.md SSoT Drift Mitigation (ONT-38)** | README.md Baseline Drift Synchronization (Tool #16 default_primitives degradation row, 16 FastMCP tools count across all prose/diagrams, 19 capabilities, 9 control plane domains, and Section 13 directory tree completeness) | Orchestrator, Pragma, Dokimos, Graphos, Hermon | `README.md`, `docs/MILESTONES.md`, `docs/COMPACT.md` | **VERIFIED & COMPLETED (153/153 Tests, ruff clean, aep-sync clean) ✅** |
 
 ---
@@ -194,10 +194,10 @@ This section provides permanent physical context anchors to prevent hallucinatio
 
 ## 4. Master Context Anchors Directory
 
-- **FastMCP Stdio Core**: [`server.py`](../server.py) (16 polymorphic tools, strict invariant transitioning from 15 to 16 tools)
+- **FastMCP Stdio Core**: [`server.py`](../server.py) (17 polymorphic tools; invariant 16 → 17 with ONT-40)
 - **Default Diagnostic Primitives**: [`engine/primitives.py`](../engine/primitives.py) (Pure in-RAM system probes: socket-monitor, fd-rescuer, disk-usage, mem-stat, landlock-guard)
 - **Native In-Memory Network Telemetry**: [`engine/net_telemetry.py`](../engine/net_telemetry.py) (Pure stdlib TCP prober, `/proc/net` parser, packet header unpacker)
-- **Security & RBAC Guard**: [`engine/privilege.py`](../engine/privilege.py) (19 capabilities, 4-tier Unix chmod octal model: 7rwx, 6rw-, 5r-x, 4r--, graceful degradation matrix across 16 tools & 9 domains)
+- **Security & RBAC Guard**: [`engine/privilege.py`](../engine/privilege.py) (19 capabilities, 4-tier Unix chmod octal model: 7rwx, 6rw-, 5r-x, 4r--, graceful degradation matrix across 17 tools & 9 domains)
 - **Shared-Memory IPC & Batch Engine**: [`engine/ipc_pool.py`](../engine/ipc_pool.py) (`/dev/shm/aep.sock`, 16-slot session pool)
 - **Cryptographic Audit Ledger**: [`engine/security.py`](../engine/security.py) (SHA-256 chained tamper-evident audit log)
 - **ACID Database & Anti-Poisoning Backups**: [`engine/backup.py`](../engine/backup.py), [`engine/db.py`](../engine/db.py) (5-slot rotation, quarantine, volatile RAM snapshots)

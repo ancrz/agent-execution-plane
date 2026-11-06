@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-11-06 · Servidor MCP: **16 tools** (ONT-34) · Rama: `dev` · ONT-39 Live Plane hot-swap: **VERIFIED** (ONT-39b hardening D-18..D-21: **VERIFIED**, commiteado en dev) · ONT-40 `autoevol`: **EN PLAN, ciclo 2 tejido, pendiente de re-auditoría de Ontos** (sin código) · Histórico 2026-10-24: Hardening & Secret Masking **COMPLETO**, Tarea 110 **PROMOTED (0.9958 TRUST)**
+> Fecha: 2026-11-06 · Servidor MCP: **17 tools** (ONT-40) · Rama: `dev` · ONT-39 Live Plane hot-swap: **VERIFIED** (ONT-39b hardening D-18..D-21: **VERIFIED**, commiteado en dev) · ONT-40 `autoevol`: **VERIFIED** (commiteado y empujado a origin/dev) · Histórico 2026-10-24: Hardening & Secret Masking **COMPLETO**, Tarea 110 **PROMOTED (0.9958 TRUST)**
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -10,7 +10,7 @@ Agent Execution Plane (AEP): runtime **FastMCP (stdio)** *agents-for-agents* sob
 Transmuta primitivas de herramientas ofensivas en capacidades agénticas gobernadas por privilegio.
 Transparente al usuario; el entregable es **el artefacto** y que la IA **expanda su trabajo hacia
 eficiencia**. Infra: venv `~/.local/share/agent-os/venv`; DB `~/.local/share/agent-os/artifacts.db`
-(WAL, sqlite-vec); launcher + `aep-sync.sh` (auto-plug con hot-reload Connect-RPC para Antigravity y JSON-RPC para Codex con 15 tools; Claude Code desconectado por defecto con `--with-claude`) + hook pre-commit.
+(WAL, sqlite-vec); launcher + `aep-sync.sh` (auto-plug con hot-reload Connect-RPC para Antigravity y JSON-RPC para Codex con 17 tools; Claude Code desconectado por defecto con `--with-claude`) + hook pre-commit.
 
 ## Dos motores compartidos (una sola vara cada uno)
 - **`engine/ponder.py`** — CONFIANZA (multidimensional quality/reliability/experience/recency +
@@ -34,8 +34,9 @@ eficiencia**. Infra: venv `~/.local/share/agent-os/venv`; DB `~/.local/share/age
 ## Hecho (arco completo)
 
 - **ONT-39 Live Plane Hot-Swap (VERIFIED) + ONT-39b Integridad (VERIFIED):** front MCP estable (`aep_front.py`, stdio) y backend intercambiable (`aep_backend.py`, socketpair). Swap fail-safe (validate-before-promote, drenaje de llamadas en vuelo). ONT-39b cierra D-18 (error no pegajoso), D-19 (anti-tormenta con backoff 1/2/4 s), D-20 (quiescencia + `.aep_swap_fence`) y D-21 (fingerprint de fallback en el front), con logs por `front_pid`. Verificación: pytest 198 passed / 6 xfailed, ruff limpio, `aep-sync --check` OK, prueba en vivo Gen1→Gen2→Gen3. Detalle: `docs/pipeline/verification_report_20261106_ont39_live_plane.md` §7 y `docs/sdd/sdd_ont39_live_plane_hot_swap.md` §9.
+- **ONT-40 `autoevol` Thread Graph (VERIFIED) + ONT-40b (sin commit):** tool 17 `autoevol` (`graph`, `gaps`, `thread`, `log`, `diff`), grafo de hilos read-only con Merkle R sobre la condensación SCC, gaps por omisión, drift declarado vs observado, PageRank e `impacted_tests`; probes opt-in fuera de R; persistencia `threads_gen` gateada por tier. Commits `68e0af9..90886d9` en `dev`. ONT-40b corrige D-22 (fence aislado en tests), D-23 (aristas `alias_of` por AST, 23 alias, gaps 132 → 103) y H1 (probes fail-closed sin jail propio). Verificación reportada: pytest 261 passed / 6 xfailed, ruff limpio, `aep-sync --check` OK. Registro: `docs/pipeline/feature_20261106_011249_ont40_autoevol.md` §16.
 sqlite-vec (memoria híbrida) · 5 specs Omarchy (aep_ctl, crash routing, skills hub, man-pages,
-headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 15 tools; poda de esquemas huérfanos; Claude Code desconectado por defecto con opt-in `--with-claude`) · shell-agnóstico · Pueue ·
+headless) · privilegio FULL/DIMINISHED + manifiesto chmod · auto-plug (`aep-sync.sh` con hot-reload en vivo Connect-RPC `RefreshMcpServers` para Antigravity y JSON-RPC `config/mcpServer/reload` para OpenAI Codex con 17 tools; poda de esquemas huérfanos; Claude Code desconectado por defecto con opt-in `--with-claude`) · shell-agnóstico · Pueue ·
 bpftrace (sudo -n) · Pico-Kanban unificado (tablero, tareas, avance, promoción/degradación, reevaluación, archivado/desarchivado reversible con dry-run) ·
 Pico-Playbooks unificado (playbook_run con run/create/list/prune; parametrizables vía hydrator RE-as-SDD de Jinja; no-recursión garantizada) ·
 Pico-Síntesis unificada (artifact_lint_and_build con build/catalog/select/hydrate; atajo de 1 paso plantilla->binario en RAM) ·
@@ -66,5 +67,5 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 
 ## Coordinación / notas honestas
 - El **README lo co-mantiene otro agente** (blindaje semántico) concurrentemente; coordinar.
-- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 15 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
+- `aep-sync.sh` auto-pluga Antigravity (`RefreshMcpServers` Connect-RPC) y OpenAI Codex (`config/mcpServer/reload` JSON-RPC con 17 tools), mientras mantiene Claude Code desconectado por defecto en este host (`--with-claude` / `AEP_PLUG_CLAUDE=1` preserva el auto-plug).
 - WebSockets de Go: **no requeridos** (stdio correcto; push futuro = MCP progress notifications).

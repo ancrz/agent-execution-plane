@@ -3,11 +3,11 @@
 - **Previous Feature Document:** [feature_20261106_000100_ont39_live_plane_hot_swap.md](feature_20261106_000100_ont39_live_plane_hot_swap.md)
 - **Timestamp:** 2026-11-06T01:12:49 (local)
 - **Mode:** Full (Topos)
-- **Stage:** 2 — Graphos G1 (Weave & Record). Documented plan, handed back to the orchestrator for Ontos.
+- **Stage:** 2 — Graphos G1 (Weave & Record) and G2 (verdict recorded, §16).
 - **Architect:** Archon (plan delivered by the orchestrator)
 - **Normative SDD:** `docs/sdd/sdd_ont40_autoevol_thread_graph.md` (§0–§8; §7 and §8 are working-tree changes, see §10)
 - **Baseline:** `dev`, HEAD `3515a22` (pushed to `origin/dev`), ONT-39b VERIFIED (198 passed, 6 xfailed)
-- **Pipeline verdict:** none yet. Ontos audit pending.
+- **Pipeline verdict:** VERIFIED (Dokimos) for ONT-40 + ONT-40b; Ontos cycle 2 APPROVED. See §16. Commit pending (Hermon).
 
 ## 1. Intent & Premises
 
@@ -322,4 +322,70 @@ flowchart LR
     O1 --> A2["A.3: Archon plan revisado (ciclo 2)"]
     A2 --> G1B["A.4: Documented (Graphos G1, ciclo 2)"]
     G1B --> O2["Ontos ciclo 2: pendiente"]
+```
+
+## 16. Veredicto VERIFIED + ONT-40b
+
+- **Veredicto:** VERIFIED (Dokimos), registrado por Graphos G2. Este registro no contiene commit: el commit lo hace Hermon (M5 pendiente).
+- **Modo y ruta:** Full. Archon (2 ciclos) → Graphos G1 → Ontos (ciclo 1 BLOCKED; ciclo 2 APPROVED con C1-C7) → Pragma en `isolation: "worktree"` (T0-T18, bajo `.aep_swap_fence`; un corte por límite de turnos y uno por límite de la API, reanudados) → Dokimos → Graphos G2.
+- **Implementación aterrizada:** commits `68e0af9..90886d9` en `dev`, por fast-forward bajo `.aep_swap_fence`.
+- **Árbol de trabajo sin commit (ONT-40b):** `aep_front.py`, `server.py`, `engine/threads.py`, `engine/threads_extractors.py`, `engine/threads_model.py`, `engine/threads_probes.py`, `docs/sdd/sdd_ont39_live_plane_hot_swap.md`, seis tests modificados y `tests/conftest.py` (nuevo). Lista según `git status` de la sesión.
+- **Tool reach y blast radius:** sin cambio de alcance respecto a §2. ONT-40b toca el front (`aep_front.py`), por lo que el orquestador debe reconectar `/mcp`.
+
+### 16.1 ONT-40b: correcciones aplicadas
+
+| ID | Tipo | Cambio | Evidencia |
+|---|---|---|---|
+| D-22 | Entorno de tests | `AEP_SWAP_FENCE_PATH` y `tests/conftest.py` aíslan el fence. Los tests pisaban el fence real y fallaban con uno presente (5+3 tests). | Corridas con fence real presente |
+| D-23 | Grafo | Aristas `alias_of` por AST: 23 alias; gaps 132 → 103 | Dokimos verificó 22 alias correctos (ver 16.5) |
+| H1 | Seguridad | Probes fail-closed: sin jail solo con root propio y bwrap sin arrancar; root ajeno → `unavailable_no_jail` | Probes sin tocar el estado real |
+| H2 | Test | Test de fd con línea base estabilizada, `== 0` | Test ejecutado en ambas corridas |
+| H3 | Grafo | Alias sobre todas las `ACTION_VARS` | Incluido en 22 alias verificados |
+| H5 | Documentación | Docstring de 17 tools; nota sobre `select_fields` en la docstring | Gate de documentación |
+
+H4 no figura en el registro de entrada y no se documenta aquí.
+
+### 16.2 Evidencia (reportada por Dokimos y el orquestador; Graphos no la re-ejecutó)
+
+- Dokimos: dos corridas con 258 passed y 6 xfailed. Evidencia final: pytest 261 passed, 6 xfailed (70 s); ruff limpio; `aep-sync --check` OK.
+- R idéntica con `PYTHONHASHSEED` 1 y 2 y con otra ruta. Ledger íntegro con 841 bloques. Ningún test debilitado.
+- En vivo desde Claude Code: `autoevol` aparece sin reconexión (`tools/list_changed`). `graph` terse: 79 tokens, 0.75 s, R=`8ba2590799f9…`, 1047 nodos, 0 codep, 0 own_gaps, 103 gaps.
+- Aceptación T17: redescubrió D-01, D-08, D-11, D-12 y D-14 en `b2afeb2`.
+
+### 16.3 Riesgos y pendientes
+
+- **Riesgo aceptado:** el 37 % de las funciones públicas está cubierto solo por alcance transitivo (sobreaproximación declarada). Se refina en ONT-41.
+- Reconexión `/mcp` del orquestador (`aep_front.py` cambió por D-22).
+- `autoevol.json` de Antigravity: pendiente de verificar tras un `aep-sync` real.
+- ONT-41 (spec/verify/heal/fix_test) y L3 (D-01..D-05) como primer ciclo de autoevolución.
+
+### 16.4 Métricas
+
+- Archon↔Ontos: 2 ciclos (BLOCKED → APPROVED con C1-C7).
+- Pragma↔Dokimos: 1 ciclo de fix (H1-H5) más D-22 y D-23 detectados al aterrizar.
+- Ratio de aproximación: 37 % de cobertura solo transitiva (declarado).
+
+### 16.5 Discrepancias observadas en el registro de entrada
+
+- D-23 cita 23 alias; la verificación de Dokimos cita 22 alias correctos. Se registra la diferencia sin resolverla: conviene confirmarla antes del commit de Hermon.
+- H4 no aparece en ninguna lista del encargo.
+
+### 16.6 Routing
+
+Veredicto VERIFIED → Hermon: commit de ONT-40 y ONT-40b (scope T0..T18 y D-22/D-23/H1-H5). Sin push y sin `--force`. Después, ONT-41.
+
+### 16.7 State evolution
+
+```mermaid
+flowchart LR
+    G1["A.1: Documented (Graphos G1, ciclo 1)"] --> O1["Ontos ciclo 1: BLOCKED (F1-F16)"]
+    O1 --> A2["A.3: Archon plan revisado (ciclo 2)"]
+    A2 --> O2["Ontos ciclo 2: APPROVED (C1-C7)"]
+    O2 --> PA["B: Pragma T0-T18 (worktree, fence)"]
+    PA --> LA["Aterrizaje 68e0af9..90886d9 (fast-forward)"]
+    LA --> D1["Dokimos: D-22, D-23, H1-H5 detectados"]
+    D1 --> PF["Pragma fix ciclo 1 (ONT-40b, sin commit)"]
+    PF --> D2["Dokimos: VERIFIED"]
+    D2 --> G2["D: Graphos G2 (este registro)"]
+    G2 --> H["E: Hermon commit (M5 pendiente)"]
 ```

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **ONT-40 `autoevol` (tool 17, read-only)**: thread graph (`engine/threads*.py`) with Merkle root over the SCC condensation, omission gaps, declared-vs-observed drift, PageRank ranking and `impacted_tests`; opt-in probes layer outside R; tier-gated `threads_gen` persistence with SHA-256 ledger entry only for new roots. Tool count 16 -> 17 (capabilities stay at 19).
+  - **ONT-40b (hardening, uncommitted)**: `AEP_SWAP_FENCE_PATH` and `tests/conftest.py` isolate the swap fence in tests (D-22); `alias_of` edges from AST, 23 aliases, gaps 132 -> 103 (D-23); probes fail-closed without an own jail, `unavailable_no_jail` (H1).
 
 ## [0.2.8] - 2026-11-05
 
