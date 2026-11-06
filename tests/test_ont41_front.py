@@ -16,6 +16,7 @@ import signal
 import stat
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -56,14 +57,39 @@ class FakeClock:
         self.t += seconds
 
 
+def reap_backends_of(root: Path) -> int:
+    """F6: termina SOLO los `aep_backend.py` de ESTE arbol temporal (ruta unica por test) que el test dejo vivos."""
+    script = str(root / "aep_backend.py")
+    me = os.getpid()
+    reaped = 0
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if script.encode() not in argv:
+            continue
+        try:
+            os.kill(int(entry.name), signal.SIGTERM)
+            reaped += 1
+        except OSError:
+            continue
+    return reaped
+
+
 @pytest.fixture
-def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     root = make_tree(tmp_path / "repo")
     monkeypatch.setattr(aep_front, "PROJECT_ROOT", root)
     monkeypatch.setenv("AEP_HOTSWAP_DEBOUNCE_S", "0")
     monkeypatch.setenv("AEP_HOTSWAP_QUIESCE_MS", "0")
     monkeypatch.delenv("AEP_HOTSWAP_MODE", raising=False)
-    return root
+    try:
+        yield root
+    finally:
+        reap_backends_of(root)
 
 
 def new_mgr(clock: FakeClock | None = None) -> aep_front.LivePlaneManager:
@@ -700,3 +726,26 @@ def test_front_process_cold_broken_disk_serves_lkg_and_recovers(tmp_path: Path) 
         assert read_state()["serving_from"] == "disk"
 
     asyncio.run(_session(_second))
+
+
+def test_reap_backends_of_terminates_only_backends_of_its_own_tree(tmp_path: Path) -> None:
+    """F6: el teardown mata el backend huerfano de su arbol y no toca procesos ajenos."""
+    assert aep_front.state_dir_path()  # ancla el test al grafo de hilos (covers)
+    own = tmp_path / "repo"
+    own.mkdir()
+    (own / "aep_backend.py").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "aep_backend.py").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    mine = subprocess.Popen([sys.executable, str(own / "aep_backend.py")])  # noqa: S603
+    foreign = subprocess.Popen([sys.executable, str(other / "aep_backend.py")])  # noqa: S603
+    try:
+        assert reap_backends_of(own) == 1
+        assert mine.wait(timeout=10) == -signal.SIGTERM
+        assert foreign.poll() is None
+    finally:
+        foreign.kill()
+        foreign.wait()
+        if mine.poll() is None:
+            mine.kill()
+            mine.wait()
