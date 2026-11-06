@@ -23,6 +23,8 @@ SUMMARY_MAX_TOKENS = 1500
 _TERSE_TASKS = 3
 _TERSE_TESTS = 3
 _SIMILAR = 3
+_SUMMARY_NODES = 8
+_SUMMARY_FILES = 6
 
 # Plantillas por arista faltante (dirección, tipo) de un gap de omisión: (qué, tarea).
 _OMISSION: dict[tuple[str, str], tuple[str, str]] = {
@@ -130,6 +132,28 @@ def _files_for(analysis: th.Analysis, node_id: str) -> list[str]:
     return []
 
 
+def _change_targets(analysis: th.Analysis, gap: th.Gap) -> dict[str, list[str]]:
+    """AE-2: dónde se edita realmente. Para open_discrepancy: test xfail -> covers -> implemented_by -> fn/archivos.
+
+    Para el resto de gaps el objetivo es el propio nodo. El split pin/validate de los tests es de B8, no de aquí.
+    """
+    graph = analysis.graph
+    if gap.kind != "open_discrepancy":
+        seeds = [gap.node]
+    else:
+        seeds = []
+        for edge in graph.out_edges(gap.node, "covers"):
+            dst = graph.nodes.get(edge.dst)
+            if dst is None:
+                continue
+            impl = [e.dst for e in graph.out_edges(edge.dst, "implemented_by")] if dst.type in ("tool", "action") else []
+            seeds.extend(impl or [edge.dst])
+        seeds = seeds or [gap.node]
+    nodes = list(dict.fromkeys(seeds))
+    files = list(dict.fromkeys(f for n in nodes for f in _files_for(analysis, n) if f))
+    return {"nodes": nodes, "files": files}
+
+
 def canonical_name(analysis: th.Analysis, node_id: str) -> dict[str, Any]:
     """Nombre canónico coherente con el vocabulario del grafo, ordenando vecinos con el matcher compartido.
 
@@ -182,6 +206,10 @@ def _fit(payload: dict[str, Any], budget: int, shrinkable: tuple[str, ...]) -> d
         for key in ("neighbors", "plan"):
             out.pop(key, None)
         out["truncated"] = True
+    change = out.get("change")
+    while _estimated_tokens(out) > budget and isinstance(change, dict) and any(len(v) > 1 for v in change.values()):
+        change = {k: v[: max(1, len(v) // 2)] for k, v in change.items()}
+        out["change"] = change
     return out
 
 
@@ -194,6 +222,7 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
     files = [f for f in _files_for(analysis, gap.node) if f]
     tests = th.impacted_tests(analysis.graph, [gap.node])
     name = canonical_name(analysis, gap.node)
+    change = _change_targets(analysis, gap)
     validate = {
         "gap_must_close": gap.id,
         "no_new_gaps": True,
@@ -207,7 +236,7 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
             "gap": gap.id,
             "kind": gap.kind,
             "node": gap.node,
-            "files": files[:_TERSE_TASKS],
+            "change": {"nodes": change["nodes"][:_TERSE_TASKS], "files": change["files"][:_TERSE_TASKS]},
             "tasks": [task],
             "name": name["name"],
             "tests": tests[:_TERSE_TESTS],
@@ -224,6 +253,7 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
         "tasks": [task, "Keep every public change covered by a direct test."],
         "validate": validate,
         "scope": {"files": files, "reach": gap.reach},
+        "change": {"nodes": change["nodes"][:_SUMMARY_NODES], "files": change["files"][:_SUMMARY_FILES]},
         "name": name,
     }
     payload["validate"] = {**validate, "tests": tests[:20], "tests_total": len(tests)}
