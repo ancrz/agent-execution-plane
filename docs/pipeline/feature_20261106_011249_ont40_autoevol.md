@@ -227,21 +227,21 @@ flowchart LR
 | F3 | BLOCKER | Protocolo de T13 incompleto: falta orden de edición, refresco del `.aep_swap_fence`, borrado en `finally`, rollback con `git checkout` y verificación con `discover`. Punto de retorno: commit solo de documentación antes de T13 | Escribir el protocolo de T13 como pasos ordenados con su rollback |
 | F4 | BLOCKER | Concurrencia de persistencia: orden de locks `_AUDIT_LOCK` → `transaction_immediate`; `INSERT OR IGNORE` por `R` (persistir solo si `R` cambia); tests con BD temporal; `R` en columnas propias pasando por `sanitize_dict` | Fijar el orden de locks y el esquema de `threads_gen` en T10 |
 | F5 | BLOCKER | Probes (T11): solo con tier ≥ `5r-x`; entorno en lista blanca; `HOME`, BD y socket en un tmpdir; preferir el jail de `sandbox_run`; test de que no se toca `/dev/shm/aep*`; timeout fail-open | Reescribir T11 con estas restricciones y su test |
-| F6 | MAJOR | Aristas de observación fuera del SCC; T0 como dependencia dura, con limpieza del worktree | Ajustar el DAG (T0 pasa de «informa» a dependencia dura de T5 y T7) |
-| F7 | MAJOR | `autoevol.json` de Antigravity y test de `tools_changed` | Añadir a T13 |
-| F8 | MAJOR | Dispatch de playbook | Definir en T13 o T10 |
-| F9 | MAJOR | Envelope y budget de `autoevol` en modo terse, por debajo de 300 tokens | Añadir test de budget a T4 |
-| F10 | MAJOR | Determinismo de `R`: `PYTHONHASHSEED` y rutas distintas | Añadir a T6 y al test de determinismo |
-| F11 | MAJOR | `autoevol` sin gaps propios: la tool debe detectar sus propios gaps | Definir la regla en T8 |
-| F12 | MAJOR | Consistencia de la relación `threads → privilege` (O-7) | Confirmar la arista en el plan |
-| F13 | MINOR | Ajustes de redacción en el plan | Corregir en la revisión |
-| F14 | MINOR | Ajustes de numeración de tareas | Corregir en la revisión |
-| F15 | MINOR | Referencias cruzadas a este documento | Corregir en la revisión |
-| F16 | MINOR | Ajustes de formato en tablas | Corregir en la revisión |
+| F6 | MAJOR | Aristas de observación fuera del SCC: las aristas `observes` no forman parte de SCC ni de Merkle; T0 es dependencia dura, con limpieza del worktree | T1 añade la arista `observes`; T2 la excluye de SCC; T0 pasa a dependencia dura de T5 y T7 |
+| F7 | MAJOR | Worktree `b2afeb2` y su limpieza: el fixture debe vivir fuera del repo | T0 en tmpdir, con `finally`, `remove --force` y `prune` |
+| F8 | MAJOR | `autoevol.json` de Antigravity y test de `tools_changed` | Añadir a T18 |
+| F9 | MAJOR | Dispatch de playbook | Definir en T14 |
+| F10 | MAJOR | Envelope y budget de `autoevol` en modo terse, por debajo de 300 tokens | Test de budget en T14 y T17 |
+| F11 | MAJOR | Determinismo de `R`: `PYTHONHASHSEED` y rutas distintas | Test en T3 y T17 |
+| F12 | MAJOR | `autoevol` sin gaps propios: la tool debe detectar sus propios gaps | Regla en T8, criterio en T17 |
+| F13 | MINOR | Renumeración de tareas | Renumeración T0..T18 (sección 15) |
+| F14 | MINOR | Premisa «sin ejecutar código» frente a probes | Probes solo en T12, fuera de R |
+| F15 | MINOR | Rendimiento de extracción (frío <2 s) | Criterio en T17 |
+| F16 | MINOR | Tool awareness del servidor | Documentado en T16 |
 
 ### 14.1 Observaciones vigentes
 
-O-1 a O-8 de la sección 9 siguen abiertas. F6 y F12 cierran parcialmente O-1 y O-7. F2 y F5 cierran parcialmente O-2 y O-8. F1 cierra O-3.
+O-1 a O-8 de la sección 9 siguen abiertas. F6 cierra parcialmente O-1. F2 cubre la arista `threads → privilege` (O-7). F14 y F5 cierran parcialmente O-2 y O-8. F1 cierra O-3.
 
 ### 14.2 State evolution
 
@@ -251,4 +251,75 @@ flowchart LR
     G1 --> O1["Ontos ciclo 1: BLOCKED (F1-F16)"]
     O1 --> G1B["A.2: Remediation recorded (Graphos G1)"]
     G1B --> A2["A.3: Archon revision (ciclo 2 de 3)"]
+```
+
+## 15. Plan revisado ciclo 2 (Archon)
+
+- **Entrega:** plan revisado de ONT-40 por Archon tras el BLOCKED del ciclo 1. Sin commit. Pendiente de re-auditoría de Ontos (ciclo 2 de 3).
+- **Renumeración:** T0..T18 (F13 de la tabla de la sección 14). La numeración F6–F16 de la sección 14 se alinea con la lista del coordinador.
+
+### 15.1 Fase A (isolation: worktree, archivos nuevos, sin efecto en el plano vivo)
+
+| ID | Contenido |
+|---|---|
+| T0 | Calibración y fixture del worktree `b2afeb2` en un tmpdir fuera del repo. `finally`, `git worktree remove --force` y `prune` (F7) |
+| T1 | Modelo con arista `observes`, fuera de SCC y de Merkle (F6) |
+| T2 | Tarjan y Bernstein propio. `ToposGuard` solo como oráculo de paridad en tests |
+| T3 | Merkle `R` sobre la condensación de SCC, sin PageRank. Registra `py_version`. Determinismo con `PYTHONHASHSEED` y ruta distinta (F11) |
+| T4 | Extractor de tools y acciones. `_PLANNED_ACTIONS` sin nodos |
+| T5 | Extractor AST (funciones, escrituras, estado SQL) |
+| T6 | Extractor de claims, con marcador histórico (DQ-5) |
+| T7 | Extractor de tests y budgets |
+| T8 | `Req(t)`, gaps y drift. `autoevol` sin excepción propia (F12) |
+| T9 | PageRank redondeado a 6 decimales e `impacted_tests` |
+| T10 | `analyze` y caché por hash de insumos más `code_fingerprint` |
+| T11 | Persistencia: `_AUDIT_LOCK` → `transaction_immediate`; `INSERT OR IGNORE` sobre `root_hash UNIQUE`; el ledger se escribe solo si `R` cambia; columnas propias pasando por `sanitize_dict` (F4). Gate octal ≥ 6 con `get_effective_chmod_tier`. `log` y `diff` solo lectura y tolerantes a la ausencia de `threads_gen` |
+| T12 | Probes (F5, F14): octal ≥ 5; entorno en lista blanca; `HOME`, `AEP_POOL_DIR` y `AEP_SOCKET_PATH` en tmpdir; `AEP_FORCE_TIER=4r--`; `python -I`; timeout de 10 s fail-open; test de que `/dev/shm` queda intacto |
+| T13 | TDD: tests unitarios de las tareas anteriores |
+
+### 15.2 Fase B (bajo `.aep_swap_fence`)
+
+| ID | Contenido |
+|---|---|
+| T14 | Protocolo de integración (F2, F3, F9, F10). Orden: `privilege` (5 tablas) → `schemas/database.sql` → `threads*` → `server.py` al final. Fence refrescado. Borrado en `finally`. Rollback: `git checkout` y borrado de `threads*` sin seguimiento, más verificación con `discover`. Presupuesto del manifest con margen de 38 bytes: se recorta texto, no se sube el límite. Dispatch de playbook. `INVALID_ACTION` para `spec`, `verify`, `heal` y `evolve` |
+| T15 | Invariante 16 → 17 exhaustivo y gate `tests/test_ont40_invariant_gate.py` (F1) |
+| T16 | Documentación y criterio 7 (sin gaps propios) (F12, F16) |
+| T17 | Aceptación. `b2afeb2`: D-11, D-12 y D-14 estáticos; D-01 y D-08 por probes. HEAD: D-01 presente, el resto ausente. Determinismo con `PYTHONHASHSEED` y ruta distinta. `SCC_codep = ∅`. Budget de `graph` terse < 300 tokens. Extracción en frío < 2 s. Test de imports (F7, F10, F11, F15) |
+| T18 | Puerta final. `autoevol.json` de Antigravity y test de `tools_changed` (F8). Semgrep y agy, con omisión registrada si no están disponibles |
+
+### 15.3 DAG revisado (resumen)
+
+- T0 → T5, T7 (dependencia dura, F6).
+- T1 → T2 → T3 → T8 → T9 → T10 → T11 → T12 → T13.
+- Fase B: T13 → T14 → T15 → T16 → T17 → T18. Fase B solo se abre tras `git commit` de documentación (punto de retorno).
+
+### 15.4 Trazabilidad F1..F16
+
+| Hallazgo | Tarea(s) |
+|---|---|
+| F1 BLOCKER, referencias 16 → 17 | T15 |
+| F2 BLOCKER, 5 tablas de privilege y gate por acción | T14 |
+| F3 BLOCKER, protocolo de T13 | T14 |
+| F4 BLOCKER, locks y persistencia | T11 |
+| F5 BLOCKER, restricciones de probes | T12 |
+| F6 MAJOR, aristas observes y T0 | T1, T2 |
+| F7 MAJOR, worktree y limpieza | T0, T17 |
+| F8 MAJOR, Antigravity y `tools_changed` | T18 |
+| F9 MAJOR, dispatch de playbook | T14 |
+| F10 MAJOR, envelope y budget | T14, T17 |
+| F11 MAJOR, determinismo de R | T3, T17 |
+| F12 MAJOR, sin gaps propios | T8, T16, T17 |
+| F13 MINOR, renumeración | sección 15 |
+| F14 MINOR, premisa de probes | T12 |
+| F15 MINOR, rendimiento | T17 |
+| F16 MINOR, tool awareness | T16 |
+
+### 15.5 State evolution
+
+```mermaid
+flowchart LR
+    G1["A.1: Documented (Graphos G1, ciclo 1)"] --> O1["Ontos ciclo 1: BLOCKED (F1-F16)"]
+    O1 --> A2["A.3: Archon plan revisado (ciclo 2)"]
+    A2 --> G1B["A.4: Documented (Graphos G1, ciclo 2)"]
+    G1B --> O2["Ontos ciclo 2: pendiente"]
 ```
