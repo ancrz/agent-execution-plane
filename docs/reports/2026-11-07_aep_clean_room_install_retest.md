@@ -33,3 +33,19 @@ Los 7 bugs previos quedan corregidos: canario sembrado, aep-ctl CLI funciona sin
 | 7 | HARNESS | Fallos iniciales de `go` no encontrado fueron de `docker exec` sin PATH de login; con `bash -lc` desaparecen. No es bug. |
 
 Ruta de prueba: contenedores aep-cr/aep-t1/aep-t2/aep-arm, imágenes aep-clean:t/arm y bundle eliminados al terminar. Sin push; repo sin tocar salvo este informe.
+
+---
+## Re-test 3 — dev @f8b0d11 (x86_64, sala limpia, sin arm64)
+
+Veredicto: **INSTALA CON INTEGRIDAD**. Bundle de dev, Docker ubuntu:26.04, usuario `tester` no root, sin sudo ni python3 de sistema.
+
+| Verificación | Resultado |
+|---|---|
+| 1ª instalación | exit 0, 37 s; no aparece «el registro MCP falló»; `aep-sync.sh` exit 0; banner solo avisa «0 clientes MCP registrados» (no hay clientes instalados) |
+| `--check` | HEALTHY, exit 0; WARN solo bwrap ausente y 0 clientes MCP |
+| golangci-lint | v2.15.0 (go1.27.0) con SHA-256 oficial; lint real sobre las 3 sondas Go (módulo temporal): sin error de toolchain; 0 issues en fd-rescuer, errcheck legítimos en socket-monitor (1) y landlock-guard (4); fuente defectuosa inyectada detectada; forma del producto `golangci-lint run <archivo>` OK |
+| `aep_ctl` vía MCP | cliente stdio con `aep-mcp-launch.sh`: initialize, `aep_ctl schema` y `storage mounts` OK sin python3 del sistema |
+| Checksum de pueue alterado | «SHA-256 no coincide para pueue; descarga descartada» + WARN «binario alterado o pin obsoleto»; no instalado, degrada; exit 0 |
+| Permisos | `~/.local/share/agent-os` 700; `artifacts.db` 600 |
+
+Observaciones: (a) ejecutar `golangci-lint run ./...` directamente sobre `diagnostic/go/<sonda>/` falla con «does not contain main module» porque las sondas no tienen `go.mod`; no afecta al producto, que lintea por archivo. (b) No se ejercitó la rama de descarga fallida (exit 1) con red caída; solo la de checksum. (c) No se ejecutó pytest. Contenedor, imagen y bundle eliminados; sin push.
