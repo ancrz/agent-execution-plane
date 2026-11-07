@@ -5585,7 +5585,7 @@ async def autoevol(
             if not gap:
                 result: dict[str, Any] = {"status": "ERROR", "error": "El parametro 'gap' es obligatorio para 'spec'."}
             else:
-                result = threads_spec.build_spec(_threads.analyze(tree), gap, terse=terse)
+                result = threads_spec.cached_spec(_threads.analyze(tree), gap, terse=terse, write=octal >= 6)
         elif act == "heal":
             result = ops.run_heal(
                 tree,

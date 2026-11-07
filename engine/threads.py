@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from engine import threads_extractors as ex
+from engine import threads_spec_cache
 from engine.db import get_db_connection, get_ro_connection, transaction_immediate
 from engine.fingerprint import code_fingerprint
 from engine.privilege import get_effective_chmod_tier
@@ -1058,6 +1059,9 @@ def diff_generations(
     changed = sorted(k for k in set(na) & set(nb) if na[k] != nb[k])
     ga, gb = set(snap_a["g"]), set(snap_b["g"])
     impacted = impacted_tests(current.graph, [*added, *changed]) if current is not None else []
+    stale = threads_spec_cache.stale_specs(
+        {*changed, *removed}, db_path=db_path if db_path is not None else default_db_path()
+    )
     return {
         "status": "OK",
         "a": row_a["root_hash"],
@@ -1071,4 +1075,6 @@ def diff_generations(
         "gaps_resolved": sorted(ga - gb)[:limit],
         "impacted_tests": impacted[:limit],
         "impacted_tests_total": len(impacted),
+        "stale_specs": stale[:limit],
+        "stale_specs_total": len(stale),
     }

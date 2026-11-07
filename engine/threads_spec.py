@@ -15,7 +15,9 @@ import json
 import re
 from typing import Any
 
-from engine import matcher, threads_pins
+from pathlib import Path
+
+from engine import matcher, threads_pins, threads_spec_cache
 from engine import threads as th
 
 TERSE_MAX_TOKENS = 400
@@ -213,6 +215,39 @@ def _fit(payload: dict[str, Any], budget: int, shrinkable: tuple[str, ...]) -> d
         change = {k: v[: max(1, len(v) // 2)] for k, v in change.items()}
         out["change"] = change
     return out
+
+
+def _tag_cache(spec: dict[str, Any], state: str, terse: bool) -> dict[str, Any]:
+    out = {**spec, "cache": state}
+    if terse and _estimated_tokens(out) > TERSE_MAX_TOKENS:
+        out = _fit(out, TERSE_MAX_TOKENS, ("pin", "tests", "files"))
+    return out
+
+
+def cached_spec(
+    analysis: th.Analysis, gap_id: str, *, terse: bool = False, db_path: Path | str | None = None, write: bool = True
+) -> dict[str, Any]:
+    """E2: `build_spec` con cache por hilos (ver `threads_spec_cache`). `write=False` consulta sin persistir.
+
+    Fail-open: cualquier fallo del cache degrada a recalcular; el contenido de la spec es el mismo.
+    """
+    gap, _found = th.resolve_gap(analysis, gap_id)
+    if gap is None:
+        return build_spec(analysis, gap_id, terse=terse)
+    try:
+        db = Path(db_path) if db_path is not None else th.default_db_path()
+        change = _change_targets(analysis, gap)
+        deps = threads_spec_cache.thread_hashes(analysis, gap, change["nodes"])
+        key = threads_spec_cache.cache_key(gap, terse, deps)
+    except Exception:  # noqa: BLE001 - el cache jamas rompe `spec`
+        return _tag_cache(build_spec(analysis, gap_id, terse=terse), "miss", terse)
+    hit = threads_spec_cache._lookup(db, gap.id, terse, key)
+    if hit is not None:
+        return _tag_cache(hit, "hit", terse)
+    spec = build_spec(analysis, gap_id, terse=terse)
+    if write and spec.get("status") == "OK":
+        threads_spec_cache._store(db, gap.id, terse, key, deps, spec)
+    return _tag_cache(spec, "miss", terse)
 
 
 def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> dict[str, Any]:

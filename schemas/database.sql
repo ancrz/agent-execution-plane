@@ -152,3 +152,15 @@ CREATE TABLE IF NOT EXISTS evolve_events (
         cycle TEXT NOT NULL,
         data_json TEXT NOT NULL
     );
+
+-- E2 specs incrementales: cache de `autoevol(spec)` por hilos del gap. engine/threads_spec_cache.py replica este
+-- CREATE IF NOT EXISTS como red de seguridad (paridad testeada).
+CREATE TABLE IF NOT EXISTS threads_spec_cache (
+        gap_canonical TEXT NOT NULL,
+        terse INTEGER NOT NULL,
+        key_hash TEXT NOT NULL,
+        deps_json TEXT NOT NULL,
+        spec_json TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        PRIMARY KEY (gap_canonical, terse)
+    );
