@@ -16,6 +16,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -3887,7 +3888,7 @@ async def aep_ctl(
                 tracker,
                 verbosity=verbosity,
             )
-        cmd = ["python3", str(AEP_CTL), d, a]
+        cmd = [sys.executable, str(AEP_CTL), d, a]
         if eff_name:
             cmd.append(eff_name)
         cmd.append("--json")
