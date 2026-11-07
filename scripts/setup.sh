@@ -209,6 +209,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Cuenta los clientes MCP (CLIs) presentes en PATH donde aep-sync.sh puede registrar el servidor.
+count_mcp_clients() {
+    local n=0 c
+    for c in claude agy codex gemini; do
+        command -v "$c" &>/dev/null && n=$((n + 1))
+    done
+    echo "$n"
+}
+
 run_check() {
     local DEGRADED=0
     local DETECTED_TIER
@@ -384,6 +393,15 @@ PY
     else
         echo -e "[FAIL] MCP Ecosystem Sync: aep-sync.sh --check failed"
         DEGRADED=1
+    fi
+
+    # 10. Clientes MCP: un servidor válido sin ningún cliente donde registrarlo no es un éxito completo.
+    local MCP_CLIENTS
+    MCP_CLIENTS="$(count_mcp_clients)"
+    if [[ "$MCP_CLIENTS" -eq 0 ]]; then
+        echo -e "[WARN] MCP Clients: 0 clientes MCP detectados (claude, agy, codex, gemini); el servidor es válido pero NO está registrado en ningún agente"
+    else
+        echo -e "[PASS] MCP Clients: $MCP_CLIENTS cliente(s) MCP detectado(s) en PATH"
     fi
 
     echo "=========================================================="
@@ -736,8 +754,22 @@ PY
 # -----------------------------------------------------------------------------
 log_step "Ejecutando auto-plug y sincronización MCP multi-agente..."
 chmod +x "$PROJECT_ROOT/scripts/aep-mcp-launch.sh" "$PROJECT_ROOT/scripts/aep-sync.sh" "$PROJECT_ROOT/scripts/aep-ctl" 2>/dev/null || true
-bash "$PROJECT_ROOT/scripts/aep-sync.sh" || log_warn "Auto-plug MCP finalizó con advertencias; revisa aep-sync.sh --check."
+SYNC_LOG="$TMP_DIR/aep-sync.out"
+SYNC_RC=0
+bash "$PROJECT_ROOT/scripts/aep-sync.sh" 2>&1 | tee "$SYNC_LOG" || SYNC_RC=$?
+if [[ $SYNC_RC -ne 0 ]]; then
+    log_warn "Auto-plug MCP finalizó con advertencias; revisa aep-sync.sh --check."
+fi
+# aep-sync.sh imprime "Auto-plug completado en N cliente(s)"; N=0 => nada quedó registrado.
+REGISTERED="$(sed -n 's/.*Auto-plug completado en \([0-9]\+\) cliente.*/\1/p' "$SYNC_LOG" | tail -1)"
 
 echo "=========================================================="
-echo "  Instalación y Seeding de AEP Completados con Éxito"
+if [[ "$SYNC_RC" -ne 0 ]]; then
+    echo "  Instalación completada CON ADVERTENCIAS: el registro MCP falló (ver arriba)"
+elif [[ "${REGISTERED:-0}" -eq 0 ]]; then
+    echo "  Instalación completada, pero 0 clientes MCP registrados"
+    echo "  (instala claude, agy, codex o gemini y reejecuta ./scripts/aep-sync.sh)"
+else
+    echo "  Instalación y Seeding de AEP Completados con Éxito ($REGISTERED cliente(s) MCP registrado(s))"
+fi
 echo "=========================================================="
