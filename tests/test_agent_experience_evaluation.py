@@ -411,10 +411,10 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
     )
     assert res_bash_sync.returncode == 0, f"bash -n aep-sync.sh failed: {res_bash_sync.stderr}"
 
-    # 3. scripts/setup.sh contains \1 backreference on the Pueue sed line and not / /
+    # 3. Pueue is pinned to a release with SHA-256 verification (no releases/latest API tag scraping)
     setup_text = (PROJECT_ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
-    assert "sed -E 's/.*\"([^\"]+)\".*/\\1/'" in setup_text, "setup.sh must use \\1 in Pueue tag extraction"
-    assert "sed -E 's/.*\"([^\"]+)\".*/ /'" not in setup_text, "setup.sh must not use broken space replacement in Pueue sed"
+    assert "releases/latest" not in setup_text, "setup.sh must not resolve Pueue via releases/latest"
+    assert 'PUEUE_VERSION="v' in setup_text and "PUEUE_SHA256_" in setup_text
 
     # 4. ./scripts/setup.sh --check exits 0 and outputs [PASS] SQLite Catalog & Integrity and [PASS] MCP Ecosystem Sync
     res_check = subprocess.run(
