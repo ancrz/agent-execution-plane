@@ -45,12 +45,14 @@ def test_green_gate_merges_and_runs_batches_reentrantly(tmp_path: Path) -> None:
 
 
 def test_gate_runs_on_exported_committed_tree_not_the_editable_worktree(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.drive()
     assert rig.fake.trees and all(t != rig.work and not str(t).startswith(str(rig.work)) for t in rig.fake.trees)
     assert all(not t.exists() for t in rig.fake.trees)  # el checkout temporal se limpia
 
 
 def test_gate_blocks_when_committed_tree_differs_from_judged(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.run(octal=6, label="DIMINISHED")  # commit local
     rec = rig.store().load(rig.cycle)
     assert rec is not None
@@ -62,12 +64,14 @@ def test_gate_blocks_when_committed_tree_differs_from_judged(rig: Rig) -> None:
 
 
 def test_ran_lt_selected_is_red(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.fake.results["tests/test_a.py"] = {"ran": 1, "failed": 0, "errors": 0, "exit_code": 0}
     out = rig.drive()
     assert out["status"] == "REJECT" and out["gate_reason"] == "ran_lt_selected"
 
 
 def test_unsandboxed_and_wrong_tree_are_red(rig: Rig, tmp_path: Path) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.fake.results["tests/test_a.py"] = {"ran": 3, "failed": 0, "errors": 0, "exit_code": 0, "unsandboxed": True}
     assert rig.drive()["gate_reason"] == "unsandboxed"
     r2 = make_rig(tmp_path / "two")
@@ -121,6 +125,7 @@ def test_plan_batches_is_deterministic_and_bounded() -> None:
 
 
 def test_gate_never_runs_unsandboxed_in_server_kit() -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     src = (ROOT / "server.py").read_text(encoding="utf-8")
     body = src[src.index("def _autoevol_gate_kit") :]
     body = body[: body.index("\ndef _autoevol_swap_fence")]

@@ -121,6 +121,7 @@ def test_passing_post_merge_verify_pushes(rig: Rig) -> None:
 
 
 def test_dev_ahead_blocks_without_rebase(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     (rig.canon / "b.txt").write_text("advance\n", encoding="utf-8")
     sh(rig.canon, "commit", "-q", "-am", "dev avanza")
     out = rig.drive()

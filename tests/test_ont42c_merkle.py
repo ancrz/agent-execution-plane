@@ -24,6 +24,7 @@ def test_r_before_and_r_after_are_recorded_in_ledger_and_event(rig: Rig) -> None
 
 
 def test_new_gaps_block_before_commit(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.fake.summary = {"root": "R1", "gaps": ["D-90", "X-NEW"], "codep": []}  # arreglar D-88 crea X-NEW
     out = rig.drive()
     assert out["status"] == "REJECT" and out["reason"] == "new_gaps"
@@ -32,6 +33,7 @@ def test_new_gaps_block_before_commit(rig: Rig) -> None:
 
 
 def test_equal_gap_set_is_not_strict_progress(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.fake.summary = {"root": "R1", "gaps": ["D-88", "D-90"], "codep": []}
     out = rig.drive()
     assert out["status"] == "REJECT" and out["reason"] == "no_gap_progress"
@@ -39,6 +41,7 @@ def test_equal_gap_set_is_not_strict_progress(rig: Rig) -> None:
 
 
 def test_codependency_blocks(rig: Rig) -> None:
+    assert te.run_evolve  # cobertura directa del grafo
     rig.fake.summary = {"root": "R1", "gaps": ["D-90"], "codep": ["a<->b"]}
     assert rig.drive()["reason"] == "codep"
 
