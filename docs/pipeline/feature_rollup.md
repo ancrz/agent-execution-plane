@@ -210,3 +210,26 @@ Este rollup estaba vencido. Cubre la cadena posterior a `feature_20261030_110500
 
 **Documento activo:** [`feature_20261107_011128_agy_audit.md`](feature_20261107_011128_agy_audit.md)
 
+
+## Rollup 5: E2 a E4 y sala limpia (Graphos G2, 2026-11-07)
+
+Cadena desde el Catch-up Rollup: `feature_20261107_011128_agy_audit.md` → `feature_20261107_104734_e2_backlog_install.md` → `feature_20261107_113335_install_integrity_e3.md` → `feature_20261107_115813_e4_reconcile.md`.
+
+- **Auditoría agy `1b983f1..b605677`**: DEFECTIVE → `d0ff416..5bee5c1` → VERIFIED (659 passed). Ya registrada en el Catch-up.
+- **E2 specs incrementales** (`74d5968`, `eff04ac`): caché por `node_hash`, `stale_specs`, fail-open, tier < 6 no escribe. VERIFIED (772 passed). La spec es informativa.
+- **Sala limpia, 3 rondas** (`92c9661..aa468e1`, `10b8608..f8b0d11`, `81ba56b`): ronda 3 INSTALA CON INTEGRIDAD (uv 0.13.7, Go 1.26.10, golangci-lint v2.15.0, pueue v4.0.4 con SHA calculado).
+- **E3 supervisión OTP sobre SCC** (`096ef95..f8eaa9c`, aislamiento `9c6a913`): `one_for_one` / `rest_for_one`, clasificador restore/identical/out_of_lkg. VERIFIED (805 tests recolectados).
+- **E4 reconciliación acotada por tier** (`a8308f8`, `07c023a`, `00886c3`): `autoevol(action="reconcile")` propone por defecto; abrir ciclos exige opt-in (`open_cycles=true` o `AEP_RECONCILE_OPEN=1`) con presupuesto propio `AEP_RECONCILE_MAX_OPENS` (defecto 1 / 24 h). Primer pase DEFECTIVE (3 menores) → 1 ciclo de corrección → VERIFIED (829 passed). Gaps 122 → 120.
+
+**Plan E2–E4 de autohealing: cerrado.**
+
+**Invariantes preservadas en el tramo:**
+1. Ningún tier hace commit, merge, push ni `heal apply` desde reconcile; tier < 6 no escribe.
+2. Modo Short por defecto; Archon y Ontos sólo en Full por petición del usuario.
+3. Push a `origin/dev` user-gated; sin push en este tramo.
+4. `resolve-revert` sólo por CLI humano con `--confirm`; `recovered: true` sólo con prueba git y testigo del gate.
+5. El tope de ciclos de `evolve` (`AEP_AUTOEVOL_MAX_CYCLES`) y el presupuesto de apertura de reconcile (`AEP_RECONCILE_MAX_OPENS`) son independientes.
+
+**Documento activo:** [`feature_20261107_115813_e4_reconcile.md`](feature_20261107_115813_e4_reconcile.md)
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261107_115813_e4_reconcile.md` (0 de 5 al cierre de este registro).

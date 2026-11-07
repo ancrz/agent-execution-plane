@@ -283,7 +283,7 @@ flowchart LR
     R1 --> R2["Ronda 2: 3 bugs menores (10b8608..f8b0d11) ✅"]
     R2 --> R3["Ronda 3: INSTALA CON INTEGRIDAD (81ba56b) ✅"]
     I7 --> E3["E3 supervision OTP sobre SCC (096ef95..f8eaa9c) VERIFIED ✅"]
-    E3 --> E4["E4 reconciliacion acotada por tier ⏳"]
+    E3 --> E4["E4 reconciliacion acotada por tier (a8308f8..00886c3) VERIFIED ✅"]
 ```
 
 | Milestone | Intent | Agente | Estado |
@@ -293,7 +293,29 @@ flowchart LR
 | M3 | Sala limpia ronda 3: INSTALA CON INTEGRIDAD | Dokimos | ✅ (`b6c50c4`, `81ba56b`) |
 | M4 | E3 supervisión OTP: `one_for_one` / `rest_for_one`, clasificador restore/identical/out_of_lkg | Pragma / Dokimos | ✅ VERIFIED (805 tests recolectados) |
 | M5 | Test intermitente `om7` aislado (singletons reales) | Pragma | ✅ `9c6a913` |
-| M6 | E4 reconciliación acotada por tier | Archon (Full) / orquestador (Short) | ⏳ siguiente |
+| M6 | E4 reconciliación acotada por tier (cerrada en la sección 8) | Pragma / Dokimos | ✅ VERIFIED (829 passed) |
 | M7 | Backlog menor: sondas Go sin `go.mod`, errcheck, LKG antiguo, `ruff format` (76 archivos) | Pragma | ⏳ pendiente |
 | M8 | Registro documental de este tramo | Graphos G2 | ✅ (`feature_20261107_113335_install_integrity_e3.md`) |
+
+## 8. E4 reconciliación acotada por tier y cierre del plan E2–E4 (2026-11-07)
+
+Registro: `docs/pipeline/feature_20261107_115813_e4_reconcile.md` (anterior: `feature_20261107_113335_install_integrity_e3.md`). Rollup: `docs/pipeline/feature_rollup.md` (sección "Rollup 5").
+
+```mermaid
+flowchart LR
+    I8["Intent: Autohealing E2-E4 (cerrado)"] --> E2["E2: specs incrementales (74d5968, eff04ac) VERIFIED ✅"]
+    E2 --> E3["E3: supervision OTP sobre SCC (096ef95..f8eaa9c) VERIFIED ✅"]
+    E3 --> E4["E4: reconcile acotado por tier (a8308f8, 07c023a, 00886c3) VERIFIED ✅"]
+    E4 --> C["Cierre E2-E4 y rollup (Graphos G2) ✅"]
+    E4 --> B["Backlog menor: LKG, sondas Go, errcheck, cache E2, ruff format ⏳"]
+```
+
+| Milestone | Intent | Agente | Estado |
+|-----------|--------|--------|--------|
+| M1 | E4 módulo puro `engine/threads_reconcile.py` y acción `autoevol(action="reconcile")` | Pragma | ✅ `a8308f8` |
+| M2 | Xfails de auditoría para límite, presupuesto de apertura y covers de helpers | Pragma | ✅ `07c023a` |
+| M3 | Corrección tras primer pase DEFECTIVE (3 menores): propose-only, presupuesto propio `AEP_RECONCILE_MAX_OPENS`, `limit`, fusión de kwargs (gaps 122 → 120) | Pragma / Dokimos | ✅ `00886c3` (VERIFIED, 829 passed) |
+| M4 | Variables `AEP_RECONCILE_OPEN` y `AEP_RECONCILE_MAX_OPENS` documentadas | Graphos G2 | ✅ README §4, SDD 9.1 |
+| M5 | Registro documental, STATE, COMPACT, rollup atrasado y badge de tests | Graphos G2 | ✅ este commit |
+| M6 | Backlog menor (LKG, sondas Go sin `go.mod`, errcheck, caché E2, `ruff format` en ~80 archivos, test de helper multi-sitio) | Pragma | ⏳ pendiente, decisión de alcance del usuario |
 

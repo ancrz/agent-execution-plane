@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-805_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-829_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1039,7 +1039,7 @@ flowchart TD
 >
 > Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
-### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3, ONT-42c, E2, E3, install integrity)
+### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3, ONT-42c, E2, E3, E4, install integrity)
 
 Each intent is linked to its milestones and to the agent responsible for each one. Status is updated at every pipeline activation. Source of truth: `docs/MILESTONES.md`.
 
@@ -1112,7 +1112,7 @@ flowchart LR
     M5 --> M6["M6: pushed to origin/dev ⛔ retenido por usuario"]
 ```
 
-**ONT-42c evaluador (cerrado: E1, C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados; E2 VERIFIED; backlog E3–E4):**
+**ONT-42c evaluador (cerrado: E1, C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados; E2, E3 y E4 VERIFIED):**
 
 ```mermaid
 flowchart LR
@@ -1123,7 +1123,7 @@ flowchart LR
     C47 --> V["M: verified (Dokimos, 772 passed; DK-1..DK-4 en 1 ciclo) ✅"]
     V --> E2["E2: specs incrementales (cache node_hash, stale_specs; 772 passed) ✅"]
     E2 --> E3["E3: supervision OTP sobre SCC (096ef95..f8eaa9c; 805 tests) ✅"]
-    E3 --> E4["E4: reconciliacion acotada por tier ⏳"]
+    E3 --> E4["E4: reconciliacion acotada por tier (a8308f8..00886c3; 829 passed) ✅"]
 ```
 
 **Integridad de instalación en sala limpia (INSTALA CON INTEGRIDAD, ronda 3; push retenido):**
@@ -1143,6 +1143,18 @@ Decisiones vigentes: `resolve-revert` solo por CLI humano con `--confirm`; `reco
 [↑ Back to top](#top)
 
 ---
+
+**Plan de autohealing E2–E4 (cerrado, 2026-11-07; E4 VERIFIED con 829 passed):**
+
+```mermaid
+flowchart LR
+    I["Intent: Autohealing E2-E4 (autoevol)"] --> E2["E2: specs incrementales (cache node_hash, stale_specs) ✅"]
+    E2 --> E3["E3: supervision OTP sobre SCC (096ef95..f8eaa9c) ✅"]
+    E3 --> E4["E4: reconcile acotado por tier, propose-only por defecto (a8308f8, 07c023a, 00886c3) ✅"]
+    E4 --> O1["Opt-in: open_cycles=true o AEP_RECONCILE_OPEN=1 (presupuesto AEP_RECONCILE_MAX_OPENS=1/24 h) ✅"]
+    E4 --> G["Garantia: sin commit, merge, push ni heal apply desde reconcile; tier < 6 no escribe ✅"]
+    E4 --> B["Backlog menor: LKG, sondas Go, errcheck, cache E2, ruff format ⏳"]
+```
 
 ## 11. Shell-Agnostic Environment
 

@@ -1,11 +1,11 @@
-# Context Compaction Guidance: AEP (integridad de instalación VERIFIED; E3 VERIFIED; siguiente E4)
-Preserve: pipeline mode Short (default, cost control; Full only on user request or blast radius); active intent: E4 reconciliación por tier.
-Baseline: `dev` @ `f8eaa9c` (origin/dev @ `550875f`, 24 commits ahead, NO push; push is user-gated). Suite 805 tests collected; 805 passed reported by Dokimos; ruff clean (reported).
-Files and why: `scripts/setup.sh`, `scripts/aep-sync.sh`, `scripts/aep-ctl`, `server.py` (install integrity, `aep_ctl` via sys.executable); `engine/threads_supervise.py`, `engine/threads_heal.py` (E3 OTP); `docs/reports/2026-11-07_aep_clean_room_install_retest.md`; `docs/pipeline/feature_20261107_113335_install_integrity_e3.md`.
-Decisions taken by the user: Short by default; Graphos records docs locally, no push; O-2 budget inherited after reap; `resolve-revert` only via human CLI with `--confirm`; `recovered: true` only with git proof plus gate witness; E2 spec informative only.
-Accepted risks and minors: E2 hardening optional (node_hash of tests/pins in key; validate `_lookup` hit shape); M-2b open; threat model: gate does not protect against a same-uid adversary; clean-room round 3 did not run pytest; pueue pin has no official checksum (SHA calculated).
-Open backlog (minor): Go probes without go.mod; errcheck in socket-monitor (1) and landlock-guard (4); LKG old (622fa0a7…) should be refreshed; ruff format pending in 76 files; download-failure branch (network down) not exercised.
-Next 3 pending actions: (1) E4 reconciliation bounded by tier (Archon in Full / orchestrator in Short); (2) minor install backlog (Go go.mod probes, errcheck); (3) LKG refresh and ruff format scope (user decision).
-Also pending: `feature_rollup.md` overdue (chain more than five docs since last rollup).
-Drop: pytest traces, intermediate diffs, subagent logs, superseded plans, resolved clean-room rounds 1-2 detail, resolved E3 defect investigation.
-Recovery: after a crash, read the latest docs/pipeline/feature_*.md and this file, then `git fsck`.
+# Context Compaction Guidance: AEP (plan autohealing E2–E4 CERRADO; E4 VERIFIED; siguiente backlog menor)
+Preserve: pipeline mode Short (default, cost control; Full only on user request or blast radius); active intent: none open (E2, E3, E4 VERIFIED); next decision is publishing (user-gated).
+Baseline: `dev` @ `00886c3` (origin/dev @ `b6b5e66`, 3 commits ahead, NO push; push is user-gated). Suite 829 collected; 829 passed reported by Dokimos; ruff clean (reported).
+Files and why: `engine/threads_reconcile.py` (E4 pure controller, tier policy, opt-in opens); `engine/threads_ledger.py`, `engine/threads.py`, `engine/threads_spec_cache.py`, `engine/threads_extractors.py` (E4 support, kwargs fusion for helper call sites); `server.py` (`autoevol(action="reconcile")`, `reconcile_top` in discover terse); `tests/test_e4_reconcile.py`, `tests/test_audit_e4.py`.
+Decisions taken by the user: Short by default; Graphos records docs locally, no push; `resolve-revert` only via human CLI with `--confirm`; `recovered: true` only with git proof plus gate witness; E2 spec informative only; reconcile proposes by default (opening cycles needs `open_cycles=true` or `AEP_RECONCILE_OPEN=1`).
+Env vars: `AEP_RECONCILE_OPEN` (default off), `AEP_RECONCILE_MAX_OPENS` (default 1 per 24 h, counts only `reconcile.opened`), `AEP_AUTOEVOL_MAX_CYCLES` (default 3, unchanged).
+Accepted risks and minors: E2 hardening optional (node_hash of tests/pins in key; validate `_lookup` hit shape); M-2b open; gate does not protect against a same-uid adversary; clean-room round 3 did not run pytest; pueue pin has no official checksum (SHA calculated).
+Open backlog (minor): refresh LKG (`622fa0a7…`); Go probes without go.mod + errcheck (socket-monitor 1, landlock-guard 4); ruff format in ~80 files; test for multi-site helper kwargs fusion; download-failure branch (network down) not exercised.
+Next 3 pending actions: (1) user decides whether to publish `dev` (push user-gated; 3 commits pending); (2) backlog minor items in user-chosen order; (3) LKG refresh and ruff format scope (user decision).
+Drop: pytest traces, intermediate diffs, subagent logs, superseded plans, resolved E4 first-pass detail, resolved clean-room rounds 1-2 detail.
+Recovery: after a crash, read the latest docs/pipeline/feature_*.md (`feature_20261107_115813_e4_reconcile.md`) and this file, then `git fsck`.
