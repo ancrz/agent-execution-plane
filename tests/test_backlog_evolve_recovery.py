@@ -30,8 +30,16 @@ def _run_until_crash(r: Rig) -> None:
     for _ in range(20):  # el gate es por lotes: re-entra hasta que llega al merge y cae
         try:
             out = te.run_evolve(
-                r.store(), port, lambda: dict(r.live), cycle=r.cycle, gap="D-88", apply=True,
-                octal=7, label="FULL", cycle_dir=r.state, kit=r.fake.kit(),
+                r.store(),
+                port,
+                lambda: dict(r.live),
+                cycle=r.cycle,
+                gap="D-88",
+                apply=True,
+                octal=7,
+                label="FULL",
+                cycle_dir=r.state,
+                kit=r.fake.kit(),
             )
         except RuntimeError as exc:
             assert "simulated crash" in str(exc)

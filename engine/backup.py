@@ -49,6 +49,7 @@ MAX_RAM_SNAPSHOTS = 2
 
 class DatabasePoisonError(Exception):
     """Excepción lanzada cuando una base de datos está corrupta o envenenada y no supera las comprobaciones de integridad."""
+
     pass
 
 
@@ -107,9 +108,7 @@ def verify_canary(conn: sqlite3.Connection) -> bool:
         cur = conn.execute("SELECT COUNT(*) FROM _aep_canary")
         if cur.fetchone()[0] == 0:
             return False
-        cur = conn.execute(
-            "SELECT canary_token FROM _aep_canary WHERE id = 1"
-        )
+        cur = conn.execute("SELECT canary_token FROM _aep_canary WHERE id = 1")
         row = cur.fetchone()
         return bool(row and row[0] == CANARY_TOKEN)
     except sqlite3.Error:
@@ -210,16 +209,24 @@ def verify_database_integrity(
                 chk_conn.close()
 
         if expected_schema_hash and schema_hash != expected_schema_hash:
-            return False, "SCHEMA_MISMATCH", {
-                "expected": expected_schema_hash,
-                "actual": schema_hash,
-            }
+            return (
+                False,
+                "SCHEMA_MISMATCH",
+                {
+                    "expected": expected_schema_hash,
+                    "actual": schema_hash,
+                },
+            )
 
-        return True, "HEALTHY", {
-            "schema_hash": schema_hash,
-            "user_tables": user_table_count,
-            "size_bytes": db_path.stat().st_size,
-        }
+        return (
+            True,
+            "HEALTHY",
+            {
+                "schema_hash": schema_hash,
+                "user_tables": user_table_count,
+                "size_bytes": db_path.stat().st_size,
+            },
+        )
 
     except (sqlite3.DatabaseError, sqlite3.OperationalError, OSError) as e:
         return False, "CORRUPT_DATABASE", {"error": str(e)}
@@ -302,6 +309,7 @@ def get_quarantine_status(backups_dir: Path | str | None = None) -> dict[str, An
 # Micro-snapshots volátiles en memoria RAM (TASK-03)
 # ==============================================================================
 
+
 def create_micro_snapshot(
     db_path: Path | str | None = None,
     snapshot_id: str | None = "default",
@@ -311,7 +319,12 @@ def create_micro_snapshot(
     Garantiza latencia sub-milisegundo (<2ms) y cero escrituras en disco.
     """
     eff_snap_id = snapshot_id or "default"
-    if isinstance(db_path, str) and not db_path.endswith(".db") and not Path(db_path).exists() and eff_snap_id == "default":
+    if (
+        isinstance(db_path, str)
+        and not db_path.endswith(".db")
+        and not Path(db_path).exists()
+        and eff_snap_id == "default"
+    ):
         eff_snap_id = db_path
         db_path = None
 
@@ -334,7 +347,7 @@ def create_micro_snapshot(
         if eff_snap_id in _RAM_MICRO_SNAPSHOTS:
             try:
                 _RAM_MICRO_SNAPSHOTS.pop(eff_snap_id).close()
-            except (sqlite3.Error, OSError):  # noqa: S110
+            except sqlite3.Error, OSError:  # noqa: S110
                 pass
 
         # Evicción FIFO para acotar consumo de RAM a MAX_RAM_SNAPSHOTS
@@ -342,7 +355,7 @@ def create_micro_snapshot(
             oldest_key = next(iter(_RAM_MICRO_SNAPSHOTS))
             try:
                 _RAM_MICRO_SNAPSHOTS.pop(oldest_key).close()
-            except (sqlite3.Error, OSError):  # noqa: S110
+            except sqlite3.Error, OSError:  # noqa: S110
                 pass
 
         _RAM_MICRO_SNAPSHOTS[eff_snap_id] = mem_conn
@@ -366,7 +379,12 @@ def restore_micro_snapshot(
     Restaura un micro-snapshot desde memoria RAM hacia la base de datos destino en disco.
     """
     eff_snap_id = snapshot_id or "default"
-    if isinstance(db_path, str) and not db_path.endswith(".db") and not Path(db_path).exists() and eff_snap_id == "default":
+    if (
+        isinstance(db_path, str)
+        and not db_path.endswith(".db")
+        and not Path(db_path).exists()
+        and eff_snap_id == "default"
+    ):
         eff_snap_id = db_path
         db_path = None
 
@@ -415,7 +433,7 @@ def clear_micro_snapshots() -> None:
         for conn in _RAM_MICRO_SNAPSHOTS.values():
             try:
                 conn.close()
-            except (sqlite3.Error, OSError):  # noqa: S110
+            except sqlite3.Error, OSError:  # noqa: S110
                 pass
         _RAM_MICRO_SNAPSHOTS.clear()
 
@@ -878,23 +896,17 @@ def restore_backup(
     return BackupEngine(db_path=db_path, backups_dir=backups_dir).restore_backup(slot_number=slot_number)
 
 
-def create_golden_snapshot(
-    db_path: Path | str | None = None, backups_dir: Path | str | None = None
-) -> dict[str, Any]:
+def create_golden_snapshot(db_path: Path | str | None = None, backups_dir: Path | str | None = None) -> dict[str, Any]:
     """Crea un snapshot Golden de referencia."""
     return BackupEngine(db_path=db_path, backups_dir=backups_dir).create_golden_snapshot()
 
 
-def restore_golden_snapshot(
-    db_path: Path | str | None = None, backups_dir: Path | str | None = None
-) -> dict[str, Any]:
+def restore_golden_snapshot(db_path: Path | str | None = None, backups_dir: Path | str | None = None) -> dict[str, Any]:
     """Restaura la base de datos a partir del snapshot Golden."""
     return BackupEngine(db_path=db_path, backups_dir=backups_dir).restore_golden_snapshot()
 
 
-def verify_and_auto_recover(
-    db_path: Path | str | None = None, backups_dir: Path | str | None = None
-) -> dict[str, Any]:
+def verify_and_auto_recover(db_path: Path | str | None = None, backups_dir: Path | str | None = None) -> dict[str, Any]:
     """Ejecuta auto-recuperación de autoreparación si la base de datos está dañada."""
     return BackupEngine(db_path=db_path, backups_dir=backups_dir).verify_and_auto_recover()
 
@@ -981,7 +993,7 @@ def create_workspace_snapshot(path: Path | str, name: str | None = None) -> dict
                         "target": str(p),
                         "total_bytes": total_bytes,
                     }
-            except (OSError, FileNotFoundError):
+            except OSError, FileNotFoundError:
                 continue
 
     snap_dir = Path("/dev/shm/aep_pool/snapshots")

@@ -410,8 +410,13 @@ class PlaneEventSpool:
         return out
 
     def append(self, kind: str, **fields: Any) -> None:
-        record = {"ts": datetime.now(UTC).isoformat(timespec="microseconds"), "nonce": secrets.token_hex(4),
-                  "pid": FRONT_PID, "kind": kind, **self._trim(fields)}
+        record = {
+            "ts": datetime.now(UTC).isoformat(timespec="microseconds"),
+            "nonce": secrets.token_hex(4),
+            "pid": FRONT_PID,
+            "kind": kind,
+            **self._trim(fields),
+        }
         line = (json.dumps(record, sort_keys=True, default=str) + "\n").encode("utf-8")
         if len(line) > SPOOL_MAX_LINE_BYTES:
             line = (json.dumps({k: record[k] for k in ("ts", "nonce", "pid", "kind")}) + "\n").encode("utf-8")
@@ -485,7 +490,7 @@ class BackendConnection:
                         fut.set_result(data)
                 except Exception as e:  # noqa: BLE001
                     logger.debug("Error parsing backend response: %s", e)
-        except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError, OSError):
+        except asyncio.CancelledError, ConnectionResetError, BrokenPipeError, OSError:
             pass
         finally:
             self.alive = False
@@ -780,9 +785,9 @@ class LivePlaneManager:
         self.drops = [t for t in self.drops if now - t <= CRASH_WINDOW_S] + [now]
         return len(self.drops)
 
-    async def _health_and_list(self, conn: BackendConnection, generation: int, health_timeout: float) -> tuple[
-        dict[str, Any], list[dict[str, Any]], str
-    ]:
+    async def _health_and_list(
+        self, conn: BackendConnection, generation: int, health_timeout: float
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
         try:
             health = await conn.send_request({"op": "health"}, timeout=health_timeout)
             if health.get("status") != "OK":
@@ -1064,7 +1069,9 @@ class LivePlaneManager:
             try:
                 candidate = await self._spawn_backend(generation=next_gen)
             except Exception as e:  # noqa: BLE001
-                await self._record_failed_swap(mode, disk_fp, f"Failed to spawn backend Gen {next_gen}: {e}", "transient")
+                await self._record_failed_swap(
+                    mode, disk_fp, f"Failed to spawn backend Gen {next_gen}: {e}", "transient"
+                )
                 return
 
             # Wait for health (fail-safe)
@@ -1091,7 +1098,9 @@ class LivePlaneManager:
             except Exception as e:  # noqa: BLE001
                 kind, tail = await self._classify_failure(candidate, next_gen)
                 await candidate.terminate()
-                await self._record_failed_swap(mode, disk_fp, f"Failed to list tools from Gen {next_gen}: {e}", kind, tail)
+                await self._record_failed_swap(
+                    mode, disk_fp, f"Failed to list tools from Gen {next_gen}: {e}", kind, tail
+                )
                 return
 
             # A fence created while the candidate was starting aborts the promotion.
@@ -1280,15 +1289,12 @@ async def main() -> None:
     except Exception as e:  # noqa: BLE001
         logger.error("Gen 1 eager startup failed: %s", e)
         server_instructions = (
-            f"Agent-Execution-Plane (Degraded Mode)\n"
-            f"Backend Gen 1 startup failed: {manager.last_reload_error or e}"
+            f"Agent-Execution-Plane (Degraded Mode)\nBackend Gen 1 startup failed: {manager.last_reload_error or e}"
         )
 
     server = create_front_server(manager, instructions=server_instructions)
 
-    initialization_options = server.create_initialization_options(
-        NotificationOptions(tools_changed=True)
-    )
+    initialization_options = server.create_initialization_options(NotificationOptions(tools_changed=True))
 
     try:
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):

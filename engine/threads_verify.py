@@ -416,9 +416,9 @@ def verify_change(
         static["tests"] = {"selected": 0}
         # F1: un parche que toca tests/ o un nodo publico sin ningun test ejecutado no puede aceptarse.
         if cmp["changed_tests"] or cmp["touches_public"]:
-            return decide(cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, trusted=trusted, no_tests=True) | {
-                "tests": {"selected": 0}
-            }
+            return decide(
+                cmp, target_gap=target_gap, barrier=barrier, budgets=budgets, trusted=trusted, no_tests=True
+            ) | {"tests": {"selected": 0}}
         return static
     plan = plan_tests(impacted_tests, estimate_s=estimate_s)
     # G1: cuando batch_sync=True y TESTS_PER_ITERATION > 0, >20 tests se ejecutan por lotes síncronos en bwrap
@@ -487,7 +487,7 @@ def _extract_head(repo_root: Path, tmp: Path, git_bin: str) -> Path | None:
             timeout=BASE_ARCHIVE_TIMEOUT_S,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     if res.returncode != 0 or not archive.is_file():
         return None
@@ -495,7 +495,7 @@ def _extract_head(repo_root: Path, tmp: Path, git_bin: str) -> Path | None:
     dest.mkdir()
     try:
         safe_extract(archive, dest)
-    except (tarfile.TarError, OSError, ValueError):
+    except tarfile.TarError, OSError, ValueError:
         return None
     return dest
 
@@ -518,7 +518,9 @@ def safe_extract(archive: Path, dest: Path) -> int:
                 raise ValueError(f"member escapes destination: {name!r}")
             if not (member.isfile() or member.isdir()):
                 continue
-            tf.extract(member, root, filter="data")  # nosemgrep: tarfile-extractall-traversal  # miembro ya validado arriba
+            tf.extract(
+                member, root, filter="data"
+            )  # nosemgrep: tarfile-extractall-traversal  # miembro ya validado arriba
             count += 1
     return count
 
@@ -700,7 +702,12 @@ class CycleStore:
         if exhausted:
             rec["state"] = EXHAUSTED
             rec["history"].append(
-                {"it": rec["iteration"], "verdict": REJECT, "reasons": [*final_reasons, *reasons][:LIST_CAP], "ts": self._clock()}
+                {
+                    "it": rec["iteration"],
+                    "verdict": REJECT,
+                    "reasons": [*final_reasons, *reasons][:LIST_CAP],
+                    "ts": self._clock(),
+                }
             )
         with self._GUARD, ev.state_dir(self._dir) as dfd:
             self._put(dfd, cycle_file_name(self._uid, cycle_id), rec)
@@ -737,7 +744,9 @@ class CycleStore:
         rec["history"].append(
             {"it": iteration, "verdict": verdict, "reasons": list(decision.get("reasons", []))[:LIST_CAP], "ts": now}
         )
-        rec.update(state=state, iteration=iteration, updated=now, job=decision.get("job") if verdict == PENDING else None)
+        rec.update(
+            state=state, iteration=iteration, updated=now, job=decision.get("job") if verdict == PENDING else None
+        )
         if verdict == PENDING and decision.get("pending_fp"):
             rec["pending_fp"] = str(decision["pending_fp"])  # huella al despachar: el poll async la compara
         else:
@@ -748,7 +757,9 @@ class CycleStore:
         with self._GUARD, ev.state_dir(self._dir) as dfd:
             self._put(dfd, name, rec)
             if state == EXHAUSTED:
-                self._put(dfd, lock_file_name(self._uid, rec["gap"]), {"until": now + LOCK_SECONDS, "cycle_id": cycle_id})
+                self._put(
+                    dfd, lock_file_name(self._uid, rec["gap"]), {"until": now + LOCK_SECONDS, "cycle_id": cycle_id}
+                )
         if state in TERMINAL_STATES:
             ev.append_event(
                 "cycle_terminal",

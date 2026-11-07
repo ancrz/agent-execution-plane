@@ -52,7 +52,17 @@ def test_direct_references_to_port_and_store(rig: Rig) -> None:
     te.EvolveStore.save(store, rig.cycle, {"state": "X"})
     assert te.EvolveStore.load(store, rig.cycle) == {"state": "X"}
     assert te.evolve_file_name(0, rig.cycle).startswith("evolve_")
-    protocol = (te.GitPort.current_branch, te.GitPort.rev_parse, te.GitPort.tree_of, te.GitPort.is_ancestor,
-                te.GitPort.dirty_tracked, te.GitPort.remote_reachable, te.GitPort.candidate_tree,
-                te.GitPort.commit_branch, te.GitPort.merge_ff, te.GitPort.push, te.GitPort.work_root)
+    protocol = (
+        te.GitPort.current_branch,
+        te.GitPort.rev_parse,
+        te.GitPort.tree_of,
+        te.GitPort.is_ancestor,
+        te.GitPort.dirty_tracked,
+        te.GitPort.remote_reachable,
+        te.GitPort.candidate_tree,
+        te.GitPort.commit_branch,
+        te.GitPort.merge_ff,
+        te.GitPort.push,
+        te.GitPort.work_root,
+    )
     assert all(callable(p) for p in protocol)

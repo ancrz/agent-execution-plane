@@ -243,10 +243,7 @@ def test_gate7_apport_rfc822_streaming_and_fail_soft_signals(tmp_path: Path) -> 
     # 4. Crash file with non-integer string signal
     f_str_sig = crash_dir / "_usr_bin_string-sig.1000.crash"
     f_str_sig.write_text(
-        "ProblemType: Crash\n"
-        "ExecutablePath: /usr/bin/string-sig\n"
-        "Signal: SIGRTMIN+2\n"
-        "Date: Thu Nov  5 03:00:00 2026\n",
+        "ProblemType: Crash\nExecutablePath: /usr/bin/string-sig\nSignal: SIGRTMIN+2\nDate: Thu Nov  5 03:00:00 2026\n",
         encoding="utf-8",
     )
 
@@ -286,8 +283,7 @@ def test_gate7_apport_rfc822_streaming_and_fail_soft_signals(tmp_path: Path) -> 
 def test_gate8_pytest_parsing_completeness_and_fail_soft_defaults() -> None:
     """_parse_pytest_output extracts extended metrics with fail-soft defaults (R4)."""
     # 1. Full pytest summary with xfailed, deselected, and coverage
-    raw_output = (
-        """
+    raw_output = """
 ============================= test session starts ==============================
 collected 25 items / 6 deselected / 19 selected
 tests/test_mod.py ................xx.                                   [100%]
@@ -299,7 +295,6 @@ TOTAL                  150     15    90%
 
 ================ 16 passed, 6 deselected, 2 xfailed, 1 xpassed in 2.34s ================
 """
-    )
     parsed = _parse_pytest_output(raw_output)
     assert parsed is not None
     assert parsed["tool"] == "pytest"
@@ -344,15 +339,13 @@ def test_gate9_sandbox_pytest_anti_masking_and_deduplication() -> None:
     assert _deduplicate_lines([]) == []
 
     # 2. Pytest anti-masking logic
-    mock_pytest_masked_text = (
-        """
+    mock_pytest_masked_text = """
 =================================== FAILURES ===================================
 FAILED tests/test_core.py::test_fail - AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_core.py::test_fail
 ========================= 1 failed, 10 passed in 0.45s =========================
 """
-    )
     parsed = _parse_pytest_output(mock_pytest_masked_text)
     assert parsed is not None
     assert parsed["failed"] == 1

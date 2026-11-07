@@ -23,7 +23,7 @@ logger = logging.getLogger("aep.docs_vectorizer")
 
 try:
     import sqlite_vec
-except (ImportError, OSError):
+except ImportError, OSError:
     sqlite_vec = None
 
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "system_docs.db"

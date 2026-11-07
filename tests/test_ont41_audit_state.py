@@ -41,11 +41,18 @@ def env(tmp_path: Path) -> tuple[Path, Path]:
     return shm, root
 
 
-def _run(shm: Path, root: Path, alive: set[int], start: float | None, running: list[int] | None = None, clean: bool = True) -> dict[str, Any]:
+def _run(
+    shm: Path, root: Path, alive: set[int], start: float | None, running: list[int] | None = None, clean: bool = True
+) -> dict[str, Any]:
     assert fingerprint.code_fingerprint(str(REPO))  # el hash real del arbol es el mismo que el script importa
     return audit_mod.audit(
-        root, shm, clean=clean, running_pids=running, fingerprint_fn=lambda _r: DISK_FP,
-        alive_fn=lambda p: p in alive, start_fn=lambda _p: start,
+        root,
+        shm,
+        clean=clean,
+        running_pids=running,
+        fingerprint_fn=lambda _r: DISK_FP,
+        alive_fn=lambda p: p in alive,
+        start_fn=lambda _p: start,
     )
 
 
@@ -84,8 +91,18 @@ def test_unsafe_files_are_refused(env: tuple[Path, Path], tmp_path: Path) -> Non
 def test_cli_emits_one_json_line(env: tuple[Path, Path]) -> None:
     shm, root = env
     out = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "aep_audit_state.py"), str(REPO), "--dir", str(shm), "--no-clean", str(os.getpid())],
-        capture_output=True, text=True, check=True,
+        [
+            sys.executable,
+            str(REPO / "scripts" / "aep_audit_state.py"),
+            str(REPO),
+            "--dir",
+            str(shm),
+            "--no-clean",
+            str(os.getpid()),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     data = json.loads(out.stdout)
     assert fingerprint.code_fingerprint(str(REPO))

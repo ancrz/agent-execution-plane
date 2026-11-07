@@ -189,7 +189,7 @@ def _lkg_git_head() -> str:
     try:
         manifest = json.loads((PROJECT_DIR.parent / "manifest.json").read_text(encoding="utf-8"))
         return str(manifest.get("git_head") or "unknown")
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return "unknown"
 
 
@@ -232,7 +232,6 @@ _BARRIER_CTX: contextvars.ContextVar[dict[str, Any] | None] = contextvars.Contex
 def get_reload_barrier() -> dict[str, Any] | None:
     """Barrier for the tool call in flight, or None when the front did not provide one."""
     return _BARRIER_CTX.get()
-
 
 
 def _get_live_meta() -> dict[str, Any]:
@@ -289,7 +288,7 @@ def _is_front_stale() -> bool:
     if front_start_ns_str and front_path.exists():
         try:
             return front_path.stat().st_mtime_ns > int(front_start_ns_str)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             pass
     meta = _get_live_meta()
     if "front_stale" in meta:
@@ -363,7 +362,20 @@ _TOOL_ACTIONS: dict[str, list[str]] = {
     "artifact_lint_and_build": ["build", "lint", "catalog", "select", "hydrate"],
     "async_job_dispatch": ["dispatch", "inspect", "status", "log"],
     "default_primitives": ["list", "info", "run"],
-    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report"],
+    "autoevol": [
+        "graph",
+        "gaps",
+        "thread",
+        "log",
+        "diff",
+        "spec",
+        "verify",
+        "fix_test",
+        "heal",
+        "evolve",
+        "reconcile",
+        "report",
+    ],
 }
 
 
@@ -738,6 +750,7 @@ async def discover(
             front_stale_now = _is_front_stale()
 
             from engine.hardware import probe_accelerators
+
             try:
                 accels_overview = probe_accelerators()
             except Exception:
@@ -760,7 +773,11 @@ async def discover(
                 "pid": os.getpid(),
                 "process_start_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(SERVER_START_TIME)),
                 "uptime_seconds": round(time.time() - SERVER_START_TIME, 2),
-                "accelerators": ([acc.get("device", "card") for acc in accels_overview] if v_mode in ("terse", "cached") else accels_overview),
+                "accelerators": (
+                    [acc.get("device", "card") for acc in accels_overview]
+                    if v_mode in ("terse", "cached")
+                    else accels_overview
+                ),
             }
             payload.update(caps_meta)
             if commit_drift:  # D-25: emitted only when true (token budget)
@@ -808,7 +825,9 @@ async def discover(
             if is_stale:
                 payload["severity"] = "WARN"
                 if commit_drift and fp_stale:
-                    reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}; code fingerprint mismatch"
+                    reason = (
+                        f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}; code fingerprint mismatch"
+                    )
                 elif commit_drift:
                     reason = f"running commit {LOADED_COMMIT}, but repository HEAD is {repo_head}; code fingerprint unavailable"
                 elif fp_stale:
@@ -827,7 +846,9 @@ async def discover(
                 summary = f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities)."
                 next_action = "Call discover(action='playbook') for workflows or invoke a ready tool."
                 if commit_drift:
-                    next_action = "HEAD moved by a commit that does not change code (docs-only); no reload needed. " + next_action
+                    next_action = (
+                        "HEAD moved by a commit that does not change code (docs-only); no reload needed. " + next_action
+                    )
                 sev = "INFO"
             if front_stale_now:  # D-25: the reload trigger is the front, and the pointer is a plan (read-only) call
                 next_action = f"{next_action} Front stale: {RECONNECT_POINTER}"
@@ -1138,7 +1159,8 @@ async def artifact_catalog(
                             "status": "PARAM_ERROR",
                             "error": "Acción 'query' requiere el parámetro 'intent' (o 'query').",
                         },
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 hit = catalog.find_hybrid(eff_intent, category=eff_category)
                 if hit:
@@ -1155,7 +1177,8 @@ async def artifact_catalog(
                             "semantic_distance": hit.get("semantic_distance"),
                         },
                         tracker,
-                        summary=f"Cache hit: {hit['name']} ({hit.get('retrieval_mode', 'exact_hash')}).", verbosity=verbosity,
+                        summary=f"Cache hit: {hit['name']} ({hit.get('retrieval_mode', 'exact_hash')}).",
+                        verbosity=verbosity,
                     )
                 return attach_envelope(
                     {
@@ -1165,7 +1188,8 @@ async def artifact_catalog(
                         "semantic_available": catalog._vec_available,
                     },
                     tracker,
-                    summary="Cache miss: no matching artifact found.", verbosity=verbosity,
+                    summary="Cache miss: no matching artifact found.",
+                    verbosity=verbosity,
                 )
             elif act == "reindex":
                 before = catalog.index_coverage()
@@ -1181,7 +1205,8 @@ async def artifact_catalog(
                         "storage_engine": storage_tel,
                         "db_telemetry": storage_tel,
                     },
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
             elif act in ("info", "get", "show"):
                 target_name = (name or artifact_name or query or intent or "").strip()
@@ -1191,7 +1216,8 @@ async def artifact_catalog(
                             "status": "PARAM_ERROR",
                             "error": "Acción 'info' requiere el parámetro 'name' (o 'artifact_name'/'query').",
                         },
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 art_meta = catalog.get_artifact(name=target_name)
                 if not art_meta:
@@ -1202,7 +1228,8 @@ async def artifact_catalog(
                             "target": target_name,
                         },
                         tracker,
-                        summary=f"Artifact '{target_name}' not found.", verbosity=verbosity,
+                        summary=f"Artifact '{target_name}' not found.",
+                        verbosity=verbosity,
                     )
                 return attach_envelope(
                     {
@@ -1224,7 +1251,8 @@ async def artifact_catalog(
                         "error": f"Acción '{action}' no reconocida. Acciones válidas: 'browse', 'query', 'info', 'reindex', 'prune'.",
                         "valid_actions": ["browse", "query", "info", "reindex", "prune"],
                     },
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
         except Exception as e:
             return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
@@ -2839,6 +2867,7 @@ def _parse_pytest_output(raw_text: str) -> dict[str, Any] | None:
         return res
     return None
 
+
 def _parse_ruff_output(raw_text: str) -> dict[str, Any] | None:
     v_m = re.search(r"Found\s+(\d+)\s+error", raw_text)
     fix_m = re.search(r"\((\d+)\s+fixable", raw_text)
@@ -3307,7 +3336,11 @@ async def sandbox_run(
                     "ro_mounts": mounted_ro,
                     "rw_mounts": mounted_rw,
                     "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
-                    "stderr": ("" if (is_brief and parsed_result is not None and res.returncode == 0 and not exit_code_masked) else err_str),
+                    "stderr": (
+                        ""
+                        if (is_brief and parsed_result is not None and res.returncode == 0 and not exit_code_masked)
+                        else err_str
+                    ),
                 }
                 if exit_code_masked:
                     res_payload["exit_code_masked"] = True
@@ -3416,7 +3449,11 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
     target_harness = str(target_harness) if target_harness is not None else None
     force = eff.get("force") is True
     if mode not in ("plan", "execute", "certify", "matrix"):
-        return {"status": "ERROR", "error": f"mode desconocido: {mode}", "valid": ["plan", "execute", "certify", "matrix"]}
+        return {
+            "status": "ERROR",
+            "error": f"mode desconocido: {mode}",
+            "valid": ["plan", "execute", "certify", "matrix"],
+        }
     tier_now = str(get_effective_chmod_tier().get("tier"))
     if mode in ("certify", "matrix") and _HR_TIER_RANK.get(tier_now, 0) < _HR_TIER_RANK["5r-x"]:
         return {"status": "REJECTED", "mode": mode, "reason": "tier_insufficient", "required": "5r-x"}
@@ -3477,7 +3514,8 @@ async def aep_ctl(
     cursor: int = 0,
     agent_id: str = "default",
     params: dict[str, Any] | None = None,
-    select_fields: list[str] | None = None,) -> str:
+    select_fields: list[str] | None = None,
+) -> str:
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
     - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
@@ -3864,7 +3902,7 @@ async def aep_ctl(
                     for part in args.split():
                         try:
                             nums.append(int(part))
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             pass
 
                 if len(nums) > 0 and req_vram == 0 and req_mib == 0:
@@ -4035,7 +4073,7 @@ async def aep_ctl(
     if select_fields and isinstance(select_fields, list):
         try:
             parsed = json.loads(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return raw  # salida no JSON: sin proyeccion posible
         if isinstance(parsed, dict):
             return json.dumps(project_fields(parsed, select_fields), ensure_ascii=False)
@@ -4402,7 +4440,8 @@ async def kanban_board(
                 if not (title or "").strip():
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'title'."},
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 res = kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id)
                 return attach_envelope(res, tracker, verbosity=verbosity)
@@ -4410,24 +4449,28 @@ async def kanban_board(
                 if task_id is None or not (to_state or "").strip():
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'advance'/'move' requiere 'task_id' y 'to_state'."},
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 return attach_envelope(
                     kanban.advance(task_id, to_state.strip(), lint_passed, canary_passed, note),
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
             elif act == "promote":
                 if task_id is None:
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'promote' requiere 'task_id'."},
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 return attach_envelope(kanban.promote(task_id), tracker, verbosity=verbosity)
             elif act == "demote":
                 if not (artifact_name or "").strip() and task_id is None:
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'demote' requiere 'artifact_name' o 'task_id'."},
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 return attach_envelope(
                     kanban.demote(
@@ -4436,20 +4479,23 @@ async def kanban_board(
                         task_id=task_id,
                         target_state=target_state,
                     ),
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
             elif act == "reevaluate":
                 return attach_envelope(kanban.reevaluate(), tracker, verbosity=verbosity)
             elif act == "archive":
                 return attach_envelope(
                     kanban.archive(states=states, max_score=max_score, apply=apply),
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
             elif act == "unarchive":
                 if task_id is None:
                     return attach_envelope(
                         {"status": "PARAM_ERROR", "error": "Acción 'unarchive' requiere 'task_id'."},
-                        tracker, verbosity=verbosity,
+                        tracker,
+                        verbosity=verbosity,
                     )
                 return attach_envelope(kanban.unarchive(task_id), tracker, verbosity=verbosity)
             else:
@@ -4470,7 +4516,8 @@ async def kanban_board(
                             "unarchive",
                         ],
                     },
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
         except Exception as e:
             return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
@@ -4778,18 +4825,21 @@ async def playbook_run(
             if not (name or "").strip() or not effective_desc or not steps:
                 return attach_envelope(
                     {"status": "PARAM_ERROR", "error": "Acción 'create' requiere 'name', 'description' y 'steps'."},
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
             allowed = set(_playbook_dispatch())
             bad = sorted({s.get("tool") for s in steps if isinstance(s, dict) and s.get("tool") not in allowed})
             if bad:
                 return attach_envelope(
                     {"status": "LINT_ERROR", "invalid_tools": bad, "allowed_tools": sorted(allowed)},
-                    tracker, verbosity=verbosity,
+                    tracker,
+                    verbosity=verbosity,
                 )
             return attach_envelope(
                 playbook_store.create(name.strip(), effective_desc, steps, params_contract),
-                tracker, verbosity=verbosity,
+                tracker,
+                verbosity=verbosity,
             )
 
         elif act == "list":
@@ -5021,7 +5071,8 @@ async def playbook_run(
                     "error": f"Acción '{action}' no reconocida. Acciones válidas: 'run', 'batch', 'create', 'list', 'prune'.",
                     "valid_actions": ["run", "batch", "create", "list", "prune"],
                 },
-                tracker, verbosity=verbosity,
+                tracker,
+                verbosity=verbosity,
             )
     except Exception as e:
         return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
@@ -5072,7 +5123,7 @@ async def default_primitives(
                 parsed_args = json.loads(args)
                 if isinstance(parsed_args, dict):
                     effective_params.update(parsed_args)
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 pass
         elif isinstance(args, list) and args:
             norm_name = normalize_primitive_name(name or "")
@@ -5081,7 +5132,7 @@ async def default_primitives(
             elif norm_name == "fd-rescuer":
                 try:
                     effective_params.setdefault("pid", int(args[0]))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             elif norm_name == "socket-monitor":
                 effective_params.setdefault("state", str(args[0]))
@@ -5209,11 +5260,23 @@ async def default_primitives(
         )
 
 
-
 # ---------------------------------------------------------------------------
 # Tool #17: autoevol (Milestone ONT-40) - read-only thread graph
 # ---------------------------------------------------------------------------
-_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report")
+_AUTOEVOL_ACTIONS = (
+    "graph",
+    "gaps",
+    "thread",
+    "log",
+    "diff",
+    "spec",
+    "verify",
+    "fix_test",
+    "heal",
+    "evolve",
+    "reconcile",
+    "report",
+)
 _AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
 _AUTOEVOL_GATE_TIMEOUT_S = 100  # C4 (condicion 10): tope por lote del gate final
@@ -5261,7 +5324,7 @@ def _autoevol_interpreter(tree: Path) -> dict[str, Any] | None:
                 continue
             # raiz base del interprete resuelto (p. ej. ~/.local/share/uv/python): mismo criterio que sandbox_run.
             base_root = real.parents[2] if len(real.parents) >= 3 else real.parents[1]
-        except (OSError, RuntimeError, IndexError):
+        except OSError, RuntimeError, IndexError:
             continue
         if not base_root.exists():
             continue
@@ -5335,7 +5398,9 @@ def _autoevol_test_runner(tree: Path, trusted: bool, timeout_s: int = _AUTOEVOL_
         if res.get("status") in ("DEGRADED", "PERMISSION_DENIED", "PARAM_ERROR"):
             return {"available": False}
         # F4: 126/127 o salida != 0 sin resumen de pytest = fallo de infraestructura (SANDBOX_UNAVAILABLE, ambiental).
-        if exit_code in _AUTOEVOL_ENV_EXIT_CODES or (counts is None and (res.get("status") == "EXEC_FAILED" or exit_code)):
+        if exit_code in _AUTOEVOL_ENV_EXIT_CODES or (
+            counts is None and (res.get("status") == "EXEC_FAILED" or exit_code)
+        ):
             return {"available": False}
         # F7: exit 1 sin fallos ni errores (p. ej. `No module named pytest`) es entorno, no logica: un pytest real
         # con exit 1 siempre reporta al menos un fallo.
@@ -5353,7 +5418,16 @@ def _autoevol_gate_collect(tree: Path) -> dict[str, Any]:
     interp = _autoevol_interpreter(tree)
     if interp is None:
         return {"available": False}
-    argv = [interp["python"], "-c", _AUTOEVOL_SENTINEL, str(tree.resolve()), "-qq", "--collect-only", "-p", "no:cacheprovider"]
+    argv = [
+        interp["python"],
+        "-c",
+        _AUTOEVOL_SENTINEL,
+        str(tree.resolve()),
+        "-qq",
+        "--collect-only",
+        "-p",
+        "no:cacheprovider",
+    ]
 
     async def _call() -> str:
         return await sandbox_run(
@@ -5368,7 +5442,12 @@ def _autoevol_gate_collect(tree: Path) -> dict[str, Any]:
     res = json.loads(anyio.from_thread.run(_call))
     if res.get("exit_code") == _AUTOEVOL_WRONG_TREE_EXIT:
         return {"wrong_tree": True}
-    if res.get("exit_code") not in (0, None) or res.get("status") in ("DEGRADED", "PERMISSION_DENIED", "PARAM_ERROR", "ERROR"):
+    if res.get("exit_code") not in (0, None) or res.get("status") in (
+        "DEGRADED",
+        "PERMISSION_DENIED",
+        "PARAM_ERROR",
+        "ERROR",
+    ):
         return {"available": False}
     files = {m.group(1): int(m.group(2)) for m in _GATE_COLLECT_RE.finditer(str(res.get("stdout", "")))}
     return {"files": files} if files else {"available": False}
@@ -5425,7 +5504,9 @@ def _autoevol_ledger() -> Any:
     from engine import threads as th
     from engine import threads_ledger as tl
 
-    return tl.EvolveLedger(th.default_db_path(), max_cycles=tl.max_cycles_from_env(os.environ.get("AEP_AUTOEVOL_MAX_CYCLES")))
+    return tl.EvolveLedger(
+        th.default_db_path(), max_cycles=tl.max_cycles_from_env(os.environ.get("AEP_AUTOEVOL_MAX_CYCLES"))
+    )
 
 
 def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: bool, octal: int) -> dict[str, Any]:
@@ -5472,12 +5553,17 @@ def _reconcile_top() -> str | None:
     cached = th.cached_analysis(REPO_ROOT)
     gaps = list(cached.gaps) if cached is not None else []
     proposals = tr.propose(
-        gaps, plane=_autoevol_plane_signals(), cached_specs=sc.cached_gap_ids(th.default_db_path()), include_omissions=False
+        gaps,
+        plane=_autoevol_plane_signals(),
+        cached_specs=sc.cached_gap_ids(th.default_db_path()),
+        include_omissions=False,
     )
     return tr.top(proposals)
 
 
-def _autoevol_reconcile(tree: Path, octal: int, terse: bool, open_cycles: bool = False, limit: int = 10) -> dict[str, Any]:
+def _autoevol_reconcile(
+    tree: Path, octal: int, terse: bool, open_cycles: bool = False, limit: int = 10
+) -> dict[str, Any]:
     """`autoevol(reconcile)` (E4): propone y, segun el tier, ejecuta SOLO lo seguro (heal dry-run, ciclos fix_test/evolve
     en plan). `apply` de la tool se ignora: nunca hay heal apply, commit, merge ni push desde aqui."""
     from engine import threads as th
@@ -5495,7 +5581,9 @@ def _autoevol_reconcile(tree: Path, octal: int, terse: bool, open_cycles: bool =
             "ledger": _autoevol_ledger(),
             "open_cycle": lambda gap: ops._open_cycle(store, tree, gap, None, False, ops.TERSE_BUDGET),
             "cycle_state": lambda cyc: (te.read_cycle(cyc) or {}).get("state"),
-            "evolve_plan": lambda **kw: _autoevol_evolve(tree, gap=kw["gap"], cycle=kw["cycle"], apply=False, octal=octal),
+            "evolve_plan": lambda **kw: _autoevol_evolve(
+                tree, gap=kw["gap"], cycle=kw["cycle"], apply=False, octal=octal
+            ),
             "heal_dry_run": lambda: ops.run_heal(tree, apply=False, octal=octal, snapshot_fn=None, terse=True),
             "open_cycles": open_cycles,
         }
@@ -5730,7 +5818,11 @@ async def autoevol(
 
         trusted = not root or tree.resolve() == REPO_ROOT.resolve()
         if act in ("verify", "fix_test") and octal < ops.MIN_VERIFY_OCTAL:
-            payload = {"status": "PERMISSION_DENIED", "error": f"{act} requiere tier >= 5r-x.", "chmod_tier": tier_info["tier"]}
+            payload = {
+                "status": "PERMISSION_DENIED",
+                "error": f"{act} requiere tier >= 5r-x.",
+                "chmod_tier": tier_info["tier"],
+            }
             return attach_envelope(payload, tracker, verbosity=verbosity, summary=f"{act}: permission denied.")
         snapshot: Path | None = None
         if base:
@@ -5834,17 +5926,27 @@ async def autoevol(
             )
         if act == "thread":
             payload = _threads.thread_payload(analysis_used, node or "", limit=limit)
-            return attach_envelope(_project(payload), tracker, verbosity=verbosity, summary=f"Thread {node}: {payload['status']}.")
+            return attach_envelope(
+                _project(payload), tracker, verbosity=verbosity, summary=f"Thread {node}: {payload['status']}."
+            )
         if act == "log":
             payload = _threads.list_generations(limit=limit)
             payload["status"] = "OK"
-            return attach_envelope(_project(payload), tracker, verbosity=verbosity, summary=f"{payload['total']} generations.")
+            return attach_envelope(
+                _project(payload), tracker, verbosity=verbosity, summary=f"{payload['total']} generations."
+            )
         if act == "diff":
-            payload = _threads.diff_generations(a or "", b, current=analysis_used, limit=limit) if a else {
-                "status": "ERROR",
-                "error": "El parámetro 'a' (R o id de generación) es obligatorio para 'diff'.",
-            }
-            return attach_envelope(_project(payload), tracker, verbosity=verbosity, summary=f"diff: {payload['status']}.")
+            payload = (
+                _threads.diff_generations(a or "", b, current=analysis_used, limit=limit)
+                if a
+                else {
+                    "status": "ERROR",
+                    "error": "El parámetro 'a' (R o id de generación) es obligatorio para 'diff'.",
+                }
+            )
+            return attach_envelope(
+                _project(payload), tracker, verbosity=verbosity, summary=f"diff: {payload['status']}."
+            )
         return attach_envelope({"status": "INVALID_ACTION"}, tracker, verbosity=verbosity)
 
     return await anyio.to_thread.run_sync(_run)

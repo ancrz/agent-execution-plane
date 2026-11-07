@@ -73,10 +73,22 @@ def test_ingest_whitelist_limits_dedup_and_enum(router: cr.CrashRouter, tmp_path
         tmp_path,
         [
             {"kind": "BACKEND_DROPPED", "pid": 11, "ts": "t1", "nonce": "a", "drops_in_window": 3},
-            {"kind": "SWAP_FAILED", "pid": 12, "ts": "t2", "nonce": "b", "error": long_err, "evil": "'; DROP TABLE crash_events;--"},
+            {
+                "kind": "SWAP_FAILED",
+                "pid": 12,
+                "ts": "t2",
+                "nonce": "b",
+                "error": long_err,
+                "evil": "'; DROP TABLE crash_events;--",
+            },
             {"kind": "LKG_UNAVAILABLE", "pid": 13, "ts": "t3", "nonce": "c", "reason": "no_verified_lkg"},
             {"kind": "LKG_SAVED", "pid": 14, "ts": "t4", "nonce": "d"},  # fuera de la whitelist
-            {"kind": "BACKEND_DROPPED", "source": "coredump", "pid": "NaN", "nonce": "e"},  # source del cliente se ignora
+            {
+                "kind": "BACKEND_DROPPED",
+                "source": "coredump",
+                "pid": "NaN",
+                "nonce": "e",
+            },  # source del cliente se ignora
             "not json",
             "[1, 2]",
         ],

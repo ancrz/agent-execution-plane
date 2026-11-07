@@ -52,9 +52,7 @@ def sudo_n_available() -> bool:
         try:
             _PrivilegeCache.sudo_n = (
                 bool(shutil.which("sudo"))
-                and subprocess.run(
-                    ["sudo", "-n", "true"], capture_output=True, timeout=3, check=False
-                ).returncode == 0
+                and subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=3, check=False).returncode == 0
             )
         except (subprocess.SubprocessError, OSError) as e:
             logger.debug("sudo -n check failed: %s", e)
@@ -513,11 +511,36 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "scope": "systemd --user (DIMINISHED) | system (FULL)",
         "description": "List active systemd services or inspect/mutate a specific service unit without interactive pagers.",
         "preconditions": {
-            "list": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "start": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
-            "stop": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
-            "restart": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+            "list": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "status": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "start": {
+                "privilege_tier": "FULL",
+                "required_fs": [],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": True,
+            },
+            "stop": {
+                "privilege_tier": "FULL",
+                "required_fs": [],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": True,
+            },
+            "restart": {
+                "privilege_tier": "FULL",
+                "required_fs": [],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": True,
+            },
         },
     },
     "network": {
@@ -525,12 +548,42 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": "[target] [ports]",
         "description": "Inspect network interfaces, routing tables, active TCP/UDP listening sockets, local ARP tables, or probe TCP ports.",
         "preconditions": {
-            "inspect": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/dev"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "routes": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/route"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "listeners": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/tcp"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "probe": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "interfaces": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/dev"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "arp": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/net/arp"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "inspect": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/net/dev"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "routes": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/net/route"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "listeners": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/net/tcp"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "probe": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "interfaces": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/net/dev"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "arp": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/net/arp"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
         },
     },
     "storage": {
@@ -538,9 +591,24 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": None,
         "description": "Inspect filesystem byte usage, mount trees, and block devices.",
         "preconditions": {
-            "usage": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "mounts": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "disks": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "usage": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "mounts": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "disks": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
         },
     },
     "package": {
@@ -548,10 +616,30 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": "[name]",
         "description": "Query Debian/Ubuntu dpkg state for installed packages and versions.",
         "preconditions": {
-            "installed": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "list": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "check": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "info": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "installed": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "list": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "check": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "info": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
         },
     },
     "backup": {
@@ -579,28 +667,90 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": "[slot_number|name]",
         "description": "Manage 5-slot hot SQLite backups, RAM micro-snapshots (catalog only), workspace snapshots/restores, canary integrity, and quarantine.",
         "preconditions": {
-            act: {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
+            act: {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            }
             for act in [
-                "backup", "restore", "status", "backup_status", "auto_recover",
-                "verify_and_auto_recover", "verify_integrity", "micro_snapshot",
-                "restore_micro_snapshot", "list_micro_snapshots", "clear_micro_snapshots",
-                "golden", "restore_golden", "quarantine_status", "workspace_snapshot", "workspace_restore",
-                "lkg_status", "lkg_diff", "lkg_restore",
+                "backup",
+                "restore",
+                "status",
+                "backup_status",
+                "auto_recover",
+                "verify_and_auto_recover",
+                "verify_integrity",
+                "micro_snapshot",
+                "restore_micro_snapshot",
+                "list_micro_snapshots",
+                "clear_micro_snapshots",
+                "golden",
+                "restore_golden",
+                "quarantine_status",
+                "workspace_snapshot",
+                "workspace_restore",
+                "lkg_status",
+                "lkg_diff",
+                "lkg_restore",
             ]
         },
     },
     "security": {
-        "actions": ["landlock_status", "status", "audit", "verify", "firewall_status", "nftables_inspect", "threat_mitigate"],
+        "actions": [
+            "landlock_status",
+            "status",
+            "audit",
+            "verify",
+            "firewall_status",
+            "nftables_inspect",
+            "threat_mitigate",
+        ],
         "arg": "[target]",
         "description": "Check Linux Landlock LSM kernel ABI support, self-confinement readiness, verify audit chain, inspect firewall/nftables rules, and enforce deterministic netfilter hardening.",
         "preconditions": {
-            "landlock_status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "audit": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "verify": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "firewall_status": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
-            "nftables_inspect": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "DEGRADED", "deterministic": True},
-            "threat_mitigate": {"privilege_tier": "FULL", "required_fs": [], "fail_soft_behavior": "SIMULATED", "deterministic": True},
+            "landlock_status": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "status": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "audit": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "verify": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "firewall_status": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": True,
+            },
+            "nftables_inspect": {
+                "privilege_tier": "FULL",
+                "required_fs": [],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": True,
+            },
+            "threat_mitigate": {
+                "privilege_tier": "FULL",
+                "required_fs": [],
+                "fail_soft_behavior": "SIMULATED",
+                "deterministic": True,
+            },
         },
     },
     "audit": {
@@ -608,12 +758,34 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         "arg": "[session_id]",
         "description": "Verify the SHA-256 tamper-evident cryptographic audit ledger or inspect per-agent tool usage summary.",
         "preconditions": {
-            "verify": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "usage": {"privilege_tier": "DIMINISHED", "required_fs": [], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "verify": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "usage": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": [],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
         },
     },
     "ipc": {
-        "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache", "harness_reconnect"],
+        "actions": [
+            "status",
+            "ping",
+            "lease",
+            "release",
+            "reap",
+            "pool",
+            "flush",
+            "metrics",
+            "stats",
+            "cache",
+            "harness_reconnect",
+        ],
         "arg": "[session_id] | harness_reconnect params: mode=plan|execute|certify|matrix, confirm=true, server",
         "description": (
             "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management. "
@@ -621,11 +793,21 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         ),
         "preconditions": {
             **{
-                act: {"privilege_tier": "DIMINISHED", "required_fs": ["/dev/shm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True}
+                act: {
+                    "privilege_tier": "DIMINISHED",
+                    "required_fs": ["/dev/shm"],
+                    "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                    "deterministic": True,
+                }
                 for act in ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache"]
             },
             # Per-action tier (not per mode): execute is gated to 7rwx inside the handler; plan works at any tier.
-            "harness_reconnect": {"privilege_tier": "FULL", "required_fs": ["/proc"], "fail_soft_behavior": "DEGRADED", "deterministic": True},
+            "harness_reconnect": {
+                "privilege_tier": "FULL",
+                "required_fs": ["/proc"],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": True,
+            },
         },
     },
     "hardware": {
@@ -637,9 +819,24 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
             "dGPUs to VRAM) and mandatory 4096 MiB desktop safety margin on GTT."
         ),
         "preconditions": {
-            "inventory": {"privilege_tier": "DIMINISHED", "required_fs": ["/proc/cpuinfo", "/proc/meminfo"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "accelerators": {"privilege_tier": "DIMINISHED", "required_fs": ["/sys/class/drm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
-            "admit": {"privilege_tier": "DIMINISHED", "required_fs": ["/sys/class/drm"], "fail_soft_behavior": "IN_MEMORY_FALLBACK", "deterministic": True},
+            "inventory": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/cpuinfo", "/proc/meminfo"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "accelerators": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/sys/class/drm"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
+            "admit": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/sys/class/drm"],
+                "fail_soft_behavior": "IN_MEMORY_FALLBACK",
+                "deterministic": True,
+            },
         },
     },
 }
@@ -1166,13 +1363,12 @@ class CapabilityGuard:
                 "action": action,
             }
 
+
 if __name__ == "__main__":
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(
-        description="AEP Predictive Privilege Prober & Chmod Degradation Matrix"
-    )
+    parser = argparse.ArgumentParser(description="AEP Predictive Privilege Prober & Chmod Degradation Matrix")
     parser.add_argument(
         "--tier",
         action="store_true",

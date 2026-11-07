@@ -96,7 +96,10 @@ class GitCli:
         return [line[3:] for line in (status or "").splitlines() if line.strip()]
 
     def remote_reachable(self) -> bool:
-        return self._run(self.canonical, "ls-remote", "--exit-code", REMOTE, DEV, timeout=NET_TIMEOUT_S).returncode in (0, 2)
+        return self._run(self.canonical, "ls-remote", "--exit-code", REMOTE, DEV, timeout=NET_TIMEOUT_S).returncode in (
+            0,
+            2,
+        )
 
     def remote_head(self, ref: str) -> str | None:
         out = self._out(self.canonical, "ls-remote", REMOTE, ref)
@@ -120,7 +123,7 @@ class GitCli:
                 archive = Path(tmp) / "tree.tar"
                 archive.write_bytes(proc.stdout)
                 safe_extract(archive, Path(dest))  # extraccion validada miembro a miembro (convencion del repo)
-        except (OSError, subprocess.SubprocessError, tarfile.TarError, ValueError):
+        except OSError, subprocess.SubprocessError, tarfile.TarError, ValueError:
             return False
         return True
 

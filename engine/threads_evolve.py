@@ -77,7 +77,9 @@ class GateKit:
 
     collect: tg.Collect
     run_batch: tg.RunBatch
-    summarize: Callable[[Any], dict[str, Any]] | None = None  # C7: resumen del grafo (`root`, `gaps`, `codep`) de un arbol
+    summarize: Callable[[Any], dict[str, Any]] | None = (
+        None  # C7: resumen del grafo (`root`, `gaps`, `codep`) de un arbol
+    )
     post_verify: Callable[[dict[str, Any]], dict[str, Any]] | None = None  # C6: {"ok": bool, "reason": str}
 
 
@@ -99,7 +101,9 @@ def branch_name(cycle: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def read_cycle(cycle: str, *, base_dir: Path | str | None = None, uid: int | None = None, now: float | None = None) -> dict[str, Any] | None:
+def read_cycle(
+    cycle: str, *, base_dir: Path | str | None = None, uid: int | None = None, now: float | None = None
+) -> dict[str, Any] | None:
     """Registro del ciclo de fix_test SIN efectos (a diferencia de `CycleStore.load`, no borra vencidos).
 
     Devuelve None si no existe y `{"state": "EXPIRED"}` si vencio su TTL.
@@ -165,7 +169,7 @@ class EvolveStore:
             return
         try:
             self.ledger.event(kind, str(data.get("cycle", "")), data)
-        except (sqlite3.Error, OSError):
+        except sqlite3.Error, OSError:
             return
 
     def sync_state(self, cycle: str, state: str) -> None:
@@ -174,7 +178,7 @@ class EvolveStore:
             return
         try:
             self.ledger.set_state(cycle, state)
-        except (sqlite3.Error, OSError):
+        except sqlite3.Error, OSError:
             return
 
 
@@ -215,10 +219,17 @@ def run_evolve(
     """`autoevol(evolve)`: avanza el ciclo de `fix_test` aceptado hasta donde permitan el tier y git. Re-entrante."""
     mode = gating(octal, label)
     if not cycle:
-        return _plan(mode, PLAN, None, {"awaiting": "fix_test", "gap": gap, "next": "autoevol(fix_test) until ACCEPT, then evolve(cycle=...)"})
+        return _plan(
+            mode,
+            PLAN,
+            None,
+            {"awaiting": "fix_test", "gap": gap, "next": "autoevol(fix_test) until ACCEPT, then evolve(cycle=...)"},
+        )
     if not tv.valid_cycle_id(cycle):
         return {"status": "ERROR", "error": "invalid cycle"}
-    rec = store.load(cycle)  # si evolve ya tiene registro, ese registro manda (el TTL del ciclo de fix_test ya no aplica)
+    rec = store.load(
+        cycle
+    )  # si evolve ya tiene registro, ese registro manda (el TTL del ciclo de fix_test ya no aplica)
     fix = read_cycle(cycle, base_dir=cycle_dir) if rec is None else {"state": tv.ACCEPTED, "gap": rec.get("gap")}
     if fix is None:
         return {"status": "NOT_FOUND", "cycle": cycle[:16]}
@@ -230,10 +241,17 @@ def run_evolve(
     if fstate != tv.ACCEPTED:
         return _plan(mode, PATCH_AWAITED, cycle, {"awaiting": "fix_test", "fix_state": fstate})
     if mode == "plan" or not apply:
-        return _plan(mode, (rec or {}).get("state", JUDGED), cycle, {"gap": fix.get("gap"), "awaiting": "apply" if not apply else "tier"})
+        return _plan(
+            mode,
+            (rec or {}).get("state", JUDGED),
+            cycle,
+            {"gap": fix.get("gap"), "awaiting": "apply" if not apply else "tier"},
+        )
     branch = branch_name(cycle)
     rec = rec or {"cycle": cycle, "gap": fix.get("gap"), "state": JUDGED, "branch": branch, "sha": "", "tree": ""}
-    if "judged_tree" not in rec:  # D-EV-1: copia del arbol/raiz juzgados en el ACCEPT (ausente => fail-closed en _commit)
+    if (
+        "judged_tree" not in rec
+    ):  # D-EV-1: copia del arbol/raiz juzgados en el ACCEPT (ausente => fail-closed en _commit)
         judged = fix.get("judged") or {}
         rec["judged_tree"] = judged.get("tree", "")
         rec["judged_root"] = judged.get("root", "")
@@ -243,7 +261,13 @@ def run_evolve(
     rec = _reconcile(git, rec, branch)
     store.sync_state(cycle, rec["state"])  # C5: git manda, el ledger se reconcilia en cada reentrada
     if rec["state"] == REVERTED:  # C6: dev quedo adelantado a origin por el revert; solo el usuario decide
-        return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch}
+        return {
+            "status": BLOCKED_GIT,
+            "reason": "dev_dirty_by_revert",
+            "state": REVERTED,
+            "cycle": cycle,
+            "branch": branch,
+        }
     if rec["state"] == JUDGED:
         done = _commit(store, git, kit, cycle, rec, branch)
         if done is not None:
@@ -257,8 +281,12 @@ def run_evolve(
             return done
     if rec["state"] == MERGED and mode == "full":
         if not _merged_witnessed(store, git, cycle, rec, branch):
-            return _unverified(store, cycle, rec)  # DK-1: MERGED sin evento del ledger (estado forjado o ledger perdido)
-        done = _post_verify(store, git, kit, live_check, cycle, rec, branch)  # C6: verify post-merge; si falla, revert antes del push
+            return _unverified(
+                store, cycle, rec
+            )  # DK-1: MERGED sin evento del ledger (estado forjado o ledger perdido)
+        done = _post_verify(
+            store, git, kit, live_check, cycle, rec, branch
+        )  # C6: verify post-merge; si falla, revert antes del push
         if done is not None:
             return done
         done = _push(store, git, live_check, cycle, rec, branch)
@@ -266,7 +294,15 @@ def run_evolve(
             return done
     store.save(cycle, rec)
     store.sync_state(cycle, rec["state"])
-    out: dict[str, Any] = {"status": "OK", "state": rec["state"], "cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "gating": mode, "applied": True}
+    out: dict[str, Any] = {
+        "status": "OK",
+        "state": rec["state"],
+        "cycle": cycle,
+        "branch": branch,
+        "sha": rec["sha"][:12],
+        "gating": mode,
+        "applied": True,
+    }
     if mode == "local" and rec["state"] == COMMITTED:
         out["local_only"] = True  # 6rw- / DIMINISHED: sin ff-merge ni push
     return out
@@ -282,7 +318,9 @@ def _reconcile(git: GitPort, rec: dict[str, Any], branch: str) -> dict[str, Any]
     return rec
 
 
-def _commit(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+def _commit(
+    store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str
+) -> dict[str, Any] | None:
     if not rec.get("judged_tree") or not rec.get("judged_root"):
         return _blocked(store, cycle, rec, "no_judged_tree")  # ciclo previo a D-EV-1: sin ACCEPT implicito
     if os.path.realpath(git.work_root()) != rec["judged_root"]:
@@ -299,10 +337,14 @@ def _commit(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, r
         return _blocked(store, cycle, rec, "no_ledger")
     try:
         claim = store.ledger.claim(
-            str(rec.get("gap", "")), str(rec.get("base_root", "")), tree, cycle,
-            r_before=str(rec.get("base_root", "")), r_after=str(rec.get("r_after", "")),
+            str(rec.get("gap", "")),
+            str(rec.get("base_root", "")),
+            tree,
+            cycle,
+            r_before=str(rec.get("base_root", "")),
+            r_after=str(rec.get("r_after", "")),
         )
-    except (sqlite3.Error, OSError):
+    except sqlite3.Error, OSError:
         return _blocked(store, cycle, rec, "ledger_unavailable")
     if claim.get("capped"):
         return _reject(store, cycle, rec, "max_cycles", used=claim["used"], max=claim["max"])  # condicion 14
@@ -320,7 +362,14 @@ def _commit(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, r
     store.save(cycle, rec)
     store.event(
         "evolve.committed",
-        {"cycle": cycle, "branch": branch, "sha": info[:12], "tree": tree[:12], "r_before": str(rec.get("base_root", ""))[:16], "r_after": str(rec.get("r_after", ""))[:16]},
+        {
+            "cycle": cycle,
+            "branch": branch,
+            "sha": info[:12],
+            "tree": tree[:12],
+            "r_before": str(rec.get("base_root", ""))[:16],
+            "r_after": str(rec.get("r_after", ""))[:16],
+        },
     )
     return None
 
@@ -335,7 +384,7 @@ def _gate_witnessed(store: EvolveStore, cycle: str, tree: str) -> bool:
         return False
     try:
         return store.ledger.confirm("evolve.gate", cycle, verdict=tg.GREEN, tree=tree)
-    except (sqlite3.Error, OSError):
+    except sqlite3.Error, OSError:
         return False
 
 
@@ -352,9 +401,11 @@ def _merged_witnessed(store: EvolveStore, git: GitPort, cycle: str, rec: dict[st
         if store.ledger.confirm("evolve.merged", cycle, sha_full=sha):
             return True
         if _gate_witnessed(store, cycle, tree) and git.is_ancestor(branch, DEV_BRANCH):
-            store.event("evolve.merged", {"cycle": cycle, "branch": branch, "sha": sha[:12], "sha_full": sha, "recovered": True})
+            store.event(
+                "evolve.merged", {"cycle": cycle, "branch": branch, "sha": sha[:12], "sha_full": sha, "recovered": True}
+            )
             return True
-    except (sqlite3.Error, OSError):
+    except sqlite3.Error, OSError:
         return False
     return False
 
@@ -364,10 +415,19 @@ def _reject(store: EvolveStore, cycle: str, rec: dict[str, Any], reason: str, **
     rec["blocked"] = reason
     store.save(cycle, rec)
     store.event("evolve.blocked", {"cycle": cycle, "state": rec["state"], "reason": reason})
-    return {"status": "REJECT", "reason": reason, "state": rec["state"], "cycle": cycle, "branch": rec["branch"], **extra}
+    return {
+        "status": "REJECT",
+        "reason": reason,
+        "state": rec["state"],
+        "cycle": cycle,
+        "branch": rec["branch"],
+        **extra,
+    }
 
 
-def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+def _gate(
+    store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str
+) -> dict[str, Any] | None:
     """C4 (condicion 10): suite completa por lotes en sandbox sobre el arbol commiteado. None = verde, seguir al merge."""
     gate = rec.get("gate")
     committed_tree = git.tree_of(branch)
@@ -399,7 +459,8 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
         shutil.rmtree(tmp, ignore_errors=True)
     store.save(cycle, rec)
     store.ledger_event(
-        "evolve.gate", {"cycle": cycle, "progress": tg.progress(gate), "verdict": gate["verdict"], "tree": committed_tree}
+        "evolve.gate",
+        {"cycle": cycle, "progress": tg.progress(gate), "verdict": gate["verdict"], "tree": committed_tree},
     )  # C10: gate i/n; DK-1: el ledger es el testigo del veredicto
     if gate["verdict"] == tg.GREEN:
         return None if _gate_witnessed(store, cycle, committed_tree) else _unverified(store, cycle, rec)
@@ -407,7 +468,14 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
         return _reject(store, cycle, rec, "gate_failed", gate_reason=gate.get("reason", ""))
     if gate["verdict"] == tg.UNAVAILABLE:
         return _reject(store, cycle, rec, "sandbox_unavailable", gate=tg.progress(gate))
-    return {"status": "OK", "state": COMMITTED, "cycle": cycle, "branch": branch, "awaiting": "gate", "gate": tg.progress(gate)}
+    return {
+        "status": "OK",
+        "state": COMMITTED,
+        "cycle": cycle,
+        "branch": branch,
+        "awaiting": "gate",
+        "gate": tg.progress(gate),
+    }
 
 
 def _cascade(kit: GateKit | None, git: GitPort, rec: dict[str, Any]) -> str | None:
@@ -456,13 +524,23 @@ def _plane_ready(live: dict[str, Any]) -> bool:
     return not live.get("stale") and bool(loaded) and loaded == live.get("disk") and live.get("serving_from") != "lkg"
 
 
-def _post_verify(store: EvolveStore, git: GitPort, kit: GateKit | None, live_check: LiveCheck, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+def _post_verify(
+    store: EvolveStore,
+    git: GitPort,
+    kit: GateKit | None,
+    live_check: LiveCheck,
+    cycle: str,
+    rec: dict[str, Any],
+    branch: str,
+) -> dict[str, Any] | None:
     """C6 (condicion 15): el verify post-merge falla tras el ff y antes del push => `git revert` nuevo, sin push."""
     if rec.get("post_verified") or kit is None or kit.post_verify is None:
         return None
     res = kit.post_verify(rec)
     if res.get("ok"):
-        if _plane_ready(live_check()):  # DK-4: solo se fija con el plano vivo cargado y fuera del LKG; si no, se re-evalua
+        if _plane_ready(
+            live_check()
+        ):  # DK-4: solo se fija con el plano vivo cargado y fuera del LKG; si no, se re-evalua
             rec["post_verified"] = True
             store.save(cycle, rec)
         return None
@@ -476,11 +554,24 @@ def _post_verify(store: EvolveStore, git: GitPort, kit: GateKit | None, live_che
     store.save(cycle, rec)
     if store.ledger is not None:
         store.ledger.mark_reverted(cycle)
-    store.event("evolve.reverted", {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "revert": info[:12], "why": why[:_REASON_MAX]})
-    return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch, "revert_sha": info[:12], "why": why[:_REASON_MAX]}
+    store.event(
+        "evolve.reverted",
+        {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "revert": info[:12], "why": why[:_REASON_MAX]},
+    )
+    return {
+        "status": BLOCKED_GIT,
+        "reason": "dev_dirty_by_revert",
+        "state": REVERTED,
+        "cycle": cycle,
+        "branch": branch,
+        "revert_sha": info[:12],
+        "why": why[:_REASON_MAX],
+    }
 
 
-def _push(store: EvolveStore, git: GitPort, live_check: LiveCheck, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+def _push(
+    store: EvolveStore, git: GitPort, live_check: LiveCheck, cycle: str, rec: dict[str, Any], branch: str
+) -> dict[str, Any] | None:
     if store.ledger is not None and store.ledger.revert_pending():
         return _blocked(store, cycle, rec, "dev_dirty_by_revert")  # un revert sin decision del usuario: dev esta sucio
     live = live_check()

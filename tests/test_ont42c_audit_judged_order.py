@@ -47,7 +47,8 @@ def test_mutation_reason_is_degraded_reject(trees: tuple[Path, Path]) -> None:  
 
 
 def test_tree_edited_between_async_dispatch_and_poll_is_rejected(
-    trees: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch  # noqa: F811
+    trees: tuple[Path, Path],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     base, new = trees
     store = tv.CycleStore(base_dir=base.parent / "shm")

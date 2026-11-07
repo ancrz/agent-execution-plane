@@ -84,7 +84,13 @@ def test_build_payload_allowlist() -> None:
 
 def test_validate_payload_rejects_control_bytes() -> None:
     assert hr.validate_payload(b"/mcp reconnect abc\r")
-    for bad in (b"/mcp reconnect abc", b"/mcp reconnect abc\r\r", b"/mcp reconnect a\x1bc\r", b"rm -rf /\r", b"/mcp reconnect abc\n"):
+    for bad in (
+        b"/mcp reconnect abc",
+        b"/mcp reconnect abc\r\r",
+        b"/mcp reconnect a\x1bc\r",
+        b"rm -rf /\r",
+        b"/mcp reconnect abc\n",
+    ):
         assert not hr.validate_payload(bad)
 
 
@@ -111,8 +117,14 @@ def _t(ok: bool = True) -> dict:
     ("kwargs", "route"),
     [
         (dict(front_stale=False, harness=_h(), tty=_t(), sysctl_value="0"), "noop"),
-        (dict(front_stale=True, harness=_h(False, reason="harness_not_in_ancestry"), tty=_t(), sysctl_value="0"), "manual"),
-        (dict(front_stale=True, harness=_h(False), tty=_t(), sysctl_value="0", session_type="wayland"), "gui_unsupported"),
+        (
+            dict(front_stale=True, harness=_h(False, reason="harness_not_in_ancestry"), tty=_t(), sysctl_value="0"),
+            "manual",
+        ),
+        (
+            dict(front_stale=True, harness=_h(False), tty=_t(), sysctl_value="0", session_type="wayland"),
+            "gui_unsupported",
+        ),
         (dict(front_stale=True, harness=_h(), tty=_t(False), sysctl_value="0"), "manual"),
         (dict(front_stale=True, harness=_h(), tty=_t(), sysctl_value=None), "manual"),
         (dict(front_stale=True, harness=_h(), tty=_t(), sysctl_value="0", server="BAD NAME"), "manual"),
@@ -131,7 +143,9 @@ def test_decision_tree_routes(kwargs: dict, route: str) -> None:
 
 
 class _Rec:
-    def __init__(self, *, sysctl: list[str | None] | None = None, helper: object = (0, "{}", False), lock: object = 5) -> None:
+    def __init__(
+        self, *, sysctl: list[str | None] | None = None, helper: object = (0, "{}", False), lock: object = 5
+    ) -> None:
         self.sysctl = list(sysctl or ["0", "0"])
         self.helper = helper
         self.lock = lock
@@ -179,7 +193,9 @@ def _proc(tmp_path: Path) -> Path:
 
 
 def _run(tmp_path: Path, rec: _Rec, **over: object) -> dict:
-    kw: dict = dict(tier="7rwx", confirm=True, front_stale=True, proc_root=_proc(tmp_path), start_pid=200, adapters=rec.adapters())
+    kw: dict = dict(
+        tier="7rwx", confirm=True, front_stale=True, proc_root=_proc(tmp_path), start_pid=200, adapters=rec.adapters()
+    )
     kw.update(over)
     return hr.execute(**kw)
 
@@ -366,7 +382,10 @@ def test_multi_harness_session_steward_profiles_and_rpc(tmp_path: Path) -> None:
     empty_proc = tmp_path / "empty"
     _mk_proc(empty_proc, 200, 1, "/usr/bin/python3")
     for tgt in ("agy", "codex"):
-        assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness=tgt) == {"found": False, "reason": "harness_not_in_ancestry"}
+        assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness=tgt) == {
+            "found": False,
+            "reason": "harness_not_in_ancestry",
+        }
     assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="invalid")["reason"] == "unknown_target_harness"
 
     # 3. execute never acts without ancestry, even with force and an RPC adapter that claims success
@@ -374,7 +393,16 @@ def test_multi_harness_session_steward_profiles_and_rpc(tmp_path: Path) -> None:
     ad = rec.adapters()
     ad.probe_rpc = lambda h: {"available": True, "transport": "connect_rpc"}
     ad.run_rpc = lambda h, s: (True, f"{h}_reloaded:{s}")
-    res = hr.execute(tier="7rwx", confirm=True, front_stale=False, force=True, target_harness="agy", proc_root=empty_proc, start_pid=200, adapters=ad)
+    res = hr.execute(
+        tier="7rwx",
+        confirm=True,
+        front_stale=False,
+        force=True,
+        target_harness="agy",
+        proc_root=empty_proc,
+        start_pid=200,
+        adapters=ad,
+    )
     assert res["status"] == "REJECTED" and res["reason"] == "harness_not_in_ancestry" and rec.helper_calls == 0
     assert hr.real_adapters().probe_rpc("claude")["available"] is False
 
@@ -386,13 +414,21 @@ def test_console_reach_battery_never_targets_non_ancestors(tmp_path: Path) -> No
     _mk_proc(proc, 200, 100, "/usr/bin/python3", _pts_nr(3))
     _mk_proc(proc, 300, 1, "/home/u/.local/share/claude/versions/2.1.319", _pts_nr(0))  # sibling, not an ancestor
 
-    assert hr.find_harness(proc, 200, os.getuid(), target_harness="claude") == {"found": False, "reason": "harness_not_in_ancestry"}
-    assert hr.find_harness(proc, 200, os.getuid(), target_harness="codex") == {"found": False, "reason": "harness_not_in_ancestry"}
+    assert hr.find_harness(proc, 200, os.getuid(), target_harness="claude") == {
+        "found": False,
+        "reason": "harness_not_in_ancestry",
+    }
+    assert hr.find_harness(proc, 200, os.getuid(), target_harness="codex") == {
+        "found": False,
+        "reason": "harness_not_in_ancestry",
+    }
     assert hr.count_peer_sessions(proc, os.getuid(), "claude") == 1
 
     rec = _Rec()
     ad = rec.adapters()
-    res = hr.execute(tier="7rwx", confirm=True, front_stale=True, target_harness="claude", proc_root=proc, start_pid=200, adapters=ad)
+    res = hr.execute(
+        tier="7rwx", confirm=True, front_stale=True, target_harness="claude", proc_root=proc, start_pid=200, adapters=ad
+    )
     assert res["status"] == "REJECTED" and rec.helper_calls == 0
 
     matrix = hr.probe_console_reach(proc_root=proc, start_pid=200, uid=os.getuid(), adapters=ad)
@@ -424,7 +460,9 @@ def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(server, "get_effective_chmod_tier", lambda *a, **k: {"tier": "7rwx"})
     no_confirm = _ctl(params={"mode": "execute"})
     assert no_confirm["reason"] == "confirm_required"
-    assert _ctl(params={"mode": "execute", "confirm": "true"})["reason"] == "confirm_required"  # strict bool, not truthy
+    assert (
+        _ctl(params={"mode": "execute", "confirm": "true"})["reason"] == "confirm_required"
+    )  # strict bool, not truthy
     assert recorded == ["REJECTED", "REJECTED", "REJECTED"] and no_confirm["audit_degraded"] is False
 
 
@@ -438,7 +476,16 @@ def test_ipc_unknown_mode_is_error() -> None:
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def _discover(monkeypatch: pytest.MonkeyPatch, *, loaded_fp: str, disk_fp: str, lkg: bool = False, front: bool = False, verbosity: str = "detail", drift: bool = True) -> dict:
+def _discover(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    loaded_fp: str,
+    disk_fp: str,
+    lkg: bool = False,
+    front: bool = False,
+    verbosity: str = "detail",
+    drift: bool = True,
+) -> dict:
     import asyncio
     import json
 
@@ -525,8 +572,26 @@ def test_helper_script_compiles_and_fails_closed_without_tty() -> None:
 
     compile(hr.HELPER_SCRIPT, "<helper>", "exec")
     good = hr.build_payload("claude", "x").hex()  # type: ignore[union-attr]
-    r = subprocess.run([sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT, "136", "3", good], stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    r = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT, "136", "3", good],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+    )
     assert r.returncode == 6 and b"stdin_mismatch" in r.stdout
-    bad = subprocess.run([sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT, "136", "3", b"rm -rf /\r".hex()], stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    bad = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT, "136", "3", b"rm -rf /\r".hex()],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+    )
     assert bad.returncode == 2 and b"payload_rejected" in bad.stdout
-    assert subprocess.run([sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT], stdin=subprocess.DEVNULL, capture_output=True, check=False).returncode == 2
+    assert (
+        subprocess.run(
+            [sys.executable, "-I", "-S", "-c", hr.HELPER_SCRIPT],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 2
+    )

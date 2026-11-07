@@ -527,6 +527,7 @@ class ArtifactCatalog:
     def is_builtin_primitive(name: str) -> bool:
         """Comprueba si el nombre corresponde a una sonda primitiva built-in (default_primitives)."""
         from engine.primitives import DEFAULT_PRIMITIVES_REGISTRY, normalize_primitive_name
+
         return normalize_primitive_name(name) in DEFAULT_PRIMITIVES_REGISTRY
 
     def prune(self, protect: set | None = None, apply: bool = False) -> dict[str, Any]:

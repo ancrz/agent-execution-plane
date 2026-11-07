@@ -137,6 +137,20 @@ def make_rig(tmp: Path, *, accepted: bool = True) -> Rig:
         judged = gp.GitCli(work, canon, tmp / "swap_fence")  # D-EV-1: ACCEPT atado al arbol juzgado
         store.record(
             cycle,
-            {"verdict": tv.ACCEPT, "reasons": [], "judged": {"tree": judged.candidate_tree(), "root": os.path.realpath(work)}},
+            {
+                "verdict": tv.ACCEPT,
+                "reasons": [],
+                "judged": {"tree": judged.candidate_tree(), "root": os.path.realpath(work)},
+            },
         )
-    return Rig(tmp, bare, canon, work, tmp / "swap_fence", state, cycle, {"stale": False, "loaded": "f1", "disk": "f1"}, FakeKit())
+    return Rig(
+        tmp,
+        bare,
+        canon,
+        work,
+        tmp / "swap_fence",
+        state,
+        cycle,
+        {"stale": False, "loaded": "f1", "disk": "f1"},
+        FakeKit(),
+    )

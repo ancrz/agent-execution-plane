@@ -40,7 +40,9 @@ def test_open_state_dir_creates_0700_and_tightens_loose_permissions(shm: Path) -
     assert stat.S_IMODE(shm.stat().st_mode) == 0o700
 
 
-def test_open_state_dir_refuses_symlink_and_foreign_owner(shm: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_open_state_dir_refuses_symlink_and_foreign_owner(
+    shm: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     real = tmp_path / "real"
     real.mkdir()
     shm.symlink_to(real)
@@ -197,7 +199,9 @@ def test_mirror_is_a_noop_below_tier_6(shm: Path, tmp_path: Path) -> None:
     conn.close()
 
 
-def test_mirror_counts_invalid_lines_and_caps_per_call(shm: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mirror_counts_invalid_lines_and_caps_per_call(
+    shm: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ev.append_event("a", base_dir=shm)
     ev.append_event("b", base_dir=shm)
     with open(shm / f"events_{os.geteuid()}.jsonl", "a") as fh:

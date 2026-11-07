@@ -83,7 +83,7 @@ def visual_inspect(
                 try:
                     raw_txt = page.inner_text("body") or ""
                     text_excerpt = " ".join(raw_txt.split())[:300]
-                except (RuntimeError, OSError, ValueError):
+                except RuntimeError, OSError, ValueError:
                     text_excerpt = ""
                 if selector:
                     el = page.query_selector(selector)

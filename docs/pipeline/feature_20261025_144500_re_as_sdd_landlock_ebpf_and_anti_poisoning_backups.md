@@ -271,6 +271,7 @@ def ensure_canary(conn: sqlite3.Connection) -> None:
             (CANARY_TOKEN, iso_now),
         )
 
+
 # Lines 95-110:
 def verify_canary(conn: sqlite3.Connection) -> bool:
     """Verifica que la tabla _aep_canary exista y contenga el token válido."""

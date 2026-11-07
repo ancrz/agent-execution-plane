@@ -33,12 +33,13 @@ def get_process_fds(pid: int) -> set[str]:
         return set()
     try:
         return set(os.listdir(fd_dir))
-    except (FileNotFoundError, PermissionError):
+    except FileNotFoundError, PermissionError:
         return set()
 
 
 def test_criterion_1_e2e_swap_on_touch() -> None:
     """C1: Touch engine file triggers atomic swap from Gen 1 to Gen 2 with same front PID and new backend PID."""
+
     async def _run() -> None:
         touch_target = PROJECT_ROOT / "engine" / "_ont39_probe_c1.py"
 
@@ -88,6 +89,7 @@ def test_criterion_1_e2e_swap_on_touch() -> None:
 
 def test_criterion_2_syntax_error_fail_safe() -> None:
     """C2: SyntaxError in engine/ causes candidate health check to fail; Gen N is retained, tools respond, last_reload_error populated."""
+
     async def _run() -> None:
         target_mod = PROJECT_ROOT / "engine" / "matcher.py"
         initial_st = target_mod.stat()
@@ -139,6 +141,7 @@ def test_criterion_2_syntax_error_fail_safe() -> None:
 
 def test_criterion_3_in_flight_call_drainage() -> None:
     """C3: In-flight calls during hot swap complete cleanly without interruption."""
+
     async def _run() -> None:
         touch_target = PROJECT_ROOT / "engine" / "_ont39_probe_c3.py"
 
@@ -196,6 +199,7 @@ def test_criterion_3_in_flight_call_drainage() -> None:
 
 def test_criterion_4_list_changed_notification() -> None:
     """C4: Tool schema modification triggers notifications/tools/list_changed."""
+
     async def _run() -> None:
         import socket
 
@@ -218,6 +222,7 @@ def test_criterion_4_list_changed_notification() -> None:
         class DummyProc:
             def poll(self) -> None:
                 return None
+
             def terminate(self) -> None:
                 pass
 
@@ -239,6 +244,7 @@ def test_criterion_4_list_changed_notification() -> None:
 
 def test_criterion_5_tier_watch_mode() -> None:
     """C5: Under watch-only mode (AEP_HOTSWAP_MODE=watch), no swap occurs and stale=True is reported."""
+
     async def _run() -> None:
         touch_target = PROJECT_ROOT / "engine" / "_ont39_probe_c5.py"
 
@@ -296,6 +302,7 @@ async def _stable_fds(pid: int, needed: int = 3, max_s: float = 2.0) -> set[str]
 
 def test_criterion_6_zero_fd_leak() -> None:
     """C6: 10 successive swaps result in zero file descriptor leaks (fd_delta == 0)."""
+
     async def _run() -> None:
         from aep_front import LivePlaneManager
 

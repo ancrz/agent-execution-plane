@@ -15,7 +15,17 @@ def test_probe_env_is_whitelisted_and_isolated(tmp_path: Path) -> None:
     assert env["HOME"] == str(tmp_path) and env["AEP_POOL_DIR"].startswith(str(tmp_path))
     assert env["AEP_SOCKET_PATH"].startswith(str(tmp_path))
     assert env["AEP_FORCE_TIER"] == "4r--"  # C5: los probes no validan tools que escriben
-    assert set(env) <= {"PATH", "LANG", "LC_ALL", "HOME", "TMPDIR", "AEP_POOL_DIR", "AEP_SOCKET_PATH", "AEP_FORCE_TIER", "AEP_HOTSWAP"}
+    assert set(env) <= {
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "HOME",
+        "TMPDIR",
+        "AEP_POOL_DIR",
+        "AEP_SOCKET_PATH",
+        "AEP_FORCE_TIER",
+        "AEP_HOTSWAP",
+    }
 
 
 def test_probe_skipped_below_5r_x() -> None:
@@ -44,7 +54,13 @@ def test_probe_run_leaves_dev_shm_intact_and_reports_observations() -> None:
 
 def test_probe_observations_stay_outside_r() -> None:
     a = threads.analyze(REPO)
-    b = threads.with_probes(a, {"status": "OK", "observations": [{"probe": "x", "ok": False, "node": "tool:discover", "detail": "d", "ref": "D-01"}]})
+    b = threads.with_probes(
+        a,
+        {
+            "status": "OK",
+            "observations": [{"probe": "x", "ok": False, "node": "tool:discover", "detail": "d", "ref": "D-01"}],
+        },
+    )
     assert a.root_hash == b.root_hash and b.obs_hash and b.obs_hash != a.obs_hash
     assert threads.merkle_root(b.graph)[0] == a.root_hash
     assert any(g.id == "drift:probe:x" for g in b.gaps)
@@ -52,6 +68,7 @@ def test_probe_observations_stay_outside_r() -> None:
 
 
 # --- H1: fail-closed jail ---------------------------------------------------------------------------
+
 
 def _foreign_tree(tmp: Path, server_src: str) -> Path:
     root = tmp / "foreign"

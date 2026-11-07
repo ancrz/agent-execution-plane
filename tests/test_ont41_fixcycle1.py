@@ -23,7 +23,9 @@ def _b(**kw: Any) -> dict[str, Any]:
 # --- F1: tests nuevos/cambiados se ejecutan; sin tests ejecutados no hay ACCEPT -----------------------------
 def test_new_failing_test_is_selected_and_rejects(trees: tuple[Path, Path]) -> None:  # noqa: F811
     base, new = trees
-    (new / "tests" / "test_extra.py").write_text("from engine import m\n\n\ndef test_boom():\n    assert m._f() == 2\n", encoding="utf-8")
+    (new / "tests" / "test_extra.py").write_text(
+        "from engine import m\n\n\ndef test_boom():\n    assert m._f() == 2\n", encoding="utf-8"
+    )
     seen: list[list[str]] = []
 
     def run(tests: list[str]) -> dict[str, Any]:
@@ -112,7 +114,9 @@ def test_exit_127_does_not_consume_iteration_and_env_retries_are_bounded(
     opened = json.loads(asyncio.run(server.autoevol(action="fix_test", root=str(base), gap=GAP)))
     cycle = opened["cycle"]
     for i in range(tv.MAX_ENV_RETRIES):
-        out = json.loads(asyncio.run(server.autoevol(action="fix_test", root=str(new), cycle=cycle, verbosity="summary")))
+        out = json.loads(
+            asyncio.run(server.autoevol(action="fix_test", root=str(new), cycle=cycle, verbosity="summary"))
+        )
         assert out["reasons"] == [tv.SANDBOX_UNAVAILABLE], out
         assert out["consumed"] is False and out["iterations_left"] == tv.MAX_ITERATIONS
         assert out["env_retries"] == i + 1 and out["env_left"] == tv.MAX_ENV_RETRIES - (i + 1)

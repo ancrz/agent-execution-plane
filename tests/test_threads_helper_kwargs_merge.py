@@ -6,7 +6,7 @@ from pathlib import Path
 
 from engine import threads
 
-_SERVER = '''
+_SERVER = """
 mcp = object()
 
 @mcp.tool()
@@ -20,7 +20,7 @@ async def multi(action: str = "main", verbosity: str = "summary"):
         return 3
     elif act == "fourth":
         return 4
-'''
+"""
 _PRIV = """
 _CAPABILITIES = {"c": (4, 4, "self", ["multi"], "d")}
 CHMOD_DEGRADATION_MATRIX = {"tools": {"multi": {}}}

@@ -227,7 +227,11 @@ def _tag_cache(spec: dict[str, Any], state: str, terse: bool) -> dict[str, Any]:
 
 def _pinning(analysis: th.Analysis, nodes: list[str], covered: set[str]) -> list[str]:
     """Tests que fijan el comportamiento de `nodes` y no estan ya en la cobertura directa."""
-    return [t for t in threads_pins.pinning_tests(analysis.graph, nodes, getattr(analysis, "root", None)) if t not in covered]
+    return [
+        t
+        for t in threads_pins.pinning_tests(analysis.graph, nodes, getattr(analysis, "root", None))
+        if t not in covered
+    ]
 
 
 def cached_spec(

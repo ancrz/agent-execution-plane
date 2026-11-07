@@ -45,16 +45,20 @@ def proc_start_time(pid: int) -> float | None:
     try:
         stat_raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
         start_ticks = int(stat_raw.rsplit(")", 1)[1].split()[19])
-        btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime"))
+        btime = next(
+            int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime")
+        )
         return btime + start_ticks / os.sysconf("SC_CLK_TCK")
-    except (OSError, ValueError, IndexError, StopIteration):
+    except OSError, ValueError, IndexError, StopIteration:
         return None
 
 
 def read_state(directory: Path, name: str) -> dict[str, Any] | None:
     """Lectura segura: O_NOFOLLOW, archivo regular, dueno == euid, tamano acotado. None si es invalido."""
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=os.open(directory, os.O_RDONLY | os.O_DIRECTORY))
+        fd = os.open(
+            name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        )
     except OSError:
         return None
     try:
@@ -126,7 +130,9 @@ def audit(
         instances.append({"pid": pid, "class": klass, "detail": detail, "generation": state.get("generation")})
     for pid in running_pids or []:
         if pid not in seen and alive_fn(pid):
-            instances.append({"pid": pid, "class": "legacy/unknown", "detail": "sin archivo de estado (D-24): heuristica por mtime"})
+            instances.append(
+                {"pid": pid, "class": "legacy/unknown", "detail": "sin archivo de estado (D-24): heuristica por mtime"}
+            )
     return {"instances": instances, "removed": removed}
 
 

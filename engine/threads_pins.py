@@ -122,7 +122,7 @@ def _closure(node: ast.AST, defs: dict[str, ast.AST]) -> set[str]:
 def _index_file(source: str) -> _FileIndex:
     try:
         tree = ast.parse(source)
-    except (SyntaxError, ValueError):
+    except SyntaxError, ValueError:
         return {}
     defs = _module_defs(tree)
     out: _FileIndex = {}
@@ -148,7 +148,7 @@ def _file_index(path: Path) -> _FileIndex:
         return hit
     try:
         source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return {}
     if len(_CACHE) >= _CACHE_MAX:
         _CACHE.clear()

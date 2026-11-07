@@ -38,6 +38,7 @@ MAX_IPC_BUFFER_BYTES = 16 * 1024 * 1024  # 16 MB
 # Path Resolution Helpers (/dev/shm > $XDG_RUNTIME_DIR > /tmp)
 # -----------------------------------------------------------------------------
 
+
 def resolve_ipc_base_dir() -> Path:
     """Resolve the fastest available volatile directory for session slots."""
     env_dir = os.environ.get("AEP_POOL_DIR")
@@ -86,6 +87,7 @@ def resolve_ipc_socket_path() -> Path:
 # -----------------------------------------------------------------------------
 # SessionPool: Reusable Session Slot Management
 # -----------------------------------------------------------------------------
+
 
 class SessionPool:
     """
@@ -249,9 +251,7 @@ class SessionPool:
                         break
 
             if available_slot_id is None:
-                raise RuntimeError(
-                    f"No available session slots in pool (max_slots={self.max_slots}, all active)"
-                )
+                raise RuntimeError(f"No available session slots in pool (max_slots={self.max_slots}, all active)")
 
             slot = self._slots[available_slot_id]
             slot["session_id"] = sid_str
@@ -401,12 +401,8 @@ class SessionPool:
 # Variable Resolution Engine: $prev.* and $steps.<id>.*
 # -----------------------------------------------------------------------------
 
-_REF_EXACT_PATTERN = re.compile(
-    r"^\$(prev|(?:steps|cache|slot)(?:\.([A-Za-z0-9_\-]+))?)(?:\.(.+))?$"
-)
-_REF_EMBED_PATTERN = re.compile(
-    r"\$((?:prev|steps|cache|slot)(?:\.[A-Za-z0-9_\-]+)+)"
-)
+_REF_EXACT_PATTERN = re.compile(r"^\$(prev|(?:steps|cache|slot)(?:\.([A-Za-z0-9_\-]+))?)(?:\.(.+))?$")
+_REF_EMBED_PATTERN = re.compile(r"\$((?:prev|steps|cache|slot)(?:\.[A-Za-z0-9_\-]+)+)")
 
 
 def _get_dot_path(data: Any, path_str: str) -> Any:
@@ -470,10 +466,7 @@ def resolve_step_refs(
     Interpolates inside strings when embedded alongside other text.
     """
     if isinstance(params, dict):
-        return {
-            k: resolve_step_refs(v, step_outputs, prev_output, slot_cache=slot_cache)
-            for k, v in params.items()
-        }
+        return {k: resolve_step_refs(v, step_outputs, prev_output, slot_cache=slot_cache) for k, v in params.items()}
     if isinstance(params, list):
         return [resolve_step_refs(v, step_outputs, prev_output, slot_cache=slot_cache) for v in params]
     if not isinstance(params, str):
@@ -537,6 +530,7 @@ def resolve_step_refs(
 # Field Projector: Server-Side Dot-Path Key Filtering
 # -----------------------------------------------------------------------------
 
+
 def project_fields(data: Any, select_fields: list[str] | None) -> Any:
     """
     Server-side dot-path field projection (e.g. ['status', 'pid', 'output.total_sockets']).
@@ -595,11 +589,13 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
                         projected["results"] = []
                     while len(projected["results"]) <= idx:
                         mr = results_list[len(projected["results"])]
-                        projected["results"].append({
-                            "id": mr.get("id"),
-                            "tool": mr.get("tool"),
-                            "status": mr.get("status"),
-                        })
+                        projected["results"].append(
+                            {
+                                "id": mr.get("id"),
+                                "tool": mr.get("tool"),
+                                "status": mr.get("status"),
+                            }
+                        )
                     _set_dot_path(projected["results"][idx], clean_path, step_val)
         if not step_matched:
             unresolved.append(clean_path)
@@ -658,6 +654,7 @@ def _set_dot_path(
 # UnixSocketMux: Line-Delimited AF_UNIX Server & Client
 # -----------------------------------------------------------------------------
 
+
 class UnixSocketMux:
     """
     Non-blocking background daemon thread AF_UNIX server.
@@ -706,7 +703,7 @@ class UnixSocketMux:
                     # An active server is already listening: adopt it and do not overwrite
                     self._running = True
                     return True
-                except (ConnectionRefusedError, TimeoutError, OSError):
+                except ConnectionRefusedError, TimeoutError, OSError:
                     probe.close()
                     with contextlib.suppress(OSError):
                         self.socket_path.unlink()
@@ -761,7 +758,7 @@ class UnixSocketMux:
                 conn, _ = self._server_sock.accept()
             except TimeoutError:
                 continue
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 break
 
             # Handle client with deterministic close
@@ -855,6 +852,7 @@ class UnixSocketMux:
                     # If async coroutine was returned
                     if hasattr(res, "__await__"):
                         import asyncio
+
                         try:
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
@@ -916,6 +914,7 @@ class UnixSocketMux:
 # Client Request Function
 # -----------------------------------------------------------------------------
 
+
 def ipc_client_request(
     payload: dict[str, Any],
     socket_path: Path | str | None = None,
@@ -939,7 +938,7 @@ def ipc_client_request(
         client_sock.settimeout(timeout)
         try:
             client_sock.connect(str(path))
-        except (ConnectionRefusedError, FileNotFoundError):
+        except ConnectionRefusedError, FileNotFoundError:
             client_sock.close()
             with contextlib.suppress(OSError):
                 path.unlink(missing_ok=True)

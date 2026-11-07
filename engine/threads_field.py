@@ -119,7 +119,9 @@ def list_candidates(*, base_dir: Path | str | None = None, state: str | None = N
     """Reportes conocidos (sin texto libre: solo sig, tool, action, estado, ocurrencias), mas recientes primero."""
     rows = sorted(_state(base_dir).values(), key=lambda r: (-r["last_ts"], r["sig"]))
     return [
-        {k: r[k] for k in ("sig", "state", "occurrences", "tool", "action")} for r in rows if state in (None, r["state"])
+        {k: r[k] for k in ("sig", "state", "occurrences", "tool", "action")}
+        for r in rows
+        if state in (None, r["state"])
     ][:LIST_MAX]
 
 
@@ -185,7 +187,9 @@ def _has_strict_fr_marker(fn: ast.AST, sig: str) -> bool:
     for dec in getattr(fn, "decorator_list", []):
         if not (isinstance(dec, ast.Call) and _chain_tail(dec.func) == "xfail"):
             continue
-        strict = any(k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value is True for k in dec.keywords)
+        strict = any(
+            k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value is True for k in dec.keywords
+        )
         for k in dec.keywords:
             if (
                 strict
@@ -212,11 +216,15 @@ def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, s
         if path.stat().st_size > REPRO_MAX_BYTES:
             return False, "repro file too large"
         module = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=path.name)
-    except (OSError, SyntaxError, ValueError):
+    except OSError, SyntaxError, ValueError:
         return False, "repro file unreadable or does not parse"
     name = m.group(4)
     for fn in ast.walk(module):
-        if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and fn.name == name and _has_strict_fr_marker(fn, sig):
+        if (
+            isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)
+            and fn.name == name
+            and _has_strict_fr_marker(fn, sig)
+        ):
             return True, "ok"
     return False, f"test {name} lacks @pytest.mark.xfail(strict=True, reason='FR-{sig} ...')"
 

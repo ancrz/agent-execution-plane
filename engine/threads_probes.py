@@ -73,8 +73,22 @@ def _command(root: Path, tmp: Path, *, jail: bool) -> list[str]:
     if not jail:
         return base
     return [
-        "bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/dev/shm",
-        "--bind", str(tmp), str(tmp), "--unshare-net", "--die-with-parent", *base,
+        "bwrap",
+        "--ro-bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+        "--tmpfs",
+        "/dev/shm",
+        "--bind",
+        str(tmp),
+        str(tmp),
+        "--unshare-net",
+        "--die-with-parent",
+        *base,
     ]
 
 
@@ -107,11 +121,16 @@ def run_probes(
     tmp = Path(tempfile.mkdtemp(prefix="aep_probe_"))
     try:
         res: subprocess.CompletedProcess[str] | None = None
-        for use_jail in ([True, False] if jail else [False]):
+        for use_jail in [True, False] if jail else [False]:
             try:
                 res = subprocess.run(
-                    _command(base, tmp, jail=use_jail), cwd=str(tmp), env=probe_env(tmp),
-                    capture_output=True, text=True, timeout=timeout, check=False,
+                    _command(base, tmp, jail=use_jail),
+                    cwd=str(tmp),
+                    env=probe_env(tmp),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
                 )
             except subprocess.TimeoutExpired:
                 return {"status": "TIMEOUT", "timeout_s": timeout, "jail": use_jail, "observations": []}

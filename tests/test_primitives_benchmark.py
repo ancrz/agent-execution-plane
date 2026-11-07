@@ -32,7 +32,7 @@ class TestPrimitivesBenchmark:
         # Seed realistic dataset (500 records)
         with sqlite3.connect(str(db_path)) as conn:
             conn.execute("CREATE TABLE benchmark_records (id INTEGER PRIMARY KEY, payload TEXT, created_at REAL)")
-            rows = [(i, f"benchmark_payload_record_{i}_{'x'*128}", time.time()) for i in range(500)]
+            rows = [(i, f"benchmark_payload_record_{i}_{'x' * 128}", time.time()) for i in range(500)]
             conn.executemany("INSERT INTO benchmark_records VALUES (?, ?, ?)", rows)
             conn.commit()
 
@@ -63,8 +63,12 @@ class TestPrimitivesBenchmark:
         mean_disk = statistics.mean(disk_latencies)
         speedup = mean_disk / mean_ram if mean_ram > 0 else 1.0
 
-        print(f"\n[BENCHMARK] In-RAM Micro-Snapshot: mean={mean_ram:.3f}ms (min={min(ram_latencies):.3f}ms, max={max(ram_latencies):.3f}ms)")
-        print(f"[BENCHMARK] On-Disk 5-Slot Backup: mean={mean_disk:.3f}ms (min={min(disk_latencies):.3f}ms, max={max(disk_latencies):.3f}ms)")
+        print(
+            f"\n[BENCHMARK] In-RAM Micro-Snapshot: mean={mean_ram:.3f}ms (min={min(ram_latencies):.3f}ms, max={max(ram_latencies):.3f}ms)"
+        )
+        print(
+            f"[BENCHMARK] On-Disk 5-Slot Backup: mean={mean_disk:.3f}ms (min={min(disk_latencies):.3f}ms, max={max(disk_latencies):.3f}ms)"
+        )
         print(f"[BENCHMARK] Volatile RAM Speedup: {speedup:.1f}x faster")
 
         # Invariant checks: RAM micro-snapshots must be ultra-fast (< 10ms for 500 rows)
@@ -92,6 +96,7 @@ class TestPrimitivesBenchmark:
         # 2. Benchmark Bubblewrap Sandbox Run Latency
         bwrap_latencies = []
         import asyncio
+
         for _ in range(5):
             t0 = time.perf_counter()
             res_str = asyncio.run(server.sandbox_run("echo probe"))
@@ -102,8 +107,12 @@ class TestPrimitivesBenchmark:
         mean_landlock = statistics.mean(landlock_latencies)
         mean_bwrap = statistics.mean(bwrap_latencies)
 
-        print(f"\n[BENCHMARK] Landlock LSM Fork+Restrict Probe: mean={mean_landlock:.3f}ms (min={min(landlock_latencies):.3f}ms)")
-        print(f"[BENCHMARK] Bubblewrap Process+Namespace Launch: mean={mean_bwrap:.3f}ms (min={min(bwrap_latencies):.3f}ms)")
+        print(
+            f"\n[BENCHMARK] Landlock LSM Fork+Restrict Probe: mean={mean_landlock:.3f}ms (min={min(landlock_latencies):.3f}ms)"
+        )
+        print(
+            f"[BENCHMARK] Bubblewrap Process+Namespace Launch: mean={mean_bwrap:.3f}ms (min={min(bwrap_latencies):.3f}ms)"
+        )
 
         # Bubblewrap creates namespaces, mounts tmpfs, proc, drops caps, which incurs substantial overhead
         assert mean_landlock < 50.0

@@ -38,10 +38,11 @@ class _ClosingConnection(sqlite3.Connection):
             with contextlib.suppress(sqlite3.Error):
                 self.close()
 
+
 # Import fail-soft de sqlite-vec (extension vectorial).
 try:
     import sqlite_vec
-except (ImportError, OSError):
+except ImportError, OSError:
     sqlite_vec = None
 
 logger = logging.getLogger("aep.db")
@@ -306,6 +307,7 @@ def get_db_telemetry(conn: sqlite3.Connection) -> dict[str, Any]:
             "cache_size_mb": 0,
         }
 
+
 def create_in_memory_clone(src_conn: sqlite3.Connection) -> sqlite3.Connection:
     """
     Clona una conexión SQLite directamente en memoria RAM usando la Backup API de SQLite.
@@ -314,4 +316,3 @@ def create_in_memory_clone(src_conn: sqlite3.Connection) -> sqlite3.Connection:
     mem_conn = sqlite3.connect(":memory:")
     src_conn.backup(mem_conn)
     return mem_conn
-

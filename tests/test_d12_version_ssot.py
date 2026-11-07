@@ -38,5 +38,16 @@ def test_d12_changelog_has_028_entry_with_ont_milestones() -> None:
 
     assert "## [0.2.8] - 2026-11-05" in content
 
-    for milestone in ("ONT-29", "ONT-30", "ONT-31", "ONT-32", "ONT-33", "ONT-34", "ONT-35", "ONT-36", "ONT-37", "ONT-38"):
+    for milestone in (
+        "ONT-29",
+        "ONT-30",
+        "ONT-31",
+        "ONT-32",
+        "ONT-33",
+        "ONT-34",
+        "ONT-35",
+        "ONT-36",
+        "ONT-37",
+        "ONT-38",
+    ):
         assert milestone in content, f"Milestone {milestone} missing from CHANGELOG.md"

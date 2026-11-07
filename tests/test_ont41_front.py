@@ -95,7 +95,7 @@ def reap_backends_of(root: Path) -> int:
 def _is_zombie(pid: int) -> bool:
     try:
         return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
-    except (OSError, IndexError):
+    except OSError, IndexError:
         return True
 
 
@@ -419,7 +419,15 @@ def test_barrier_ok_when_disk_equals_served(tree: Path) -> None:
             b = await mgr.settle_barrier()
             assert b["state"] == "RELOAD_OK" and b["from_lkg"] is False and b["error"] is None
             assert b["served_fingerprint"] == b["disk_fingerprint"]
-            assert set(b) == {"state", "reason", "retry_after_s", "error", "served_fingerprint", "disk_fingerprint", "from_lkg"}
+            assert set(b) == {
+                "state",
+                "reason",
+                "retry_after_s",
+                "error",
+                "served_fingerprint",
+                "disk_fingerprint",
+                "from_lkg",
+            }
         finally:
             await mgr.shutdown()
 

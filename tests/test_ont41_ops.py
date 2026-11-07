@@ -28,6 +28,7 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     yield tmp_path
     _PrivilegeCache.reset()
 
+
 GREEN = {"ran": 1, "passed": 1, "failed": 0, "errors": 0}
 RED = {"ran": 1, "passed": 0, "failed": 1, "errors": 0}
 
@@ -40,7 +41,9 @@ def _mini(root: Path, *, fixed: bool) -> Path:
     (root / "engine").mkdir(parents=True, exist_ok=True)
     (root / "tests").mkdir(exist_ok=True)
     (root / "engine" / "m.py").write_text("def _f():\n    return 1\n" if fixed else "def _f(:\n", encoding="utf-8")
-    (root / "tests" / "test_m.py").write_text("from engine import m\n\n\ndef test_f():\n    assert m._f() == 1\n", encoding="utf-8")
+    (root / "tests" / "test_m.py").write_text(
+        "from engine import m\n\n\ndef test_f():\n    assert m._f() == 1\n", encoding="utf-8"
+    )
     return root
 
 
@@ -54,8 +57,16 @@ def trees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated_home: Path) 
 
 def _verify(new: Path, base: Path | None, **kw: Any) -> dict[str, Any]:
     args: dict[str, Any] = {
-        "gap": GAP, "snapshot": base, "barrier": None, "serving_lkg": False, "run_tests": lambda t: GREEN,
-        "dispatch_job": None, "poll_job": None, "job": None, "trusted": True, "terse": True,
+        "gap": GAP,
+        "snapshot": base,
+        "barrier": None,
+        "serving_lkg": False,
+        "run_tests": lambda t: GREEN,
+        "dispatch_job": None,
+        "poll_job": None,
+        "job": None,
+        "trusted": True,
+        "terse": True,
     }
     args.update(kw)
     return ops.run_verify(new, **args)
@@ -130,7 +141,7 @@ def test_verify_tool_tier_gates_and_invalid_base(trees: tuple[Path, Path], monke
     monkeypatch.setenv("AEP_FORCE_TIER", "5r-x")
     get_effective_chmod_tier(force_refresh=True)
     assert _call(action="verify", root=str(new), base="/nonexistent/zzz")["status"] == "ERROR"
-    monkeypatch.setattr(server, "_autoevol_test_runner", lambda tree, trusted: (lambda tests: GREEN))
+    monkeypatch.setattr(server, "_autoevol_test_runner", lambda tree, trusted: lambda tests: GREEN)
     res = _call(action="verify", root=str(new), base=str(base), gap=GAP, verbosity="terse")
     assert res["verdict"] == tv.ACCEPT and res["t"]["tok"] <= 350, res["t"]
 
@@ -138,8 +149,18 @@ def test_verify_tool_tier_gates_and_invalid_base(trees: tuple[Path, Path], monke
 # --- fix_test ---------------------------------------------------------------------------------------------
 def _fix(store: tv.CycleStore, new: Path, **kw: Any) -> dict[str, Any]:
     args: dict[str, Any] = {
-        "gap": None, "cycle": None, "snapshot": None, "restart": False, "barrier": None, "serving_lkg": False,
-        "run_tests": lambda t: GREEN, "dispatch_job": None, "poll_job": None, "job": None, "trusted": True, "terse": True,
+        "gap": None,
+        "cycle": None,
+        "snapshot": None,
+        "restart": False,
+        "barrier": None,
+        "serving_lkg": False,
+        "run_tests": lambda t: GREEN,
+        "dispatch_job": None,
+        "poll_job": None,
+        "job": None,
+        "trusted": True,
+        "terse": True,
     }
     args.update(kw)
     return ops.run_fix_test(store, new, **args)
@@ -157,7 +178,11 @@ def test_fix_test_exhausts_on_third_failure_without_reverting(trees: tuple[Path,
     assert first["verdict"] == tv.REJECT and first["awaiting"] == "patch" and first["iterations_left"] == 2
     assert _fix(store, base, cycle=cid)["iterations_left"] == 1
     last = _fix(store, base, cycle=cid)
-    assert last["state"] == tv.EXHAUSTED and last["suggest"] == ops.HEAL_SUGGESTION and last["retry_after_s"] == tv.LOCK_SECONDS
+    assert (
+        last["state"] == tv.EXHAUSTED
+        and last["suggest"] == ops.HEAL_SUGGESTION
+        and last["retry_after_s"] == tv.LOCK_SECONDS
+    )
     assert (base / "engine" / "m.py").read_text(encoding="utf-8") == broken  # nunca revierte
     assert _fix(store, base, cycle=cid)["status"] == "CLOSED"
     assert _fix(store, base, gap=GAP)["status"] == "LOCKED"
@@ -215,12 +240,16 @@ def test_heal_dry_run_apply_and_tier(lkg_code: Path, isolated_home: Path) -> Non
     assert denied["status"] == "PERMISSION_DENIED"
     need = ops.run_heal(lkg_code, apply=True, octal=6, snapshot_fn=None, terse=False)
     assert need["status"] == "SNAPSHOT_REQUIRED" and "broken" in (lkg_code / "server.py").read_text()
-    done = ops.run_heal(lkg_code, apply=True, octal=6, snapshot_fn=lambda f: snaps.append(f) or {"status": "SUCCESS"}, terse=False)
+    done = ops.run_heal(
+        lkg_code, apply=True, octal=6, snapshot_fn=lambda f: snaps.append(f) or {"status": "SUCCESS"}, terse=False
+    )
     assert done["status"] == "HEALED" and snaps == [["server.py"]]
     assert (lkg_code / "server.py").read_text() == "X = 1\n"
 
 
-def test_heal_tool_dry_run_budget_and_apply_gate(lkg_code: Path, monkeypatch: pytest.MonkeyPatch, isolated_home: Path) -> None:
+def test_heal_tool_dry_run_budget_and_apply_gate(
+    lkg_code: Path, monkeypatch: pytest.MonkeyPatch, isolated_home: Path
+) -> None:
     monkeypatch.setenv("AEP_FORCE_TIER", "5r-x")
     get_effective_chmod_tier(force_refresh=True)
     res = _call(action="heal", root=str(lkg_code), verbosity="terse")
@@ -273,7 +302,9 @@ def test_test_runner_wraps_sandbox_run_parse_pytest(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(server, "sandbox_run", _fake_sandbox({"status": "EXEC_FAILED", "parsed": parsed}))
     run = server._autoevol_test_runner(tmp_path, True)
     assert _run_in_worker(run, ["tests/a.py::t"]) == {"ran": 3, "passed": 2, "failed": 1, "errors": 0}
-    monkeypatch.setattr(server, "sandbox_run", _fake_sandbox({"status": "ERROR", "error": "Command timed out after 120 seconds"}))
+    monkeypatch.setattr(
+        server, "sandbox_run", _fake_sandbox({"status": "ERROR", "error": "Command timed out after 120 seconds"})
+    )
     assert _run_in_worker(run, ["t"])["timeout"] is True
     bwrap_down = {"status": "EXEC_FAILED", "exit_code": 1, "stderr": "bwrap: No permissions to create new namespace"}
     monkeypatch.setattr(server, "sandbox_run", _fake_sandbox(bwrap_down))
@@ -298,10 +329,12 @@ def test_dispatcher_and_poller_use_async_job_dispatch(monkeypatch: pytest.Monkey
     assert _run_in_worker(server._autoevol_job_poller, "5") == {"status": "PENDING"}
 
 
-def test_every_new_action_is_directly_invoked_and_registered(trees: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_every_new_action_is_directly_invoked_and_registered(
+    trees: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Cobertura directa (action literal) de spec | verify | fix_test | heal: el grafo no debe dejarlas huerfanas."""
     base, new = trees
-    monkeypatch.setattr(server, "_autoevol_test_runner", lambda tree, trusted: (lambda tests: GREEN))
+    monkeypatch.setattr(server, "_autoevol_test_runner", lambda tree, trusted: lambda tests: GREEN)
     spec = json.loads(asyncio.run(server.autoevol(action="spec", gap=GAP, root=str(base), verbosity="terse")))
     assert spec["status"] == "OK"
     verify = json.loads(asyncio.run(server.autoevol(action="verify", root=str(new), base=str(base), gap=GAP)))
@@ -316,7 +349,9 @@ def test_every_new_action_is_directly_invoked_and_registered(trees: tuple[Path, 
 
 def test_docs_and_playbook_carry_the_self_heal_rule() -> None:
     assert "SELF-HEAL (ONT-41" in server._INSTRUCTIONS and "lkg_restore" in server._INSTRUCTIONS
-    recipe = json.loads(asyncio.run(server.discover(action="playbook", verbosity="summary")))["quick_reference"]["self_heal"]
+    recipe = json.loads(asyncio.run(server.discover(action="playbook", verbosity="summary")))["quick_reference"][
+        "self_heal"
+    ]
     assert 'autoevol(action="heal")' in recipe and len(recipe.encode()) < 3000
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "Self-Healing N0-N3" in readme and '"fix_test"' in readme and "17_Tools" in readme

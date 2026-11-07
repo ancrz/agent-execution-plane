@@ -38,7 +38,9 @@ def test_templates_are_discovered() -> None:
 @pytest.mark.skipif(GO is None, reason="go toolchain not installed")
 @pytest.mark.parametrize("tpl", TEMPLATES, ids=lambda p: p.stem)
 def test_go_vet_per_module(tmp_path: Path, tpl: Path) -> None:
-    res = subprocess.run(["go", "vet", "./..."], cwd=_module(tmp_path, tpl), capture_output=True, text=True, check=False)
+    res = subprocess.run(
+        ["go", "vet", "./..."], cwd=_module(tmp_path, tpl), capture_output=True, text=True, check=False
+    )
     assert res.returncode == 0, res.stderr
 
 

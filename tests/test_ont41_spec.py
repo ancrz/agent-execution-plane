@@ -30,7 +30,9 @@ def _graph() -> ThreadGraph:
     g.add_node(Node("function", "fn:pkg.mod.run_job", "h", {"module": "pkg.mod", "public": True}))
     g.add_node(Node("function", "fn:pkg.mod.run_jobs", "h", {"module": "pkg.mod", "public": True}))
     g.add_node(Node("function", "fn:pkg.other.go", "h", {"module": "pkg.other", "public": True}))
-    g.add_node(Node("test", "test:tests/t.py::test_mod_run_job", "h", {"file": "tests/t.py", "name": "test_mod_run_job"}))
+    g.add_node(
+        Node("test", "test:tests/t.py::test_mod_run_job", "h", {"file": "tests/t.py", "name": "test_mod_run_job"})
+    )
     g.add_node(Node("tool", "tool:tl", "h"))
     g.add_node(Node("action", "action:tl:act", "h"))
     g.add_node(Node("state", "state:tbl", "h"))
@@ -95,7 +97,9 @@ def test_unknown_omission_edge_falls_back_to_generic_template() -> None:
 
 def test_not_found_returns_similar() -> None:
     gap = Gap("omission:fn:a:in:covers", "omission", "fn:a", 0.3, "x")
-    out = spec.build_spec(_fake([gap]), "omission:fn:a:on:covers")  # AE-1: 'covers' ya resuelve por sufijo único; ahora NOT_FOUND usa coincidencia aproximada
+    out = spec.build_spec(
+        _fake([gap]), "omission:fn:a:on:covers"
+    )  # AE-1: 'covers' ya resuelve por sufijo único; ahora NOT_FOUND usa coincidencia aproximada
     assert out == {"status": "NOT_FOUND", "gap": "omission:fn:a:on:covers", "similar": ["omission:fn:a:in:covers"]}
 
 

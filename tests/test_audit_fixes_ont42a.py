@@ -88,7 +88,9 @@ def test_unverified_harness_commands_default_to_manual(tmp_path: Path) -> None:
         assert plan["recommended_route"] == "manual" and plan["reason"] == "command_unverified"
         assert plan["command_verified"] is False
         rec = _Rec()
-        res = hr.execute(tier="7rwx", confirm=True, front_stale=True, proc_root=root, start_pid=100, adapters=rec.adapters())
+        res = hr.execute(
+            tier="7rwx", confirm=True, front_stale=True, proc_root=root, start_pid=100, adapters=rec.adapters()
+        )
         assert res["status"] == "UNSUPPORTED" and rec.helper_calls == 0
 
 

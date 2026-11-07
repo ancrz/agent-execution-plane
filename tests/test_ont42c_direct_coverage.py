@@ -42,7 +42,9 @@ def test_gitcli_export_tree_and_revert_on_temp_repo(tmp_path: Path) -> None:
     head = sh(r.canon, "rev-parse", "dev")
     assert gp.GitCli.revert(port, "zz") == (False, "bad_sha")
     ok, new = gp.GitCli.revert(port, head)
-    assert ok is False or sh(r.canon, "rev-parse", "dev") == new  # el unico commit es raiz: o falla limpio o crea uno nuevo
+    assert (
+        ok is False or sh(r.canon, "rev-parse", "dev") == new
+    )  # el unico commit es raiz: o falla limpio o crea uno nuevo
     assert not r.fence.exists()
     assert tarfile.is_tarfile  # el export usa safe_extract (sin extractall directo)
     assert "extractall" not in Path(gp.__file__).read_text(encoding="utf-8")

@@ -86,9 +86,23 @@ def test_accept_with_dropped_transitive_is_partial(tmp_path: Path, monkeypatch) 
     analysis, cmp = _world(tmp_path, 1, 40)
     monkeypatch.setattr(th, "analyze", lambda *_a, **_k: analysis)
     monkeypatch.setattr(tv, "summarize", lambda _a: {**base, "hashes": {"fn:m.target": "x"}})
-    monkeypatch.setattr(tv, "compare", lambda *_a: {**cmp, "fixed": ["g"], "introduced": [], "codep": [], "touches_public": False,
-                                                    "uncovered_public": [], "uncovered_private": [], "gaps_base": 0, "gaps_new": 0,
-                                                    "root_base": "", "root_new": ""})
+    monkeypatch.setattr(
+        tv,
+        "compare",
+        lambda *_a: {
+            **cmp,
+            "fixed": ["g"],
+            "introduced": [],
+            "codep": [],
+            "touches_public": False,
+            "uncovered_public": [],
+            "uncovered_private": [],
+            "gaps_base": 0,
+            "gaps_new": 0,
+            "root_base": "",
+            "root_new": "",
+        },
+    )
     ran: list[int] = []
 
     def run(tests: list[str]) -> dict:
@@ -96,9 +110,17 @@ def test_accept_with_dropped_transitive_is_partial(tmp_path: Path, monkeypatch) 
         return {"ran": len(tests), "passed": len(tests), "failed": 0, "errors": 0, "exit_code": 0}
 
     kw = {"gap": None, "barrier": None, "run_tests": run, "dispatch_job": lambda t: {"job": "1"}, "trusted": True}
-    out = ops.judge(base, tmp_path, tests_result={"ran": 24, "passed": 24, "failed": 0, "errors": 0, "exit_code": 0}, **kw)
+    out = ops.judge(
+        base, tmp_path, tests_result={"ran": 24, "passed": 24, "failed": 0, "errors": 0, "exit_code": 0}, **kw
+    )
     assert out["selection"]["transitive_dropped"] == 17 and out["verdict"] == tv.ACCEPT and out["partial"] is True
-    full = ops.judge(base, tmp_path, apply=True, tests_result={"ran": 41, "passed": 41, "failed": 0, "errors": 0, "exit_code": 0}, **kw)
+    full = ops.judge(
+        base,
+        tmp_path,
+        apply=True,
+        tests_result={"ran": 41, "passed": 41, "failed": 0, "errors": 0, "exit_code": 0},
+        **kw,
+    )
     assert full["verdict"] == tv.ACCEPT and "partial" not in full and full["selection"]["transitive_dropped"] == 0
 
 
@@ -122,7 +144,14 @@ def test_g1_batched_sandbox_runner_executes_over_20_without_async_reject() -> No
 
     agg = tv.run_tests_batched([f"t{i:02d}" for i in range(24)], run, batch_size=20)
     assert batches == [20, 4] and agg["ran"] == 24 and agg["passed"] == 24 and agg["batches"] == 2
-    base = {"gaps": ["g1"], "hashes": {"fn:a.f": "1"}, "public": ["fn:a.f"], "direct": ["fn:a.f"], "root": "r", "codep": []}
+    base = {
+        "gaps": ["g1"],
+        "hashes": {"fn:a.f": "1"},
+        "public": ["fn:a.f"],
+        "direct": ["fn:a.f"],
+        "root": "r",
+        "codep": [],
+    }
     new = {"gaps": [], "hashes": {"fn:a.f": "2"}, "public": ["fn:a.f"], "direct": ["fn:a.f"], "root": "r2", "codep": []}
     verdict = tv.verify_change(
         base,
@@ -133,7 +162,9 @@ def test_g1_batched_sandbox_runner_executes_over_20_without_async_reject() -> No
         trusted=False,
         batch_sync=True,
     )
-    assert verdict["verdict"] == tv.ACCEPT and verdict["tests"]["mode"] == "batched" and verdict["tests"]["batches"] == 2
+    assert (
+        verdict["verdict"] == tv.ACCEPT and verdict["tests"]["mode"] == "batched" and verdict["tests"]["batches"] == 2
+    )
 
 
 def test_g2_private_helper_inherits_caller_pins(tmp_path: Path) -> None:

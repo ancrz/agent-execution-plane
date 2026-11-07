@@ -69,6 +69,7 @@ from engine.security import (  # noqa: E402
 # 1. Database Engine Tests (engine/db.py)
 # ==============================================================================
 
+
 class TestDatabaseEngine:
     def test_ro_connection_is_read_only(self, tmp_path: Path):
         db_path = tmp_path / "test_ro.db"
@@ -130,6 +131,7 @@ class TestDatabaseEngine:
 # ==============================================================================
 # 2. Backup & Rotation Engine Tests (engine/backup.py)
 # ==============================================================================
+
 
 class TestBackupEngine:
     def test_backup_and_5_slot_rotation(self, tmp_path: Path):
@@ -245,6 +247,7 @@ class TestBackupEngine:
 # 3. Privilege & CapabilityGuard Tests (engine/privilege.py)
 # ==============================================================================
 
+
 class TestPrivilegeAndCapabilityGuard:
     def test_19_capabilities_manifest(self):
         manifest = capability_manifest()
@@ -300,6 +303,7 @@ class TestPrivilegeAndCapabilityGuard:
 # ==============================================================================
 # 4. Security Audit Log Tests (engine/security.py)
 # ==============================================================================
+
 
 class TestSecurityAuditLog:
     def test_chained_tamper_evident_ledger(self, tmp_path: Path):
@@ -375,9 +379,11 @@ class TestSecurityAuditLog:
 # 5. FastMCP Server Parity Tests (server.py)
 # ==============================================================================
 
+
 class TestServerFastMCPParity:
     def test_17_tools_registered(self):
         import server
+
         tools = server.mcp._tool_manager.list_tools()
         tool_names = {t.name for t in tools}
         expected_17_tools = {
@@ -404,6 +410,7 @@ class TestServerFastMCPParity:
 
     def test_discover_capabilities_contract(self):
         import server
+
         res_str = asyncio.run(server.discover(action="capabilities"))
         res = json.loads(res_str)
         assert res["capability_tier"] in ("FULL", "DIMINISHED")
@@ -414,6 +421,7 @@ class TestServerFastMCPParity:
 # ==============================================================================
 # 6. Anti-Poisoning & Zero-Trust Quarantine Tests (engine/backup.py)
 # ==============================================================================
+
 
 class TestAntiPoisoningAndQuarantine:
     def test_canary_lifecycle(self, tmp_path: Path):
@@ -511,6 +519,7 @@ class TestAntiPoisoningAndQuarantine:
 # 7. Linux Landlock LSM Tests (engine/landlock.py)
 # ==============================================================================
 
+
 class TestLandlockLSM:
     def test_landlock_status_reporting(self):
         status = get_landlock_status()
@@ -538,6 +547,7 @@ class TestLandlockLSM:
 # ==============================================================================
 # 8. Volatile RAM Micro-Snapshots Tests (engine/backup.py)
 # ==============================================================================
+
 
 class TestVolatileMicroSnapshots:
     def test_micro_snapshot_lifecycle(self, tmp_path: Path):
@@ -583,17 +593,25 @@ class TestVolatileMicroSnapshots:
 # 9. Control Plane & FastMCP Extensions Tests
 # ==============================================================================
 
+
 class TestControlPlaneExtensions:
     def test_aep_ctl_security_domain(self):
         import subprocess
+
         ctl_path = PROJECT_ROOT / "scripts" / "aep-ctl"
-        res = subprocess.run([sys.executable, str(ctl_path), "security", "landlock_status", "--json"], capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            [sys.executable, str(ctl_path), "security", "landlock_status", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         assert res.returncode == 0
         data = json.loads(res.stdout)
         assert data["status"] in ("SUPPORTED", "UNSUPPORTED")
 
     def test_server_security_and_backup_ctl(self, tmp_path: Path):
         import server
+
         res_sec = asyncio.run(server.aep_ctl(domain="security", action="landlock_status"))
         data_sec = json.loads(res_sec)
         assert data_sec["status"] in ("SUPPORTED", "UNSUPPORTED")
@@ -604,6 +622,7 @@ class TestControlPlaneExtensions:
 
     def test_server_kernel_trace_security_mode(self):
         import server
+
         res = asyncio.run(server.kernel_trace(mode="security_open_denials", duration_sec=1))
         data = json.loads(res)
         assert data["status"] in ("OK", "DEGRADED")

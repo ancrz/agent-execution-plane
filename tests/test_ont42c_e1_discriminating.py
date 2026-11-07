@@ -55,7 +55,12 @@ def _runner_for(tree: Path) -> Callable[[list[str]], dict[str, Any]]:
         env = {**os.environ, "PYTHONPATH": str(tree), "PYTHONDONTWRITEBYTECODE": "1"}
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests],
-            cwd=tree, capture_output=True, text=True, env=env, timeout=120, check=False,
+            cwd=tree,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+            check=False,
         )
         text = proc.stdout
 
@@ -78,9 +83,18 @@ def _runner_for(tree: Path) -> Callable[[list[str]], dict[str, Any]]:
 
 def _verify(repo: Path) -> dict[str, Any]:
     return ops.run_verify(
-        repo, gap="D-88", snapshot=None, barrier=None, serving_lkg=False,
-        run_tests=_runner_for(repo), dispatch_job=None, poll_job=None, job=None,
-        trusted=True, terse=False, base_runner=_runner_for,
+        repo,
+        gap="D-88",
+        snapshot=None,
+        barrier=None,
+        serving_lkg=False,
+        run_tests=_runner_for(repo),
+        dispatch_job=None,
+        poll_job=None,
+        job=None,
+        trusted=True,
+        terse=False,
+        base_runner=_runner_for,
     )
 
 
@@ -129,9 +143,18 @@ def test_base_runner_infrastructure_failure_is_environmental_reject(repo: Path) 
     (repo / "engine" / "mod.py").write_text(_MOD_FIXED, encoding="utf-8")
     (repo / "tests" / "test_mod.py").write_text(_TEST_PLAIN, encoding="utf-8")
     out = ops.run_verify(
-        repo, gap="D-88", snapshot=None, barrier=None, serving_lkg=False,
-        run_tests=_runner_for(repo), dispatch_job=None, poll_job=None, job=None,
-        trusted=True, terse=False, base_runner=lambda _t: (lambda _tests: {"available": False}),
+        repo,
+        gap="D-88",
+        snapshot=None,
+        barrier=None,
+        serving_lkg=False,
+        run_tests=_runner_for(repo),
+        dispatch_job=None,
+        poll_job=None,
+        job=None,
+        trusted=True,
+        terse=False,
+        base_runner=lambda _t: lambda _tests: {"available": False},
     )
     assert out["verdict"] == tv.REJECT and out["reasons"] == [tv.SANDBOX_UNAVAILABLE]
 
@@ -144,9 +167,18 @@ def test_snapshot_base_is_not_mutated(repo: Path, tmp_path_factory: pytest.TempP
     (repo / "engine" / "mod.py").write_text(_MOD_FIXED, encoding="utf-8")
     (repo / "tests" / "test_mod.py").write_text(_TEST_PLAIN, encoding="utf-8")
     out = ops.run_verify(
-        repo, gap="D-88", snapshot=snap, barrier=None, serving_lkg=False,
-        run_tests=_runner_for(repo), dispatch_job=None, poll_job=None, job=None,
-        trusted=True, terse=False, base_runner=_runner_for,
+        repo,
+        gap="D-88",
+        snapshot=snap,
+        barrier=None,
+        serving_lkg=False,
+        run_tests=_runner_for(repo),
+        dispatch_job=None,
+        poll_job=None,
+        job=None,
+        trusted=True,
+        terse=False,
+        base_runner=_runner_for,
     )
     assert out["verdict"] == tv.ACCEPT and out["discriminating"]
     assert (snap / "tests" / "test_mod.py").read_text(encoding="utf-8") == _TEST_XFAIL

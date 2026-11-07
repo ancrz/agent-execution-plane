@@ -42,6 +42,7 @@ from engine.ipc_pool import (  # noqa: E402
 # 1. SessionPool Tests
 # ==============================================================================
 
+
 class TestSessionPool:
     def test_slot_acquisition_and_release(self, tmp_path: Path):
         pool = SessionPool(base_dir=tmp_path / "pool", max_slots=4, default_ttl_sec=5.0)
@@ -77,6 +78,7 @@ class TestSessionPool:
 
         # Wait for expiration
         import time
+
         time.sleep(0.15)
 
         reaped = pool.reap_expired()
@@ -111,6 +113,7 @@ class TestSessionPool:
 # ==============================================================================
 # 2. Variable Piping & Field Projection Unit Tests
 # ==============================================================================
+
 
 class TestPipingAndProjection:
     def test_resolve_step_refs(self):
@@ -155,6 +158,7 @@ class TestPipingAndProjection:
 # 3. UNIX Domain Socket Mux & Zero-FD Tests
 # ==============================================================================
 
+
 class TestUnixSocketMux:
     def test_zero_fd_leak_on_socket_roundtrips(self):
         ensure_ipc_server_started()
@@ -180,6 +184,7 @@ class TestUnixSocketMux:
 # ==============================================================================
 # 4. Playbook Ephemeral Batch & Code Mode Tests
 # ==============================================================================
+
 
 class TestPlaybookBatchMode:
     def test_batch_all_and_variable_piping(self):
@@ -231,14 +236,20 @@ class TestPlaybookBatchMode:
         async def _run():
             steps = [
                 {"id": "s1", "tool": "process_inspect", "params": {"pid": 0}},
-                {"id": "s2", "tool": "topos_audit_dag", "params": {"tasks": ["t1", "t2"], "dependencies": {"t2": ["t1"]}}},
+                {
+                    "id": "s2",
+                    "tool": "topos_audit_dag",
+                    "params": {"tasks": ["t1", "t2"], "dependencies": {"t2": ["t1"]}},
+                },
             ]
-            res_proj = json.loads(await server.playbook_run(
-                action="batch",
-                steps=steps,
-                return_only="all",
-                select_fields=["status", "batch", "all_ok", "results.0.output.status"],
-            ))
+            res_proj = json.loads(
+                await server.playbook_run(
+                    action="batch",
+                    steps=steps,
+                    return_only="all",
+                    select_fields=["status", "batch", "all_ok", "results.0.output.status"],
+                )
+            )
             assert res_proj["status"] == "OK"
             assert res_proj["all_ok"] is True
             assert "token_savings_estimate" in res_proj
@@ -252,6 +263,7 @@ class TestPlaybookBatchMode:
 # ==============================================================================
 # 5. aep_ctl Control Plane IPC Domain Tests
 # ==============================================================================
+
 
 class TestAepCtlIpcDomain:
     def test_aep_ctl_ipc_actions(self):
@@ -284,8 +296,11 @@ class TestAepCtlIpcDomain:
 
     def test_cli_aep_ctl_ipc(self):
         import subprocess
+
         ctl_path = PROJECT_ROOT / "scripts" / "aep-ctl"
-        res = subprocess.run([sys.executable, str(ctl_path), "ipc", "status", "--json"], capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            [sys.executable, str(ctl_path), "ipc", "status", "--json"], capture_output=True, text=True, check=False
+        )
         assert res.returncode == 0
         data = json.loads(res.stdout)
         assert data["status"] == "OK"
@@ -295,6 +310,7 @@ class TestAepCtlIpcDomain:
 # ==============================================================================
 # 6. FastMCP 17-Tool Invariant Test
 # ==============================================================================
+
 
 class TestFastMcpToolInvariant:
     def test_strictly_16_tools_registered(self):
@@ -306,6 +322,7 @@ class TestFastMcpToolInvariant:
 # 7. Milestone ONT-22: Spec OM-7 Omission Gap Remediation & Multi-Agent Tests
 # ==============================================================================
 
+
 class TestSpecOm7OmissionGapsAndMultiAgent:
     def test_gap_om22_1_smart_projection_fallbacks(self):
         async def _run():
@@ -313,12 +330,14 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
                 {"id": "s1", "tool": "process_inspect", "params": {"pid": 0, "limit": 2}},
             ]
             # 1. return_only="last" with select_fields
-            res_last = json.loads(await server.playbook_run(
-                action="batch",
-                steps=steps,
-                return_only="last",
-                select_fields=["status", "pid"],
-            ))
+            res_last = json.loads(
+                await server.playbook_run(
+                    action="batch",
+                    steps=steps,
+                    return_only="last",
+                    select_fields=["status", "pid"],
+                )
+            )
             assert res_last["status"] == "OK"
             assert "output" in res_last
             assert isinstance(res_last["output"]["pid"], int) and res_last["output"]["pid"] > 0
@@ -327,12 +346,14 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
             assert res_last["token_savings_estimate"]["savings_pct"] >= 50.0
 
             # 2. return_only="all" with select_fields
-            res_all = json.loads(await server.playbook_run(
-                action="batch",
-                steps=steps,
-                return_only="all",
-                select_fields=["status", "pid"],
-            ))
+            res_all = json.loads(
+                await server.playbook_run(
+                    action="batch",
+                    steps=steps,
+                    return_only="all",
+                    select_fields=["status", "pid"],
+                )
+            )
             assert res_all["status"] == "OK"
             assert "results" in res_all
             assert len(res_all["results"]) == 1
@@ -348,11 +369,13 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
                 {"id": "s1", "tool": "unknown_tool_for_test", "params": {}},
             ]
             # Verify field projection never swallows failed_steps
-            res = json.loads(await server.playbook_run(
-                action="batch",
-                steps=steps,
-                select_fields=["status"],
-            ))
+            res = json.loads(
+                await server.playbook_run(
+                    action="batch",
+                    steps=steps,
+                    select_fields=["status"],
+                )
+            )
             assert res["status"] == "PARTIAL"
             assert "failed_steps" in res
             assert len(res["failed_steps"]) == 1
@@ -366,14 +389,21 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
             sid = "test-cross-agent-session"
             # 1. Pragma produces output and stores as pragma_handoff
             steps_pragma = [
-                {"id": "step1", "tool": "process_inspect", "params": {"pid": 0, "limit": 2}, "store_as": "pragma_handoff"},
+                {
+                    "id": "step1",
+                    "tool": "process_inspect",
+                    "params": {"pid": 0, "limit": 2},
+                    "store_as": "pragma_handoff",
+                },
             ]
-            res_pragma = json.loads(await server.playbook_run(
-                action="batch",
-                steps=steps_pragma,
-                vars={"session_id": sid},
-                agent_id="pragma",
-            ))
+            res_pragma = json.loads(
+                await server.playbook_run(
+                    action="batch",
+                    steps=steps_pragma,
+                    vars={"session_id": sid},
+                    agent_id="pragma",
+                )
+            )
             assert res_pragma["status"] == "OK"
 
             # Verify cache via aep_ctl
@@ -385,12 +415,14 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
             steps_dokimos = [
                 {"id": "step2", "tool": "process_inspect", "params": {"pid": "$cache.pragma_handoff.pid", "limit": 1}},
             ]
-            res_dokimos = json.loads(await server.playbook_run(
-                action="batch",
-                steps=steps_dokimos,
-                vars={"session_id": sid},
-                agent_id="dokimos",
-            ))
+            res_dokimos = json.loads(
+                await server.playbook_run(
+                    action="batch",
+                    steps=steps_dokimos,
+                    vars={"session_id": sid},
+                    agent_id="dokimos",
+                )
+            )
             assert res_dokimos["status"] == "OK"
             assert res_dokimos["results"][0]["output"]["pid"] == res_pragma["results"][0]["output"]["pid"]
 
@@ -422,6 +454,7 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
 # 8. Milestone ONT-23: Pico-Triad Multi-Agent Concurrency Isolation Tests
 # ==============================================================================
 
+
 @pytest.fixture
 def isolated_server_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Aísla kanban DB, catálogo y TEMP_BIN_DIR del estado global (otro pytest/servidor a la vez)."""
@@ -440,9 +473,7 @@ class TestPicoTriadMultiAgentConcurrency:
         async def _run():
             # Clean up any existing tasks for concurrent_mem_stat
             with server.kanban._conn_rw() as conn:
-                conn.execute(
-                    "DELETE FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat'"
-                )
+                conn.execute("DELETE FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat'")
 
             agents = ["pragma", "dokimos", "archon", "ontos"]
             build_coros = [
@@ -478,8 +509,7 @@ class TestPicoTriadMultiAgentConcurrency:
 
             # Execute in RAM concurrently across agents
             exec_coros = [
-                server.artifact_execute_in_ram(name="concurrent_mem_stat", agent_id=agent)
-                for agent in agents
+                server.artifact_execute_in_ram(name="concurrent_mem_stat", agent_id=agent) for agent in agents
             ]
             raw_exec_results = await asyncio.gather(*exec_coros)
             for agent, raw in zip(agents, raw_exec_results):
@@ -626,6 +656,7 @@ class TestPicoTriadMultiAgentConcurrency:
 # 9. Milestone ONT-24: Non-Pico Concurrency Protections (Audit & RAM Snapshots)
 # ==============================================================================
 
+
 class TestNonPicoSystemWideConcurrency:
     def test_concurrent_audit_ledger_recording_no_forks(self, tmp_path: Path):
         from engine.db import get_rw_connection
@@ -765,6 +796,7 @@ class TestNonPicoSystemWideConcurrency:
 # 9. Omission Gaps Remediation Suite (ONT-25)
 # ==============================================================================
 
+
 class TestOmissionGapsRemediation:
     def test_gap_om01_artifact_lint_and_vet_actions(self):
         async def _run():
@@ -802,29 +834,33 @@ class TestOmissionGapsRemediation:
     def test_gap_om03_artifact_execute_in_ram_env_and_stdin(self, isolated_server_state):
         async def _run():
             go_src = (
-                'package main\n'
+                "package main\n"
                 'import ("bufio"; "fmt"; "os"; "strings")\n'
-                'func main() {\n'
+                "func main() {\n"
                 '    flag := os.Getenv("AEP_TEST_FLAG")\n'
-                '    reader := bufio.NewReader(os.Stdin)\n'
-                '    line, _ := reader.ReadString(\'\\n\')\n'
+                "    reader := bufio.NewReader(os.Stdin)\n"
+                "    line, _ := reader.ReadString('\\n')\n"
                 '    fmt.Printf("FLAG=%s|STDIN=%s", flag, strings.TrimSpace(line))\n'
-                '}\n'
+                "}\n"
             )
-            b = json.loads(await server.artifact_lint_and_build(
-                action="build",
-                name="env_stdin_test_tool",
-                intent="Test env and stdin",
-                category="test",
-                go_source=go_src,
-            ))
+            b = json.loads(
+                await server.artifact_lint_and_build(
+                    action="build",
+                    name="env_stdin_test_tool",
+                    intent="Test env and stdin",
+                    category="test",
+                    go_source=go_src,
+                )
+            )
             assert b["status"] == "SUCCESS"
 
-            r = json.loads(await server.artifact_execute_in_ram(
-                name="env_stdin_test_tool",
-                env={"AEP_TEST_FLAG": "PASSED_VALUE"},
-                stdin="input_data\n",
-            ))
+            r = json.loads(
+                await server.artifact_execute_in_ram(
+                    name="env_stdin_test_tool",
+                    env={"AEP_TEST_FLAG": "PASSED_VALUE"},
+                    stdin="input_data\n",
+                )
+            )
             assert r["status"] == "SUCCESS"
             assert "FLAG=PASSED_VALUE|STDIN=input_data" in r.get("output", "")
 
@@ -832,10 +868,12 @@ class TestOmissionGapsRemediation:
 
     def test_gap_om04_sandbox_run_env_injection(self):
         async def _run():
-            r = json.loads(await server.sandbox_run(
-                command='echo "KEY=$TEST_ENV_KEY"',
-                env={"TEST_ENV_KEY": "INSIDE_SANDBOX_OK"},
-            ))
+            r = json.loads(
+                await server.sandbox_run(
+                    command='echo "KEY=$TEST_ENV_KEY"',
+                    env={"TEST_ENV_KEY": "INSIDE_SANDBOX_OK"},
+                )
+            )
             assert r["status"] == "SUCCESS"
             assert "KEY=INSIDE_SANDBOX_OK" in r.get("stdout", "")
 
@@ -869,10 +907,12 @@ class TestOmissionGapsRemediation:
     def test_gap_om07_topos_audit_dag_remediation_and_cycle_and_deps_alias(self):
         async def _run():
             # Test cyclic DAG with 'deps' alias
-            r_cyclic = json.loads(await server.topos_audit_dag(
-                tasks=["t1", "t2", "t3"],
-                deps={"t1": ["t2"], "t2": ["t3"], "t3": ["t1"]},
-            ))
+            r_cyclic = json.loads(
+                await server.topos_audit_dag(
+                    tasks=["t1", "t2", "t3"],
+                    deps={"t1": ["t2"], "t2": ["t3"], "t3": ["t1"]},
+                )
+            )
             assert r_cyclic["status"] == "BLOCKED"
             assert "cycle" in r_cyclic
             assert r_cyclic["cycle"] == ["t1", "t2", "t3", "t1"]
@@ -880,16 +920,19 @@ class TestOmissionGapsRemediation:
             assert len(r_cyclic["remediation"]) >= 2
 
             # Test valid DAG with 'dependencies'
-            r_valid = json.loads(await server.topos_audit_dag(
-                tasks=["t1", "t2"],
-                dependencies={"t1": ["t2"]},
-            ))
+            r_valid = json.loads(
+                await server.topos_audit_dag(
+                    tasks=["t1", "t2"],
+                    dependencies={"t1": ["t2"]},
+                )
+            )
             assert r_valid["status"] == "APPROVED"
 
         asyncio.run(_run())
 
     def test_gap_om08_ipc_pool_dot_path_unwrapping(self):
         from engine.ipc_pool import _resolve_target_field, resolve_step_refs
+
         envelope_data = {
             "s1": {
                 "output": {
@@ -901,7 +944,7 @@ class TestOmissionGapsRemediation:
                 "data": {
                     "token": "secret_abc",
                 }
-            }
+            },
         }
         # Direct key access via _resolve_target_field
         assert _resolve_target_field(envelope_data["s1"], "output.task_id") == 999
@@ -969,10 +1012,12 @@ class TestOmissionGapsRemediation:
 
     def test_gap_om12_artifact_execute_in_ram_alias_and_timeout(self):
         async def _run():
-            r = json.loads(await server.artifact_execute_in_ram(
-                artifact_name="socket_monitor",
-                timeout=20,
-            ))
+            r = json.loads(
+                await server.artifact_execute_in_ram(
+                    artifact_name="socket_monitor",
+                    timeout=20,
+                )
+            )
             assert r["status"] == "SUCCESS"
             assert r["name"] == "socket_monitor"
             assert "total_sockets" in r["output"] or "sockets" in r["output"]
@@ -1011,6 +1056,7 @@ class TestOmissionGapsRemediation:
         4. store_as nombrada: accesible en el pool de sesiones para piping ($cache.<store_as>).
         5. force_refresh: invalida y regenera fresco.
         """
+
         async def _run():
             sid = "test_om15_sess"
 
@@ -1028,7 +1074,9 @@ class TestOmissionGapsRemediation:
             assert len(cached_check["value"]["capabilities"]) == 19
 
             # 2. Subagente Pragma: re-descubrimiento en modo terse (mitiga los 1.180 tokens redundantes)
-            res2_raw = await server.discover(action="capabilities", session_id=sid, verbosity="terse", agent_id="pragma")
+            res2_raw = await server.discover(
+                action="capabilities", session_id=sid, verbosity="terse", agent_id="pragma"
+            )
             r2 = json.loads(res2_raw)
             assert r2["status"] == "OK"
             assert r2["cache_status"] == "CACHED"
@@ -1082,6 +1130,7 @@ class TestOmissionGapsRemediation:
         - Paso 2 topos_audit_dag recibe el resultado y se ejecuta en un solo turno.
         - El manifiesto queda persistido en el SessionPool en RAM para otros agentes.
         """
+
         async def _run():
             sid = "test_om15_batch_sess"
             batch_steps = [
@@ -1113,5 +1162,3 @@ class TestOmissionGapsRemediation:
             assert stored["value"]["capability_tier"] in ("FULL", "DIMINISHED")
 
         asyncio.run(_run())
-
-

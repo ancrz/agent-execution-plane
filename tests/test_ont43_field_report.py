@@ -60,7 +60,9 @@ def _envelope(payload: dict[str, Any], **kw: Any) -> dict[str, Any]:
 
 
 def _fgap(sig: str = SIG) -> Gap:
-    return Gap(id=f"drift:field:{sig}:t", kind="field_discrepancy", node="test:t", severity=0.9, detail="d", ref=f"FR-{sig}")
+    return Gap(
+        id=f"drift:field:{sig}:t", kind="field_discrepancy", node="test:t", severity=0.9, detail="d", ref=f"FR-{sig}"
+    )
 
 
 # -- T1: signal ----------------------------------------------------------------------------------------
@@ -82,7 +84,8 @@ def test_error_class_prefers_explicit_key_and_ignores_message() -> None:
 
 
 @pytest.mark.parametrize(
-    "status", ["OK", "PERMISSION_DENIED", "TIER_DENIED", "BLOCKED", "REJECTED", "INVALID_ACTION", "NOT_FOUND", "DEGRADED"]
+    "status",
+    ["OK", "PERMISSION_DENIED", "TIER_DENIED", "BLOCKED", "REJECTED", "INVALID_ACTION", "NOT_FOUND", "DEGRADED"],
 )
 def test_no_hint_on_ok_or_policy_denials(status: str) -> None:
     assert "evol_hint" not in _envelope({"status": status, "error": "denied by policy"}, verbosity="summary")
@@ -95,7 +98,9 @@ def test_hint_on_error_classes(status: str) -> None:
 
 def test_hint_omitted_in_terse_and_for_report_itself() -> None:
     assert "evol_hint" not in _envelope({"status": "ERROR", "error": "Boom"}, verbosity="terse")
-    out = json.loads(tm.attach_envelope({"status": "ERROR", "error": "Boom"}, tm.RequestTelemetry("autoevol", "report")))
+    out = json.loads(
+        tm.attach_envelope({"status": "ERROR", "error": "Boom"}, tm.RequestTelemetry("autoevol", "report"))
+    )
     assert "evol_hint" not in out
 
 
@@ -244,7 +249,9 @@ def test_symlinked_repro_is_refused(state: Path, tmp_path: Path) -> None:
     link.unlink()
     link.symlink_to(real)
     _rec()
-    res = threads_field.promote_report(SIG, f"tests/field/test_fr_{SIG}.py::test_bug", tree, lambda t: XFAIL_OK, octal=6)
+    res = threads_field.promote_report(
+        SIG, f"tests/field/test_fr_{SIG}.py::test_bug", tree, lambda t: XFAIL_OK, octal=6
+    )
     assert res["status"] == "INVALID_REPRO"
 
 
@@ -354,7 +361,9 @@ def test_reconcile_without_optin_never_opens_cycle(tmp_path: Path, monkeypatch: 
     res = threads_reconcile.reconcile([fg], plane={}, cached_specs={fg.id}, octal=7, **_kw(spy, led))
     assert spy.opened == [] and not any(e.get("opened") for e in res["executed"])
     assert [p["action"] for p in res["proposals"]] == ["evolve"]
-    opted = threads_reconcile.reconcile([fg], plane={}, cached_specs={fg.id}, octal=7, **_kw(spy, led, open_cycles=True))
+    opted = threads_reconcile.reconcile(
+        [fg], plane={}, cached_specs={fg.id}, octal=7, **_kw(spy, led, open_cycles=True)
+    )
     assert spy.opened == [fg.id] and opted["executed"][0]["opened"] is True  # only with the explicit opt-in
 
 
@@ -369,7 +378,9 @@ def test_reconcile_opt_in_still_capped(tmp_path: Path, monkeypatch: pytest.Monke
     assert len(spy.opened) == 1 and any(e.get("capped") for e in again["executed"])
 
 
-def test_injection_report_never_opens_cycle_end_to_end(state: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_injection_report_never_opens_cycle_end_to_end(
+    state: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Even a PROMOTED report carrying an injection string opens no cycle without the reconcile opt-in."""
     monkeypatch.delenv("AEP_RECONCILE_OPEN", raising=False)
     tree = _tree(tmp_path / "t")

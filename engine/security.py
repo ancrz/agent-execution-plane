@@ -82,7 +82,13 @@ def sanitize_dict(data: Any, max_depth: int = 10) -> Any:
         sanitized = {}
         for k, v in data.items():
             k_str = str(k).lower()
-            if k_str in ("estimated_tokens", "tokens", "token_count", "token_savings_pct", "total_tokens") or k_str.endswith("_tokens"):
+            if k_str in (
+                "estimated_tokens",
+                "tokens",
+                "token_count",
+                "token_savings_pct",
+                "total_tokens",
+            ) or k_str.endswith("_tokens"):
                 sanitized[k] = sanitize_dict(v, max_depth - 1)
             elif _SENSITIVE_KEY_RE.search(str(k)):
                 sanitized[k] = "[MASKED]"
@@ -109,7 +115,7 @@ def mask_pueue_output(raw_output: str) -> str:
         parsed = json.loads(raw_output)
         sanitized = sanitize_dict(parsed)
         return json.dumps(sanitized)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError, TypeError, ValueError:
         return mask_secrets(raw_output)
 
 
@@ -329,13 +335,13 @@ def get_agent_usage_summary(conn: sqlite3.Connection, session_id: str | None = N
         def _to_int(val: Any) -> int:
             try:
                 return int(val)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return 0
 
         def _to_float(val: Any) -> float:
             try:
                 return float(val)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return 0.0
 
         b = _to_int(det.get("output_bytes") or det.get("bytes"))

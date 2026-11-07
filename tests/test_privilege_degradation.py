@@ -160,6 +160,7 @@ def test_gate3_setup_cli_consistency() -> None:
 # ==============================================================================
 def test_gate4_capabilities_matrix_synchrony() -> None:
     """Gate 4: Ensure capabilities and schema discovery reflect the chmod degradation matrix."""
+
     async def _run() -> None:
         # Test discover(action="capabilities")
         raw_caps = await server.discover(action="capabilities", force_refresh=True)
@@ -189,6 +190,7 @@ def test_gate4_capabilities_matrix_synchrony() -> None:
 # ==============================================================================
 def test_gate5_tool_degradation_contracts() -> None:
     """Gate 5: Confirm all 17 tools degrade gracefully without unhandled exceptions across tiers."""
+
     async def _run() -> None:
         # In Tier 4 (auditor), execution tools must degrade fail-soft
         with patch.dict(os.environ, {"AEP_FORCE_TIER": TIER_4R}):
@@ -310,7 +312,7 @@ def test_gate7_zero_hangs_non_interactive_guarantee() -> None:
     """Gate 7: Verify zero interactive sudo hangs with strict <=3s prober timeout."""
     # 1. Source code inspection of timeout parameter
     privilege_src = (PROJECT_ROOT / "engine" / "privilege.py").read_text(encoding="utf-8")
-    assert 'timeout=3' in privilege_src or 'timeout=2' in privilege_src, "sudo -n prober must specify timeout <= 3"
+    assert "timeout=3" in privilege_src or "timeout=2" in privilege_src, "sudo -n prober must specify timeout <= 3"
 
     # 2. Timing probe guarantee
     _PrivilegeCache.reset()

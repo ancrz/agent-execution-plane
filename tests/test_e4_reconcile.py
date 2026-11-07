@@ -17,8 +17,12 @@ from engine import threads_reconcile as tr
 from engine.privilege import _PrivilegeCache
 from engine.threads_model import Gap
 
-DRIFT = Gap(id="drift:claim:claim:README.md:3", kind="claim_drift", node="claim:x", severity=0.8, detail="tools: 9 vs 17")
-DRIFT2 = Gap(id="drift:claim:claim:README.md:9", kind="claim_drift", node="claim:y", severity=0.7, detail="tests: 1 vs 2")
+DRIFT = Gap(
+    id="drift:claim:claim:README.md:3", kind="claim_drift", node="claim:x", severity=0.8, detail="tools: 9 vs 17"
+)
+DRIFT2 = Gap(
+    id="drift:claim:claim:README.md:9", kind="claim_drift", node="claim:y", severity=0.7, detail="tests: 1 vs 2"
+)
 OPEN = Gap(id="drift:open:D-01b:t", kind="open_discrepancy", node="test:t", severity=0.5, detail="xfail", ref="D-01b")
 OMIT = Gap(id="omission:x", kind="omission", node="function:x", severity=0.3, detail="no test")
 LKG = {"serving_from": "lkg", "reload_error": True}
@@ -124,7 +128,9 @@ def test_reconcile_module_has_no_git_or_server_import() -> None:
             mods.update([node.module or "", *(f"{node.module}.{a.name}" for a in node.names)])
     assert not mods & {"server", "aep_front", "subprocess", "engine.threads_gitport", "engine.threads_evolve"}
     applies = [k.value for n in ast.walk(tree) if isinstance(n, ast.Call) for k in n.keywords if k.arg == "apply"]
-    assert applies and all(isinstance(v, ast.Constant) and v.value is False for v in applies)  # apply siempre literal False
+    assert applies and all(
+        isinstance(v, ast.Constant) and v.value is False for v in applies
+    )  # apply siempre literal False
 
 
 # -- idempotencia y tope -------------------------------------------------------------------------------
@@ -165,7 +171,9 @@ def test_cycle_cap_is_respected_and_shared_with_evolve_ledger(tmp_path: Path) ->
 
 def test_at_most_one_new_cycle_per_call(tmp_path: Path) -> None:
     spy = Spy()
-    tr.reconcile([DRIFT, DRIFT2], plane={}, cached_specs={DRIFT.id, DRIFT2.id}, octal=6, **spy.kw(_ledger(tmp_path, cap=9)))
+    tr.reconcile(
+        [DRIFT, DRIFT2], plane={}, cached_specs={DRIFT.id, DRIFT2.id}, octal=6, **spy.kw(_ledger(tmp_path, cap=9))
+    )
     assert len(spy.opened) == 1
 
 
@@ -205,7 +213,9 @@ def _snapshot(*dirs: Path) -> list[str]:
 
 
 @pytest.mark.parametrize("tier", ["4r--", "5r-x"])
-def test_tool_low_tier_reports_and_writes_nothing(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tier: str) -> None:
+def test_tool_low_tier_reports_and_writes_nothing(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tier: str
+) -> None:
     _tier(monkeypatch, tier)
     before = _snapshot(env.home, env.state)
     res = _call(action="reconcile", verbosity="terse")
@@ -213,7 +223,9 @@ def test_tool_low_tier_reports_and_writes_nothing(env: SimpleNamespace, monkeypa
     assert _snapshot(env.home, env.state) == before  # DB y disco intactos
 
 
-def test_tool_7rwx_never_calls_git_heal_apply_or_evolve_apply(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tool_7rwx_never_calls_git_heal_apply_or_evolve_apply(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _tier(monkeypatch, "7rwx")
     from engine import threads_gitport as gp
     from engine import threads_ops as ops
@@ -225,7 +237,9 @@ def test_tool_7rwx_never_calls_git_heal_apply_or_evolve_apply(env: SimpleNamespa
         ops, "run_heal", lambda tree, **kw: heal_calls.append(kw["apply"]) or {"status": "CLEAN", "total_threads": 0}
     )
     monkeypatch.setattr(ops, "_open_cycle", lambda *a, **k: {"status": "OK", "cycle": "c" * 32})
-    monkeypatch.setattr(server, "_autoevol_evolve", lambda tree, **kw: evolve_calls.append(kw["apply"]) or {"state": "PATCH_AWAITED"})
+    monkeypatch.setattr(
+        server, "_autoevol_evolve", lambda tree, **kw: evolve_calls.append(kw["apply"]) or {"state": "PATCH_AWAITED"}
+    )
     res = _call(action="reconcile", apply=True, restart=True, open_cycles=True)  # `apply=True` se ignora
     assert heal_calls == [False] and evolve_calls and not any(evolve_calls)
     assert res["applied"] is False and any(e["action"] == "heal" for e in res["executed"])
@@ -236,7 +250,11 @@ def test_tool_cap_env_limits_cycles(env: SimpleNamespace, monkeypatch: pytest.Mo
     from engine import threads_ops as ops
 
     opened: list[str] = []
-    monkeypatch.setattr(ops, "_open_cycle", lambda store, tree, gap, *a: opened.append(gap) or {"status": "OK", "cycle": f"{len(opened):032x}"})
+    monkeypatch.setattr(
+        ops,
+        "_open_cycle",
+        lambda store, tree, gap, *a: opened.append(gap) or {"status": "OK", "cycle": f"{len(opened):032x}"},
+    )
     monkeypatch.setattr(server, "_autoevol_evolve", lambda tree, **kw: {"state": "PATCH_AWAITED"})
     monkeypatch.setattr("engine.threads_evolve.read_cycle", lambda c, **k: {"state": "OPEN"})
     monkeypatch.setenv("AEP_RECONCILE_MAX_OPENS", "2")
@@ -250,7 +268,9 @@ def test_tool_default_only_proposes_and_env_opt_in_opens(env: SimpleNamespace, m
     from engine import threads_ops as ops
 
     opened: list[str] = []
-    monkeypatch.setattr(ops, "_open_cycle", lambda store, tree, gap, *a: opened.append(gap) or {"status": "OK", "cycle": "d" * 32})
+    monkeypatch.setattr(
+        ops, "_open_cycle", lambda store, tree, gap, *a: opened.append(gap) or {"status": "OK", "cycle": "d" * 32}
+    )
     monkeypatch.setattr(server, "_autoevol_evolve", lambda tree, **kw: {"state": "PATCH_AWAITED"})
     monkeypatch.setattr("engine.threads_evolve.read_cycle", lambda c, **k: {"state": "OPEN"})
     _call(action="reconcile")
@@ -265,7 +285,9 @@ def test_reconcile_registered_in_actions() -> None:
 
 
 def _caps(verbosity: str = "terse") -> dict[str, Any]:
-    raw = asyncio.run(server.discover(action="capabilities", verbosity=verbosity, session_id="t-e4", force_refresh=True))
+    raw = asyncio.run(
+        server.discover(action="capabilities", verbosity=verbosity, session_id="t-e4", force_refresh=True)
+    )
     return json.loads(raw)
 
 
@@ -285,7 +307,9 @@ def test_discover_terse_shows_single_top_within_budget_and_writes_nothing(
     assert _snapshot(env.home, env.state) == before
 
 
-def test_discover_top_from_cached_drift_and_absent_when_clean(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_discover_top_from_cached_drift_and_absent_when_clean(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(server, "_BACKEND_META_GETTER", lambda: {})
     monkeypatch.setattr("engine.threads_spec_cache.cached_gap_ids", lambda db: set())
     monkeypatch.setattr(threads, "cached_analysis", lambda root: SimpleNamespace(gaps=[DRIFT, OMIT]))
@@ -297,7 +321,9 @@ def test_discover_top_from_cached_drift_and_absent_when_clean(env: SimpleNamespa
     assert "reconcile_top" not in _caps("summary")  # solo en terse
 
 
-def test_direct_coverage_of_reconcile_surface(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_direct_coverage_of_reconcile_surface(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Referencias calificadas literales: el grafo no debe dejar huerfanos la accion ni las consultas del ledger."""
     _tier(monkeypatch, "4r--")
     res = json.loads(asyncio.run(server.autoevol(action="reconcile")))

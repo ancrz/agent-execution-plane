@@ -23,7 +23,7 @@ def _run(url: str, sha: str, dest: Path) -> subprocess.CompletedProcess:
     # Every binary setup.sh downloads with download_verified must be one the engine probes at runtime.
     assert {"pueue", "pueued", "go", "golangci-lint"} <= set(check_binary_prerequisites())
     script = (
-        "log_warn() { echo \"WARN:$*\"; }\nlog_err() { echo \"ERR:$*\"; }\n"
+        'log_warn() { echo "WARN:$*"; }\nlog_err() { echo "ERR:$*"; }\n'
         + _functions()
         + f'download_verified "{url}" "{dest}" "{sha}"; rc=$?\necho "RC=$rc REASON=$DL_FAIL_REASON"\n'
     )

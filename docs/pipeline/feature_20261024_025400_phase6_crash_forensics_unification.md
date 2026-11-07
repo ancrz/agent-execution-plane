@@ -196,7 +196,7 @@ flowchart TD
               close_fds=True,
               timeout=15,
           )
-      except (FileNotFoundError, subprocess.TimeoutExpired):
+      except FileNotFoundError, subprocess.TimeoutExpired:
           return None
   ```
 - **`TASK-03`**: De-register `@mcp.tool()` on `check_crash_alerts` so only 15 tools are exposed over FastMCP.

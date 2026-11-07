@@ -117,23 +117,29 @@ class BackendWorker:
                 if health_delay > 0 and self.generation >= 2:
                     await asyncio.sleep(health_delay)
                 instructions = getattr(server.mcp, "instructions", "") or ""
-                await self._send_response(writer, {
-                    "status": "OK",
-                    "id": req_id,
-                    "generation": self.generation,
-                    "pid": os.getpid(),
-                    "tools_count": tools_count,
-                    "schema_hash": schema_hash,
-                    "code_fingerprint": fp,
-                    "instructions": instructions,
-                })
+                await self._send_response(
+                    writer,
+                    {
+                        "status": "OK",
+                        "id": req_id,
+                        "generation": self.generation,
+                        "pid": os.getpid(),
+                        "tools_count": tools_count,
+                        "schema_hash": schema_hash,
+                        "code_fingerprint": fp,
+                        "instructions": instructions,
+                    },
+                )
             except Exception as e:  # noqa: BLE001
-                await self._send_response(writer, {
-                    "status": "ERROR",
-                    "id": req_id,
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                })
+                await self._send_response(
+                    writer,
+                    {
+                        "status": "ERROR",
+                        "id": req_id,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
 
         elif op == "list":
             try:
@@ -141,25 +147,33 @@ class BackendWorker:
                 tools = []
                 if tm:
                     for t in tm.list_tools():
-                        tools.append({
-                            "name": t.name,
-                            "description": t.description,
-                            "inputSchema": t.parameters,
-                        })
+                        tools.append(
+                            {
+                                "name": t.name,
+                                "description": t.description,
+                                "inputSchema": t.parameters,
+                            }
+                        )
                 schema_hash = server._get_schema_hash()
-                await self._send_response(writer, {
-                    "status": "OK",
-                    "id": req_id,
-                    "tools": tools,
-                    "schema_hash": schema_hash,
-                })
+                await self._send_response(
+                    writer,
+                    {
+                        "status": "OK",
+                        "id": req_id,
+                        "tools": tools,
+                        "schema_hash": schema_hash,
+                    },
+                )
             except Exception as e:  # noqa: BLE001
-                await self._send_response(writer, {
-                    "status": "ERROR",
-                    "id": req_id,
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                })
+                await self._send_response(
+                    writer,
+                    {
+                        "status": "ERROR",
+                        "id": req_id,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
 
         elif op == "call":
             name = req.get("name")
@@ -178,11 +192,14 @@ class BackendWorker:
             self.running = False
 
         else:
-            await self._send_response(writer, {
-                "status": "ERROR",
-                "id": req_id,
-                "error": f"Unknown op: {op}",
-            })
+            await self._send_response(
+                writer,
+                {
+                    "status": "ERROR",
+                    "id": req_id,
+                    "error": f"Unknown op: {op}",
+                },
+            )
 
     async def _execute_tool(
         self,
@@ -221,18 +238,24 @@ class BackendWorker:
             barrier = args.pop("_barrier", None)
             server._BARRIER_CTX.set(barrier if _valid_barrier(barrier) else None)
             res = await tm.call_tool(name, args)
-            await self._send_response(writer, {
-                "status": "OK",
-                "id": req_id,
-                "result": res,
-            })
+            await self._send_response(
+                writer,
+                {
+                    "status": "OK",
+                    "id": req_id,
+                    "result": res,
+                },
+            )
         except Exception as e:  # noqa: BLE001
-            await self._send_response(writer, {
-                "status": "ERROR",
-                "id": req_id,
-                "error": str(e),
-                "traceback": traceback.format_exc(),
-            })
+            await self._send_response(
+                writer,
+                {
+                    "status": "ERROR",
+                    "id": req_id,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                },
+            )
 
     async def _send_response(self, writer: asyncio.StreamWriter, data: dict[str, Any]) -> None:
         payload = (json.dumps(data) + "\n").encode("utf-8")
@@ -240,7 +263,7 @@ class BackendWorker:
             try:
                 writer.write(payload)
                 await writer.drain()
-            except (ConnectionResetError, BrokenPipeError, OSError):
+            except ConnectionResetError, BrokenPipeError, OSError:
                 self.running = False
 
     async def run(self) -> None:

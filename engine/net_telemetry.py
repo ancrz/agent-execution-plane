@@ -75,8 +75,31 @@ async def probe_tcp_ports(
     """
     target_host = host.strip() if host and host.strip() else "127.0.0.1"
     effective_ports = ports or [
-        21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 995, 1433,
-        1521, 3306, 3389, 5432, 6379, 8000, 8080, 8443, 9000, 9090, 9200, 27017,
+        21,
+        22,
+        23,
+        25,
+        53,
+        80,
+        110,
+        143,
+        443,
+        445,
+        993,
+        995,
+        1433,
+        1521,
+        3306,
+        3389,
+        5432,
+        6379,
+        8000,
+        8080,
+        8443,
+        9000,
+        9090,
+        9200,
+        27017,
     ]
     clamped_timeout_ms = max(20, min(int(timeout_ms or 300), 5000))
     timeout_sec = clamped_timeout_ms / 1000.0
@@ -104,7 +127,7 @@ async def probe_tcp_ports(
                     "reason": "timeout",
                     "service": COMMON_TCP_SERVICES.get(port, "unknown"),
                 }
-            except (ConnectionRefusedError, OSError):
+            except ConnectionRefusedError, OSError:
                 return {
                     "port": port,
                     "state": "closed",
@@ -150,7 +173,7 @@ def _decode_hex_ipv4(hex_str: str) -> str:
     try:
         val = int(hex_str, 16)
         return socket.inet_ntoa(struct.pack("<L", val))
-    except (ValueError, struct.error, OSError):
+    except ValueError, struct.error, OSError:
         return hex_str
 
 
@@ -159,10 +182,10 @@ def _decode_hex_ipv6(hex_str: str) -> str:
     if len(hex_str) != 32:
         return hex_str
     try:
-        words = [int(hex_str[i:i + 8], 16) for i in range(0, 32, 8)]
+        words = [int(hex_str[i : i + 8], 16) for i in range(0, 32, 8)]
         packed = b"".join(struct.pack("<I", w) for w in words)
         return socket.inet_ntop(socket.AF_INET6, packed)
-    except (ValueError, struct.error, OSError):
+    except ValueError, struct.error, OSError:
         return hex_str
 
 
@@ -239,19 +262,21 @@ def parse_proc_net_sockets(protocol: str = "tcp") -> list[dict[str, Any]]:
             except ValueError:
                 inode = None
 
-            sockets.append({
-                "proto": proto_label,
-                "local_ip": loc_ip,
-                "local_port": loc_port,
-                "local": f"{loc_ip}:{loc_port}",
-                "remote_ip": rem_ip,
-                "remote_port": rem_port,
-                "remote": f"{rem_ip}:{rem_port}",
-                "state": state_str,
-                "state_hex": st_raw,
-                "uid": uid,
-                "inode": inode,
-            })
+            sockets.append(
+                {
+                    "proto": proto_label,
+                    "local_ip": loc_ip,
+                    "local_port": loc_port,
+                    "local": f"{loc_ip}:{loc_port}",
+                    "remote_ip": rem_ip,
+                    "remote_port": rem_port,
+                    "remote": f"{rem_ip}:{rem_port}",
+                    "state": state_str,
+                    "state_hex": st_raw,
+                    "uid": uid,
+                    "inode": inode,
+                }
+            )
     return sockets
 
 
@@ -282,25 +307,27 @@ def parse_proc_net_dev() -> list[dict[str, Any]]:
         if len(nums) < 16:
             continue
         try:
-            interfaces.append({
-                "interface": iface,
-                "rx_bytes": int(nums[0]),
-                "rx_packets": int(nums[1]),
-                "rx_errs": int(nums[2]),
-                "rx_drop": int(nums[3]),
-                "rx_fifo": int(nums[4]),
-                "rx_frame": int(nums[5]),
-                "rx_compressed": int(nums[6]),
-                "rx_multicast": int(nums[7]),
-                "tx_bytes": int(nums[8]),
-                "tx_packets": int(nums[9]),
-                "tx_errs": int(nums[10]),
-                "tx_drop": int(nums[11]),
-                "tx_fifo": int(nums[12]),
-                "tx_colls": int(nums[13]),
-                "tx_carrier": int(nums[14]),
-                "tx_compressed": int(nums[15]),
-            })
+            interfaces.append(
+                {
+                    "interface": iface,
+                    "rx_bytes": int(nums[0]),
+                    "rx_packets": int(nums[1]),
+                    "rx_errs": int(nums[2]),
+                    "rx_drop": int(nums[3]),
+                    "rx_fifo": int(nums[4]),
+                    "rx_frame": int(nums[5]),
+                    "rx_compressed": int(nums[6]),
+                    "rx_multicast": int(nums[7]),
+                    "tx_bytes": int(nums[8]),
+                    "tx_packets": int(nums[9]),
+                    "tx_errs": int(nums[10]),
+                    "tx_drop": int(nums[11]),
+                    "tx_fifo": int(nums[12]),
+                    "tx_colls": int(nums[13]),
+                    "tx_carrier": int(nums[14]),
+                    "tx_compressed": int(nums[15]),
+                }
+            )
         except ValueError:
             continue
     return interfaces
@@ -328,14 +355,16 @@ def parse_proc_net_arp() -> list[dict[str, Any]]:
     for ln in lines[1:]:
         parts = ln.split()
         if len(parts) >= 6:
-            arp_entries.append({
-                "ip": parts[0],
-                "hw_type": parts[1],
-                "flags": parts[2],
-                "mac": parts[3],
-                "mask": parts[4],
-                "device": parts[5],
-            })
+            arp_entries.append(
+                {
+                    "ip": parts[0],
+                    "hw_type": parts[1],
+                    "flags": parts[2],
+                    "mac": parts[3],
+                    "mask": parts[4],
+                    "device": parts[5],
+                }
+            )
     return arp_entries
 
 
@@ -397,7 +426,7 @@ def unpack_packet_headers(raw_bytes: bytes) -> dict[str, Any]:
         # TCP Segment
         if proto_num == 6 and len(raw_bytes) >= transport_offset + 20:
             src_port, dst_port, seq, ack, offset_res, flags, window, chksum, urg_ptr = struct.unpack(
-                "!HHIIBBHHH", raw_bytes[transport_offset:transport_offset + 20]
+                "!HHIIBBHHH", raw_bytes[transport_offset : transport_offset + 20]
             )
             data_offset = (offset_res >> 4) * 4
             tcp_flags = {
@@ -423,7 +452,7 @@ def unpack_packet_headers(raw_bytes: bytes) -> dict[str, Any]:
         # UDP Datagram
         elif proto_num == 17 and len(raw_bytes) >= transport_offset + 8:
             src_port, dst_port, udp_len, udp_chksum = struct.unpack(
-                "!HHHH", raw_bytes[transport_offset:transport_offset + 8]
+                "!HHHH", raw_bytes[transport_offset : transport_offset + 8]
             )
             result["transport"] = {
                 "proto": "UDP",
@@ -435,9 +464,17 @@ def unpack_packet_headers(raw_bytes: bytes) -> dict[str, Any]:
 
     # 3. ARP Packet (eth_proto == 0x0806)
     elif eth_proto == 0x0806 and len(raw_bytes) >= 42:
-        hw_type, proto_type, hw_size, proto_size, opcode, sender_mac_raw, sender_ip_raw, target_mac_raw, target_ip_raw = struct.unpack(
-            "!HHBBH6s4s6s4s", raw_bytes[14:42]
-        )
+        (
+            hw_type,
+            proto_type,
+            hw_size,
+            proto_size,
+            opcode,
+            sender_mac_raw,
+            sender_ip_raw,
+            target_mac_raw,
+            target_ip_raw,
+        ) = struct.unpack("!HHBBH6s4s6s4s", raw_bytes[14:42])
         sender_mac = ":".join(f"{b:02x}" for b in sender_mac_raw)
         target_mac = ":".join(f"{b:02x}" for b in target_mac_raw)
         sender_ip = socket.inet_ntoa(sender_ip_raw)
@@ -492,13 +529,11 @@ def dissect_shm_pcap_buffer(buffer_or_path: bytes | str | Path, limit: int = 50)
             offset = 24
             packets: list[dict[str, Any]] = []
             while offset + 16 <= len(raw) and len(packets) < limit:
-                ts_sec, ts_usec, incl_len, orig_len = struct.unpack(
-                    f"{endian}IIII", raw[offset:offset + 16]
-                )
+                ts_sec, ts_usec, incl_len, orig_len = struct.unpack(f"{endian}IIII", raw[offset : offset + 16])
                 offset += 16
                 if offset + incl_len > len(raw):
                     break
-                pkt_data = raw[offset:offset + incl_len]
+                pkt_data = raw[offset : offset + incl_len]
                 offset += incl_len
 
                 parsed = unpack_packet_headers(pkt_data)
@@ -577,7 +612,11 @@ def enforce_netfilter_mitigation(
             check=False,
             timeout=5,
         )
-        if check_proc.returncode == 0 and f"ip saddr {eff_ip}" in check_proc.stdout and action_norm in check_proc.stdout:
+        if (
+            check_proc.returncode == 0
+            and f"ip saddr {eff_ip}" in check_proc.stdout
+            and action_norm in check_proc.stdout
+        ):
             return {
                 "status": "OK",
                 "target": eff_ip,

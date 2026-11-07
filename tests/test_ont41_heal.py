@@ -120,7 +120,9 @@ def test_no_server_import() -> None:
     import sys
 
     probe = "import sys; from engine import threads_heal; assert callable(threads_heal.heal); print('server' in sys.modules)"
-    out = subprocess.run([sys.executable, "-c", probe], cwd=REPO, capture_output=True, text=True, timeout=60, check=False)
+    out = subprocess.run(
+        [sys.executable, "-c", probe], cwd=REPO, capture_output=True, text=True, timeout=60, check=False
+    )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "False"
     assert threads_heal.heal.__module__ == "engine.threads_heal"

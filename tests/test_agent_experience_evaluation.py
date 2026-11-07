@@ -58,9 +58,7 @@ def test_sandbox_hides_the_host_workspace() -> None:
     """The default sandbox must not expose the AEP checkout implicitly."""
     import server
 
-    result = json.loads(
-        asyncio.run(server.sandbox_run(f"test ! -e {PROJECT_ROOT}"))
-    )
+    result = json.loads(asyncio.run(server.sandbox_run(f"test ! -e {PROJECT_ROOT}")))
     assert result["status"] == "SUCCESS"
     assert result["share_net"] is False
 
@@ -134,11 +132,7 @@ def test_sandbox_authorized_workspace_and_blacklist_guard(tmp_path: Path) -> Non
     assert (rw_dir / "allowed.txt").read_text().strip() == "ok"
 
     # 3. Blacklisted path (/etc/shadow or ~/.ssh) is blocked by CapabilityGuard
-    res_blocked = json.loads(
-        asyncio.run(
-            server.sandbox_run("cat /etc/shadow", ro_paths=["/etc/shadow"])
-        )
-    )
+    res_blocked = json.loads(asyncio.run(server.sandbox_run("cat /etc/shadow", ro_paths=["/etc/shadow"])))
     assert res_blocked["status"] == "PERMISSION_DENIED"
     assert res_blocked["envelope"]["severity"] == "ERROR"
 
@@ -147,9 +141,7 @@ def test_compact_summary_and_telemetry_attribution() -> None:
     """Summary mode reduces payload size and records byte/token/RSS/FD telemetry."""
     import server
 
-    detail_mounts = json.loads(
-        asyncio.run(server.aep_ctl(domain="storage", action="mounts", verbosity="detail"))
-    )
+    detail_mounts = json.loads(asyncio.run(server.aep_ctl(domain="storage", action="mounts", verbosity="detail")))
     summary_mounts = json.loads(
         asyncio.run(server.aep_ctl(domain="storage", action="mounts", verbosity="summary", limit=5))
     )
@@ -161,9 +153,7 @@ def test_compact_summary_and_telemetry_attribution() -> None:
     assert "envelope" in detail_mounts
     assert "envelope" not in summary_mounts
 
-    proc_sum = json.loads(
-        asyncio.run(server.process_inspect(pid=0, verbosity="summary"))
-    )
+    proc_sum = json.loads(asyncio.run(server.process_inspect(pid=0, verbosity="summary")))
     assert proc_sum["status"] == "OK"
     assert len(proc_sum["descriptors"]) <= 15
     assert "t" in proc_sum
@@ -187,9 +177,7 @@ def test_discover_binary_readiness_and_tactical_playbook() -> None:
     assert len(playbook["workflow_recipes"]) >= 4
 
     routed = json.loads(
-        asyncio.run(
-            server.discover(use_case="run pytest repository test suite in isolated bubblewrap sandbox")
-        )
+        asyncio.run(server.discover(use_case="run pytest repository test suite in isolated bubblewrap sandbox"))
     )
     assert routed["status"] == "OK"
     assert routed["confidence"] == "HIGH"
@@ -204,9 +192,7 @@ def test_omission_battery_all_16_tools_envelope_and_frame_safety() -> None:
     from engine.telemetry import MAX_SAFE_JSON_BYTES
 
     # 1. discover accepts action="match" and intent= alias, and flags low confidence for unrelated queries
-    low_conf = json.loads(
-        asyncio.run(server.discover(action="match", intent="plant tomatoes in backyard garden"))
-    )
+    low_conf = json.loads(asyncio.run(server.discover(action="match", intent="plant tomatoes in backyard garden")))
     assert low_conf["status"] == "OK"
     assert low_conf["match_status"] == "NO_HIGH_CONFIDENCE_MATCH"
     assert "envelope" in low_conf and "telemetry" in low_conf
@@ -259,27 +245,19 @@ def test_deep_omission_battery_v2_zero_fd_leak_and_storage_disks_summary() -> No
 
     # 2. Full in-RAM micro-snapshot lifecycle via aep_ctl + FIFO bound (MAX_RAM_SNAPSHOTS=2)
     for idx in range(3):
-        snap = json.loads(
-            asyncio.run(server.aep_ctl(domain="backup", action="micro_snapshot", name=f"snap_{idx}"))
-        )
+        snap = json.loads(asyncio.run(server.aep_ctl(domain="backup", action="micro_snapshot", name=f"snap_{idx}")))
         assert snap["status"] == "SUCCESS"
         assert len(snap["active_ram_snapshots"]) <= 2
 
-    listed = json.loads(
-        asyncio.run(server.aep_ctl(domain="backup", action="list_micro_snapshots"))
-    )
+    listed = json.loads(asyncio.run(server.aep_ctl(domain="backup", action="list_micro_snapshots")))
     assert listed["status"] == "OK"
     assert listed["count"] <= 2
 
-    cleared = json.loads(
-        asyncio.run(server.aep_ctl(domain="backup", action="clear_micro_snapshots"))
-    )
+    cleared = json.loads(asyncio.run(server.aep_ctl(domain="backup", action="clear_micro_snapshots")))
     assert cleared["status"] == "OK"
 
     # 3. storage.disks in summary mode filters out snap loop devices
-    disks = json.loads(
-        asyncio.run(server.aep_ctl(domain="storage", action="disks", verbosity="summary"))
-    )
+    disks = json.loads(asyncio.run(server.aep_ctl(domain="storage", action="disks", verbosity="summary")))
     assert disks["status"] == "OK"
     for bd in disks.get("blockdevices", []):
         assert bd.get("type") != "loop"
@@ -319,9 +297,7 @@ def test_deep_omission_battery_v3_polymorphic_dag_and_aliases() -> None:
     assert pkg_chk["status"] == "OK"
     assert pkg_chk["package"] == "python3"
 
-    svc_list = json.loads(
-        asyncio.run(server.aep_ctl(domain="service", action="list", limit=5, verbosity="summary"))
-    )
+    svc_list = json.loads(asyncio.run(server.aep_ctl(domain="service", action="list", limit=5, verbosity="summary")))
     assert svc_list["status"] in ("OK", "DEGRADED")
     if svc_list["status"] == "OK":
         assert len(svc_list.get("services", [])) <= 5
@@ -344,6 +320,7 @@ def test_deep_omission_battery_v3_polymorphic_dag_and_aliases() -> None:
     p1 = json.loads(asyncio.run(server.process_inspect(pid=1, limit=5, verbosity="summary")))
     assert p1["status"] in ("OK", "PARTIAL")
     assert p1["pid"] == 1
+
 
 def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
     """Verify setup.sh integrity, Pueue tag extraction, and Topos anti-cascade blob preservation."""
@@ -389,7 +366,9 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
     with cat._get_ro_conn() as conn:
         row2 = conn.execute("SELECT binary_blob, binary_hash FROM artifacts WHERE name = ?", ("test-probe",)).fetchone()
         assert row2 is not None
-        assert bytes(row2["binary_blob"]) == fake_elf, "Topos anti-cascade violation: binary_blob was overwritten by NULL"
+        assert bytes(row2["binary_blob"]) == fake_elf, (
+            "Topos anti-cascade violation: binary_blob was overwritten by NULL"
+        )
         assert row2["binary_hash"] == orig_hash, "Topos anti-cascade violation: binary_hash was overwritten by NULL"
 
     assert cat.get_binary_blob("test-probe") == fake_elf
@@ -424,7 +403,9 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert res_check.returncode == 0, f"setup.sh --check failed:\nSTDOUT:\n{res_check.stdout}\nSTDERR:\n{res_check.stderr}"
+    assert res_check.returncode == 0, (
+        f"setup.sh --check failed:\nSTDOUT:\n{res_check.stdout}\nSTDERR:\n{res_check.stderr}"
+    )
     assert "[PASS] SQLite Catalog & Integrity" in res_check.stdout
     assert "[PASS] MCP Ecosystem Sync" in res_check.stdout
 
@@ -436,7 +417,9 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert res_sync.returncode == 0, f"aep-sync.sh --check failed:\nSTDOUT:\n{res_sync.stdout}\nSTDERR:\n{res_sync.stderr}"
+    assert res_sync.returncode == 0, (
+        f"aep-sync.sh --check failed:\nSTDOUT:\n{res_sync.stdout}\nSTDERR:\n{res_sync.stderr}"
+    )
 
     # 6. Stray 0-byte PROJECT_ROOT / "artifacts.db" is unlinked / does not exist
     stray_db = PROJECT_ROOT / "artifacts.db"
@@ -501,8 +484,6 @@ def test_self_evolutionary_loop_and_ram_probes() -> None:
     exec_res = json.loads(asyncio.run(server.artifact_execute_in_ram(name="mem_stat", verbosity="detail")))
     assert exec_res["status"] == "SUCCESS"
     assert exec_res["telemetry"]["fd_delta"] == 0
-
-
 
 
 def test_spec_om7_ipc_control_plane_actions() -> None:

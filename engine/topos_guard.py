@@ -51,7 +51,8 @@ class ToposGuard:
                 if len(writers) >= 2:
                     # Condición 2: Escritores mutuamente acoplados sin nodo de interfaz
                     for i, w1 in enumerate(writers):
-                        for w2 in writers[i + 1:]:
+                        for w2 in writers[i + 1 :]:
+
                             def _reaches(src: str, dst: str) -> bool:
                                 q = [src]
                                 seen = {src}

@@ -11,7 +11,7 @@ from engine import threads as th
 from engine import threads_pins as pins
 from engine.threads_model import Node, ThreadGraph
 
-TEST_SRC = '''
+TEST_SRC = """
 EXPECTED_SHAPE = {"keys": ["alpha_marker", "beta"]}
 
 
@@ -51,7 +51,7 @@ def test_decorator_literal(arg):
 class TestGroup:
     def test_method(self):
         assert helper.other_unrelated() == 1
-'''
+"""
 
 
 def _graph(*fn_names: str, extra: tuple[Node, ...] = ()) -> ThreadGraph:
@@ -86,13 +86,19 @@ def test_golden_value_in_a_variable_is_found_not_only_asserts(tree: Path) -> Non
 
 
 def test_module_constant_and_helper_referenced_by_the_test_are_followed(tree: Path) -> None:
-    assert _ids(pins.pinning_tests(_graph("alpha_marker"), ["fn:mod.alpha_marker"], tree)) == ["test_uses_module_constant"]
+    assert _ids(pins.pinning_tests(_graph("alpha_marker"), ["fn:mod.alpha_marker"], tree)) == [
+        "test_uses_module_constant"
+    ]
     assert _ids(pins.pinning_tests(_graph("wiring_sentinel"), ["fn:mod.wiring_sentinel"], tree)) == ["test_uses_helper"]
 
 
 def test_attribute_and_decorator_references(tree: Path) -> None:
-    assert _ids(pins.pinning_tests(_graph("compute_totals"), ["fn:mod.compute_totals"], tree)) == ["test_attribute_call"]
-    assert _ids(pins.pinning_tests(_graph("decorated_literal"), ["fn:mod.decorated_literal"], tree)) == ["test_decorator_literal"]
+    assert _ids(pins.pinning_tests(_graph("compute_totals"), ["fn:mod.compute_totals"], tree)) == [
+        "test_attribute_call"
+    ]
+    assert _ids(pins.pinning_tests(_graph("decorated_literal"), ["fn:mod.decorated_literal"], tree)) == [
+        "test_decorator_literal"
+    ]
 
 
 def test_generic_names_and_short_identifiers_select_nothing(tree: Path) -> None:

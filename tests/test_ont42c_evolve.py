@@ -91,7 +91,9 @@ def test_read_cycle_is_read_only_even_when_expired(rig: Rig) -> None:
         (4, "DIMINISHED", "plan", te.JUDGED, False, False, False),
     ],
 )
-def test_tier_matrix(tmp_path: Path, octal: int, label: str, mode: str, state: str, branch: bool, merged: bool, pushed: bool) -> None:
+def test_tier_matrix(
+    tmp_path: Path, octal: int, label: str, mode: str, state: str, branch: bool, merged: bool, pushed: bool
+) -> None:
     r = make_rig(tmp_path)
     assert te.gating(octal, label) == mode
     out = r.run(octal=octal, label=label)
@@ -227,15 +229,23 @@ def _string_constants(path: Path) -> list[str]:
     doc_ids = {
         id(n.body[0].value)
         for n in ast.walk(tree)
-        if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr)
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
+        and n.body
+        and isinstance(n.body[0], ast.Expr)
         and isinstance(n.body[0].value, ast.Constant)
     }
-    return [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in doc_ids]
+    return [
+        n.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in doc_ids
+    ]
 
 
 def test_git_prohibitions_in_port_and_machine() -> None:
     assert te.run_evolve  # cobertura directa del grafo
-    forbidden = re.compile(r"(^|\s)(--force\S*|-f|--amend|rebase|reset|pull|main|master)(\s|$)|^\+|:\+|--force-with-lease")
+    forbidden = re.compile(
+        r"(^|\s)(--force\S*|-f|--amend|rebase|reset|pull|main|master)(\s|$)|^\+|:\+|--force-with-lease"
+    )
     for mod in ("threads_gitport", "threads_evolve"):
         path = ROOT / "engine" / f"{mod}.py"
         for const in _string_constants(path):

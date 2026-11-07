@@ -294,13 +294,13 @@ class CrashRouter:
                                     raw_sig = line.split(":", 1)[1].strip()
                                     try:
                                         sig = signal.Signals(int(raw_sig)).name
-                                    except (ValueError, TypeError):
+                                    except ValueError, TypeError:
                                         sig = str(raw_sig) if raw_sig else "UNKNOWN"
                                 elif line.startswith("Pid:"):
                                     raw_pid = line.split(":", 1)[1].strip()
                                     try:
                                         pid = int(raw_pid)
-                                    except (ValueError, TypeError):
+                                    except ValueError, TypeError:
                                         pid = None
                                 elif line.startswith("ProcCmdline:"):
                                     cmdline = line.split(":", 1)[1].strip()

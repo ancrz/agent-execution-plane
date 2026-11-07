@@ -30,7 +30,11 @@ def test_aep_sync_exits_zero_without_agent_clis(tmp_path) -> None:
     env = {"HOME": str(home), "PATH": str(bindir), "TMPDIR": str(tmp_path)}
     proc = subprocess.run(
         ["bash", str(ROOT / "scripts" / "aep-sync.sh")],
-        env=env, capture_output=True, text=True, timeout=120, check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
     )
     if "Validación superada" not in proc.stdout:
         pytest.skip(f"validation not reachable here: {proc.stdout[-300:]} {proc.stderr[-300:]}")

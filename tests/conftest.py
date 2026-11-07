@@ -83,7 +83,12 @@ def isolated_harness_reconnect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         return real_os_open(path, flags, *a, **k)
 
     def guard_popen(self, args, *a, **k):  # noqa: ANN001, ANN002, ANN003, ANN202
-        if isinstance(args, (list, tuple)) and args and os.path.basename(str(args[0])) == "sudo" and hr.HELPER_SCRIPT in args:
+        if (
+            isinstance(args, (list, tuple))
+            and args
+            and os.path.basename(str(args[0])) == "sudo"
+            and hr.HELPER_SCRIPT in args
+        ):
             raise AssertionError("test attempted to run the sudo TIOCSTI helper")
         return real_popen_init(self, args, *a, **k)
 

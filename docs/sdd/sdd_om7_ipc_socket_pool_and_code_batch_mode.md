@@ -64,7 +64,7 @@ The `SessionPool` manages up to 16 warm execution slots located in Linux shared 
     "reuse_count": 3,
     "scratch_dir": "/dev/shm/aep_pool/slot_0",
     "in_use": true,
-    "cached_keys": ["state_snapshot", "proc_cache"]
+    "cached_keys": ["state_snapshot", "proc_cache"],
 }
 ```
 
@@ -94,13 +94,13 @@ The socket daemon handles:
 ### 4.1 Invocation Contract
 ```python
 await playbook_run(
-    action="batch",               # Aliases: 'code', 'ephemeral', 'pipeline'
+    action="batch",  # Aliases: 'code', 'ephemeral', 'pipeline'
     name="system-triage",
     steps=[
         {"id": "p1", "tool": "process_inspect", "params": {"pid": 0}},
         {"id": "p2", "tool": "topos_audit_dag", "params": {"tasks": ["t1"], "dependencies": {}}},
     ],
-    return_only="all",            # 'all' | 'last' | 'summary'
+    return_only="all",  # 'all' | 'last' | 'summary'
     select_fields=["status", "batch", "all_ok", "results.0.output.pid"],
     stop_on_error=True,
     verbosity="summary",

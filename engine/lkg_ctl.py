@@ -74,10 +74,19 @@ def lkg_ctl(
         if action != "lkg_restore":
             return {"status": "ERROR", "error": f"accion lkg desconocida: {action}", "valid": list(ACTIONS)}
         if tier_octal < MIN_RESTORE_OCTAL:
-            return {"status": "PERMISSION_DENIED", "error": "lkg_restore requiere tier >= 6rw-.", "chmod_tier_octal": tier_octal}
+            return {
+                "status": "PERMISSION_DENIED",
+                "error": "lkg_restore requiere tier >= 6rw-.",
+                "chmod_tier_octal": tier_octal,
+            }
         dry = aep_lkg.restore_files(key, files, repo_root, dry_run=True)
         if not apply or not any(f["would_change"] for f in dry["files"]):
-            return {"status": "DRY_RUN", "applied": False, "plan": dry["files"], "next": "repetir con params={'apply': true}"}
+            return {
+                "status": "DRY_RUN",
+                "applied": False,
+                "plan": dry["files"],
+                "next": "repetir con params={'apply': true}",
+            }
         if snapshot_fn is None:
             return {"status": "SNAPSHOT_REQUIRED", "applied": False, "plan": dry["files"]}
         try:

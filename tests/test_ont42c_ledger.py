@@ -35,9 +35,9 @@ def test_key_is_unique_and_insert_or_ignore_is_atomic(tmp_path: Path) -> None:
 def test_duplicate_key_from_another_cycle_returns_existing_state_without_a_second_commit(rig: Rig) -> None:
     first = rig.run(octal=6, label="DIMINISHED")
     assert first["state"] == te.COMMITTED
-    other = tv.CycleStore(base_dir=rig.state).open_cycle("drift:open:D-88:test:t", {"root": "R0", "gaps": ["D-88", "D-90"]}, restart=True)[
-        "cycle_id"
-    ]
+    other = tv.CycleStore(base_dir=rig.state).open_cycle(
+        "drift:open:D-88:test:t", {"root": "R0", "gaps": ["D-88", "D-90"]}, restart=True
+    )["cycle_id"]
     tv.CycleStore(base_dir=rig.state).record(
         other,
         {

@@ -80,11 +80,25 @@ def _prop(gap: str, kind: str, action: str, reason: str, tier: int) -> dict[str,
 def _plane_proposals(plane: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if plane.get("serving_from") == "lkg" or plane.get("reload_error"):
-        out.append(_prop("plane:serving_lkg", "plane_degraded", HEAL, "plane serves LKG or reload failed: heal dry-run", READ_TIER))
+        out.append(
+            _prop(
+                "plane:serving_lkg",
+                "plane_degraded",
+                HEAL,
+                "plane serves LKG or reload failed: heal dry-run",
+                READ_TIER,
+            )
+        )
     if plane.get("front_stale"):
-        out.append(_prop("plane:front_stale", "front_stale", REPORT, "front stale: aep_ctl ipc harness_reconnect plan", READ_TIER))
+        out.append(
+            _prop(
+                "plane:front_stale", "front_stale", REPORT, "front stale: aep_ctl ipc harness_reconnect plan", READ_TIER
+            )
+        )
     elif plane.get("stale") and plane.get("serving_from") != "lkg":
-        out.append(_prop("plane:code_stale", "code_stale", REPORT, "loaded code != disk: reload or hot-swap", READ_TIER))
+        out.append(
+            _prop("plane:code_stale", "code_stale", REPORT, "loaded code != disk: reload or hot-swap", READ_TIER)
+        )
     return out
 
 
@@ -145,7 +159,14 @@ def _handle_cycles(
         if cycle is not None and cycle_state(cycle) in LIVE_CYCLE_STATES:
             plan = evolve_plan(gap=gap, cycle=cycle, apply=False)
             executed.append(
-                {"gap": gap, "action": EVOLVE, "cycle": cycle, "continued": True, "state": plan.get("state"), "applied": False}
+                {
+                    "gap": gap,
+                    "action": EVOLVE,
+                    "cycle": cycle,
+                    "continued": True,
+                    "state": plan.get("state"),
+                    "applied": False,
+                }
             )
             continue
         if not may_open or new_opened >= 1:
@@ -164,7 +185,14 @@ def _handle_cycles(
         cap["used"] += 1
         plan = evolve_plan(gap=gap, cycle=new_cycle, apply=False)
         executed.append(
-            {"gap": gap, "action": EVOLVE, "cycle": new_cycle, "opened": True, "state": plan.get("state"), "applied": False}
+            {
+                "gap": gap,
+                "action": EVOLVE,
+                "cycle": new_cycle,
+                "opened": True,
+                "state": plan.get("state"),
+                "applied": False,
+            }
         )
     return executed, cap
 
@@ -185,14 +213,25 @@ def reconcile(
     """Un paso del controlador. Con tier < 6rw- no se usa ningun efecto inyectado (ni el ledger)."""
     pol = policy(octal)
     proposals = propose(gaps, plane=plane, cached_specs=cached_specs)
-    out: dict[str, Any] = {"status": "OK", "mode": pol["mode"], "proposals": proposals, "executed": [], "applied": False}
+    out: dict[str, Any] = {
+        "status": "OK",
+        "mode": pol["mode"],
+        "proposals": proposals,
+        "executed": [],
+        "applied": False,
+    }
     if not pol["writes"] or ledger is None:
         return out
     executed: list[dict[str, Any]] = []
     if pol["heal"] and heal_dry_run is not None and any(p["action"] == HEAL for p in proposals):
         report = heal_dry_run()  # el cableado del servidor fija apply=False; aqui no existe parametro apply
         executed.append(
-            {"action": HEAL, "dry_run": True, "status": report.get("status"), "total_threads": report.get("total_threads", 0)}
+            {
+                "action": HEAL,
+                "dry_run": True,
+                "status": report.get("status"),
+                "total_threads": report.get("total_threads", 0),
+            }
         )
     if pol["cycles"] and open_cycle and cycle_state and evolve_plan:
         cyc, cap = _handle_cycles(

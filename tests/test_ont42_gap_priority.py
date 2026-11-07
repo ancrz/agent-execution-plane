@@ -46,7 +46,9 @@ def test_real_repo_top_gap_is_priority_class_and_r_ignores_gap_order(tmp_path: P
     # G3: fixture sintetico con open_discrepancy + omission para verificar top_gap sin depender de D-01b en REPO
     (tmp_path / "engine").mkdir()
     (tmp_path / "tests").mkdir()
-    (tmp_path / "engine" / "mod.py").write_text("def pub_fn():\n    return 1\n\ndef uncov_fn():\n    return 2\n", encoding="utf-8")
+    (tmp_path / "engine" / "mod.py").write_text(
+        "def pub_fn():\n    return 1\n\ndef uncov_fn():\n    return 2\n", encoding="utf-8"
+    )
     (tmp_path / "tests" / "test_mod.py").write_text(
         "import pytest\nfrom engine import mod\n\n"
         "@pytest.mark.xfail(strict=True, reason='D-99')\n"

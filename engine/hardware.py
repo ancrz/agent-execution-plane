@@ -26,14 +26,14 @@ INTEL_VENDOR_ID = "0x8086"
 def _read_int_file(path: Path) -> int:
     try:
         return int(path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return 0
 
 
 def _read_str_file(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return ""
 
 

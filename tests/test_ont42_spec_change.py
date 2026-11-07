@@ -19,14 +19,18 @@ def _tokens(payload: dict) -> int:
 
 def _xfail_graph() -> ThreadGraph:
     g = _graph()
-    g.add_node(Node("test", "test:tests/x.py::test_d", "h", {"file": "tests/x.py", "name": "test_d", "xfail_ref": "D-77"}))
+    g.add_node(
+        Node("test", "test:tests/x.py::test_d", "h", {"file": "tests/x.py", "name": "test_d", "xfail_ref": "D-77"})
+    )
     g.add_edge("test:tests/x.py::test_d", "action:tl:act", "covers")
     g.add_edge("test:tests/x.py::test_d", "fn:pkg.other.go", "covers")
     return g
 
 
 def _gap() -> Gap:
-    return Gap("drift:open:D-77:test:tests/x.py::test_d", "open_discrepancy", "test:tests/x.py::test_d", 0.5, "x", ref="D-77")
+    return Gap(
+        "drift:open:D-77:test:tests/x.py::test_d", "open_discrepancy", "test:tests/x.py::test_d", 0.5, "x", ref="D-77"
+    )
 
 
 def test_open_discrepancy_change_follows_covers_then_implemented_by() -> None:

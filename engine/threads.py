@@ -573,7 +573,9 @@ def structural_gaps(graph: ThreadGraph, scc: SccReport) -> list[Gap]:
         )
     for e in graph.edges({"consumes"}):
         if e.src.startswith("module:engine.threads") and e.dst == "module:server":
-            gaps.append(Gap(f"forbidden_edge:{e.src}->{e.dst}", "forbidden_edge", e.src, 1.0, "threads must not import server"))
+            gaps.append(
+                Gap(f"forbidden_edge:{e.src}->{e.dst}", "forbidden_edge", e.src, 1.0, "threads must not import server")
+            )
     return gaps
 
 
@@ -630,11 +632,16 @@ def git_head(root: Path) -> str:
     """Commit corto de `root` (fail-soft)."""
     try:
         res = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=str(root), capture_output=True, text=True, timeout=2, check=False
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
         )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         pass
     return "unknown"
 
@@ -902,7 +909,15 @@ def gaps_payload(analysis: Analysis, *, limit: int = 10, kind: str | None = None
         "refs": sorted({g.ref for g in analysis.gaps if g.ref}),
         "own_gaps": len(own_gaps(analysis)),
         "gaps": [
-            {"id": g.id, "kind": g.kind, "node": g.node, "score": g.score, "reach": g.reach, "ref": g.ref, "detail": g.detail}
+            {
+                "id": g.id,
+                "kind": g.kind,
+                "node": g.node,
+                "score": g.score,
+                "reach": g.reach,
+                "ref": g.ref,
+                "detail": g.detail,
+            }
             for g in pool[: max(limit, 0)]
         ],
         "total_matching": len(pool),
@@ -971,7 +986,7 @@ def _load_snapshot(blob: bytes | None) -> dict[str, Any]:
         return {"n": [], "g": []}
     try:
         return json.loads(zlib.decompress(blob).decode("utf-8"))
-    except (zlib.error, ValueError):
+    except zlib.error, ValueError:
         return {"n": [], "g": []}
 
 

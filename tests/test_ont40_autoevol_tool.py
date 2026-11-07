@@ -51,7 +51,9 @@ def test_graph_terse_budget_under_300_tokens(isolated_home: Path) -> None:
 
 
 @pytest.mark.parametrize(("tier", "persists"), [("7rwx", True), ("6rw-", True), ("5r-x", False), ("4r--", False)])
-def test_persistence_gate_by_tier(tier: str, persists: bool, isolated_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_persistence_gate_by_tier(
+    tier: str, persists: bool, isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """C4: AEP_FORCE_TIER + get_effective_chmod_tier(force_refresh=True)."""
     monkeypatch.setenv("AEP_FORCE_TIER", tier)
     assert get_effective_chmod_tier(force_refresh=True)["tier"] == tier

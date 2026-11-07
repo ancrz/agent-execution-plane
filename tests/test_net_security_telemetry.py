@@ -57,9 +57,7 @@ def test_gate2_enhanced_schema_and_preconditions() -> None:
     """Gate 2: Enhanced Schema & Action Preconditions in CONTROL_PLANE_SCHEMA."""
     net_schema = CONTROL_PLANE_SCHEMA.get("network")
     assert net_schema is not None
-    assert set(["inspect", "routes", "listeners", "probe", "interfaces", "arp"]).issubset(
-        set(net_schema["actions"])
-    )
+    assert set(["inspect", "routes", "listeners", "probe", "interfaces", "arp"]).issubset(set(net_schema["actions"]))
     assert "preconditions" in net_schema
     for act in ["probe", "interfaces", "arp", "listeners"]:
         assert act in net_schema["preconditions"]
@@ -174,9 +172,15 @@ def test_gate5_in_memory_packet_header_dissection() -> None:
     eth_arp_hdr = struct.pack("!6s6sH", b"\xff" * 6, b"\x00\x11\x22\x33\x44\x55", 0x0806)
     arp_pkt = struct.pack(
         "!HHBBH6s4s6s4s",
-        1, 0x0800, 6, 4, 1,
-        b"\x00\x11\x22\x33\x44\x55", socket.inet_aton("192.168.1.10"),
-        b"\x00" * 6, socket.inet_aton("192.168.1.1"),
+        1,
+        0x0800,
+        6,
+        4,
+        1,
+        b"\x00\x11\x22\x33\x44\x55",
+        socket.inet_aton("192.168.1.10"),
+        b"\x00" * 6,
+        socket.inet_aton("192.168.1.1"),
     )
     arp_dissected = net_telemetry.unpack_packet_headers(eth_arp_hdr + arp_pkt)
     assert arp_dissected["status"] == "OK"

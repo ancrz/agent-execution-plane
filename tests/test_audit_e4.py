@@ -16,7 +16,7 @@ from engine import threads_reconcile as tr
 from engine.privilege import _PrivilegeCache
 from engine.threads_model import Gap
 
-_SERVER = '''
+_SERVER = """
 mcp = object()
 
 @mcp.tool()
@@ -26,14 +26,14 @@ async def autoevol(action: str = "list", verbosity: str = "summary"):
         return 1
     if act == "info":
         return 2
-'''
-_PRIV = '''
+"""
+_PRIV = """
 _CAPABILITIES = {"orientation": (4, 4, "self", ["autoevol"], "d")}
 CHMOD_DEGRADATION_MATRIX = {"tools": {"autoevol": {}}}
 _CAP_TACTICAL = {}
 CONTROL_PLANE_SCHEMA = {}
-'''
-_TEST_HELPER = '''
+"""
+_TEST_HELPER = """
 import server
 
 def _ctl(**kw):
@@ -41,7 +41,7 @@ def _ctl(**kw):
 
 def test_info_via_helper():
     _ctl(action="info")
-'''
+"""
 
 
 def test_helper_forwarded_constant_kwargs_create_covers_edge(tmp_path: Path) -> None:

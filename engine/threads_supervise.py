@@ -251,7 +251,7 @@ FILE_OUT_OF_LKG = "out_of_lkg"
 
 
 def plan(
-    repo:threads.Analysis,
+    repo: threads.Analysis,
     lkg: threads.Analysis,
     broken_files: Iterable[str],
     restorable: Callable[[str], bool | str],

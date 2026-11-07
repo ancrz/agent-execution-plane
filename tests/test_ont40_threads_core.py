@@ -149,7 +149,10 @@ def test_persist_lock_order_and_chain_integrity(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(threads, "_AUDIT_LOCK", Proxy(threads._AUDIT_LOCK))
     monkeypatch.setattr(threads, "transaction_immediate", tx)
     db = tmp_path / "c.db"
-    ts = [threading.Thread(target=threads.persist_generation, args=(x,), kwargs={"db_path": db, "tier_octal": 6}) for x in (a1, a2)]
+    ts = [
+        threading.Thread(target=threads.persist_generation, args=(x,), kwargs={"db_path": db, "tier_octal": 6})
+        for x in (a1, a2)
+    ]
     for t in ts:
         t.start()
     for t in ts:

@@ -117,7 +117,7 @@ def _run_fd_rescuer(params: dict[str, Any]) -> dict[str, Any]:
     pid_param = params.get("pid")
     try:
         pid = int(pid_param) if pid_param is not None else 0
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         pid = 0
     effective_pid = os.getpid() if pid <= 0 else pid
 
@@ -130,7 +130,7 @@ def _run_fd_rescuer(params: dict[str, Any]) -> dict[str, Any]:
                 try:
                     target = os.readlink(link_path)
                     fds.append({"fd": int(entry) if entry.isdigit() else entry, "target": target})
-                except (OSError, PermissionError):
+                except OSError, PermissionError:
                     fds.append({"fd": int(entry) if entry.isdigit() else entry, "target": "<unreadable>"})
         except (OSError, PermissionError) as e:
             logger.debug("Failed listing /proc/%d/fd: %s", effective_pid, e)

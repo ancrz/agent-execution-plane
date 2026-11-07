@@ -217,14 +217,14 @@ def literal_dict_best_effort(node: ast.AST | None) -> dict[str, Any]:
     try:
         value = ast.literal_eval(node)
         return value if isinstance(value, dict) else {}
-    except (ValueError, SyntaxError):
+    except ValueError, SyntaxError:
         out: dict[str, Any] = {}
         for k, v in zip(node.keys, node.values, strict=True):
             if k is None or not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
                 continue
             try:
                 out[k.value] = ast.literal_eval(v)
-            except (ValueError, SyntaxError):
+            except ValueError, SyntaxError:
                 out[k.value] = literal_dict_best_effort(v) if isinstance(v, ast.Dict) else None
         return out
 
@@ -454,7 +454,9 @@ def _expand(chain: list[str], fn: _FuncInfo, imports: _Imports, project: set[str
     return [*fn.module.split("."), *chain]
 
 
-def _resolve_fn(expanded: list[str], fn_ids: set[str], class_names: dict[str, set[str]], project: set[str]) -> str | None:
+def _resolve_fn(
+    expanded: list[str], fn_ids: set[str], class_names: dict[str, set[str]], project: set[str]
+) -> str | None:
     for k in range(len(expanded) - 1, 0, -1):
         mod = ".".join(expanded[:k])
         if mod not in project:
@@ -529,7 +531,9 @@ def extract_state(graph: ThreadGraph, src: Sources) -> set[str]:
                 for m in _SQL_CREATE_RE.finditer(node.value):
                     name = m.group(1).lower()
                     if name not in tables:
-                        graph.add_node(Node("state", f"state:{name}", sha("code", name), {"kind": "table", "source": "code"}))
+                        graph.add_node(
+                            Node("state", f"state:{name}", sha("code", name), {"kind": "table", "source": "code"})
+                        )
                         tables.add(name)
     return tables
 
@@ -644,8 +648,10 @@ def _alias_tables(tree: ast.Module) -> dict[str, dict[str, str]]:
                     table = {
                         k.value: v.value
                         for k, v in zip(stmt.value.keys, stmt.value.values, strict=True)
-                        if isinstance(k, ast.Constant) and isinstance(k.value, str)
-                        and isinstance(v, ast.Constant) and isinstance(v.value, str)
+                        if isinstance(k, ast.Constant)
+                        and isinstance(k.value, str)
+                        and isinstance(v, ast.Constant)
+                        and isinstance(v.value, str)
                     }
                     tables[tgt.id] = table
     return tables
@@ -778,7 +784,9 @@ class _TestRefs:
 def _xfail_ref(fn: ast.AST) -> str:
     for dec in getattr(fn, "decorator_list", []):
         if isinstance(dec, ast.Call) and (_chain(dec.func) or [""])[-1] == "xfail":
-            strict = any(k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value for k in dec.keywords)
+            strict = any(
+                k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value for k in dec.keywords
+            )
             for k in dec.keywords:
                 if k.arg == "reason" and isinstance(k.value, ast.Constant) and strict:
                     m = re.match(r"\s*(D-\d{2}[a-z]?)", str(k.value.value))
@@ -791,7 +799,9 @@ def _field_ref(fn: ast.AST) -> str:
     """ONT-43: `FR-<12hex>` de un xfail estricto (reporte de campo). Inerte hasta que el sig sea promovido."""
     for dec in getattr(fn, "decorator_list", []):
         if isinstance(dec, ast.Call) and (_chain(dec.func) or [""])[-1] == "xfail":
-            strict = any(k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value for k in dec.keywords)
+            strict = any(
+                k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value for k in dec.keywords
+            )
             for k in dec.keywords:
                 if k.arg == "reason" and isinstance(k.value, ast.Constant) and strict:
                     m = re.match(r"\s*FR-([0-9a-f]{12})(?![0-9a-f])", str(k.value.value))
@@ -891,7 +901,9 @@ def _collect_dict_tool(d: ast.Dict, tool_names: set[str], refs: _TestRefs) -> No
     pools = [entries]
     params = entries.get("params")
     if isinstance(params, ast.Dict):
-        pools.append({k.value: v for k, v in zip(params.keys, params.values, strict=True) if isinstance(k, ast.Constant)})
+        pools.append(
+            {k.value: v for k, v in zip(params.keys, params.values, strict=True) if isinstance(k, ast.Constant)}
+        )
     for pool in pools:
         for key in ("action", "domain", "mode"):
             val = pool.get(key)
@@ -1063,7 +1075,9 @@ def extract_claims(graph: ThreadGraph, src: Sources, tools: dict[str, dict[str, 
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) >= 12:
                 raw.extend(_text_claims(node.value, rel, getattr(node, "lineno", 0), "string"))
         for value, line in _server_version_literals(pf.tree):
-            raw.append(_RawClaim("version", re.search(r"\d+\.\d+\.\d+", value).group(0), rel, line, value, False, "string"))
+            raw.append(
+                _RawClaim("version", re.search(r"\d+\.\d+\.\d+", value).group(0), rel, line, value, False, "string")
+            )
     seen: dict[str, int] = {}
     for c in sorted(raw, key=lambda r: (r.file, r.line, r.kind, r.value)):
         base = f"claim:{c.file}:{c.kind}:{sha(c.kind, c.value, c.text)[:8]}"
@@ -1095,7 +1109,15 @@ def _extract_doc_mentions(graph: ThreadGraph, src: Sources, tools: dict[str, dic
         n = seen.get(base, 0)
         seen[base] = n + 1
         cid = base if n == 0 else f"{base}#{n + 1}"
-        attrs = {"kind": "doc", "value": "", "file": file, "line": lineno, "text": text[:140], "hist": False, "source": "doc"}
+        attrs = {
+            "kind": "doc",
+            "value": "",
+            "file": file,
+            "line": lineno,
+            "text": text[:140],
+            "hist": False,
+            "source": "doc",
+        }
         graph.add_node(Node("claim", cid, sha("doc", file, text), attrs))
         for tool in mentioned:
             graph.add_edge(cid, f"tool:{tool}", "asserts")

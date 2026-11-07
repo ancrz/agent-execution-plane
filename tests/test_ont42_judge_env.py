@@ -108,8 +108,13 @@ def test_sentinel_in_same_command_cmd_shape(tmp_path: Path) -> None:
 def _sentinel(tree: Path, pythonpath: Path, *, isolated: bool = False) -> int:
     argv = [sys.executable, *(["-I"] if isolated else []), "-c", server._AUTOEVOL_SENTINEL, str(tree), "-q", "--co"]
     proc = subprocess.run(  # noqa: S603 - argv literal, arboles temporales
-        argv, cwd=tree, env={**os.environ, "PYTHONPATH": str(pythonpath)}, capture_output=True, text=True,
-        check=False, timeout=60,
+        argv,
+        cwd=tree,
+        env={**os.environ, "PYTHONPATH": str(pythonpath)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
     )
     return proc.returncode
 

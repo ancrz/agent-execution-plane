@@ -231,9 +231,7 @@ def read_events(*, base_dir: Path | str | None = None, include_rotated: bool = T
     return out
 
 
-def _iter_lines(
-    base_dir: Path | str | None, include_rotated: bool
-) -> Iterator[tuple[str, dict[str, Any] | None]]:
+def _iter_lines(base_dir: Path | str | None, include_rotated: bool) -> Iterator[tuple[str, dict[str, Any] | None]]:
     try:
         with state_dir(base_dir) as dfd:
             name = events_file_name()

@@ -34,7 +34,9 @@ from engine import threads_heal, threads_pins
 from engine import threads_verify as tv
 
 SELECTION_CAP = 24  # B8: tope de tests por verify en ejecuciones no `apply` (la suite completa es del gate C4)
-PIN_CALLER_CAP = 10  # G2: tope de pins heredados de callers publicos cuando se edita un helper privado (paridad con spec)
+PIN_CALLER_CAP = (
+    10  # G2: tope de pins heredados de callers publicos cuando se edita un helper privado (paridad con spec)
+)
 MIN_VERIFY_OCTAL = 5
 MIN_APPLY_OCTAL = 6
 TERSE_BUDGET = 350
@@ -229,7 +231,9 @@ def select_tests(
     selection: dict[str, Any] = {"direct": k_direct, "pins": k_pins, "transitive_dropped": trans_n - k_trans}
     head_dropped = (direct_n - k_direct) + (pins_n - k_pins)
     if head_dropped:
-        selection["head_dropped"] = head_dropped  # el tope mordio tests directos/pins: es mas grave que descartar transitivos
+        selection["head_dropped"] = (
+            head_dropped  # el tope mordio tests directos/pins: es mas grave que descartar transitivos
+        )
     return kept, selection
 
 
@@ -575,7 +579,9 @@ def run_heal(
         out["strategy"] = report["strategy"]
         out["units"] = [{"id": u["id"], "role": u["role"], "files": u["files"]} for u in report["units"][:cap]]
         out["supervisor"] = report["supervisor"][:cap]
-        out["unaffected_tools"] = report["unaffected_tools"][:_HEAL_THREADS_TERSE] if terse else report["unaffected_tools"]
+        out["unaffected_tools"] = (
+            report["unaffected_tools"][:_HEAL_THREADS_TERSE] if terse else report["unaffected_tools"]
+        )
         out["preserved"] = [p["file"] for p in report.get("preserved", [])][: _HEAL_THREADS_TERSE if terse else 20]
         out["unaffected_total"] = len(report["unaffected_tools"])
     for passthrough in ("key", "restored", "remaining_syntax_errors", "error"):

@@ -24,7 +24,12 @@ BASE = _sum(gaps=["g1", "g2"], hashes={"fn:a.f": "h1", "fn:a._p": "p1"}, public=
 
 
 def _good_new(**kw: Any) -> dict[str, Any]:
-    return _sum(**{**{"gaps": ["g2"], "hashes": {"fn:a.f": "h1", "fn:a._p": "p1"}, "public": ["fn:a.f"], "direct": ["fn:a.f"]}, **kw})
+    return _sum(
+        **{
+            **{"gaps": ["g2"], "hashes": {"fn:a.f": "h1", "fn:a._p": "p1"}, "public": ["fn:a.f"], "direct": ["fn:a.f"]},
+            **kw,
+        }
+    )
 
 
 GREEN = {"ran": 3, "passed": 3, "failed": 0, "errors": 0}
@@ -171,7 +176,9 @@ def test_await_barrier_polls_with_injected_clock_and_sleep() -> None:
         slept.append(s)
         now[0] += s
 
-    state, timed_out = tv.await_barrier(lambda: next(states), timeout_s=10, poll_s=1.0, clock=lambda: now[0], sleep=sleep)
+    state, timed_out = tv.await_barrier(
+        lambda: next(states), timeout_s=10, poll_s=1.0, clock=lambda: now[0], sleep=sleep
+    )
     assert state == tv.BarrierState()
     assert timed_out is False
     assert slept == [1.0, 1.0]

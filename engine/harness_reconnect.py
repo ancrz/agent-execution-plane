@@ -281,7 +281,10 @@ def decision_tree(
     elif srv is None:
         plan.update(recommended_route="manual", reason="invalid_server_name")
     elif not harness.get("found"):
-        plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=harness.get("reason", "harness_not_found"))
+        plan.update(
+            recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual",
+            reason=harness.get("reason", "harness_not_found"),
+        )
     elif not profile.get("verified", False):
         plan.update(recommended_route="manual", reason="command_unverified")
     elif tty.get("ok") and sysctl_value is not None:
@@ -289,7 +292,10 @@ def decision_tree(
     elif rpc_avail and "rpc_reload" in profile.get("transports", ()):
         plan.update(recommended_route="rpc_reload", reason="ok")
     elif not tty.get("ok"):
-        plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=tty.get("reason", "no_tty"))
+        plan.update(
+            recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual",
+            reason=tty.get("reason", "no_tty"),
+        )
     else:
         plan.update(recommended_route="manual", reason="unsupported:sysctl_absent")
     return plan
@@ -417,11 +423,19 @@ def open_tty(path: str) -> int:
     return os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NOFOLLOW)
 
 
-def run_helper(major: int, minor: int, payload_hex: str, tty_fd: int, timeout: float = HELPER_TIMEOUT_S) -> tuple[int, str, bool]:
+def run_helper(
+    major: int, minor: int, payload_hex: str, tty_fd: int, timeout: float = HELPER_TIMEOUT_S
+) -> tuple[int, str, bool]:
     """Run the sudo helper with the TTY fd as stdin. Returns (rc, stdout, timed_out). Timeout -> SIGTERM to the group."""
     cmd = [*HELPER_CMD_PREFIX, HELPER_SCRIPT, str(major), str(minor), payload_hex]
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, absolute interpreter, no shell
-        cmd, stdin=tty_fd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=HELPER_ENV, start_new_session=True, text=True
+        cmd,
+        stdin=tty_fd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=HELPER_ENV,
+        start_new_session=True,
+        text=True,
     )
     try:
         out, _ = proc.communicate(timeout=timeout)
@@ -572,7 +586,9 @@ def execute(
         return done("REJECTED", "confirm_required")
     if not front_stale and not force:
         return done("NOOP", "front_stale=false", route="noop")
-    harness = find_harness(proc_root, os.getpid() if start_pid is None else start_pid, me, target_harness=target_harness)
+    harness = find_harness(
+        proc_root, os.getpid() if start_pid is None else start_pid, me, target_harness=target_harness
+    )
     if not harness.get("found") or harness.get("reason") != "ok":
         return done("REJECTED", str(harness.get("reason", "harness_not_in_ancestry")))
     hname = str(harness["harness"])
@@ -591,7 +607,7 @@ def execute(
                 lock_fd = ad.acquire_lock()
             except LockBusyError:
                 return done("BUSY", "lock_held")
-            except (NoRuntimeDirError, OSError):
+            except NoRuntimeDirError, OSError:
                 return done("REJECTED", "no_runtime_dir")
             rpc_meta: dict[str, Any] = {
                 "harness": hname,
@@ -617,7 +633,7 @@ def execute(
         lock_fd = ad.acquire_lock()
     except LockBusyError:
         return done("BUSY", "lock_held")
-    except (NoRuntimeDirError, OSError):
+    except NoRuntimeDirError, OSError:
         return done("REJECTED", "no_runtime_dir")
 
     info: dict[str, Any] = {
@@ -646,7 +662,9 @@ def execute(
         if info["sysctl_after"] != sysctl_before:
             return done("FAIL", "sysctl_not_restored", severity="CRITICAL", **info)
         if helper_error or timed_out:
-            return done("FAIL", "helper_timeout" if timed_out else f"helper_error:{helper_error}", severity="HIGH", **info)
+            return done(
+                "FAIL", "helper_timeout" if timed_out else f"helper_error:{helper_error}", severity="HIGH", **info
+            )
         if rc == 0:
             return done("OK", "injected", route="tty_inject", **info)
         if rc in (3, 4, 6):
@@ -674,7 +692,13 @@ def certify_loopback(
     me = os.getuid() if uid is None else uid
     clean_msg = (message or "hello world").strip()[:128] or "hello world"
     if not clean_msg.isascii() or not clean_msg.isprintable():
-        return {"status": "ERROR", "primitive": PRIMITIVE_NAME, "mode": "certify", "certified": False, "error": "message_not_printable_ascii"}
+        return {
+            "status": "ERROR",
+            "primitive": PRIMITIVE_NAME,
+            "mode": "certify",
+            "certified": False,
+            "error": "message_not_printable_ascii",
+        }
     sysctl_before = ad.read_sysctl()
     master_fd, slave_fd = pty.openpty()
     received, fd_ok, fd_reason, pts_name = "", False, "pty_error", ""
@@ -757,7 +781,9 @@ def probe_console_reach(
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=4, check=False)  # noqa: S603
                 out = (proc.stdout or "") + (proc.stderr or "")
                 cli_mcp_registered = srv in out and ("enabled" in out.lower() or "connected" in out.lower())
-                cli_probe_registered_line = next((ln.strip() for ln in out.splitlines() if srv in ln or "Status:" in ln or "enabled:" in ln), "")
+                cli_probe_registered_line = next(
+                    (ln.strip() for ln in out.splitlines() if srv in ln or "Status:" in ln or "enabled:" in ln), ""
+                )
                 cli_probe_detail = cli_probe_registered_line[:120] or f"rc={proc.returncode}"
             except (OSError, subprocess.SubprocessError) as exc:
                 cli_probe_detail = f"error:{type(exc).__name__}"
@@ -780,5 +806,3 @@ def probe_console_reach(
         "server": srv,
         "harnesses": matrix,
     }
-
-

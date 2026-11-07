@@ -168,7 +168,11 @@ class LandlockSandbox:
         abi = status.get("abi_version", 1)
         handled = FULL_FS_ACCESS_V3 if abi >= 3 else FULL_FS_ACCESS_V1
         read_mask = READ_ACCESS_MASK
-        write_mask = (READ_ACCESS_MASK | WRITE_ACCESS_MASK) if abi < 3 else (READ_ACCESS_MASK | WRITE_ACCESS_MASK | ACCESS_FS_TRUNCATE)
+        write_mask = (
+            (READ_ACCESS_MASK | WRITE_ACCESS_MASK)
+            if abi < 3
+            else (READ_ACCESS_MASK | WRITE_ACCESS_MASK | ACCESS_FS_TRUNCATE)
+        )
 
         libc = _get_libc()
         attr = LandlockRulesetAttr(handled_access_fs=handled)
@@ -191,7 +195,9 @@ class LandlockSandbox:
                 fd = os.open(str(rpath), os.O_PATH | os.O_CLOEXEC)
                 try:
                     beneath = LandlockPathBeneathAttr(allowed_access=read_mask, parent_fd=fd)
-                    ret = libc.syscall(SYS_LANDLOCK_ADD_RULE, ruleset_fd, LANDLOCK_RULE_PATH_BENEATH, ctypes.byref(beneath), 0)
+                    ret = libc.syscall(
+                        SYS_LANDLOCK_ADD_RULE, ruleset_fd, LANDLOCK_RULE_PATH_BENEATH, ctypes.byref(beneath), 0
+                    )
                     if ret == 0:
                         rules_added += 1
                 finally:
@@ -204,7 +210,9 @@ class LandlockSandbox:
                 fd = os.open(str(wpath), os.O_PATH | os.O_CLOEXEC)
                 try:
                     beneath = LandlockPathBeneathAttr(allowed_access=write_mask, parent_fd=fd)
-                    ret = libc.syscall(SYS_LANDLOCK_ADD_RULE, ruleset_fd, LANDLOCK_RULE_PATH_BENEATH, ctypes.byref(beneath), 0)
+                    ret = libc.syscall(
+                        SYS_LANDLOCK_ADD_RULE, ruleset_fd, LANDLOCK_RULE_PATH_BENEATH, ctypes.byref(beneath), 0
+                    )
                     if ret == 0:
                         rules_added += 1
                 finally:
@@ -220,7 +228,11 @@ class LandlockSandbox:
             rest_ret = libc.syscall(SYS_LANDLOCK_RESTRICT_SELF, ruleset_fd, 0)
             if rest_ret != 0:
                 errno = ctypes.get_errno()
-                return {"status": "ERROR", "applied": False, "error": f"SYS_landlock_restrict_self falló: errno {errno}"}
+                return {
+                    "status": "ERROR",
+                    "applied": False,
+                    "error": f"SYS_landlock_restrict_self falló: errno {errno}",
+                }
 
             return {
                 "status": "APPLIED",

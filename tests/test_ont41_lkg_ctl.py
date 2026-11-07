@@ -66,7 +66,9 @@ def test_restore_gates(lkg_env: tuple[Path, str]) -> None:
     assert dry["status"] == "DRY_RUN" and not snaps and "broken" in (code / "server.py").read_text()
     need = lkg_ctl.lkg_ctl("lkg_restore", "server.py", repo_root=code, tier_octal=6, apply=True)
     assert need["status"] == "SNAPSHOT_REQUIRED"
-    bad = lkg_ctl.lkg_ctl("lkg_restore", "server.py", repo_root=code, tier_octal=6, apply=True, snapshot_fn=lambda f: {"status": "ERROR"})
+    bad = lkg_ctl.lkg_ctl(
+        "lkg_restore", "server.py", repo_root=code, tier_octal=6, apply=True, snapshot_fn=lambda f: {"status": "ERROR"}
+    )
     assert bad["status"] == "SNAPSHOT_FAILED" and "broken" in (code / "server.py").read_text()
     ok = lkg_ctl.lkg_ctl("lkg_restore", "server.py", repo_root=code, tier_octal=6, apply=True, snapshot_fn=snap)
     assert ok["status"] == "RESTORED" and snaps == [["server.py"]]

@@ -12,7 +12,7 @@ from engine import threads_extractors as ex
 
 REPO = Path(__file__).resolve().parent.parent
 
-_SERVER = '''
+_SERVER = """
 from engine.helper import util
 mcp = object()
 _PLANNED_ACTIONS = ("spec",)
@@ -24,22 +24,22 @@ async def autoevol(action: str = "list", verbosity: str = "summary"):
         return util()
     if act in ("info", "spec"):
         return 1
-'''
-_PRIV = '''
+"""
+_PRIV = """
 _CAPABILITIES = {"orientation": (4, 4, "self", ["autoevol"], "d")}
 CHMOD_DEGRADATION_MATRIX = {"tools": {"autoevol": {}}}
 _CAP_TACTICAL = {"orientation": {"canonical_calls": ['autoevol(action="info")']}}
 CONTROL_PLANE_SCHEMA = {}
-'''
+"""
 _HELPER = 'def util():\n    return "INSERT INTO t (a) VALUES (1)"\n\ndef orphan():\n    return 2\n'
-_TEST = '''
+_TEST = """
 import server
 def test_autoevol():
     server.autoevol(action="list")
-'''
+"""
 
 
-def _tree(tmp: Path, *, readme: str = "autoevol(action=\"list\") 20 tools\n") -> Path:
+def _tree(tmp: Path, *, readme: str = 'autoevol(action="list") 20 tools\n') -> Path:
     (tmp / "engine").mkdir()
     (tmp / "tests").mkdir()
     (tmp / "schemas").mkdir()
@@ -101,7 +101,10 @@ def test_r_deterministic_across_hashseed_and_path(tmp_path: Path) -> None:
     for seed, path in (("1", REPO), ("2", copy)):
         r = subprocess.run(
             [sys.executable, "-c", code, str(path)],
-            capture_output=True, text=True, timeout=120, check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
             env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
         )
         outs.append(r.stdout.strip())
@@ -117,7 +120,7 @@ def test_extract_inputs_hash_changes(tmp_path: Path) -> None:
 
 # --- D-23: alias de acciones -------------------------------------------------------------------------
 
-_ALIAS_SERVER = '''
+_ALIAS_SERVER = """
 mcp = object()
 _MODE_ALIASES = {"short": "long", "other": "nowhere"}
 
@@ -138,13 +141,13 @@ async def multi(action: str = "main", mode: str = "long"):
         return _MODE_ALIASES
     if mode == "short":
         return 6
-'''
-_ALIAS_PRIV = '''
+"""
+_ALIAS_PRIV = """
 _CAPABILITIES = {"c": (4, 4, "self", ["multi"], "d")}
 CHMOD_DEGRADATION_MATRIX = {"tools": {"multi": {}}}
 _CAP_TACTICAL = {}
 CONTROL_PLANE_SCHEMA = {}
-'''
+"""
 
 
 def _alias_tree(tmp: Path, test_body: str) -> Path:

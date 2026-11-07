@@ -21,16 +21,14 @@ PRE_L1_COMMIT = "b2afeb2"
 
 
 def _git(*args: str, cwd: Path = REPO_ROOT, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=60, check=check
-    )
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=60, check=check)
 
 
 def commit_exists(commit: str) -> bool:
     """True si el commit existe en el repositorio (clones superficiales pueden no tenerlo)."""
     try:
         return _git("cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode == 0
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return False
 
 

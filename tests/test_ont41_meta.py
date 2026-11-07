@@ -13,11 +13,19 @@ import server
 from tests.test_ont41_front import kill_backend, new_mgr, tree  # noqa: F401  (tree is a fixture)
 
 NEW_KEYS = ("serving_from", "lkg_fingerprint", "reload_error", "lkg_module_drift")
-STRUCT = {"type": "SyntaxError", "file": "engine/matcher.py", "line": 3, "msg": "invalid syntax", "fingerprint": "ab" * 8}
+STRUCT = {
+    "type": "SyntaxError",
+    "file": "engine/matcher.py",
+    "line": 3,
+    "msg": "invalid syntax",
+    "fingerprint": "ab" * 8,
+}
 
 
 def caps(verbosity: str) -> dict[str, Any]:
-    raw = asyncio.run(server.discover(action="capabilities", verbosity=verbosity, session_id="t-meta", force_refresh=True))
+    raw = asyncio.run(
+        server.discover(action="capabilities", verbosity=verbosity, session_id="t-meta", force_refresh=True)
+    )
     return json.loads(raw)
 
 
@@ -57,7 +65,9 @@ def test_serving_lkg_meta_emitted_stale_forced_and_terse_budget(monkeypatch: pyt
 def test_summary_budget_intact_in_serving_lkg(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "_BACKEND_META_GETTER", lkg_meta)
     summary = caps("summary")
-    assert summary["reload_error"] == STRUCT and summary["serving_from"] == "lkg" and tokens(summary) < 6000, tokens(summary)
+    assert summary["reload_error"] == STRUCT and summary["serving_from"] == "lkg" and tokens(summary) < 6000, tokens(
+        summary
+    )
 
 
 def test_backend_process_reports_serving_lkg_end_to_end(tree: Path) -> None:  # noqa: F811
