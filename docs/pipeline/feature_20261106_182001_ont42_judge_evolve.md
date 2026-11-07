@@ -372,3 +372,75 @@ Ver registro completo en [`feature_20261107_011128_agy_audit.md`](feature_202611
 - **C1–C7**: máquina de estados `evolve`, `GitPort`, gate final con `run_tests_batched`, ledger e idempotencia, rollback `git revert`, Merkle `R_before`/`R_after`.
 - **Observaciones bajas**: O-1 (`matrix` con `mcp get` puede lanzar stdio), O-2 (reapeo tras hot-swap reinicia iteraciones), `select_fields` ignorado en `aep_ctl`, `backup.lkg_restore` sin `covers`.
 
+
+## 16. Graphos G2: checkpoint Dokimos tras C3 (ONT-42c, Short)
+
+- **Activación:** G2 tras el veredicto de Dokimos sobre E1 (`f8b92c8`) y C1–C3 (`4a7b61f`). Veredicto global: **DEFECTIVE (LOGIC_ERROR)** por D-EV-1.
+- **Modo:** Short. Stage 2, G2. Ontos y Archon no intervienen (Short).
+- **Baseline:** `dev` @ `00cbadb` (origin/dev @ `be78115`). Suite: 697 passed. El xfail strict de D-EV-1 vive en `00cbadb`.
+- **Camino y blast radius de esta activación:** registro documental en `docs/pipeline/` y `docs/COMPACT.md`. Sin código, sin commit (lo hará Hermon junto con el fix), sin push.
+
+### 16.1 Veredictos por tarea
+
+| Tarea | Commit | Veredicto | Evidencia |
+|---|---|---|---|
+| E1 juez no falsificable | `f8b92c8` | OK | D-01b reproducido en 4 variantes: fix → ACCEPT discriminante; solo quitar xfail → TESTS_FAIL; no tocar test → NO_PROGRESS; fix ya en base → NON_DISCRIMINATING. |
+| C1–C3 evolve, GitPort, precondiciones | `4a7b61f` | OK | Tiers, fence, ff-only, prohibiciones y stale-antes-de-push verificados. |
+| D-EV-1 | `00cbadb` (xfail strict) | DEFECTIVE (LOGIC_ERROR) | `evolve` acepta un ACCEPT no atado al tree hash: el commit puede incluir un árbol editado después del ACCEPT. |
+
+- **Routing:** LOGIC_ERROR → Pragma con Fix Specification. Ciclo de fix **1/3**. Tras el fix, Dokimos re-verifica D-EV-1 y la suite.
+- **Fix Specification (resumen):** atar el ACCEPT al tree hash del árbol juzgado; `evolve` debe rechazar el commit si el árbol difiere del juzgado; quitar el xfail strict de D-EV-1 al cerrarlo.
+
+### 16.2 Menores (no bloquean el fix, se documentan)
+
+- **M-1:** E1 aplica solo a drift y código público. Documentar el alcance en SDD.
+- **M-2:** la discriminación entre los seleccionados es una señal débil. Documentar como limitación conocida.
+- **M-3:** el docstring de `evolve` está desfasado respecto al comportamiento actual.
+
+### 16.3 Pendientes
+
+- Fix D-EV-1 (Pragma, ciclo 1/3) y re-verificación (Dokimos).
+- C4 gate final (suite completa en lotes con `run_tests_batched`; rojo = sin merge).
+- C5 ledger e idempotencia por `(gap_canonical, base_R, tree_hash)`.
+- C6 rollback con `git revert` como commit nuevo; nunca push automático.
+- C7 Merkle `R_before`/`R_after`, SDD §9 y actualización de §4.
+
+### 16.4 Recuperación tras caída del sistema
+
+- Un worktree vacío con ref corrupta fue eliminado. `git fsck` sin hallazgos (exit 0).
+- Verificado por Graphos: `4a7b61f` y `f8b92c8` son alcanzables desde `dev`; `dev` contiene `be78115`.
+- Worktrees no tocados: el listado de `git worktree list` se conserva. `agent-a61279a9f0811f937` figura como `locked`; no se modificó.
+
+### 16.5 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-42c backlog @be78115"] --> A1["A.1: E1 f8b92c8 OK"]
+    A1 --> A2["A.2: C1-C3 4a7b61f OK"]
+    A2 --> A3["A.3: Dokimos D-EV-1 DEFECTIVE LOGIC_ERROR @00cbadb"]
+    A3 --> A4["A.4: Pragma fix ciclo 1/3 (pendiente)"]
+    A4 --> A5["A.5: Dokimos re-verifica (pendiente)"]
+    A5 --> A6["A.6: C4-C7 (pendiente)"]
+```
+
+### 16.6 Reinforcement Graph (intent ONT-42c evolve)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42c evolve"] --> M1["M1: planned (Archon / Orchestrator) ✅"]
+    M1 --> M2["M2: E1 juez no falsificable (Pragma) ✅"]
+    M2 --> M3["M3: C1-C3 implemented (Pragma) ✅"]
+    M3 --> M4["M4: verified checkpoint (Dokimos) ⛔ D-EV-1"]
+    M4 --> M5["M5: fix D-EV-1 (Pragma) ⏳"]
+    M5 --> M6["M6: C4-C7 implemented (Pragma) ⏳"]
+    M6 --> M7["M7: verified (Dokimos) ⏳"]
+    M7 --> M8["M8: documented (Graphos) ⏳"]
+    M8 --> M9["M9: committed (Hermon) ⏳"]
+```
+
+### 16.7 Chain and Routing
+
+- **Documento:** esta sección se añade a este mismo documento. No se crea documento nuevo, por lo que la cadena no avanza.
+- **Siguiente (Orchestrator):** Pragma, fix D-EV-1 con ciclo 1/3. Luego Dokimos re-verifica.
+- **Tras VERIFIED de D-EV-1:** Pragma C4–C7 según el orden del §5.4 y del §16.3.
+- **Hermon:** no aplica en esta fase. No hay VERIFIED; el commit del fix lo hará Hermon.
