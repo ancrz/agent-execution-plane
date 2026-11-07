@@ -20,7 +20,6 @@ def test_find_harness_never_returns_non_ancestor(tmp_path: Path) -> None:
     assert res["found"] is False
 
 
-@pytest.mark.xfail(strict=True, reason="D-HR-2 (C1/C9): certify/matrix dispatch before tier/confirm gates and reach the sudo helper")
 def test_certify_requires_confirm_before_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     import server
 

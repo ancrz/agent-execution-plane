@@ -723,13 +723,15 @@ def probe_console_reach(
     start_pid: int | None = None,
     uid: int | None = None,
     adapters: Adapters | None = None,
+    probe_cli: bool = False,
 ) -> dict[str, Any]:
     """Audit the console & TUI self-management reach across all supported harnesses (`claude`, `agy`, `codex`, `gemini`)."""
     ad = adapters or real_adapters()
     me = os.getuid() if uid is None else uid
     spid = os.getpid() if start_pid is None else start_pid
     srv = validate_server(server) or DEFAULT_SERVER
-    dry = os.environ.get("AEP_HARNESS_RECONNECT_DRY") == "1"
+    # External CLIs are only spawned when the caller opts in (the server gates it at >= 5r-x).
+    dry = os.environ.get("AEP_HARNESS_RECONNECT_DRY") == "1" or not probe_cli
     matrix: dict[str, dict[str, Any]] = {}
     for hname in SUPPORTED_HARNESSES:
         bin_path = None if dry else shutil.which(hname)

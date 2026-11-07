@@ -430,7 +430,7 @@ def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) 
 
 def test_ipc_unknown_mode_is_error() -> None:
     res = _ctl(params={"mode": "yolo"})
-    assert res["status"] == "ERROR" and res["valid"] == ["plan", "execute"]
+    assert res["status"] == "ERROR" and res["valid"] == ["plan", "execute", "certify", "matrix"]
 
 
 # ---------------------------------------------------------------------------------------------------------------

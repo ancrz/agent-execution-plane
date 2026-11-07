@@ -3375,8 +3375,12 @@ def _lkg_snapshot_fn(files: list[str]) -> dict[str, Any]:
     return create_workspace_snapshot(path=REPO_ROOT, name=f"lkg_pre_restore_{int(time.time())}")
 
 
+_HR_TIER_RANK: dict[str, int] = {"4r--": 1, "5r-x": 2, "6rw-": 3, "7rwx": 4}
+
+
 def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: str) -> dict[str, Any]:
-    """ONT-42a: aep_ctl(ipc, harness_reconnect). `plan` is read-only at any tier; `execute` needs 7rwx + confirm=true."""
+    """ONT-42a: aep_ctl(ipc, harness_reconnect). `plan` is read-only at any tier; `certify`/`matrix` need >= 5r-x
+    (certify is an unprivileged pty loopback); `execute` needs 7rwx + confirm=true."""
     from engine import harness_reconnect as _hr
 
     eff: dict[str, Any] = dict(params) if isinstance(params, dict) else {}
@@ -3389,7 +3393,10 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
     target_harness = str(target_harness) if target_harness is not None else None
     force = eff.get("force") is True
     if mode not in ("plan", "execute", "certify", "matrix"):
-        return {"status": "ERROR", "error": f"mode desconocido: {mode}", "valid": ["plan", "execute"]}
+        return {"status": "ERROR", "error": f"mode desconocido: {mode}", "valid": ["plan", "execute", "certify", "matrix"]}
+    tier_now = str(get_effective_chmod_tier().get("tier"))
+    if mode in ("certify", "matrix") and _HR_TIER_RANK.get(tier_now, 0) < _HR_TIER_RANK["5r-x"]:
+        return {"status": "REJECTED", "mode": mode, "reason": "tier_insufficient", "required": "5r-x"}
 
     def _audit(status: str, details: dict[str, Any]) -> bool:
         with catalog._get_rw_conn() as conn:
@@ -3407,10 +3414,12 @@ def _ipc_harness_reconnect(params: dict[str, Any] | None, args: Any, agent_id: s
 
     adapters = _hr.real_adapters(audit=_audit)
     if mode == "matrix":
-        return _hr.probe_console_reach(server=server_name or _hr.DEFAULT_SERVER, adapters=adapters)
+        # >= 5r-x guaranteed by the gate above; read-only (CLI probes are version/list queries).
+        return _hr.probe_console_reach(server=server_name or _hr.DEFAULT_SERVER, adapters=adapters, probe_cli=True)
     if mode == "certify":
+        # Unprivileged pty loopback only: never the sudo helper, never the sysctl (certified stays False).
         msg = str(eff.get("message") or "hello world")
-        return _hr.certify_loopback(message=msg, target_harness=target_harness, adapters=adapters)
+        return _hr.certify_loopback(message=msg, adapters=adapters)
     if mode == "plan":
         plan = _hr.build_plan(
             front_stale=_is_front_stale(),
