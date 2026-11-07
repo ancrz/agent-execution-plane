@@ -380,6 +380,11 @@ fi
 TMP_DIR="$(mktemp -d -t aep_setup_XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
+# download <url> <dest>: fail-closed fetch (-f: HTTP errors are failures) that rejects empty files.
+download() {
+    curl -fsSL --retry 3 --connect-timeout 15 -o "$2" "$1" && [[ -s "$2" ]]
+}
+
 # -----------------------------------------------------------------------------
 # DIR-ONT-03: Subshell PATH Injection
 # -----------------------------------------------------------------------------
@@ -418,7 +423,7 @@ git -C "$PROJECT_ROOT" config core.hooksPath scripts/hooks 2>/dev/null     && ch
 log_step "Verificando gestor Astral uv..."
 if ! command -v uv &>/dev/null && [[ ! -x "$HOME/.local/bin/uv" ]]; then
     log_step "uv ausente; descargando instalador oficial de Astral..."
-    curl -LsSf https://astral.sh/uv/install.sh | env CARGO_DIST_FORCE_INSTALL_DIR="$HOME/.local/bin" sh
+    curl -fLsS https://astral.sh/uv/install.sh | env CARGO_DIST_FORCE_INSTALL_DIR="$HOME/.local/bin" sh
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
@@ -493,12 +498,19 @@ if ! command -v go &>/dev/null && [[ ! -x "$HOME/.local/bin/go" ]]; then
         log_step "Instalando Golang en espacio de usuario desde tarball oficial..."
         GO_VERSION="1.22.5"
         GO_TARBALL="go${GO_VERSION}.linux-amd64.tar.gz"
-        curl -sSL -o "$TMP_DIR/$GO_TARBALL" "https://go.dev/dl/$GO_TARBALL"
-        mkdir -p "$HOME/.local/share"
-        rm -rf "$HOME/.local/share/go"
-        tar -C "$HOME/.local/share" -xzf "$TMP_DIR/$GO_TARBALL"
-        ln -sfn "$HOME/.local/share/go/bin/go" "$HOME/.local/bin/go"
-        export PATH="$HOME/.local/share/go/bin:$HOME/.local/bin:$PATH"
+        # Descarga -> valida -> extrae en tmp -> solo entonces reemplaza (nunca borrar la instalación previa antes).
+        if download "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" \
+            && mkdir -p "$TMP_DIR/go_extract" \
+            && tar -C "$TMP_DIR/go_extract" -xzf "$TMP_DIR/$GO_TARBALL" \
+            && [[ -x "$TMP_DIR/go_extract/go/bin/go" ]]; then
+            mkdir -p "$HOME/.local/share"
+            rm -rf "$HOME/.local/share/go"
+            mv "$TMP_DIR/go_extract/go" "$HOME/.local/share/go"
+            ln -sfn "$HOME/.local/share/go/bin/go" "$HOME/.local/bin/go"
+            export PATH="$HOME/.local/share/go/bin:$HOME/.local/bin:$PATH"
+        else
+            log_warn "Descarga/validación de Go falló; se conserva la instalación previa (si existe)."
+        fi
     fi
 fi
 
@@ -532,12 +544,14 @@ if command -v go &>/dev/null || [[ -x "$HOME/.local/bin/go" ]]; then
     log_step "Verificando linter estático golangci-lint..."
     if ! command -v golangci-lint &>/dev/null && [[ ! -x "$HOME/.local/bin/golangci-lint" ]]; then
         log_step "golangci-lint ausente; instalando binario oficial en ~/.local/bin..."
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/.local/bin" v1.61.0 2>/dev/null || {
-            curl -sSL "https://github.com/golangci/golangci-lint/releases/download/v1.61.0/golangci-lint-1.61.0-linux-amd64.tar.gz" -o "$TMP_DIR/golangci-lint.tar.gz" 2>/dev/null && \
-            tar -C "$TMP_DIR" -xzf "$TMP_DIR/golangci-lint.tar.gz" 2>/dev/null && \
-            mv "$TMP_DIR/golangci-lint-1.61.0-linux-amd64/golangci-lint" "$HOME/.local/bin/golangci-lint" && \
-            chmod +x "$HOME/.local/bin/golangci-lint"
-        } || log_warn "No se pudo auto-instalar golangci-lint; artifact_lint_and_build usará go vet."
+        GL_DIR="golangci-lint-1.61.0-linux-amd64"
+        if download "https://github.com/golangci/golangci-lint/releases/download/v1.61.0/$GL_DIR.tar.gz" "$TMP_DIR/golangci-lint.tar.gz" \
+            && tar -C "$TMP_DIR" -xzf "$TMP_DIR/golangci-lint.tar.gz" \
+            && [[ -x "$TMP_DIR/$GL_DIR/golangci-lint" ]]; then
+            mv "$TMP_DIR/$GL_DIR/golangci-lint" "$HOME/.local/bin/golangci-lint"
+        else
+            log_warn "No se pudo auto-instalar golangci-lint; artifact_lint_and_build usará go vet."
+        fi
     fi
     if command -v golangci-lint &>/dev/null || [[ -x "$HOME/.local/bin/golangci-lint" ]]; then
         LINT_CMD="$(command -v golangci-lint || echo "$HOME/.local/bin/golangci-lint")"
@@ -568,16 +582,19 @@ fi
 log_step "Verificando demonio Pueue..."
 if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOME/.local/bin/pueued" ]]; then
     log_step "Descargando binarios estáticos musl de Pueue a ~/.local/bin..."
-    TAG=$(curl -sSL https://api.github.com/repos/Nukesor/pueue/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-    if [[ -n "${TAG:-}" ]]; then
+    TAG="v4.0.4"
+    PQ_OK=1
+    for b in pueue pueued; do
+        download "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-x86_64-unknown-linux-musl" "$TMP_DIR/$b" || PQ_OK=0
+    done
+    if [[ $PQ_OK -eq 1 ]]; then
         for b in pueue pueued; do
-            curl -sSL -o "$TMP_DIR/$b" "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-x86_64-unknown-linux-musl"
             chmod +x "$TMP_DIR/$b"
             mv "$TMP_DIR/$b" "$HOME/.local/bin/$b"
         done
         log_success "Pueue $TAG instalado en ~/.local/bin."
     else
-        log_warn "No se pudo consultar GitHub API para Pueue (posible limitación de red)."
+        log_warn "No se pudo descargar Pueue (red o release no disponible); se omite."
     fi
 fi
 
