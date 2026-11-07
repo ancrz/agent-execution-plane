@@ -396,7 +396,7 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
 
         asyncio.run(_run())
 
-    def test_gap_om22_4_playbook_kwarg_filtering_and_kanban(self):
+    def test_gap_om22_4_playbook_kwarg_filtering_and_kanban(self, isolated_server_state):
         async def _run():
             steps = [
                 {
@@ -422,8 +422,21 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
 # 8. Milestone ONT-23: Pico-Triad Multi-Agent Concurrency Isolation Tests
 # ==============================================================================
 
+@pytest.fixture
+def isolated_server_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aísla kanban DB, catálogo y TEMP_BIN_DIR del estado global (otro pytest/servidor a la vez)."""
+    from engine.catalog import ArtifactCatalog
+    from engine.kanban import KanbanBoard
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    monkeypatch.setattr(server, "kanban", KanbanBoard(db_path=tmp_path / "kanban.db"))
+    monkeypatch.setattr(server, "catalog", ArtifactCatalog(db_path=tmp_path / "catalog.db"))
+    monkeypatch.setattr(server, "TEMP_BIN_DIR", bin_dir)
+
+
 class TestPicoTriadMultiAgentConcurrency:
-    def test_concurrent_pico_jenkins_go_builds_no_collision(self):
+    def test_concurrent_pico_jenkins_go_builds_no_collision(self, isolated_server_state):
         async def _run():
             # Clean up any existing tasks for concurrent_mem_stat
             with server.kanban._conn_rw() as conn:
@@ -528,7 +541,7 @@ class TestPicoTriadMultiAgentConcurrency:
             assert rows[0]["attempts"] == 8
             assert rows[0]["id"] == list(task_ids)[0]
 
-    def test_pico_ansible_saved_playbook_multi_agent_isolation_and_piping(self):
+    def test_pico_ansible_saved_playbook_multi_agent_isolation_and_piping(self, isolated_server_state):
         async def _run():
             pb_name = "pb_multi_isolation"
             steps = [
@@ -786,7 +799,7 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
-    def test_gap_om03_artifact_execute_in_ram_env_and_stdin(self):
+    def test_gap_om03_artifact_execute_in_ram_env_and_stdin(self, isolated_server_state):
         async def _run():
             go_src = (
                 'package main\n'
@@ -828,7 +841,7 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
-    def test_gap_om05_kanban_board_add_and_move_aliases(self):
+    def test_gap_om05_kanban_board_add_and_move_aliases(self, isolated_server_state):
         async def _run():
             # add alias
             r_add = json.loads(await server.kanban_board(action="add", title="Test Add Alias Task"))
