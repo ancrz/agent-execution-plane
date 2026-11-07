@@ -16,7 +16,6 @@ vacio): no toca el indice ni el HEAD del worktree del agente y no puede pisar un
 from __future__ import annotations
 
 import contextlib
-import io
 import os
 import re
 import subprocess
@@ -24,6 +23,8 @@ import tarfile
 import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
+
+from engine.threads_verify import safe_extract
 
 DEV = "dev"
 REMOTE = "origin"
@@ -115,9 +116,11 @@ class GitCli:
             )
             if proc.returncode != 0:
                 return False
-            with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as tar:
-                tar.extractall(Path(dest), filter="data")
-        except (OSError, subprocess.SubprocessError, tarfile.TarError):
+            with tempfile.TemporaryDirectory(prefix="aep_evolve_tar_") as tmp:
+                archive = Path(tmp) / "tree.tar"
+                archive.write_bytes(proc.stdout)
+                safe_extract(archive, Path(dest))  # extraccion validada miembro a miembro (convencion del repo)
+        except (OSError, subprocess.SubprocessError, tarfile.TarError, ValueError):
             return False
         return True
 
