@@ -4,11 +4,38 @@
 # Dual-mode bootstrapper, updater, and read-only health auditor.
 # Supports: Ubuntu / Linux (POSIX sh / bash / zsh)
 # =============================================================================
+# shellcheck disable=SC2034  # los *_SHA256_* se resuelven por expansión indirecta ${!VAR}
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export PATH="$HOME/.local/bin:$HOME/.local/share/go/bin:$HOME/.local/share/agent-os/bin:$PATH"
+
+# -----------------------------------------------------------------------------
+# Versiones fijadas y checksums SHA-256 (integridad de la cadena de suministro).
+# Para actualizar: cambia versión + hashes juntos, tomando los hashes de la fuente oficial indicada.
+# -----------------------------------------------------------------------------
+# uv 0.13.7 — hashes: assets oficiales `uv-<arch>-unknown-linux-gnu.tar.gz.sha256` del release
+#   https://github.com/astral-sh/uv/releases/tag/0.13.7
+UV_VERSION="0.13.7"
+UV_SHA256_x86_64="c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83"
+UV_SHA256_aarch64="71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc"
+# Go 1.26.10 — hashes: https://go.dev/dl/?mode=json (campo sha256 de cada archive linux)
+GO_VERSION="1.26.10"
+GO_SHA256_amd64="ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
+GO_SHA256_arm64="3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797"
+# golangci-lint v1.61.0 — hashes: golangci-lint-1.61.0-checksums.txt del release
+#   https://github.com/golangci/golangci-lint/releases/tag/v1.61.0
+GL_VERSION="1.61.0"
+GL_SHA256_amd64="77cb0af99379d9a21d5dc8c38364d060e864a01bd2f3e30b5e8cc550c3a54111"
+GL_SHA256_arm64="af60ac05566d9351615cb31b4cc070185c25bf8cbd9b09c1873aa5ec6f3cc17e"
+# pueue v4.0.4 — el release NO publica checksums: sha256 calculado localmente sobre los assets
+#   https://github.com/Nukesor/pueue/releases/tag/v4.0.4 (musl) el 2026-11-07 (TOFU, fijado desde esa fecha).
+PUEUE_VERSION="v4.0.4"
+PUEUE_SHA256_x86_64_pueue="c1b10d7e4e62211075ddd0e1dc3e8cbfc5a43d662cb3be7402a28504e23fcb51"
+PUEUE_SHA256_x86_64_pueued="5afeff6adbafb909e8d54e2caff158e6966c2adffa2c09e60fd631cc51b60390"
+PUEUE_SHA256_aarch64_pueue="759bf5100a51024997111c6913aaf3330a0cdfd893ff552dcf429ae9b5e01e09"
+PUEUE_SHA256_aarch64_pueued="332c5ef74270b64aeaf04894c8c04826f3422eb7d50dbd1a8e0706d74a42f653"
 
 # -----------------------------------------------------------------------------
 # Color Codes & Terminal Logging
@@ -385,6 +412,16 @@ download() {
     curl -fsSL --retry 3 --connect-timeout 15 -o "$2" "$1" && [[ -s "$2" ]]
 }
 
+# download_verified <url> <dest> <sha256>: descarga y exige coincidencia SHA-256 (fail-closed: borra si no coincide).
+download_verified() {
+    download "$1" "$2" || return 1
+    if [[ -z "${3:-}" ]] || ! echo "$3  $2" | sha256sum -c --status 2>/dev/null; then
+        log_err "SHA-256 no coincide para $(basename "$2"); descarga descartada."
+        rm -f "$2"
+        return 1
+    fi
+}
+
 # Arquitectura: mapea `uname -m` a los nombres de cada proyecto. Arquitectura no soportada => ARCH_OK=0 y
 # cada herramienta binaria degrada con aviso (no se aborta a mitad de la instalación).
 case "$(uname -m)" in
@@ -430,19 +467,30 @@ git -C "$PROJECT_ROOT" config core.hooksPath scripts/hooks 2>/dev/null     && ch
 # 2. Astral uv Toolchain Provisioning
 # -----------------------------------------------------------------------------
 log_step "Verificando gestor Astral uv..."
-if ! command -v uv &>/dev/null && [[ ! -x "$HOME/.local/bin/uv" ]]; then
-    log_step "uv ausente; descargando instalador oficial de Astral..."
+uv_needs_install() {
+    command -v uv &>/dev/null || [[ -x "$HOME/.local/bin/uv" ]] || return 0
+    [[ "$MODE" == "update" ]] && [[ "$(uv --version 2>/dev/null)" != "uv $UV_VERSION"* ]] && return 0
+    return 1
+}
+if uv_needs_install; then
     if [[ $ARCH_OK -ne 1 ]]; then
         log_err "uv no tiene binario para $(uname -m) en este script; instala uv manualmente y reejecuta."
         exit 1
     fi
-    curl -fLsS https://astral.sh/uv/install.sh | env CARGO_DIST_FORCE_INSTALL_DIR="$HOME/.local/bin" sh
-    export PATH="$HOME/.local/bin:$PATH"
-fi
-
-if [[ "$MODE" == "update" ]]; then
-    log_step "Actualizando uv..."
-    uv self update 2>/dev/null || true
+    log_step "Instalando uv $UV_VERSION fijado (SHA-256 verificado)..."
+    UV_TAR="uv-${UV_ARCH}-unknown-linux-gnu"
+    UV_SHA_VAR="UV_SHA256_${UV_ARCH}"
+    if download_verified "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${UV_TAR}.tar.gz" "$TMP_DIR/uv.tar.gz" "${!UV_SHA_VAR}" \
+        && tar -C "$TMP_DIR" -xzf "$TMP_DIR/uv.tar.gz" && [[ -x "$TMP_DIR/$UV_TAR/uv" ]]; then
+        install -m 0755 "$TMP_DIR/$UV_TAR/uv" "$HOME/.local/bin/uv"
+        [[ -x "$TMP_DIR/$UV_TAR/uvx" ]] && install -m 0755 "$TMP_DIR/$UV_TAR/uvx" "$HOME/.local/bin/uvx"
+        export PATH="$HOME/.local/bin:$PATH"
+    elif command -v uv &>/dev/null; then
+        log_warn "No se pudo instalar uv $UV_VERSION; se conserva el uv existente."
+    else
+        log_err "uv no disponible y la descarga verificada falló; no se puede continuar."
+        exit 1
+    fi
 fi
 log_success "uv operativo: $(uv --version 2>/dev/null || echo 'ok')"
 
@@ -509,10 +557,10 @@ if ! command -v go &>/dev/null && [[ ! -x "$HOME/.local/bin/go" ]]; then
 
     if ! command -v go &>/dev/null; then
         log_step "Instalando Golang en espacio de usuario desde tarball oficial..."
-        GO_VERSION="1.22.5"
         GO_TARBALL="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
         # Descarga -> valida -> extrae en tmp -> solo entonces reemplaza (nunca borrar la instalación previa antes).
-        if [[ $ARCH_OK -eq 1 ]] && download "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" \
+        GO_SHA_VAR="GO_SHA256_${GO_ARCH}"
+        if [[ $ARCH_OK -eq 1 ]] && download_verified "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" "${!GO_SHA_VAR:-}" \
             && mkdir -p "$TMP_DIR/go_extract" \
             && tar -C "$TMP_DIR/go_extract" -xzf "$TMP_DIR/$GO_TARBALL" \
             && [[ -x "$TMP_DIR/go_extract/go/bin/go" ]]; then
@@ -557,8 +605,9 @@ if command -v go &>/dev/null || [[ -x "$HOME/.local/bin/go" ]]; then
     log_step "Verificando linter estático golangci-lint..."
     if ! command -v golangci-lint &>/dev/null && [[ ! -x "$HOME/.local/bin/golangci-lint" ]]; then
         log_step "golangci-lint ausente; instalando binario oficial en ~/.local/bin..."
-        GL_DIR="golangci-lint-1.61.0-linux-${GO_ARCH}"
-        if [[ $ARCH_OK -eq 1 ]] && download "https://github.com/golangci/golangci-lint/releases/download/v1.61.0/$GL_DIR.tar.gz" "$TMP_DIR/golangci-lint.tar.gz" \
+        GL_DIR="golangci-lint-${GL_VERSION}-linux-${GO_ARCH}"
+        GL_SHA_VAR="GL_SHA256_${GO_ARCH}"
+        if [[ $ARCH_OK -eq 1 ]] && download_verified "https://github.com/golangci/golangci-lint/releases/download/v${GL_VERSION}/$GL_DIR.tar.gz" "$TMP_DIR/golangci-lint.tar.gz" "${!GL_SHA_VAR:-}" \
             && tar -C "$TMP_DIR" -xzf "$TMP_DIR/golangci-lint.tar.gz" \
             && [[ -x "$TMP_DIR/$GL_DIR/golangci-lint" ]]; then
             mv "$TMP_DIR/$GL_DIR/golangci-lint" "$HOME/.local/bin/golangci-lint"
@@ -595,11 +644,12 @@ fi
 log_step "Verificando demonio Pueue..."
 if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOME/.local/bin/pueued" ]]; then
     log_step "Descargando binarios estáticos musl de Pueue a ~/.local/bin..."
-    TAG="v4.0.4"
+    TAG="$PUEUE_VERSION"
     PQ_OK=$ARCH_OK
     for b in pueue pueued; do
         [[ $ARCH_OK -eq 1 ]] || break
-        download "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-${PUEUE_ARCH}-unknown-linux-musl" "$TMP_DIR/$b" || PQ_OK=0
+        PQ_SHA_VAR="PUEUE_SHA256_${PUEUE_ARCH}_${b}"
+        download_verified "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-${PUEUE_ARCH}-unknown-linux-musl" "$TMP_DIR/$b" "${!PQ_SHA_VAR:-}" || PQ_OK=0
     done
     if [[ $PQ_OK -eq 1 ]]; then
         for b in pueue pueued; do
