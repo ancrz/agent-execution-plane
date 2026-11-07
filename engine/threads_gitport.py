@@ -111,6 +111,9 @@ class GitCli:
         with tempfile.TemporaryDirectory(prefix="aep_evolve_idx_") as tmp:
             yield {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
 
+    def work_root(self) -> str:
+        return os.path.realpath(self.work)
+
     def candidate_tree(self) -> str | None:
         """Hash del arbol que resultaria de commitear el parche (HEAD + cambios), sin tocar el indice real."""
         paths = self._candidate_paths()

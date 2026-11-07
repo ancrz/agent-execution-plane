@@ -728,6 +728,8 @@ class CycleStore:
             {"it": iteration, "verdict": verdict, "reasons": list(decision.get("reasons", []))[:LIST_CAP], "ts": now}
         )
         rec.update(state=state, iteration=iteration, updated=now, job=decision.get("job") if verdict == PENDING else None)
+        if state == ACCEPTED and isinstance(decision.get("judged"), dict):
+            rec["judged"] = {k: str(v) for k, v in decision["judged"].items() if k in ("tree", "root") and v}  # D-EV-1
         name = cycle_file_name(self._uid, cycle_id)
         with self._GUARD, ev.state_dir(self._dir) as dfd:
             self._put(dfd, name, rec)

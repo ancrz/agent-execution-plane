@@ -41,6 +41,7 @@ def test_direct_references_to_port_and_store(rig: Rig) -> None:
     assert gp.GitCli.is_ancestor(port, "dev", "dev")
     assert gp.GitCli.dirty_tracked(port, "dev", "dev") == []
     assert gp.GitCli.remote_reachable(port) and gp.GitCli.remote_head(port, "dev") == head
+    assert gp.GitCli.work_root(port) == str(rig.work.resolve())
     tree = gp.GitCli.candidate_tree(port)
     assert tree
     ok, sha = gp.GitCli.commit_branch(port, f"autoevol/{rig.cycle}", tree, "m")
@@ -53,5 +54,5 @@ def test_direct_references_to_port_and_store(rig: Rig) -> None:
     assert te.evolve_file_name(0, rig.cycle).startswith("evolve_")
     protocol = (te.GitPort.current_branch, te.GitPort.rev_parse, te.GitPort.tree_of, te.GitPort.is_ancestor,
                 te.GitPort.dirty_tracked, te.GitPort.remote_reachable, te.GitPort.candidate_tree,
-                te.GitPort.commit_branch, te.GitPort.merge_ff, te.GitPort.push)
+                te.GitPort.commit_branch, te.GitPort.merge_ff, te.GitPort.push, te.GitPort.work_root)
     assert all(callable(p) for p in protocol)

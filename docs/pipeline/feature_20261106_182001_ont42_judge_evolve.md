@@ -444,3 +444,8 @@ flowchart LR
 - **Siguiente (Orchestrator):** Pragma, fix D-EV-1 con ciclo 1/3. Luego Dokimos re-verifica.
 - **Tras VERIFIED de D-EV-1:** Pragma C4–C7 según el orden del §5.4 y del §16.3.
 - **Hermon:** no aplica en esta fase. No hay VERIFIED; el commit del fix lo hará Hermon.
+
+## 17. ONT-42c: ACCEPT atado al arbol juzgado y decision M-1 (fix cycle 1/3)
+
+- **D-EV-1 (Dokimos, LOGIC_ERROR)**: `fix_test` registra al ACCEPT `judged.tree` (huella inyectada desde `server.py`, misma logica que `GitCli.candidate_tree`) y `judged.root` (realpath). `evolve._commit` exige `candidate_tree() == judged_tree` y `work_root() == judged_root`; si no, `BLOCKED_GIT` con `tree_changed_after_accept` / `root_mismatch`. Ciclos sin `judged` (previos al fix) quedan `no_judged_tree` (fail-closed). Re-juzgar exige un nuevo `fix_test`.
+- **M-1 (decision)**: E1 (el test debe fallar en base y pasar con el parche, si no `NON_DISCRIMINATING`) solo se exige para gaps `drift` / `open_discrepancy` o parches que tocan codigo publico; para el resto el ACCEPT no requiere discriminacion.

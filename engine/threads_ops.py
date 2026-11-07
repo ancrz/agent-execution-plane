@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import shutil
 import tempfile
 from collections.abc import Callable, Iterator
@@ -431,6 +432,7 @@ def run_fix_test(
     terse: bool,
     apply: bool = False,
     base_runner: BaseRunner | None = None,
+    tree_fingerprint: Callable[[Path | str], str | None] | None = None,
 ) -> dict[str, Any]:
     """`autoevol(fix_test)` re-entrante. Sin `cycle` abre uno (base congelada); con `cycle` evalua el parche."""
     budget = TERSE_BUDGET if terse else SUMMARY_BUDGET
@@ -477,7 +479,11 @@ def run_fix_test(
         elif binfo:
             out["barrier"] = binfo
         return fit(out, budget)
-    recorded = store.record(cycle, decision)
+    to_record = decision
+    if decision["verdict"] == tv.ACCEPT and tree_fingerprint is not None:
+        # D-EV-1: el ACCEPT queda atado al arbol juzgado (huella inyectada) y a su raiz real.
+        to_record = {**decision, "judged": {"tree": tree_fingerprint(tree) or "", "root": os.path.realpath(tree)}}
+    recorded = store.record(cycle, to_record)
     state = recorded.get("state", "")
     left = max(0, rec["max_iterations"] - int(recorded.get("iteration", rec["iteration"])))
     awaiting = {tv.OPEN: "patch", tv.CYCLE_PENDING: "job"}.get(state)

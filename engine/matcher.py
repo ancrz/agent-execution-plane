@@ -96,3 +96,5 @@ def rank(query: str, docs: list[dict[str, Any]], limit: int = 5, threshold: floa
             out.append({**d, "relevance": round(score, 4), "why": why})
     out.sort(key=lambda r: r["relevance"], reverse=True)
     return out[:limit]
+
+# d18 fixed

@@ -5325,6 +5325,13 @@ def _autoevol_live_check() -> dict[str, Any]:
     }
 
 
+def _autoevol_tree_fingerprint(tree: Path | str) -> str | None:
+    """D-EV-1: huella del arbol juzgado; misma logica que `GitCli.candidate_tree` (indice temporal, HEAD + add -A filtrado)."""
+    from engine import threads_gitport as gp
+
+    return gp.GitCli(Path(tree), REPO_ROOT, _autoevol_swap_fence()).candidate_tree()
+
+
 def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: bool, octal: int) -> dict[str, Any]:
     """`autoevol(evolve)`: GitPort inyectado. `apply` jamas actua sobre el repo canonico (solo sobre un worktree `root`)."""
     from engine import threads_evolve as te
@@ -5537,6 +5544,8 @@ async def autoevol(
                 "apply": bool(apply and trusted),  # B8: con apply no se aplica el tope de seleccion
                 "base_runner": lambda t: _autoevol_test_runner(t, trusted),  # E1: seleccionados contra la BASE
             }
+            if act == "fix_test":
+                common["tree_fingerprint"] = _autoevol_tree_fingerprint
             if act == "verify":
                 result = ops.run_verify(tree, **common)
             else:

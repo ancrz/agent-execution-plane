@@ -53,6 +53,7 @@ class GitPort(Protocol):
     def dirty_tracked(self, ref_a: str, ref_b: str) -> list[str]: ...
     def remote_reachable(self) -> bool: ...
     def candidate_tree(self) -> str | None: ...
+    def work_root(self) -> str: ...
     def commit_branch(self, branch: str, tree: str, message: str) -> tuple[bool, str]: ...
     def merge_ff(self, branch: str) -> tuple[bool, str]: ...
     def push(self, ref: str) -> tuple[bool, str]: ...
@@ -190,6 +191,10 @@ def run_evolve(
         return _plan(mode, (rec or {}).get("state", JUDGED), cycle, {"gap": fix.get("gap"), "awaiting": "apply" if not apply else "tier"})
     branch = branch_name(cycle)
     rec = rec or {"cycle": cycle, "gap": fix.get("gap"), "state": JUDGED, "branch": branch, "sha": "", "tree": ""}
+    if "judged_tree" not in rec:  # D-EV-1: copia del arbol/raiz juzgados en el ACCEPT (ausente => fail-closed en _commit)
+        judged = fix.get("judged") or {}
+        rec["judged_tree"] = judged.get("tree", "")
+        rec["judged_root"] = judged.get("root", "")
     rec = _reconcile(git, rec, branch)
     if rec["state"] == JUDGED:
         done = _commit(store, git, cycle, rec, branch)
@@ -221,9 +226,15 @@ def _reconcile(git: GitPort, rec: dict[str, Any], branch: str) -> dict[str, Any]
 
 
 def _commit(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+    if not rec.get("judged_tree") or not rec.get("judged_root"):
+        return _blocked(store, cycle, rec, "no_judged_tree")  # ciclo previo a D-EV-1: sin ACCEPT implicito
+    if os.path.realpath(git.work_root()) != rec["judged_root"]:
+        return _blocked(store, cycle, rec, "root_mismatch")
     tree = git.candidate_tree()
     if not tree:
         return _blocked(store, cycle, rec, "no_changes")
+    if tree != rec["judged_tree"]:
+        return _blocked(store, cycle, rec, "tree_changed_after_accept")  # re-juzgar con un nuevo fix_test
     ok, info = git.commit_branch(branch, tree, f"feat(autoevol): evolve {rec.get('gap', '')} [{cycle}]")
     if not ok:
         existing = git.tree_of(branch)
