@@ -1,13 +1,12 @@
-# Context Compaction Guidance: AEP (ONT-42b B1–B9 VERIFIED + `autonomous_session_steward` CERTIFIED; ONT-42c pendiente; sin push)
+# Context Compaction Guidance: AEP (ONT-39..42b + `autonomous_session_steward` SSoT Synchronized on `dev` & `main`)
 **Preservar:**
-- **Modo y baseline:** Full (ONT-42b) + Short (`autonomous_session_steward`). `dev` sincronizado localmente con B1–B9 VERIFIED y `D-01b` cerrado (`0 xfailed`). 17 tools, 19 capacidades.
-- **Hechos cerrados:**
-  - **Autogestión Autónoma de Sesión (`autonomous_session_steward`)**: `aep_ctl(domain="ipc", action="harness_reconnect")` estandarizada para `claude`, `agy`, `codex` y `gemini`, con autocertificación `mode="certify"` (`certify_loopback("hello world")` verificada en vivo sobre `/dev/pts/3`, SHA-256 `b94d27b9...`, `certified=True`, `audit_degraded=False`).
-  - **ONT-42b G1–G4 + B9 Dogfood (`ACCEPT`)**: G1 (`run_tests_batched` síncrono $\le 20$ por lote en `sandbox_run`), G2 (herencia de hasta 10 `pins` de callers públicos para helpers privados), G3 (fixtures sintéticos en `test_ont42_gap_priority.py` y `test_ont42_spec_change.py`), G4 (`_reap_orphan_cycles` limpió `72871021d7de`). B9 cerró `D-01b` (`_TOOL_ACTIONS`) con `verdict="ACCEPT"` en ciclo `d6aabe764afd` (`fixed=1`, `gaps: 98->97`, `pins=10`, `batches=2`).
-- **Decisiones del usuario:** push de `dev` solo con autorización explícita. R7 (tier de push en ONT-42c) y ONT-42d (acuerdo previo vs confirmación por llamada en `harness_reconnect`) pendientes de decisión si se abordan.
-- **Fuentes:** `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §14; `docs/sdd/sdd_ont42a_harness_reconnect.md` §5.
-**Pendiente (próximas 2):**
-1. ONT-42c (C1–C7): máquina de estados `evolve`, `GitPort`, gate final con `run_tests_batched`, ledger e idempotencia, rollback `git revert` y Merkle `R_before`/`R_after`.
-2. Autorización del usuario antes de cualquier `git push` de `dev`.
-**Descartar:** logs de pytest, trazas de subagentes, ciclos huérfanos ya cosechados (`72871021d7de`, `01a97f09e77b`).
-
+- **Modo y baseline SSoT:** `README.md` y repositorio `agent-execution-plane` sincronizados en ramas `dev` y `main` (v0.2.8, 17 herramientas FastMCP, 19 capacidades, 9 dominios en `aep_ctl` bajo 4 tiers chmod `7rwx`..`4r--`, **638/638 tests pasando, 0 xfailed**).
+- **Hitos cerrados y verificados en vivo:**
+  - **ONT-39..41 (Hot-Swap, Thread Graph & Self-Healing LKG)**: proxy stdio transparente `aep_front.py` + `aep_backend.py` + `aep_lkg.py` con barrera de recarga y fallback a LKG; Tool #17 `autoevol` (`graph`, `gaps`, `thread`, `log`, `diff`, `spec`, `verify`, `fix_test`, `heal`) con raíz de Merkle `R` sobre condensación SCC, `own_gaps=0` y `codep=0`.
+  - **ONT-42a (`autonomous_session_steward`)**: primitiva de autogestión autónoma de sesión multi-harness (`claude`, `agy`, `codex`, `gemini`) en `aep_ctl(domain="ipc", action="harness_reconnect")` con modos `plan`, `execute`, `certify` (`certify_loopback`) y `matrix` (`probe_console_reach`). Prioriza inyección vía kernel (`dev.tty.legacy_tiocsti` `0 -> 1 -> ioctl(TIOCSTI) -> 0`) cuando existe TTY `/dev/pts/*` activo, certificada en vivo (`autonomy_loop: "agent_plane -> kernel_legacy_tiocsti_ioctl -> agent_plane"`, SHA-256 `b94d27b9...`), y separa deriva de commit (D-25) de deriva de ficheros (`front_stale`/`backend_stale`).
+  - **ONT-42b (Juez Autónomo B1–B9 + G1–G4 Dogfood `ACCEPT`)**: `resolve_gap` por `(kind, target)`, `build_spec` con `change`, `sort_gaps` por clase de prioridad, `_autoevol_interpreter` + centinela `WRONG_TREE`, `pinning_tests` con herencia de hasta 10 `pins` de callers públicos, `select_tests` (cap 24), `run_tests_batched` síncrono ($\le 20$ tests por lote en `sandbox_run`), `_reap_orphan_cycles`, y dogfood B9 cerrando `D-01b` (`_TOOL_ACTIONS`) con `verdict="ACCEPT"` (`gaps_open: 98 -> 96`).
+- **Backlog pendiente:**
+  1. **ONT-42c (C1–C7)**: máquina de estados `evolve` en `autoevol`, `GitPort`, gate final con `run_tests_batched`, ledger e idempotencia, rollback `git revert` y Merkle `R_before`/`R_after` (decisión R7 sobre tier de push pendiente).
+  2. **ONT-42d**: acuerdo previo con alcance, caducidad y tope de usos vs confirmación por llamada en `harness_reconnect`.
+  3. **Backlog general diferido**: montaje de scratchpad RO en `sandbox_run` vía `script=<path>`; receta en `playbook_run` para comparación de suites pytest antes/después; matriz de idoneidad por modelo/agente; Nushell (`nu`)/`jc` diferido.
+**Descartar:** trazas de pytest, diffs intermedios, logs de subagentes y ciclos huérfanos ya cosechados (`72871021d7de`, `01a97f09e77b`, `d6aabe764afd`).

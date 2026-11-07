@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-576_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-638_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -262,9 +262,10 @@ flowchart LR
 flowchart TD
     Root["discover(action='capabilities')<br/>FIRST CALL: autonomy manifest (chmod/777)"]
     Root --> G0 & G1 & G1b & G2 & G3 & G4 & G5
-    subgraph G0["Orientation & DAG"]
+    subgraph G0["Orientation, DAG & Thread Graph"]
         T1["discover"]
         T2["topos_audit_dag"]
+        T17["autoevol"]
     end
     subgraph G1["Evolutive In-RAM Artifacts"]
         T3["artifact_catalog"]
@@ -344,11 +345,11 @@ The plane exposes 17 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str = "schema", action: str = "schema", name: Optional[str] = None, target: Optional[str] = None, args: Optional[Any] = None, verbosity: str = "detail", limit: int = 50, cursor: int = 0) -> str` | Unified deterministic control plane across 9 domains: `service` (including `service.list`), `network`, `storage`, `package` (including `package.list`), `backup` (catalog micro-snapshots plus full `workspace_snapshot` and `workspace_restore` with 50MB cap and `CapabilityGuard` path blacklisting), `security` (SHA-256 ledger `audit` and `verify`), `audit` (tamper verification and per-`agent_id` tool/token/latency accounting ledger via `action="usage"`), `ipc` (persistent UNIX socket daemon `/dev/shm/aep.sock`, session pool leasing, and `stats` alias), and `schema`. Under Milestone ONT-31, expanded `domain="security"` with active netfilter/firewall countermeasures: `firewall_status` (queries ufw or nft), `nftables_inspect` (lists active nft ruleset), and `threat_mitigate` (enforces deterministic `nft add rule inet filter input ip saddr <ip> drop`, with SIMULATED fallback in DIMINISHED mode). Supports `target` and `args` parameter aliases. `verbosity="summary"` compacts large outputs by 70–85% with pagination (`limit`/`cursor`), single-encoding, envelope deduplication, and per-request token/RSS/FD telemetry. | Standardized domain-dependent typed JSON (`status`, `domains`, `listeners`, `filesystems`, `packages`, `usage`, `envelope`, `telemetry`). | Invalid domains or actions return `status: "ERROR"` with `valid` alternatives from `CONTROL_PLANE_SCHEMA`. |
+| `aep_ctl` | `FULL` / `DIMINISHED` | `aep_ctl(domain: str = "schema", action: str = "schema", name: Optional[str] = None, target: Optional[str] = None, args: Optional[Any] = None, verbosity: str = "detail", limit: int = 50, cursor: int = 0) -> str` | Unified deterministic control plane across 9 domains: `service` (including `service.list`), `network`, `storage`, `package` (including `package.list`), `backup` (catalog micro-snapshots, `workspace_snapshot` and `workspace_restore` with 50MB cap and `CapabilityGuard` path blacklisting, plus LKG actions `lkg_status`, `lkg_diff`, `lkg_restore`), `security` (SHA-256 ledger `audit` and `verify`), `audit` (tamper verification and per-`agent_id` tool/token/latency accounting ledger via `action="usage"`), `ipc` (persistent UNIX socket daemon `/dev/shm/aep.sock`, session pool leasing, `stats` alias, and `action="harness_reconnect"` implementing the `autonomous_session_steward` multi-harness primitive across `claude`, `agy`, `codex`, and `gemini` in modes `plan`, `execute`, `certify`, and `matrix` via kernel `dev.tty.legacy_tiocsti` + `ioctl(TIOCSTI)` or Connect-RPC reload), `hardware` (`inventory`, `accelerators`, `admit`), and `schema`. Under Milestone ONT-31, expanded `domain="security"` with active netfilter/firewall countermeasures: `firewall_status` (queries ufw or nft), `nftables_inspect` (lists active nft ruleset), and `threat_mitigate` (enforces deterministic `nft add rule inet filter input ip saddr <ip> drop`, with SIMULATED fallback in DIMINISHED mode). Supports `target` and `args` parameter aliases. `verbosity="summary"` compacts large outputs by 70–85% with pagination (`limit`/`cursor`), single-encoding, envelope deduplication, and per-request token/RSS/FD telemetry. | Standardized domain-dependent typed JSON (`status`, `domains`, `listeners`, `filesystems`, `packages`, `usage`, `envelope`, `telemetry`). | Invalid domains or actions return `status: "ERROR"` with `valid` alternatives from `CONTROL_PLANE_SCHEMA`. |
 | `query_system_docs` | `DIMINISHED` | `query_system_docs(query: str = "", q: Optional[str] = None, limit: int = 3, ingest_command: Optional[str] = None) -> str` | Offline semantic vectorizer of Ubuntu `man` pages on `system_docs.db` (`sqlite-vec`). Resolves exact syntax in <5 ms without web lookups. Supports `q` query alias. `ingest_command` allows on-demand ingestion. | `{"status": "OK", "query": str, "results": [{"command": str, "section": str, "distance": float, "chunk_text": str}]}` | Lazy loader. Degrades gracefully with actionable instructions if vector dependencies are missing. |
 | `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True, include_base64: bool = False, verbosity: str = "summary") -> str` | Renders local (`file://`) or remote URLs in headless Chromium via Playwright offloaded to a thread worker. Uses compact volatile RAM (`/dev/shm`) screenshot mode by default (`include_base64=False`, `verbosity="summary"`, `-98.9%` token footprint with `screenshot_path`, `screenshot_sha256`, and `text_excerpt`). | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_path": str, "screenshot_sha256": str, "text_excerpt": str}` | Returns `status: "DISPLAY_UNAVAILABLE"` if Playwright/Chromium is absent or on timeout (25s). |
 | `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: Union[List[str], List[Dict[str, Any]]], dependencies: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, deps: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, resources: Optional[Dict[str, Any]] = None) -> str` | Guardian of the Topos Integrity Protocol. Features polymorphic DAG input support (`tasks` as `list[str]` or `list[dict]`, `dependencies`/`deps` as `dict` or edge `list[dict]`) and shared state resource auditing (`resources`). Under Milestone ONT-30 (`GAP-DX-05`), provides resilient task-level resource fallback: when `resources` is omitted or unpassable by schema-cached clients, automatically parses task dictionaries for `writes`/`write`, `reads`/`read`, and `contract` definitions to extract resource sets and execute Bernstein hazard detection without schema errors. Executes topological sorting, cycle detection, Bernstein condition write-set hazard detection (`ToposVerdict.WARN` on uncoordinated writers without contract), and shared mutable state co-dependency checking (`ToposVerdict.BLOCKED` on mutual reader/writer coupling without an interface node). Populates edge relationship classifications (`dependency`, `interdependency`, `co-dependency`) while strictly preserving the 2-tuple return contract. | Approved: `{"verdict": "APPROVED", "details": [...], "edges": [...]}`<br/>Warn: `{"verdict": "WARN", "hazards": [...], "details": [...]}`<br/>Blocked: `{"verdict": "BLOCKED", "cycle": [...], "remediation": [...], "details": [...]}` | Deterministic in-memory algorithm with zero external dependencies and zero I/O operations. |
-| `autoevol` | `DIMINISHED` | `autoevol(action="graph"\|"gaps"\|"thread"\|"log"\|"diff"\|"spec"\|"verify"\|"fix_test"\|"heal", node=None, a=None, b=None, gap=None, base=None, cycle=None, job=None, apply=False, restart=False, probe=False, root=None, persist=True, limit=10, select_fields=None, verbosity="summary")` | Read-only thread graph of AEP (tools, actions, capabilities, functions, SQL state, tests, claims, budgets): Merkle root R over the SCC condensation, omission gaps (`Req(t)`), declared-vs-observed drift, PageRank ranking and `impacted_tests`. `probe=True` (tier >= 5r-x) adds runtime observations outside R. Generations persist (`threads_gen` + SHA-256 ledger) only at tier >= 6rw-. ONT-41 adds `spec` (mini-SDD per gap, tier >= 4r--), `verify` (ACCEPT/REJECT/PENDING against a frozen base, tier >= 5r-x, honours the reload barrier), `fix_test` (re-entrant gap -> patch -> test cycle, max 3 iterations, EXHAUSTED suggests `heal`, never reverts on its own) and `heal` (dry-run from the LKG at tier >= 4r--; `apply=True` needs tier >= 6rw- plus a prior workspace snapshot). Only `evolve` remains out of scope (`INVALID_ACTION`). | `{status, root, nodes, edges, gaps_open, codep, own_gaps, persisted}` (terse < 300 tokens) | Never executes target code statically; probes are fail-open (timeout is an observation, not a gap). |
+| `autoevol` | `DIMINISHED` | `autoevol(action="graph"\|"gaps"\|"thread"\|"log"\|"diff"\|"spec"\|"verify"\|"fix_test"\|"heal", node=None, a=None, b=None, gap=None, base=None, cycle=None, job=None, apply=False, restart=False, probe=False, root=None, persist=True, limit=10, select_fields=None, verbosity="summary")` | Read-only thread graph of AEP (tools, actions, capabilities, functions, SQL state, tests, claims, budgets): Merkle root R over the SCC condensation, omission gaps (`Req(t)`), declared-vs-observed drift, PageRank ranking and `impacted_tests`. `probe=True` (tier >= 5r-x) adds runtime observations outside R. Generations persist (`threads_gen` + SHA-256 ledger) only at tier >= 6rw-. ONT-41 and ONT-42b add `spec` (mini-SDD per gap with actionable `change` field and `resolve_gap` kind+target survival across Merkle hashes, tier >= 4r--), `verify` (ACCEPT/REJECT/PENDING against a frozen base with batched synchronous sandbox execution `run_tests_batched` up to 24 selected tests, pinning-test caller inheritance, and `WRONG_TREE` isolation sentinel, tier >= 5r-x), `fix_test` (re-entrant gap -> patch -> test cycle with orphan cycle reaping `_reap_orphan_cycles`, max 3 iterations, EXHAUSTED suggests `heal`, never reverts on its own) and `heal` (dry-run from the LKG at tier >= 4r--; `apply=True` needs tier >= 6rw- plus a prior workspace snapshot). Only `evolve` remains out of scope (`INVALID_ACTION`) pending ONT-42c. | `{status, root, nodes, edges, gaps_open, codep, own_gaps, persisted}` (terse < 300 tokens) | Never executes target code statically; probes are fail-open (timeout is an observation, not a gap). |
 
 #### Domain 6: Automation via Orchestration — Pico-Playbooks (1 Tool)
 
@@ -1178,6 +1179,9 @@ flowchart TD
 ```
 agent-execution-plane/
 ├── server.py                       # FastMCP server (17 RPC tools, 19 capabilities)
+├── aep_front.py                    # Hot-swap MCP stdio proxy, reload barrier, LKG fallback & spooling (ONT-39/41)
+├── aep_backend.py                  # Hot-reloadable backend worker lifecycle & fingerprint responder (ONT-39)
+├── aep_lkg.py                      # Last-Known-Good snapshot manager (status, diff, restore, ONT-41)
 ├── engine/
 │   ├── db.py                       # Hot SQLite WAL connections, BEGIN IMMEDIATE, anti-deadlock
 │   ├── backup.py                   # Hot streaming backup engine, 5 FIFO slots, auto-recovery & quarantine
@@ -1199,6 +1203,17 @@ agent-execution-plane/
 │   ├── net_telemetry.py            # Pure in-RAM TCP/UDP socket introspection, ARP table & frame dissect (ONT-32)
 │   ├── primitives.py               # Pure in-memory system diagnostic probes (mem-stat, disk-usage, fd-rescuer, socket-monitor, landlock-guard, ONT-34)
 │   ├── hardware.py                 # GPU/sysfs DRM accelerator introspection, UMA auto-routing & pre-flight admission (GAP-CP-05, GAP-DX-06)
+│   ├── fingerprint.py              # Deterministic source/front/backend fingerprint & drift computation (ONT-39/42a)
+│   ├── harness_reconnect.py        # Autonomous Session Steward (autonomous_session_steward: plan, execute, certify, matrix across claude/agy/codex/gemini, ONT-42a)
+│   ├── threads.py                  # Thread Graph facade & generation cache (ONT-40)
+│   ├── threads_model.py            # ThreadGraph nodes, edges, Tarjan SCC condensation, Merkle root R & PageRank (ONT-40)
+│   ├── threads_extractors.py       # Static AST/SQL/claim/test/budget extractors (ONT-40)
+│   ├── threads_probes.py           # Fail-open runtime probes outside Merkle R (ONT-40)
+│   ├── threads_spec.py             # Mini-SDD generator (`spec` with `change`, `resolve_gap`, `sort_gaps`, ONT-41/42b)
+│   ├── threads_verify.py           # Autonomous Judge (`verify`, `CycleStore` with `_reap_orphan_cycles`, `select_tests`, `run_tests_batched`, ONT-41/42b)
+│   ├── threads_ops.py              # High-level autoevol operations (`spec`, `verify`, `fix_test`, caller-pin inheritance, ONT-41/42b)
+│   ├── threads_heal.py             # Self-healing LKG recovery (`heal`, ONT-41)
+│   ├── threads_pins.py             # Static pinning-test index for public/private functions (ONT-42b)
 │   ├── playbook.py                 # Pico-Playbook YAML/JSON storage & DAG step execution engine
 │   └── template_registry.py        # Go template registry, metadata catalog & CUE schema binding
 ├── diagnostic/go/
@@ -1206,10 +1221,15 @@ agent-execution-plane/
 │   ├── fd-rescuer/main.go          # Static ELF Go probe for /proc/PID/fd
 │   └── landlock-guard/main.go      # Static ELF Go probe for Landlock LSM confinement verification
 ├── docs/
+│   ├── COMPACT.md                  # Context compaction SSoT instruction
 │   └── sdd/
 │       ├── sdd_linux_primitives_and_anti_poisoning.md # ONT-13 Landlock LSM & anti-poisoning SDD
 │       ├── sdd_om7_ipc_socket_pool_and_code_batch_mode.md # ONT-21 UNIX socket pool & batch SDD
-│       └── sdd_kali_mcp_offensive_tactical_enhancements.md # ONT-31 Kali MCP dual-plane SDD
+│       ├── sdd_kali_mcp_offensive_tactical_enhancements.md # ONT-31 Kali MCP dual-plane SDD
+│       ├── sdd_ont40_threads_autoevol.md # ONT-40 Thread Graph & autoevol SDD
+│       ├── sdd_ont41_self_healing_lkg.md # ONT-41 Self-healing & LKG SDD
+│       ├── sdd_ont42_judge_evolve.md # ONT-42b/c Autonomous Judge & evolve SDD
+│       └── sdd_ont42a_harness_reconnect.md # ONT-42a Autonomous Session Steward SDD
 ├── tests/
 │   ├── test_setup_idempotency.sh   # Automated provisioning idempotency test suite
 │   ├── test_engine_suite.py        # Core engine unit and integration test suite (pytest)
@@ -1223,7 +1243,13 @@ agent-execution-plane/
 │   ├── test_default_primitives.py  # ONT-34 Default diagnostic primitives & factory decoupling suite
 │   ├── test_version_integrity.py   # ONT-35 Version stamp integrity, drift detection & runner ergonomics suite
 │   ├── test_hardware_and_apport_alerts.py # ONT-36 Hardware domain, accelerator admission & Apport alerts suite
-│   └── test_uma_admission_apport_and_pytest_parsing.py # ONT-37 UMA admission ergonomics, Apport RFC822 & pytest anti-masking suite
+│   ├── test_uma_admission_apport_and_pytest_parsing.py # ONT-37 UMA admission ergonomics, Apport RFC822 & pytest anti-masking suite
+│   ├── test_ont39_hot_swap_proxy.py # ONT-39 Hot-swap front/backend proxy & reload barrier suite
+│   ├── test_ont40_threads_core.py  # ONT-40 Thread Graph, Merkle root R & omission gaps suite
+│   ├── test_ont41_lkg_and_front.py # ONT-41 LKG snapshot manager & crash-window fallback suite
+│   ├── test_ont41_spec_verify_fix_heal.py # ONT-41 spec, verify, fix_test & heal suite
+│   ├── test_ont42a_harness_reconnect.py # ONT-42a Autonomous Session Steward (`autonomous_session_steward`) multi-harness & loopback certification suite
+│   └── test_ont42_*.py             # ONT-42b Autonomous Judge suites (gap_resolve, spec_change, gap_priority, wrong_tree, pinning, select_cap, tool_actions)
 ├── schemas/
 │   ├── database.sql                # DDL (artifacts, metrics, crash_events, audit)
 │   └── artifact_contract.cue       # Declarative CUE artifact schemas
@@ -1269,11 +1295,14 @@ agent-execution-plane/
 | Network & Security Telemetry (ONT-32) | ✅ Operational | Pure in-RAM network probing, /proc/net kernel introspection, packet header dissection, netfilter hardening, dynamic schema reflection, container decoupling, and 15-tool invariant strictly preserved | <!-- aep:hist -->
 | 4-Tier Privilege & Degradation (ONT-33) | ✅ Operational | `privilege.py` + `aep_capabilities` manifest (19 capabilities), 4-tier chmod octal matrix (`7rwx`/`6rw-`/`5r-x`/`4r--`), zero-sudo-hang probing |
 | Default Primitives & Factory Decoupling (ONT-34) | ✅ Operational | FastMCP Tool #16 (`default_primitives`), pure in-RAM system probes, template scaffolding preservation, 16 tools / 19 capabilities invariant certified (123/123 tests passing) | <!-- aep:hist -->
-| Self-healing & Last-Known-Good (ONT-41) | ✅ Operational | `aep_front.py` N0-N2 (structured reload error, LKG save, crash-window fallback to an LKG tree) + reload barrier; `aep_lkg.py`; `aep_ctl backup lkg_status/lkg_diff/lkg_restore`; `autoevol spec/verify/fix_test/heal`; `crash_events.source` + plane_events spool; `aep-sync --audit` (front_stale / backend_stale / serving_lkg) |
+| Version Stamp Integrity & Multi-Harness Sync (ONT-35) | ✅ Operational | Runtime commit freeze (`loaded_commit` vs `repo_head` drift detection), non-destructive multi-harness sync audit (`aep-sync.sh --audit`), and sandbox ergonomics (133/133 tests passing) | <!-- aep:hist -->
+| Hardware Admission & Apport Alerts (ONT-36) | ✅ Operational | Hardware control plane domain (`inventory`, `accelerators`, `admit` with 4096 MiB desktop safety margin, GAP-CP-05), Apport crash alerts sync (`artifacts.db` deduplication, GAP-OM-20), single-encoding flat telemetry (143/143 tests passing) | <!-- aep:hist -->
+| UMA Admission & Pytest Anti-Masking (ONT-37) | ✅ Operational | UMA auto-routing to GTT (`vram_total <= 2048` and `gtt_total > 2 * vram_total`, GAP-DX-06), leaf defensive routing for numeric device parameters, Apport RFC822 streaming forensics with 64 KiB cap & POSIX signal mapping (`SIGABRT`, GAP-OM-21), sandbox pytest anti-masking (`exit_code_masked=True`), extended metrics (`deselected`, `xfailed`, `xpassed`, `coverage`), and `stdout_tail` line deduplication (153/153 tests passing, 100% pass rate) | <!-- aep:hist -->
+| Hot-Swap Front & L3 Token Compaction (ONT-39 / L3) | ✅ Operational | `aep_front.py` + `aep_backend.py` + `engine/fingerprint.py` transparent hot-swap proxy, reload barrier, and D-01..D-05 token compaction across `discover`, `aep_ctl`, `playbook_run`, `artifact_catalog`, and `kanban_board` |
 | Thread Graph `autoevol` (ONT-40) | ✅ Operational | FastMCP Tool #17 (`autoevol`): Merkle R over SCC condensation, omission gaps, drift, PageRank, `impacted_tests`, opt-in probes, tier-gated `threads_gen` persistence; 17 tools / 19 capabilities |
-| Version Stamp Integrity & Multi-Harness Sync (ONT-35) | ✅ Operational | Runtime commit freeze (`loaded_commit` vs `repo_head` drift detection), non-destructive multi-harness sync audit (`aep-sync.sh --audit`), and sandbox ergonomics (133/133 tests passing) |
-| Hardware Admission & Apport Alerts (ONT-36) | ✅ Operational | Hardware control plane domain (`inventory`, `accelerators`, `admit` with 4096 MiB desktop safety margin, GAP-CP-05), Apport crash alerts sync (`artifacts.db` deduplication, GAP-OM-20), single-encoding flat telemetry (143/143 tests passing) |
-| UMA Admission & Pytest Anti-Masking (ONT-37) | ✅ Operational | UMA auto-routing to GTT (`vram_total <= 2048` and `gtt_total > 2 * vram_total`, GAP-DX-06), leaf defensive routing for numeric device parameters, Apport RFC822 streaming forensics with 64 KiB cap & POSIX signal mapping (`SIGABRT`, GAP-OM-21), sandbox pytest anti-masking (`exit_code_masked=True`), extended metrics (`deselected`, `xfailed`, `xpassed`, `coverage`), and `stdout_tail` line deduplication (153/153 tests passing, 100% pass rate) |
+| Self-healing & Last-Known-Good (ONT-41) | ✅ Operational | `aep_front.py` N0-N2 (structured reload error, LKG save, crash-window fallback to an LKG tree) + reload barrier; `aep_lkg.py`; `aep_ctl backup lkg_status/lkg_diff/lkg_restore`; `autoevol spec/verify/fix_test/heal`; `crash_events.source` + plane_events spool; `aep-sync --audit` (front_stale / backend_stale / serving_lkg) |
+| Autonomous Session Steward (ONT-42a) | ✅ Operational | `engine/harness_reconnect.py` (`autonomous_session_steward`, exposed via `aep_ctl(domain="ipc", action="harness_reconnect")` in `plan`, `execute`, `certify`, and `matrix` modes): multi-harness self-management across `claude`, `agy`, `codex`, and `gemini`, prioritizing kernel `dev.tty.legacy_tiocsti` (`0 -> 1 -> ioctl(TIOCSTI) -> 0`) when a harness holds a `/dev/pts/*` TTY, with end-to-end PTY + kernel loopback self-certification (`certify_loopback`) and D-25 commit-drift vs file-drift separation |
+| Autonomous Judge & Dogfood (ONT-42b) | ✅ Operational | B1–B9 (`resolve_gap` kind+target fallback, `build_spec` `change`, `sort_gaps` priority class, `_autoevol_interpreter` + `WRONG_TREE` sentinel, `pinning_tests` + caller-pin inheritance, `select_tests` cap 24, `run_tests_batched` synchronous sandbox batch runner, `_reap_orphan_cycles`, and `D-01b` closed via `_TOOL_ACTIONS` with `autoevol(fix_test)` `ACCEPT`, 638/638 tests passing, 0 xfailed) |
 | Auto-Plug MCP | ✅ Operational | launcher + `aep-sync.sh` (+ `--watch` + Connect-RPC) |
 | Shell-Agnostic Inheritance | ✅ Operational | bash/zsh/dash; zero Oh My Zsh dependencies |
 | Nushell (`nu`) / `jc` | ⏳ Deferred (non-critical) | `aep_ctl` already delivers structured typed JSON |
