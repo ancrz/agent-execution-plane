@@ -43,7 +43,7 @@ ENVELOPE_RESERVE = 130
 ENVIRONMENTAL: frozenset[str] = frozenset(
     {tv.SERVING_LKG, tv.RELOAD_PENDING, tv.BASE_UNAVAILABLE, tv.SANDBOX_UNAVAILABLE, tv.WRONG_TREE}
 )
-_SHRINK_ORDER = ("detail", "warnings", "diff", "unaffected_tools", "threads", "units", "files", "reasons")
+_SHRINK_ORDER = ("detail", "warnings", "diff", "preserved", "unaffected_tools", "threads", "units", "files", "reasons")
 _AWAITING_BY_CAUSE: tuple[tuple[str, frozenset[str]], ...] = (
     ("base", frozenset({tv.BASE_UNAVAILABLE})),
     ("reload", frozenset({tv.RELOAD_PENDING, tv.SERVING_LKG, tv.RELOAD_BLOCKED})),
@@ -576,6 +576,7 @@ def run_heal(
         out["units"] = [{"id": u["id"], "role": u["role"], "files": u["files"]} for u in report["units"][:cap]]
         out["supervisor"] = report["supervisor"][:cap]
         out["unaffected_tools"] = report["unaffected_tools"][:_HEAL_THREADS_TERSE] if terse else report["unaffected_tools"]
+        out["preserved"] = [p["file"] for p in report.get("preserved", [])][: _HEAL_THREADS_TERSE if terse else 20]
         out["unaffected_total"] = len(report["unaffected_tools"])
     for passthrough in ("key", "restored", "remaining_syntax_errors", "error"):
         if report.get(passthrough):

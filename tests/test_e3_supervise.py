@@ -43,8 +43,27 @@ def _graph(fn_hash: dict[str, str]) -> Any:
     return SimpleNamespace(graph=g)
 
 
-def _plan(broken: list[str], changed: dict[str, str]) -> dict[str, Any]:
-    return threads_supervise.plan(_graph(changed), _graph({}), broken, lambda rel: True)
+LKG_SRC = {
+    "base.py": "def fn(a, b):\n    return a\n",
+    "mid.py": "from base import fn as bfn\n\ndef fn():\n    return bfn(1, 2)\n",
+    "top.py": "from mid import fn as mfn\n\ndef fn():\n    return mfn()\n",
+    "iso.py": "def fn():\n    return 1\n",
+    "ca.py": "from cb import fn as cbf\n\ndef fn():\n    return cbf()\n",
+    "cb.py": "from ca import fn as caf\n\ndef fn():\n    return caf()\n",
+    "leaf.py": "def fn():\n    return 0\n",
+    "server.py": "from top import fn as t\nfrom iso import fn as i\nfrom ca import fn as c\n\nt()\ni()\nc()\n",
+}
+
+
+def _plan(broken: list[str], changed: dict[str, str], repo_src: dict[str, str] | None = None) -> dict[str, Any]:
+    repo = {**LKG_SRC, **(repo_src or {})}
+    return threads_supervise.plan(
+        _graph(changed),
+        _graph({}),
+        broken,
+        lambda rel: True,
+        lambda which, rel: (repo if which == "repo" else LKG_SRC).get(rel),
+    )
 
 
 def test_isolated_scc_is_one_for_one() -> None:
@@ -54,20 +73,47 @@ def test_isolated_scc_is_one_for_one() -> None:
     assert res["supervisor"] == [] and res["unaffected_tools"] == ["t_cyc", "t_iso", "t_top"]
 
 
-def test_tool_consumed_function_with_changed_hash_restarts_its_consumers_only() -> None:
-    res = _plan(["iso.py"], {"iso": "other"})
-    assert res["strategy"] == "rest_for_one" and set(res["files"]) == {"iso.py", "server.py"}
+def test_consumer_with_unrelated_edit_is_preserved() -> None:
+    res = _plan(["iso.py"], {"iso": "other"}, {"server.py": LKG_SRC["server.py"] + "# my own edit\nx = 1\n"})
+    assert res["strategy"] == "one_for_one" and res["files"] == ["iso.py"]
+    assert [p["file"] for p in res["preserved"]] == ["server.py"] and res["preserved"][0]["reason"]
     assert res["supervisor"] == ["t_iso"] and res["unaffected_tools"] == ["t_cyc", "t_top"]
 
 
-def test_unchanged_contract_stays_one_for_one_even_with_consumers() -> None:
-    # base.py esta rota pero su funcion exportada conserva el hash del LKG: no hay contrato que propagar.
-    res = _plan(["base.py"], {})
-    assert res["strategy"] == "one_for_one" and res["files"] == ["base.py"]
+def test_consumer_using_the_changed_symbol_is_included() -> None:
+    # server.py was adapted to a new signature of iso.fn(x); the restored (LKG) iso.fn() takes no args.
+    res = _plan(["iso.py"], {"iso": "other"}, {"server.py": "from iso import fn as i\ni(1)\n"})
+    assert res["strategy"] == "rest_for_one" and set(res["files"]) == {"iso.py", "server.py"}
+    assert res["preserved"] == []
+
+
+def test_consumer_using_symbol_absent_from_lkg_is_included() -> None:
+    res = _plan(["iso.py"], {"iso": "other"}, {"server.py": "from iso import brand_new\nbrand_new()\n"})
+    assert res["strategy"] == "rest_for_one" and "server.py" in res["files"]
+
+
+def test_consumer_that_does_not_compile_is_included() -> None:
+    res = _plan(["iso.py"], {"iso": "other"}, {"server.py": "def broken(:\n"})
+    assert res["strategy"] == "rest_for_one" and "server.py" in res["files"]
+
+
+def test_syntax_error_unit_compares_against_lkg_exports_not_vanished() -> None:
+    # iso.py does not compile now (its nodes vanish), but every consumer still matches the LKG exports.
+    res = _plan(["iso.py"], {"iso": "other"}, {"iso.py": "def fn(:\n"})
+    assert res["strategy"] == "one_for_one" and res["files"] == ["iso.py"]
+    assert [p["file"] for p in res["preserved"]] == ["server.py"]
 
 
 def test_changed_contract_is_rest_for_one_in_topological_order() -> None:
-    res = _plan(["base.py"], {"base": "changed", "mid": "changed", "top": "changed"})
+    res = _plan(
+        ["base.py"],
+        {"base": "changed", "mid": "changed", "top": "changed"},
+        {
+            "mid.py": "from base import fn as bfn\n\ndef fn():\n    return bfn(1, 2, 3)\n",
+            "top.py": "from mid import fn as mfn\n\ndef fn():\n    return mfn(9)\n",
+            "server.py": "from top import fn as t\nt(1, 2)\n",
+        },
+    )
     assert res["strategy"] == "rest_for_one"
     assert set(res["files"]) == {"base.py", "mid.py", "top.py", "server.py"}
     order = [u["files"][0] for u in res["units"]]
@@ -76,13 +122,17 @@ def test_changed_contract_is_rest_for_one_in_topological_order() -> None:
     assert "iso.py" not in res["files"] and "ca.py" not in res["files"]
 
 
-def test_wave_stops_where_the_contract_is_unchanged() -> None:
-    res = _plan(["base.py"], {"base": "changed"})
+def test_wave_stops_where_the_consumer_is_compatible() -> None:
+    res = _plan(
+        ["base.py"],
+        {"base": "changed"},
+        {"mid.py": "from base import fn as bfn\n\ndef fn():\n    return bfn(1, 2, 3)\n"},
+    )
     assert res["strategy"] == "rest_for_one" and set(res["files"]) == {"base.py", "mid.py"}
 
 
 def test_unaffected_tools_listed() -> None:
-    res = _plan(["base.py"], {"base": "changed"})
+    res = _plan(["base.py"], {"base": "changed", "mid": "changed", "top": "changed"})
     assert res["supervisor"] == ["t_top"]
     assert res["unaffected_tools"] == ["t_cyc", "t_iso"]
 
@@ -94,8 +144,15 @@ def test_strict_cycle_fuses_into_one_unit() -> None:
 
 
 def test_restorable_filter_drops_identical_dependents() -> None:
-    res = threads_supervise.plan(_graph({"base": "x"}), _graph({}), ["base.py"], lambda rel: rel == "base.py")
-    assert res["strategy"] == "rest_for_one" and res["files"] == ["base.py"]
+    repo = {**LKG_SRC, "mid.py": "from base import fn as bfn\nbfn(1, 2, 3)\n"}
+    res = threads_supervise.plan(
+        _graph({"base": "x"}),
+        _graph({}),
+        ["base.py"],
+        lambda rel: rel == "base.py",
+        lambda which, rel: (repo if which == "repo" else LKG_SRC).get(rel),
+    )
+    assert res["files"] == ["base.py"]
 
 
 def test_no_broken_files_is_empty_plan() -> None:
@@ -190,3 +247,16 @@ def test_terse_payload_within_400_tokens(world: dict[str, Any]) -> None:
     res = threads_ops.run_heal(repo, apply=False, octal=4, snapshot_fn=None, terse=True)
     assert res["strategy"] != "none" and "supervisor" in res
     assert threads_ops.estimated_tokens(res) <= 400, json.dumps(res)
+
+
+def test_real_consumer_with_local_edit_is_preserved_when_contract_module_breaks(world: dict[str, Any]) -> None:
+    repo = world["repo"]
+    fp = repo / "engine/fingerprint.py"
+    fp.write_text(fp.read_text() + "\ndef broken(:\n    pass\n")
+    priv = repo / "engine/privilege.py"
+    priv.write_text(priv.read_text() + "\n# my own edit\n")
+    res = threads_heal.heal(repo)
+    assert "engine/privilege.py" not in res["files"]
+    assert "engine/privilege.py" in [p["file"] for p in res["preserved"]]
+    threads_heal.heal(repo, apply=True, snapshot_fn=lambda files: {"ok": True})
+    assert "# my own edit" in priv.read_text()

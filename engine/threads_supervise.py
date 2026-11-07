@@ -13,18 +13,19 @@ Supervision tree
             node vanished) that lives in a planned file; every other tool is listed in `unaffected_tools`.
 
 Strategy selection (deterministic, per broken unit)
-  - `rest_for_one` iff the broken unit EXPORTS A CONTRACT whose hash changed: some node outside the unit
-    consumes (`consumes`/`contract`) a function (or any `contract` target) living in the unit, and that node's
-    content hash differs from the LKG or the node is missing from the live graph. Plan = broken unit + every unit
-    that (transitively) consumes a changed contract, dependencies first (topological order). The wave stops at
-    a unit whose own exports are unchanged (its consumers still see the same contract).
-  - otherwise `one_for_one`: plan = the broken unit only.
+  - A consumer joins the plan ONLY if it is broken against the contract RESTORED from the LKG (AST check of its
+    usage vs the LKG exports: a referenced symbol is absent, or a call no longer fits the LKG signature) or it
+    does not compile itself. Unrelated local edits never pull a consumer in: it is listed in `preserved`.
+    A syntax error in the broken module is compared against what the LKG exports, never "everything vanished".
+  - `rest_for_one` iff at least one such consumer exists (plan = broken unit + those consumers and, wave-wise,
+    their broken consumers, dependencies first). Otherwise `one_for_one`.
   Dependents are included only if `restorable(file)` (in the LKG set and different from it); identical files
   are never rewritten. No other file can enter the plan: the full tree is never reverted.
 """
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -105,6 +106,123 @@ def _changed_consumers(
     return out
 
 
+# --------------------------------------------------------------------------- consumer compatibility (AST)
+
+
+def _reader(repo: threads.Analysis, lkg: threads.Analysis) -> Callable[[str, str], str | None]:
+    roots = {"repo": repo.root, "lkg": lkg.root}
+
+    def read(which: str, rel: str) -> str | None:
+        try:
+            return (roots[which] / rel).read_text(encoding="utf-8")
+        except OSError, UnicodeDecodeError:
+            return None
+
+    return read
+
+
+def _dotted(rel: str) -> str:
+    return rel.removesuffix(".py").replace("/", ".")
+
+
+def _sig(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any]:
+    a = fn.args
+    pos = [x.arg for x in (*a.posonlyargs, *a.args)]
+    return {
+        "pos": pos,
+        "required": len(pos) - len(a.defaults),
+        "varargs": a.vararg is not None,
+        "kwonly": {x.arg for x in a.kwonlyargs},
+        "kwonly_required": {x.arg for x, d in zip(a.kwonlyargs, a.kw_defaults, strict=True) if d is None},
+        "varkw": a.kwarg is not None,
+    }
+
+
+def _exports(tree: ast.Module) -> dict[str, dict[str, Any] | None]:
+    """Module-level public-surface symbols: functions carry a signature, everything else is name-only."""
+    out: dict[str, dict[str, Any] | None] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out[node.name] = _sig(node)
+        elif isinstance(node, ast.ClassDef):
+            out[node.name] = None
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            for t in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                if isinstance(t, ast.Name):
+                    out[t.id] = None
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for al in node.names:
+                out[(al.asname or al.name).split(".")[0]] = None
+    return out
+
+
+def _call_fits(call: ast.Call, sig: dict[str, Any]) -> bool:
+    if any(isinstance(a, ast.Starred) for a in call.args) or any(k.arg is None for k in call.keywords):
+        return True  # dynamic arguments: cannot prove a mismatch
+    npos = len(call.args)
+    kws = {k.arg for k in call.keywords}
+    if npos > len(sig["pos"]) and not sig["varargs"]:
+        return False
+    if not sig["varkw"] and not kws <= (set(sig["pos"][npos:]) | sig["kwonly"]):
+        return False
+    if any(name not in kws for name in sig["pos"][npos : sig["required"]]):
+        return False
+    return sig["kwonly_required"] <= kws
+
+
+def _usages(tree: ast.Module, modules: set[str]) -> list[tuple[str, str, ast.Call | None]]:
+    """(module, symbol, call-or-None) for every reference the consumer makes to the given modules."""
+    name_of: dict[str, tuple[str, str]] = {}  # local name -> (module, symbol)
+    mod_alias: dict[str, str] = {}  # local dotted name -> module
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            for al in node.names:
+                if node.module in modules:
+                    name_of[al.asname or al.name] = (node.module, al.name)
+                elif f"{node.module}.{al.name}" in modules:
+                    mod_alias[al.asname or al.name] = f"{node.module}.{al.name}"
+        elif isinstance(node, ast.Import):
+            for al in node.names:
+                if al.name in modules:
+                    mod_alias[al.asname or al.name] = al.name
+    calls = {id(n.func): n for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    out: list[tuple[str, str, ast.Call | None]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in name_of:
+            out.append((*name_of[node.id], calls.get(id(node))))
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            base = ast.unparse(node.value)
+            if base in mod_alias:
+                out.append((mod_alias[base], node.attr, calls.get(id(node))))
+    return out
+
+
+def _broken_reason(consumer: str, unit_files: list[str], read: Callable[[str, str], str | None]) -> str:
+    """Why `consumer` would break once `unit_files` are restored from the LKG; "" if it would not."""
+    text = read("repo", consumer)
+    if text is None:
+        return ""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return "consumer does not compile"
+    exports: dict[str, dict[str, dict[str, Any] | None]] = {}
+    for rel in unit_files:
+        base = read("lkg", rel)
+        try:
+            exports[_dotted(rel)] = _exports(ast.parse(base)) if base is not None else {}
+        except SyntaxError:
+            exports[_dotted(rel)] = {}
+    known = {m for m, syms in exports.items() if syms}  # an unreadable LKG file proves nothing
+    for mod, sym, call in _usages(tree, known):
+        if sym not in exports[mod]:
+            return f"uses {mod}.{sym}, absent from the restored contract"
+        sig = exports[mod][sym]
+        if call is not None and sig is not None and not _call_fits(call, sig):
+            return f"calls {mod}.{sym} with a signature the restored contract does not have"
+    return ""
+
+
 def _tool_subtree(tool: str, adj: dict[str, list[str]]) -> set[str]:
     seen: set[str] = set()
     stack = [f"fn:server.{tool}"]
@@ -131,14 +249,22 @@ def plan(
     lkg: threads.Analysis,
     broken_files: Iterable[str],
     restorable: Callable[[str], bool],
+    source: Callable[[str, str], str | None] | None = None,
 ) -> dict[str, Any]:
-    """Supervision plan for `broken_files`. Pure: `restorable` is injected by the caller."""
+    """Supervision plan for `broken_files`. `restorable` and `source(which, rel)` ("repo"|"lkg") are injectable."""
     rg, lg = repo.graph, lkg.graph
     graphs = (rg, lg)
     broken = sorted(set(broken_files))
     tools = sorted({n.id.removeprefix("tool:") for g in graphs for n in g.nodes_of("tool")})
     if not broken:
-        return {"strategy": NO_STRATEGY, "units": [], "files": [], "supervisor": [], "unaffected_tools": []}
+        return {
+            "strategy": NO_STRATEGY,
+            "units": [],
+            "files": [],
+            "supervisor": [],
+            "unaffected_tools": [],
+            "preserved": [],
+        }
 
     edges = _union_edges(graphs)
     units = file_units(rg, lg)  # dependencies first
@@ -148,16 +274,24 @@ def plan(
             units.append([f])
             unit_of[f] = len(units) - 1
     broken_units = sorted({unit_of[f] for f in broken})
-    rest_units = [u for u in broken_units if _changed_consumers(set(units[u]), rg, lg, edges)]
+    read = source or _reader(repo, lkg)
     selected: dict[int, str] = dict.fromkeys(broken_units, "broken")
-    frontier = list(rest_units)
-    while frontier:  # propagate only along changed contracts: a unit whose exports are unchanged stops the wave
+    preserved: dict[str, str] = {}
+    frontier = list(broken_units)
+    while frontier:  # the wave follows consumers that are actually broken against the restored (LKG) contract
         cur = frontier.pop()
         for f in sorted(_changed_consumers(set(units[cur]), rg, lg, edges)):
             nxt = unit_of.get(f)
-            if nxt is not None and nxt not in selected:
+            if nxt is None or nxt in selected:
+                continue
+            reason = _broken_reason(f, units[cur], read)
+            if reason:
                 selected[nxt] = "dependent"
                 frontier.append(nxt)
+            elif restorable(f):
+                preserved[f] = "consumer is compatible with the restored contract (unrelated local edits kept)"
+    for f in [f for f in preserved if unit_of.get(f) in selected]:
+        del preserved[f]
 
     planned: list[dict[str, Any]] = []
     for u in sorted(selected):  # index order == dependencies first
@@ -172,11 +306,12 @@ def plan(
             fn_adj.setdefault(src, []).append(dst)
     changed = _changed_nodes(set(plan_files), rg, lg)
     affected = [t for t in tools if (_tool_subtree(t, fn_adj) | {f"tool:{t}"}) & changed]
-    strategy = NO_STRATEGY if not planned else (REST_FOR_ONE if rest_units else ONE_FOR_ONE)
+    strategy = NO_STRATEGY if not planned else (REST_FOR_ONE if len(selected) > len(broken_units) else ONE_FOR_ONE)
     return {
         "strategy": strategy,
         "units": planned,
         "files": plan_files,
         "supervisor": affected,
         "unaffected_tools": [t for t in tools if t not in affected],
+        "preserved": [{"file": f, "reason": r} for f, r in sorted(preserved.items())],
     }

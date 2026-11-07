@@ -115,6 +115,7 @@ def heal(
         "units": sup["units"],
         "supervisor": sup["supervisor"],
         "unaffected_tools": sup["unaffected_tools"],
+        "preserved": sup["preserved"],
         "applied": False,
         "restored": [],
     }

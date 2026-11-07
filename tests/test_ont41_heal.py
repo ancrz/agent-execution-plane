@@ -13,7 +13,7 @@ from engine import threads_heal
 
 REPO = Path(__file__).resolve().parent.parent
 BROKEN_FILE = "engine/fingerprint.py"
-BENIGN_FILE = "engine/topos_guard.py"
+BENIGN_FILE = "engine/privilege.py"
 
 
 @pytest.fixture
