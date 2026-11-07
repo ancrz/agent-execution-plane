@@ -30,7 +30,6 @@ def test_certify_requires_confirm_before_helper(monkeypatch: pytest.MonkeyPatch)
     assert rec.helper_calls == 0
 
 
-@pytest.mark.xfail(strict=True, reason="D-HR-3 (C5): helper allowlist widened to 'hello world'")
 def test_helper_payload_allowlist_is_reconnect_only() -> None:
     assert "hello world" not in hr.HELPER_SCRIPT
 

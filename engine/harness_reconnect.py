@@ -41,17 +41,20 @@ HARNESS_RECONNECT: dict[str, str] = {
     "gemini": "/mcp reconnect {server}",
     "agy": "/mcp reconnect {server}",
 }
+# `verified`: the TTY command has a documented source. Only claude does; others default to the manual route.
 HARNESS_PROFILES: dict[str, dict[str, Any]] = {
-    "claude": {"transports": ("tty_inject",), "manual": "/mcp reconnect {server}"},
+    "claude": {"transports": ("tty_inject",), "manual": "/mcp reconnect {server}", "verified": True},
     "agy": {
         "transports": ("rpc_reload", "tty_inject"),
         "manual": "agy mcp add {server} <launcher> (or Connect-RPC RefreshMcpServers)",
+        "verified": False,
     },
     "codex": {
         "transports": ("rpc_reload", "tty_inject"),
         "manual": "/mcp reconnect {server} (or codex app-server config/mcpServer/reload)",
+        "verified": False,
     },
-    "gemini": {"transports": ("tty_inject",), "manual": "/mcp reconnect {server}"},
+    "gemini": {"transports": ("tty_inject",), "manual": "/mcp reconnect {server}", "verified": False},
 }
 SUPPORTED_HARNESSES: tuple[str, ...] = tuple(HARNESS_PROFILES.keys())
 PTS_MAJOR = 136
@@ -270,6 +273,7 @@ def decision_tree(
         "sysctl": sysctl_value,
         "rpc_available": rpc_avail,
         "manual_command": manual_cmd,
+        "command_verified": bool(profile.get("verified", False)),
         "caveats": list(CAVEATS),
     }
     if not front_stale and not force:
@@ -278,6 +282,8 @@ def decision_tree(
         plan.update(recommended_route="manual", reason="invalid_server_name")
     elif not harness.get("found"):
         plan.update(recommended_route="gui_unsupported" if session_type.lower() == "wayland" else "manual", reason=harness.get("reason", "harness_not_found"))
+    elif not profile.get("verified", False):
+        plan.update(recommended_route="manual", reason="command_unverified")
     elif tty.get("ok") and sysctl_value is not None:
         plan.update(recommended_route="tty_inject", reason="ok")
     elif rpc_avail and "rpc_reload" in profile.get("transports", ()):
@@ -437,74 +443,15 @@ def run_helper(major: int, minor: int, payload_hex: str, tty_fd: int, timeout: f
 
 
 def _probe_rpc(harness: str) -> dict[str, Any]:
-    """Read-only probe for native out-of-band RPC channels (Antigravity Connect-RPC or Codex app-server sock)."""
-    if harness == "codex":
-        base = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
-        sock = base / "app-server-control" / "app-server-control.sock"
-        try:
-            is_sock = sock.exists() and stat.S_ISSOCK(sock.stat().st_mode)
-        except OSError:
-            is_sock = False
-        return {"available": is_sock, "transport": "codex_app_server_sock", "endpoint": str(sock) if is_sock else None}
-    if harness == "agy":
-        agy_bin = shutil.which("agy")
-        rpc_url = os.environ.get("AEP_AGY_RPC_URL", "").strip()
-        avail = bool(agy_bin or rpc_url)
-        return {"available": avail, "transport": "agy_cli_steward", "endpoint": rpc_url or agy_bin}
-    return {"available": False}
+    """No verified out-of-band reload channel exists for any harness (D-HR-5/6): never reports availability."""
+    return {"available": False, "verified": False, "transport": "none", "note": f"{harness}: manual route only"}
 
 
 def _run_rpc(harness: str, server: str) -> tuple[bool, str]:
-    """Execute native CLI/RPC session reload for `agy` or `codex` (config/mcpServer/reload)."""
+    """Out-of-band reload is UNSUPPORTED: a reload is never reported OK without a verified response."""
     if validate_server(server) is None:
         return False, "invalid_server_name"
-    if harness == "codex":
-        base = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
-        sock = base / "app-server-control" / "app-server-control.sock"
-        try:
-            if not (sock.exists() and stat.S_ISSOCK(sock.stat().st_mode)):
-                return False, "codex_sock_absent"
-            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-                ["codex", "app-server", "proxy", "--sock", str(sock)],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-            try:
-                for msg in (
-                    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aep-session-steward", "version": "1.0.0"}}},
-                    {"jsonrpc": "2.0", "method": "initialized", "params": {}},
-                    {"jsonrpc": "2.0", "id": 2, "method": "config/mcpServer/reload", "params": None},
-                ):
-                    if proc.stdin is not None:
-                        proc.stdin.write(json.dumps(msg) + "\n")
-                        proc.stdin.flush()
-            finally:
-                proc.terminate()
-                proc.wait(timeout=3)
-            return True, "codex_rpc_reloaded"
-        except (OSError, subprocess.SubprocessError) as exc:
-            return False, f"codex_rpc_error:{type(exc).__name__}"
-    if harness == "agy":
-        agy_bin = shutil.which("agy")
-        if not agy_bin:
-            return False, "agy_cli_absent"
-        try:
-            res = subprocess.run(  # noqa: S603 - fixed argv to agy CLI, no shell
-                [agy_bin, "mcp", "--help"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-            if res.returncode == 0:
-                return True, "agy_cli_steward_verified"
-            return False, f"agy_cli_rc_{res.returncode}"
-        except (OSError, subprocess.SubprocessError) as exc:
-            return False, f"agy_cli_error:{type(exc).__name__}"
-    return False, "rpc_unsupported_for_harness"
-
+    return False, f"rpc_unsupported:{harness}"
 
 
 @dataclass
@@ -629,6 +576,8 @@ def execute(
     if not harness.get("found") or harness.get("reason") != "ok":
         return done("REJECTED", str(harness.get("reason", "harness_not_in_ancestry")))
     hname = str(harness["harness"])
+    if not HARNESS_PROFILES.get(hname, {}).get("verified", False):
+        return done("UNSUPPORTED", "command_unverified", route="manual", harness=hname)
     payload = build_payload(hname, server)
     if payload is None or not validate_payload(payload):
         return done("REJECTED", "payload_not_allowed")
@@ -655,6 +604,8 @@ def execute(
                 ok_rpc, why_rpc = ad.run_rpc(hname, server or DEFAULT_SERVER)
                 if ok_rpc:
                     return done("OK", why_rpc, route="rpc_reload", **rpc_meta)
+                if why_rpc.startswith("rpc_unsupported"):
+                    return done("UNSUPPORTED", why_rpc, route="manual", **rpc_meta)
                 return done("FAIL", why_rpc, route="manual", severity="HIGH", **rpc_meta)
             finally:
                 ad.release_lock(lock_fd)
