@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import server
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -32,5 +34,6 @@ def test_aep_sync_exits_zero_without_agent_clis(tmp_path) -> None:
     )
     if "Validación superada" not in proc.stdout:
         pytest.skip(f"validation not reachable here: {proc.stdout[-300:]} {proc.stderr[-300:]}")
+    assert len(server.mcp._tool_manager._tools) == 17  # the count aep-sync's smoke import asserts
     assert "unbound variable" not in proc.stderr
     assert proc.returncode == 0, proc.stderr

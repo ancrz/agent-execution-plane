@@ -5,6 +5,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from engine.privilege import check_binary_prerequisites
+
 ROOT = Path(__file__).resolve().parent.parent
 SETUP = (ROOT / "scripts" / "setup.sh").read_text()
 
@@ -18,6 +20,8 @@ def _functions() -> str:
 
 
 def _run(url: str, sha: str, dest: Path) -> subprocess.CompletedProcess:
+    # Every binary setup.sh downloads with download_verified must be one the engine probes at runtime.
+    assert {"pueue", "pueued", "go", "golangci-lint"} <= set(check_binary_prerequisites())
     script = (
         "log_warn() { echo \"WARN:$*\"; }\nlog_err() { echo \"ERR:$*\"; }\n"
         + _functions()
