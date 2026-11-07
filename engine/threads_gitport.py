@@ -22,12 +22,13 @@ import re
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 DEV = "dev"
 REMOTE = "origin"
 BRANCH_RE = re.compile(r"^autoevol/[0-9a-f]{12}$")
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 GIT_TIMEOUT_S = 60
 NET_TIMEOUT_S = 30
 EXCLUDE_PREFIXES: tuple[str, ...] = (".claude/", ".venv/", "__pycache__/", ".aep_swap_fence")
@@ -169,6 +170,15 @@ class GitCli:
         """`merge --ff-only` en el checkout canonico, envuelto por el fence (O_EXCL). El fence cubre solo el merge."""
         if not BRANCH_RE.fullmatch(branch):
             return False, "bad_branch_name"
+
+        def _merge() -> GitResult:
+            res = self._run(self.canonical, "merge", "--ff-only", branch)
+            return (True, "merged") if res.returncode == 0 else (False, "ff_rejected")
+
+        return self._fenced(_merge)
+
+    def _fenced(self, action: Callable[[], GitResult]) -> GitResult:
+        """Ejecuta `action` con el fence tomado por O_EXCL; se libera siempre en `finally` (condiciones 7 y 8)."""
         try:
             fd = os.open(self.fence, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         except FileExistsError:
@@ -177,11 +187,24 @@ class GitCli:
             return False, "fence_unavailable"
         try:
             os.close(fd)
-            res = self._run(self.canonical, "merge", "--ff-only", branch)
-            return (True, "merged") if res.returncode == 0 else (False, "ff_rejected")
+            return action()
         finally:
             with contextlib.suppress(OSError):
                 self.fence.unlink()
+
+    def revert(self, sha: str) -> GitResult:
+        """C6 (condicion 15): `git revert` como commit NUEVO sobre `dev`, dentro del fence y sin push. Nunca reescribe historia."""
+        if not SHA_RE.fullmatch(sha):
+            return False, "bad_sha"
+
+        def _revert() -> GitResult:
+            res = self._run(self.canonical, "revert", "--no-edit", sha)
+            if res.returncode == 0:
+                return True, self._out(self.canonical, "rev-parse", "HEAD") or ""
+            self._run(self.canonical, "revert", "--abort")  # deja el checkout como estaba
+            return False, "revert_failed"
+
+        return self._fenced(_revert)
 
     def push(self, ref: str) -> GitResult:
         """Publica `dev` o `autoevol/<ciclo>` con refspec literal. Un rechazo se devuelve tal cual (sin reintentos)."""

@@ -38,6 +38,7 @@ COMMITTED = "COMMITTED"
 MERGED = "MERGED"
 PUSHED = "PUSHED"
 BLOCKED_GIT = "BLOCKED_GIT"
+REVERTED = "REVERTED"
 BRANCH_PREFIX = "autoevol/"
 DEV_BRANCH = "dev"
 MIN_EVOLVE_OCTAL = 6  # por debajo de 6rw- (5r-x, 4r--) solo hay plan
@@ -60,6 +61,7 @@ class GitPort(Protocol):
     def work_root(self) -> str: ...
     def commit_branch(self, branch: str, tree: str, message: str) -> tuple[bool, str]: ...
     def export_tree(self, ref: str, dest: Path | str) -> bool: ...
+    def revert(self, sha: str) -> tuple[bool, str]: ...
     def merge_ff(self, branch: str) -> tuple[bool, str]: ...
     def push(self, ref: str) -> tuple[bool, str]: ...
 
@@ -73,6 +75,7 @@ class GateKit:
 
     collect: tg.Collect
     run_batch: tg.RunBatch
+    post_verify: Callable[[dict[str, Any]], dict[str, Any]] | None = None  # C6: {"ok": bool, "reason": str}
 
 
 def gating(octal: int, label: str) -> str:
@@ -210,6 +213,8 @@ def run_evolve(
         rec["judged_tree"] = judged.get("tree", "")
         rec["judged_root"] = judged.get("root", "")
     rec = _reconcile(git, rec, branch)
+    if rec["state"] == REVERTED:  # C6: dev quedo adelantado a origin por el revert; solo el usuario decide
+        return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch}
     if rec["state"] == JUDGED:
         done = _commit(store, git, cycle, rec, branch)
         if done is not None:
@@ -222,6 +227,9 @@ def run_evolve(
         if done is not None:
             return done
     if rec["state"] == MERGED and mode == "full":
+        done = _post_verify(store, git, kit, cycle, rec, branch)  # C6: verify post-merge; si falla, revert antes del push
+        if done is not None:
+            return done
         done = _push(store, git, live_check, cycle, rec, branch)
         if done is not None:
             return done
@@ -332,6 +340,27 @@ def _merge(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], br
     store.save(cycle, rec)
     store.event("evolve.merged", {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12]})
     return None
+
+
+def _post_verify(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+    """C6 (condicion 15): el verify post-merge falla tras el ff y antes del push => `git revert` nuevo, sin push."""
+    if rec.get("post_verified") or kit is None or kit.post_verify is None:
+        return None
+    res = kit.post_verify(rec)
+    if res.get("ok"):
+        rec["post_verified"] = True
+        store.save(cycle, rec)
+        return None
+    why = str(res.get("reason", "post_verify_failed"))
+    if git.current_branch() != DEV_BRANCH or git.rev_parse(DEV_BRANCH) != rec.get("sha"):
+        return _blocked(store, cycle, rec, "revert_head_moved")  # dev avanzo: no se revierte a ciegas
+    ok, info = git.revert(rec["sha"])
+    if not ok:
+        return _blocked(store, cycle, rec, f"{info}:post_verify")
+    rec.update(state=REVERTED, revert_sha=info, post_verify_reason=why[:_REASON_MAX])
+    store.save(cycle, rec)
+    store.event("evolve.reverted", {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "revert": info[:12], "why": why[:_REASON_MAX]})
+    return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch, "revert_sha": info[:12], "why": why[:_REASON_MAX]}
 
 
 def _push(store: EvolveStore, git: GitPort, live_check: LiveCheck, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:

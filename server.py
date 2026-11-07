@@ -5343,7 +5343,13 @@ def _autoevol_gate_kit() -> Any:
     def run_batch(tree: Path, files: list[str]) -> dict[str, Any]:
         return _autoevol_test_runner(tree, False, _AUTOEVOL_GATE_TIMEOUT_S)(files)  # type: ignore[no-any-return]
 
-    return te.GateKit(collect=_autoevol_gate_collect, run_batch=run_batch)
+    def post_verify(rec: dict[str, Any]) -> dict[str, Any]:
+        """C6: verify post-merge. Falla si el plano vivo cayo al LKG tras el swap (unico camino no cubierto por el gate)."""
+        if _get_live_meta().get("serving_from") == "lkg":
+            return {"ok": False, "reason": "serving_lkg"}
+        return {"ok": True}
+
+    return te.GateKit(collect=_autoevol_gate_collect, run_batch=run_batch, post_verify=post_verify)
 
 
 def _autoevol_swap_fence() -> Path:
