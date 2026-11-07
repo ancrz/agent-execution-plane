@@ -119,15 +119,21 @@ user to type. No state changes.
 
 To elevate `harness_reconnect` from a Claude-only workaround into an extended autonomous session self-management capability (`PRIMITIVE_NAME = "autonomous_session_steward"`), `engine/harness_reconnect.py` and `aep_ctl(domain="ipc", action="harness_reconnect")` standardize four harness profiles across two lifecycle stewardship transports:
 
-| Harness ID | Process Signatures (`/proc/<pid>/exe` / `cmdline`) | Preferred Transport | Stewardship Mechanism / Fallback |
-|------------|---------------------------------------------------|---------------------|----------------------------------|
-| `claude` | `claude`, `/.local/share/claude/versions/*` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` (brief flip `< 2s`) + `ioctl(TIOCSTI)` `/mcp reconnect <server>\r` on ancestor `/dev/pts/*` |
-| `agy` | `agy`, `antigravity`, `language_server_linux*` | `rpc_reload` | Native `agy` CLI stewardship (`agy mcp`) or configured `AEP_AGY_RPC_URL`; fallback: AGY Command Palette |
-| `codex` | `codex`, `codex-cli` | `rpc_reload` | `codex app-server proxy --sock $XDG_RUNTIME_DIR/codex/app-server-control.sock` JSON-RPC `config/mcpServer/reload` (fallback: `tty_inject`) |
-| `gemini` | `gemini`, `gemini-cli` | `tty_inject` | Kernel `dev.tty.legacy_tiocsti` + `ioctl(TIOCSTI)` `/mcp reconnect <server>\r` on ancestor `/dev/pts/*` |
+| Harness ID | Process Signatures (`/proc/<pid>/exe`) | Command source | Route |
+|------------|----------------------------------------|----------------|-------|
+| `claude` | `claude`, `/.local/share/claude/versions/*` | verified (`/mcp reconnect <server>`) | `tty_inject`: kernel `dev.tty.legacy_tiocsti` (brief flip `< 2s`) + `ioctl(TIOCSTI)` on the ancestor `/dev/pts/*` |
+| `agy` | `agy`, `antigravity`, `language_server*` | `verified: false` | `manual` (`agy mcp add ...` or Command Palette) |
+| `codex` | `codex`, `codex-cli` | `verified: false` | `manual` (`/mcp reconnect <server>` typed by the user) |
+| `gemini` | `gemini`, `gemini-cli` | `verified: false` | `manual` (`/mcp reconnect <server>` typed by the user) |
+
+Audit hardening (Dokimos range 1b983f1..b605677):
+- **D-HR-1**: `find_harness` returns only real ancestors (same uid, `/proc/<pid>/exe`). There is no peer-process or `target_override` fallback; `execute` requires `reason == "ok"`. Peer sessions appear in `matrix` only as an informational count (`peer_sessions_informational`), never as a pid or tty.
+- **D-HR-2**: `certify` and `matrix` require tier >= `5r-x`. `certify` never calls the sudo helper nor touches the sysctl; `matrix` spawns external CLIs (`<cli> mcp list|get|--version`) only from the server gate (>= `5r-x`).
+- **D-HR-3**: the helper allowlist is exactly `/mcp reconnect <server>`.
+- **D-HR-5/6**: no verified out-of-band reload channel exists, so `agy`/`codex` RPC is `UNSUPPORTED` with a manual route and is never reported `OK`. `AEP_AGY_RPC_URL` and `CODEX_HOME` are no longer read. Harnesses whose command has no verified source (`verified: false`) default to the manual route and `execute` returns `UNSUPPORTED`.
 
 **Extended `params` contract (`aep_ctl(domain="ipc", action="harness_reconnect")`)**:
-- `mode?: "plan" | "execute" | "certify"` — `certify` runs `certify_loopback(message="hello world")` across an isolated kernel PTY pair (`agent_plane -> session_steward_pty_loopback -> agent_plane`), validates `check_tty_fd`, verifies SHA-256 integrity (`b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9`), and records `CERTIFIED` in the SQLite audit ledger.
+- `mode?: "plan" | "execute" | "certify" | "matrix"` — `certify` is an unprivileged pty loopback (`tier >= 5r-x`): it opens an isolated pty pair, validates `check_tty_fd`, round-trips the message with a SHA-256 digest and returns `status: "LOOPBACK_OK"` with `certified: false` (the ledger records `UNVERIFIED`). `CERTIFIED` is reserved for a kernel `TIOCSTI` run with rc 0, which this mode never performs. `matrix` is read-only (`tier >= 5r-x`).
 - `harness?: "claude" | "agy" | "codex" | "gemini"` — explicit target harness override.
 - `force?: bool` — when `True`, allows on-demand execution even when `front_stale=False` (still strictly gated by `tier == "7rwx"` and per-call `confirm=True`).
 

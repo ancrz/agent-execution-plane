@@ -203,7 +203,11 @@ def _string_constants(fn: ast.AST) -> list[str]:
 
 
 def literal_dict_best_effort(node: ast.AST | None) -> dict[str, Any]:
-    """literal_eval de un dict; si falla por valores no literales, evalúa clave a clave lo que pueda."""
+    """literal_eval de un dict; si falla por valores no literales, evalúa entrada a entrada lo que pueda.
+
+    D-AE-1: recursa en `ast.Dict` anidados, salta las claves `None` (`**spread`) y las entradas no literales
+    (comprensiones, llamadas), para que un dominio con una entrada dinámica no desaparezca entero.
+    """
     if not isinstance(node, ast.Dict):
         return {}
     try:
@@ -212,11 +216,12 @@ def literal_dict_best_effort(node: ast.AST | None) -> dict[str, Any]:
     except (ValueError, SyntaxError):
         out: dict[str, Any] = {}
         for k, v in zip(node.keys, node.values, strict=True):
-            if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                try:
-                    out[k.value] = ast.literal_eval(v)
-                except (ValueError, SyntaxError):
-                    out[k.value] = None
+            if k is None or not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+                continue
+            try:
+                out[k.value] = ast.literal_eval(v)
+            except (ValueError, SyntaxError):
+                out[k.value] = literal_dict_best_effort(v) if isinstance(v, ast.Dict) else None
         return out
 
 

@@ -614,10 +614,10 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
     },
     "ipc": {
         "actions": ["status", "ping", "lease", "release", "reap", "pool", "flush", "metrics", "stats", "cache", "harness_reconnect"],
-        "arg": "[session_id] | harness_reconnect params: mode=plan|execute, confirm=true, server",
+        "arg": "[session_id] | harness_reconnect params: mode=plan|execute|certify|matrix, confirm=true, server",
         "description": (
             "Shared-memory UNIX domain socket pool (/dev/shm/aep.sock) and ephemeral session slot management. "
-            "harness_reconnect (MCP only): plan is read-only at any tier; execute needs 7rwx and confirm=true."
+            "harness_reconnect (MCP only): plan is read-only at any tier; certify/matrix need >= 5r-x; execute needs 7rwx and confirm=true."
         ),
         "preconditions": {
             **{

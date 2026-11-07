@@ -33,7 +33,6 @@ def test_helper_payload_allowlist_is_reconnect_only() -> None:
     assert "hello world" not in hr.HELPER_SCRIPT
 
 
-@pytest.mark.xfail(strict=True, reason="D-AE-1: literal_dict_best_effort drops whole domain (ipc, backup) containing a dict-comprehension")
 def test_control_plane_ipc_actions_visible_to_extractor() -> None:
     tree = ast.parse(Path("engine/privilege.py").read_text())
     value = tx.literal_dict_best_effort(tx.find_module_assign(tree, "CONTROL_PLANE_SCHEMA"))
