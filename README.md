@@ -1170,7 +1170,7 @@ Si faltan, la instalación **degrada con aviso** en lugar de fallar; `./scripts/
 | Arquitectura `x86_64` o `aarch64` | Binarios de uv, Go, golangci-lint, pueue | En otras arquitecturas se omiten Go/golangci-lint/pueue (sondas Go y cola asíncrona degradan); uv es imprescindible. |
 | Un cliente MCP (`claude`, `agy`, `codex` o `gemini`) | Registro automático del servidor | La instalación termina con "0 clientes MCP registrados" (aviso, no éxito pleno). |
 
-Versiones fijadas con SHA-256 (cabecera de `scripts/setup.sh`): uv 0.13.7, Go 1.26.10, golangci-lint v1.61.0,
+Versiones fijadas con SHA-256 (cabecera de `scripts/setup.sh`): uv 0.13.7, Go 1.26.10, golangci-lint v2.15.0,
 pueue v4.0.4. Las dependencias Python se instalan con `uv sync --frozen` desde `uv.lock`.
 
 Dominios de red usados por `setup.sh`: `github.com` y `objects.githubusercontent.com` (uv, golangci-lint, pueue),

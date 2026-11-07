@@ -24,11 +24,12 @@ UV_SHA256_aarch64="71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e5
 GO_VERSION="1.26.10"
 GO_SHA256_amd64="ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
 GO_SHA256_arm64="3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797"
-# golangci-lint v1.61.0 — hashes: golangci-lint-1.61.0-checksums.txt del release
-#   https://github.com/golangci/golangci-lint/releases/tag/v1.61.0
-GL_VERSION="1.61.0"
-GL_SHA256_amd64="77cb0af99379d9a21d5dc8c38364d060e864a01bd2f3e30b5e8cc550c3a54111"
-GL_SHA256_arm64="af60ac05566d9351615cb31b4cc070185c25bf8cbd9b09c1873aa5ec6f3cc17e"
+# golangci-lint v2.15.0 (go.mod go 1.26.0; binario compilado con Go 1.27.0, compatible con Go 1.26.10) — hashes:
+#   golangci-lint-2.15.0-checksums.txt (asset oficial del release)
+#   https://github.com/golangci/golangci-lint/releases/tag/v2.15.0
+GL_VERSION="2.15.0"
+GL_SHA256_amd64="9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+GL_SHA256_arm64="b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998"
 # pueue v4.0.4 — el release NO publica checksums: sha256 calculado localmente sobre los assets
 #   https://github.com/Nukesor/pueue/releases/tag/v4.0.4 (musl) el 2026-11-07 (TOFU, fijado desde esa fecha).
 PUEUE_VERSION="v4.0.4"
