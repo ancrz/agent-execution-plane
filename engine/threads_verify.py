@@ -57,6 +57,7 @@ SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
 WRONG_TREE = "WRONG_TREE"
 BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
 NO_TESTS_EXECUTED = "NO_TESTS_EXECUTED"
+NON_DISCRIMINATING = "NON_DISCRIMINATING"
 ENV_RETRIES_EXHAUSTED = "ENV_RETRIES_EXHAUSTED"
 
 REJECT_REASONS: tuple[str, ...] = (
@@ -72,6 +73,7 @@ REJECT_REASONS: tuple[str, ...] = (
     NO_DIRECT_COVERAGE,
     NO_TESTS_EXECUTED,
     TESTS_FAIL,
+    NON_DISCRIMINATING,
     BUDGET,
     ENV_RETRIES_EXHAUSTED,
 )
@@ -319,6 +321,15 @@ def decide(
     return out
 
 
+def add_reasons(decision: dict[str, Any], *extra: str) -> dict[str, Any]:
+    """Añade motivos a un veredicto ya calculado: fuerza REJECT y conserva el orden fijo de `REJECT_REASONS`."""
+    merged = set(decision.get("reasons", [])) | set(extra)
+    decision["reasons"] = [r for r in REJECT_REASONS if r in merged]
+    decision["verdict"] = REJECT
+    decision.pop("job", None)
+    return decision
+
+
 def run_tests_batched(
     tests: list[str],
     run_tests: Callable[[list[str]], dict[str, Any]],
@@ -336,6 +347,7 @@ def run_tests_batched(
     ran = passed = failed = errors = 0
     exit_code: int | None = 0
     unsandboxed = False
+    failing: list[str] = []
     for chunk in chunks:
         res = run_tests(chunk)
         if (
@@ -350,6 +362,7 @@ def run_tests_batched(
         passed += int(res.get("passed", 0) or 0)
         failed += int(res.get("failed", 0) or 0)
         errors += int(res.get("errors", 0) or 0)
+        failing.extend(str(f) for f in res.get("failing", []) if f not in failing)
         if res.get("unsandboxed"):
             unsandboxed = True
         rc = res.get("exit_code")
@@ -367,6 +380,8 @@ def run_tests_batched(
     }
     if unsandboxed:
         out["unsandboxed"] = True
+    if failing:
+        out["failing"] = failing
     return out
 
 

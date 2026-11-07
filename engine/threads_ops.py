@@ -19,8 +19,11 @@ Reglas de diseno:
 
 from __future__ import annotations
 
+import contextlib
 import json
-from collections.abc import Callable
+import shutil
+import tempfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -229,6 +232,76 @@ def select_tests(
     return kept, selection
 
 
+_COPY_IGNORE = shutil.ignore_patterns(".git", ".venv", "__pycache__", "node_modules", ".pytest_cache")
+_UNLISTED = "(unlisted)"
+BaseRunner = Callable[[Path], Callable[[list[str]], dict[str, Any]]]
+
+
+@contextlib.contextmanager
+def base_with_patched_tests(
+    tree: Path | str, snapshot: Path | str | None, test_args: list[str]
+) -> Iterator[Path | None]:
+    """E1: arbol BASE (snapshot o HEAD) con los directorios de test del arbol PARCHEADO superpuestos.
+
+    Es el mismo codigo que la base pero con los tests (nuevos/modificados) del parche, para saber si fallan sin el fix.
+    El snapshot nunca se muta (se copia). None -> BASE_UNAVAILABLE.
+    """
+    with tv.base_tree(tree, snapshot=snapshot) as base_dir:
+        if base_dir is None:
+            yield None
+            return
+        work = Path(tempfile.mkdtemp(prefix="aep_autoevol_e1_"))
+        try:
+            dest = work / "tree"
+            if snapshot is not None:
+                shutil.copytree(base_dir, dest, ignore=_COPY_IGNORE, symlinks=False)
+            else:
+                dest = base_dir
+            patched = Path(tree)
+            for top in sorted({a.split("::", 1)[0].split("/", 1)[0] for a in test_args if "/" in a}):
+                src = patched / top
+                if not src.is_dir():
+                    continue
+                shutil.rmtree(dest / top, ignore_errors=True)
+                shutil.copytree(src, dest / top, ignore=_COPY_IGNORE, symlinks=False)
+            for a in test_args:  # tests en la raiz (sin directorio)
+                f = a.split("::", 1)[0]
+                if "/" not in f and (patched / f).is_file():
+                    shutil.copy2(patched / f, dest / f)
+            yield dest
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def discriminate(
+    base_runner: BaseRunner, tree: Path | str, snapshot: Path | str | None, impacted: list[str]
+) -> dict[str, Any]:
+    """Corre los tests seleccionados contra la BASE (con los tests del parche). `ids` = fallan en base (y pasan parcheados).
+
+    Mismo runner por lotes y mismo tope que el verify (solo los seleccionados). Fallo de infraestructura -> `env`.
+    """
+    with base_with_patched_tests(tree, snapshot, impacted) as dest:
+        if dest is None:
+            return {"env": tv.BASE_UNAVAILABLE}
+        res = tv.run_tests_batched(impacted, base_runner(dest))
+    if res.get("wrong_tree"):
+        return {"env": tv.WRONG_TREE}
+    infra = res.get("available") is False or res.get("timeout") or res.get("no_summary")
+    if infra or str(res.get("status", "")).upper() == tv.PENDING:
+        return {"env": tv.SANDBOX_UNAVAILABLE}
+    failing = {str(f) for f in res.get("failing", [])}
+    ids = [a for a in impacted if a in failing or any(f.endswith(a) or a.endswith(f) for f in failing)]
+    if not ids and int(res.get("failed", 0) or 0) + int(res.get("errors", 0) or 0) > 0:
+        ids = [_UNLISTED]  # el runner no listo los nodos: hubo fallos en base, pero no se pueden nombrar
+    return {"ids": ids}
+
+
+def _discrimination_required(gap: str | None, cmp: dict[str, Any]) -> bool:
+    """Drift/open_discrepancy como objetivo (o algun drift arreglado), o parche que toca codigo publico."""
+    fixed_drift = any(str(g).startswith("drift:") for g in cmp.get("fixed", []))
+    return bool(str(gap or "").startswith("drift:") or (not gap and fixed_drift) or cmp.get("touches_public"))
+
+
 def judge(
     base: dict[str, Any] | None,
     tree: Path | str,
@@ -240,6 +313,8 @@ def judge(
     trusted: bool,
     tests_result: dict[str, Any] | None = None,
     apply: bool = False,
+    base_runner: BaseRunner | None = None,
+    snapshot: Path | str | None = None,
 ) -> dict[str, Any]:
     """Una iteracion: analiza el arbol parcheado y decide contra la base congelada."""
     if base is None:
@@ -268,6 +343,19 @@ def judge(
             batch_sync=True,
         )
     out["selection"] = selection
+    if out.get("verdict") == tv.ACCEPT and _discrimination_required(gap, cmp):
+        if base_runner is None:
+            out.setdefault("warnings", []).append("discrimination unchecked")
+        elif not impacted:
+            tv.add_reasons(out, tv.NON_DISCRIMINATING)
+        else:
+            disc = discriminate(base_runner, tree, snapshot, impacted)
+            if "env" in disc:
+                tv.add_reasons(out, disc["env"])
+            elif not disc["ids"]:
+                tv.add_reasons(out, tv.NON_DISCRIMINATING)
+            else:
+                out["discriminating"] = disc["ids"][:SELECTION_CAP]
     if out.get("verdict") == tv.ACCEPT and (selection["transitive_dropped"] or selection.get("head_dropped")):
         out["partial"] = True  # el tope oculto tests: un ACCEPT no equivale a suite completa
     return out
@@ -275,7 +363,7 @@ def judge(
 
 def _verdict_payload(decision: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {"status": "OK", "verdict": decision["verdict"], "reasons": decision["reasons"]}
-    for key in ("fixed", "gaps", "tests", "selection", "partial", "job", "detail", "warnings"):
+    for key in ("fixed", "gaps", "tests", "selection", "discriminating", "partial", "job", "detail", "warnings"):
         if key in decision:
             out[key] = decision[key]
     out.update(extra or {})
@@ -296,6 +384,7 @@ def run_verify(
     trusted: bool,
     terse: bool,
     apply: bool = False,
+    base_runner: BaseRunner | None = None,
 ) -> dict[str, Any]:
     """`autoevol(verify)`: veredicto sin estado contra la base (snapshot o HEAD). Sin base: BASE_UNAVAILABLE."""
     base, source = base_summary(tree, snapshot)
@@ -314,6 +403,8 @@ def run_verify(
         trusted=trusted,
         tests_result=tests_result,
         apply=apply,
+        base_runner=base_runner,
+        snapshot=snapshot,
     )
     extra: dict[str, Any] = {"base": source} if source else {}
     binfo = barrier_info(barrier)
@@ -339,6 +430,7 @@ def run_fix_test(
     trusted: bool,
     terse: bool,
     apply: bool = False,
+    base_runner: BaseRunner | None = None,
 ) -> dict[str, Any]:
     """`autoevol(fix_test)` re-entrante. Sin `cycle` abre uno (base congelada); con `cycle` evalua el parche."""
     budget = TERSE_BUDGET if terse else SUMMARY_BUDGET
@@ -363,6 +455,8 @@ def run_fix_test(
         trusted=trusted,
         tests_result=tests_result,
         apply=apply,
+        base_runner=base_runner,
+        snapshot=snapshot,
     )
     binfo = barrier_info(barrier)
     reasons = set(decision["reasons"])

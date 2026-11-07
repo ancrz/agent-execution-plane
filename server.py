@@ -5253,12 +5253,16 @@ def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
         py = parsed["pytest"]
     if not isinstance(py, dict):
         return None
-    return {
+    counts: dict[str, Any] = {
         "ran": int(py.get("total", 0)),
         "passed": int(py.get("passed", 0)),
         "failed": int(py.get("failed", 0)),
         "errors": int(py.get("errors", 0)),
     }
+    failing = [str(n) for n in (py.get("failing_nodes") or [])][:50]
+    if failing:
+        counts["failing"] = failing  # E1: ids que fallan (base) para `discriminating`
+    return counts
 
 
 def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
@@ -5492,6 +5496,7 @@ async def autoevol(
                 "trusted": trusted,
                 "terse": terse,
                 "apply": bool(apply and trusted),  # B8: con apply no se aplica el tope de seleccion
+                "base_runner": lambda t: _autoevol_test_runner(t, trusted),  # E1: seleccionados contra la BASE
             }
             if act == "verify":
                 result = ops.run_verify(tree, **common)
