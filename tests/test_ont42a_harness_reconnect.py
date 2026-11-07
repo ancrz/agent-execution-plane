@@ -362,94 +362,54 @@ def test_multi_harness_session_steward_profiles_and_rpc(tmp_path: Path) -> None:
         found = hr.find_harness(sub, 200, os.getuid())
         assert found["found"] and found["harness"] == expected
 
-    # 2. Target override for RPC harnesses (agy / codex) and unknown target rejection
+    # 2. No target_override: without real ancestry nothing is actionable (D-HR-1); unknown target rejected
     empty_proc = tmp_path / "empty"
     _mk_proc(empty_proc, 200, 1, "/usr/bin/python3")
-    assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="agy")["harness"] == "agy"
-    assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="codex")["harness"] == "codex"
+    for tgt in ("agy", "codex"):
+        assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness=tgt) == {"found": False, "reason": "harness_not_in_ancestry"}
     assert hr.find_harness(empty_proc, 200, os.getuid(), target_harness="invalid")["reason"] == "unknown_target_harness"
 
-    # 3. RPC reload route (agy / codex) executes without touching sysctl or TTY, and force=True bypasses front_stale=False
+    # 3. execute never acts without ancestry, even with force and an RPC adapter that claims success
     rec = _Rec()
     ad = rec.adapters()
-    ad.probe_rpc = lambda h: {"available": h in ("agy", "codex"), "transport": "connect_rpc"}
+    ad.probe_rpc = lambda h: {"available": True, "transport": "connect_rpc"}
     ad.run_rpc = lambda h, s: (True, f"{h}_reloaded:{s}")
-    plan = hr.build_plan(
-        front_stale=False,
-        force=True,
-        target_harness="agy",
-        proc_root=empty_proc,
-        start_pid=200,
-        adapters=ad,
-    )
-    assert plan["recommended_route"] == "rpc_reload" and plan["harness"] == "agy"
-    res = hr.execute(
-        tier="7rwx",
-        confirm=True,
-        front_stale=False,
-        force=True,
-        target_harness="agy",
-        proc_root=empty_proc,
-        start_pid=200,
-        adapters=ad,
-    )
-    assert res["status"] == "OK" and res["route"] == "rpc_reload" and rec.helper_calls == 0
-    assert [s for s, _ in rec.audits] == ["ATTEMPT", "OK"]
+    res = hr.execute(tier="7rwx", confirm=True, front_stale=False, force=True, target_harness="agy", proc_root=empty_proc, start_pid=200, adapters=ad)
+    assert res["status"] == "REJECTED" and res["reason"] == "harness_not_in_ancestry" and rec.helper_calls == 0
     assert hr.real_adapters().probe_rpc("claude")["available"] is False
-    cert = hr.certify_loopback("hello world", proc_root=empty_proc, start_pid=200, target_harness="agy", adapters=ad)
-    assert cert["status"] == "OK" and cert["certified"] is True and cert["message_received"] == "hello world"
-    assert cert["primitive"] == "autonomous_session_steward"
-    ctl_cert = _ctl(params={"mode": "certify", "message": "hello world"})
-    assert ctl_cert["status"] == "OK" and ctl_cert["certified"] is True and ctl_cert["message_received"] == "hello world"
 
 
-def test_console_reach_battery_across_installed_harnesses(tmp_path: Path) -> None:
-    """Battery validating console/TUI reach for agy, claude, codex, and gemini:
-    - Sibling peer-process discovery in /proc (e.g. agy agent targeting active claude on /dev/pts/0).
-    - Prevention of caller-TTY theft when targeting an idle CLI/RPC harness (codex pid=None -> tty=None).
-    - Full matrix probe (`probe_console_reach` / `mode='matrix'`) distinguishing `rpc_reload` vs `tty_inject`.
-    """
+def test_console_reach_battery_never_targets_non_ancestors(tmp_path: Path) -> None:
+    """D-HR-1: a sibling harness session is never actionable; peers are informational counts only."""
     proc = tmp_path / "proc_multi"
-    # Caller (PID 200) runs under Antigravity language_server (PID 100, GUI/no TTY) but has its own subshell pts/3
     _mk_proc(proc, 100, 1, "/opt/Antigravity/resources/bin/language_server", 0)
     _mk_proc(proc, 200, 100, "/usr/bin/python3", _pts_nr(3))
-    # Sibling Claude Code TUI session (PID 300) running on /dev/pts/0
-    _mk_proc(proc, 300, 1, "/home/u/.local/share/claude/versions/2.1.319", _pts_nr(0))
+    _mk_proc(proc, 300, 1, "/home/u/.local/share/claude/versions/2.1.319", _pts_nr(0))  # sibling, not an ancestor
 
-    # 1. Peer-process discovery: targeting 'claude' from 'agy' child finds PID 300 on /dev/pts/0
-    found_claude = hr.find_harness(proc, 200, os.getuid(), target_harness="claude")
-    assert found_claude == {"found": True, "reason": "peer_process", "pid": 300, "harness": "claude"}
-    assert hr.resolve_tty(proc, found_claude["pid"])["path"] == "/dev/pts/0"
+    assert hr.find_harness(proc, 200, os.getuid(), target_harness="claude") == {"found": False, "reason": "harness_not_in_ancestry"}
+    assert hr.find_harness(proc, 200, os.getuid(), target_harness="codex") == {"found": False, "reason": "harness_not_in_ancestry"}
+    assert hr.count_peer_sessions(proc, os.getuid(), "claude") == 1
 
-    # 2. Idle RPC/CLI harness ('codex' not in /proc): target_override sets pid=None and NEVER steals caller's /dev/pts/3
-    found_codex = hr.find_harness(proc, 200, os.getuid(), target_harness="codex")
-    assert found_codex == {"found": True, "reason": "target_override", "pid": None, "harness": "codex"}
-    assert hr.resolve_tty(proc, found_codex["pid"]) == {"ok": False, "reason": "no_controlling_tty"}
+    rec = _Rec()
+    ad = rec.adapters()
+    res = hr.execute(tier="7rwx", confirm=True, front_stale=True, target_harness="claude", proc_root=proc, start_pid=200, adapters=ad)
+    assert res["status"] == "REJECTED" and rec.helper_calls == 0
 
-    # 3. Matrix reach evaluation across all 4 harnesses
-    ad = _Rec().adapters()
-    ad.probe_rpc = lambda h: {"available": h in ("agy", "codex"), "transport": f"{h}_rpc"}
     matrix = hr.probe_console_reach(proc_root=proc, start_pid=200, uid=os.getuid(), adapters=ad)
     assert matrix["status"] == "OK" and matrix["mode"] == "matrix"
     hmap = matrix["harnesses"]
-    assert hmap["claude"]["active_pid"] == 300 and hmap["claude"]["controlling_tty"] == "/dev/pts/0"
-    assert hmap["claude"]["recommended_route"] == "tty_inject" and hmap["claude"]["requires_sudo_tiocsti"] is True
+    assert hmap["claude"]["active_pid"] is None and hmap["claude"]["controlling_tty"] is None
+    assert hmap["claude"]["peer_sessions_informational"] == 1 and hmap["claude"]["recommended_route"] == "manual"
     assert hmap["agy"]["active_pid"] == 100 and hmap["agy"]["controlling_tty"] is None
-    assert hmap["agy"]["recommended_route"] == "rpc_reload" and hmap["agy"]["requires_sudo_tiocsti"] is False
-    assert hmap["codex"]["active_pid"] is None and hmap["codex"]["controlling_tty"] is None
-    assert hmap["codex"]["recommended_route"] == "rpc_reload" and hmap["codex"]["requires_sudo_tiocsti"] is False
-    assert hmap["gemini"]["active_pid"] is None and hmap["gemini"]["recommended_route"] == "manual"
-    ctl_mat = _ctl(params={"mode": "matrix"})
-    assert ctl_mat["status"] == "OK" and set(ctl_mat["harnesses"]) == {"claude", "agy", "codex", "gemini"}
+    assert hmap["codex"]["active_pid"] is None and hmap["gemini"]["recommended_route"] == "manual"
+    assert all(not v["requires_sudo_tiocsti"] for k, v in hmap.items() if k != "claude")
 
-    # 4. When agy or codex runs in a console (/dev/pts/4), kernel tty_inject takes precedence over rpc_reload
-    for hname, exe in (("agy", "/usr/local/bin/agy"), ("codex", "/usr/local/bin/codex")):
-        sub = tmp_path / f"pts_{hname}"
-        _mk_proc(sub, 500, 1, exe, _pts_nr(4))
-        p_pts = hr.build_plan(front_stale=True, target_harness=hname, proc_root=sub, start_pid=500, adapters=ad)
-        assert p_pts["tty"] == "/dev/pts/4" and p_pts["recommended_route"] == "tty_inject"
-
-
+    # a real ancestor harness on a pts keeps the tty_inject route
+    sub = tmp_path / "pts_claude"
+    _mk_proc(sub, 500, 1, "/usr/local/bin/claude", _pts_nr(4))
+    _mk_proc(sub, 501, 500, "/usr/bin/python3")
+    p_pts = hr.build_plan(front_stale=True, target_harness="claude", proc_root=sub, start_pid=501, adapters=ad)
+    assert p_pts["tty"] == "/dev/pts/4" and p_pts["recommended_route"] == "tty_inject"
 
 
 def test_ipc_execute_requires_tier_and_confirm(monkeypatch: pytest.MonkeyPatch) -> None:

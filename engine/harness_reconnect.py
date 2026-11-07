@@ -136,7 +136,8 @@ def find_harness(
     """Walk the real ancestry of `start_pid` looking for a known harness.
 
     Uses `/proc/<pid>/exe` (not comm/argv, both forgeable) and requires the same uid as the caller.
-    If `target_harness` is explicitly specified and valid, filters or resolves to that harness.
+    If `target_harness` is given and valid, only an ancestor of that harness is accepted: there is no peer or
+    out-of-band fallback (D-HR-1), so a returned pid is always a real ancestor of the caller.
     Returns {"found": bool, "reason": str, ...}.
     """
     if target_harness is not None:
@@ -165,30 +166,23 @@ def find_harness(
         if st is None:
             break
         pid = st["ppid"]
-    if norm:
-        peers: list[tuple[int, int]] = []
-        with contextlib.suppress(OSError):
-            for entry in root.iterdir():
-                if not entry.name.isdigit():
-                    continue
-                cand_pid = int(entry.name)
-                try:
-                    if entry.stat().st_uid != uid:
-                        continue
-                    if _harness_name(os.readlink(entry / "exe")) != norm:
-                        continue
-                except OSError:
-                    continue
-                cand_st = _read_stat(root, cand_pid)
-                has_pts = 0 if (cand_st and cand_st.get("tty_nr", 0) > 0) else 1
-                peers.append((has_pts, cand_pid))
-        if peers:
-            peers.sort()
-            return {"found": True, "reason": "peer_process", "pid": peers[0][1], "harness": norm}
-    if norm in ("agy", "codex"):
-        # Out-of-band CLI/RPC harnesses (agy, codex) can be targeted via CLI/socket even without an active TUI process.
-        return {"found": True, "reason": "target_override", "pid": None, "harness": norm}
     return {"found": False, "reason": "harness_not_in_ancestry"}
+
+
+def count_peer_sessions(proc_root: str | Path, uid: int, harness: str) -> int:
+    """Informational only: how many same-uid processes run `harness`. Never returns a pid or a tty path,
+    so the result cannot be turned into an actionable target (D-HR-1)."""
+    count = 0
+    with contextlib.suppress(OSError):
+        for entry in Path(proc_root).iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if entry.stat().st_uid == uid and _harness_name(os.readlink(entry / "exe")) == harness:
+                    count += 1
+            except OSError:
+                continue
+    return count
 
 
 def resolve_tty(proc_root: str | Path, harness_pid: int | None) -> dict[str, Any]:
@@ -632,8 +626,8 @@ def execute(
     if not front_stale and not force:
         return done("NOOP", "front_stale=false", route="noop")
     harness = find_harness(proc_root, os.getpid() if start_pid is None else start_pid, me, target_harness=target_harness)
-    if not harness.get("found"):
-        return done("REJECTED", harness["reason"])
+    if not harness.get("found") or harness.get("reason") != "ok":
+        return done("REJECTED", str(harness.get("reason", "harness_not_in_ancestry")))
     hname = str(harness["harness"])
     payload = build_payload(hname, server)
     if payload is None or not validate_payload(payload):
@@ -848,6 +842,7 @@ def probe_console_reach(
             "cli_mcp_registered": cli_mcp_registered,
             "cli_probe_detail": cli_probe_detail,
             "active_pid": plan["harness_pid"],
+            "peer_sessions_informational": count_peer_sessions(proc_root, me, hname),
             "controlling_tty": plan["tty"],
             "rpc_available": plan["rpc_available"],
             "recommended_route": plan["recommended_route"],

@@ -10,10 +10,9 @@ import pytest
 
 from engine import harness_reconnect as hr
 from engine import threads_extractors as tx
-from tests.test_ont42a_harness_reconnect import _Rec, _mk_proc, _pts_nr
+from tests.test_ont42a_harness_reconnect import _mk_proc, _pts_nr, _Rec
 
 
-@pytest.mark.xfail(strict=True, reason="D-HR-1 (C3): peer_process lookup returns a non-ancestor harness (other session's TTY)")
 def test_find_harness_never_returns_non_ancestor(tmp_path: Path) -> None:
     _mk_proc(tmp_path, 100, 1, "/usr/bin/python3", _pts_nr(3))
     _mk_proc(tmp_path, 300, 1, "/home/u/.local/share/claude/versions/2.1.319", _pts_nr(0))  # sibling, not an ancestor
