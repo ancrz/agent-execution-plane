@@ -447,6 +447,9 @@ def run_fix_test(
         return {"status": "CLOSED", "state": rec["state"], "cycle": cycle}
     pending_job = job or rec.get("job")
     tests_result = poll_job(str(pending_job)) if (pending_job and poll_job is not None) else None
+    # D-EV-1b: huella ANTES de juzgar (o la guardada al despachar, en la ruta async) y recomputada despues.
+    fp_before = tree_fingerprint(tree) if tree_fingerprint is not None else None
+    expected_fp = (rec.get("pending_fp") or fp_before) if tests_result is not None else fp_before
     decision = judge(
         rec["base"],
         tree,
@@ -460,6 +463,11 @@ def run_fix_test(
         base_runner=base_runner,
         snapshot=snapshot,
     )
+    fp_after = tree_fingerprint(tree) if tree_fingerprint is not None else None
+    if tree_fingerprint is not None and decision["verdict"] == tv.ACCEPT and fp_after != expected_fp:
+        tv.add_reasons(decision, tv.TREE_MUTATED_DURING_JUDGE)  # no ambiental: consume iteracion
+    if decision["verdict"] == tv.PENDING and fp_before:
+        decision["pending_fp"] = rec.get("pending_fp") or fp_before
     binfo = barrier_info(barrier)
     reasons = set(decision["reasons"])
     if decision["verdict"] == tv.REJECT and reasons and reasons <= ENVIRONMENTAL:
@@ -482,7 +490,7 @@ def run_fix_test(
     to_record = decision
     if decision["verdict"] == tv.ACCEPT and tree_fingerprint is not None:
         # D-EV-1: el ACCEPT queda atado al arbol juzgado (huella inyectada) y a su raiz real.
-        to_record = {**decision, "judged": {"tree": tree_fingerprint(tree) or "", "root": os.path.realpath(tree)}}
+        to_record = {**decision, "judged": {"tree": fp_before or "", "root": os.path.realpath(tree)}}
     recorded = store.record(cycle, to_record)
     state = recorded.get("state", "")
     left = max(0, rec["max_iterations"] - int(recorded.get("iteration", rec["iteration"])))

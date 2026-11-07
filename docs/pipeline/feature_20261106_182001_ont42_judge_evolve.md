@@ -449,3 +449,10 @@ flowchart LR
 
 - **D-EV-1 (Dokimos, LOGIC_ERROR)**: `fix_test` registra al ACCEPT `judged.tree` (huella inyectada desde `server.py`, misma logica que `GitCli.candidate_tree`) y `judged.root` (realpath). `evolve._commit` exige `candidate_tree() == judged_tree` y `work_root() == judged_root`; si no, `BLOCKED_GIT` con `tree_changed_after_accept` / `root_mismatch`. Ciclos sin `judged` (previos al fix) quedan `no_judged_tree` (fail-closed). Re-juzgar exige un nuevo `fix_test`.
 - **M-1 (decision)**: E1 (el test debe fallar en base y pasar con el parche, si no `NON_DISCRIMINATING`) solo se exige para gaps `drift` / `open_discrepancy` o parches que tocan codigo publico; para el resto el ACCEPT no requiere discriminacion.
+
+## 18. ONT-42c: D-EV-1b (huella antes de juzgar) y riesgo aceptado M-2b (fix cycle 2/3)
+
+- **D-EV-1b (fix)**: `run_fix_test` calcula `fp_before` ANTES de `judge()` y `fp_after` despues. Si el veredicto es ACCEPT y difieren, se degrada a REJECT con `TREE_MUTATED_DURING_JUDGE` (en `REJECT_REASONS`, tras `NON_DISCRIMINATING`; NO ambiental, consume iteracion). `judged.tree` se registra con `fp_before`, solo si coincide con `fp_after`.
+- **Ruta async**: al despachar (`PENDING`) la huella se guarda en el registro del ciclo (`pending_fp`); en el poll se compara con la huella actual y, si difiere, REJECT `TREE_MUTATED_DURING_JUDGE`. Tests en `tests/test_ont42c_audit_judged_order.py` (sync, async mutado, async intacto). El xfail estricto se retiro.
+- **Scope creep revertido**: linea `# d18 fixed` en `engine/matcher.py` (residuo ajeno).
+- **Riesgo aceptado M-2b**: los archivos ignorados por `.gitignore` visibles al sandbox no entran en `candidate_tree`/commit, por lo que lo juzgado puede diferir de lo commiteado. Mitigacion futura: incluir en la huella los ignorados visibles al sandbox.

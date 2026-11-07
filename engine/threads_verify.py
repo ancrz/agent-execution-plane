@@ -58,6 +58,7 @@ WRONG_TREE = "WRONG_TREE"
 BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
 NO_TESTS_EXECUTED = "NO_TESTS_EXECUTED"
 NON_DISCRIMINATING = "NON_DISCRIMINATING"
+TREE_MUTATED_DURING_JUDGE = "TREE_MUTATED_DURING_JUDGE"
 ENV_RETRIES_EXHAUSTED = "ENV_RETRIES_EXHAUSTED"
 
 REJECT_REASONS: tuple[str, ...] = (
@@ -74,6 +75,7 @@ REJECT_REASONS: tuple[str, ...] = (
     NO_TESTS_EXECUTED,
     TESTS_FAIL,
     NON_DISCRIMINATING,
+    TREE_MUTATED_DURING_JUDGE,
     BUDGET,
     ENV_RETRIES_EXHAUSTED,
 )
@@ -728,6 +730,10 @@ class CycleStore:
             {"it": iteration, "verdict": verdict, "reasons": list(decision.get("reasons", []))[:LIST_CAP], "ts": now}
         )
         rec.update(state=state, iteration=iteration, updated=now, job=decision.get("job") if verdict == PENDING else None)
+        if verdict == PENDING and decision.get("pending_fp"):
+            rec["pending_fp"] = str(decision["pending_fp"])  # huella al despachar: el poll async la compara
+        else:
+            rec.pop("pending_fp", None)
         if state == ACCEPTED and isinstance(decision.get("judged"), dict):
             rec["judged"] = {k: str(v) for k, v in decision["judged"].items() if k in ("tree", "root") and v}  # D-EV-1
         name = cycle_file_name(self._uid, cycle_id)
