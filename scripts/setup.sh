@@ -432,12 +432,22 @@ download() {
 }
 
 # download_verified <url> <dest> <sha256>: descarga y exige coincidencia SHA-256 (fail-closed: borra si no coincide).
+# Códigos de retorno: 0 = ok, 1 = fallo de descarga (red/release), 2 = checksum no coincide (artefacto alterado o pin obsoleto).
+# DL_FAIL_REASON queda en "download" | "checksum" para que el llamador pueda informar la causa exacta.
+DL_FAIL_REASON=""
 download_verified() {
-    download "$1" "$2" || return 1
-    if [[ -z "${3:-}" ]] || ! echo "$3  $2" | sha256sum -c --status 2>/dev/null; then
-        log_err "SHA-256 no coincide para $(basename "$2"); descarga descartada."
+    DL_FAIL_REASON=""
+    if ! download "$1" "$2"; then
+        DL_FAIL_REASON="download"
+        log_warn "Descarga fallida para $(basename "$2") (red o release no disponible)."
         rm -f "$2"
         return 1
+    fi
+    if [[ -z "${3:-}" ]] || ! echo "$3  $2" | sha256sum -c --status 2>/dev/null; then
+        DL_FAIL_REASON="checksum"
+        log_err "SHA-256 no coincide para $(basename "$2"); descarga descartada."
+        rm -f "$2"
+        return 2
     fi
 }
 
@@ -666,10 +676,11 @@ if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOM
     log_step "Descargando binarios estáticos musl de Pueue a ~/.local/bin..."
     TAG="$PUEUE_VERSION"
     PQ_OK=$ARCH_OK
+    PQ_REASON=""
     for b in pueue pueued; do
         [[ $ARCH_OK -eq 1 ]] || break
         PQ_SHA_VAR="PUEUE_SHA256_${PUEUE_ARCH}_${b}"
-        download_verified "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-${PUEUE_ARCH}-unknown-linux-musl" "$TMP_DIR/$b" "${!PQ_SHA_VAR:-}" || PQ_OK=0
+        download_verified "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-${PUEUE_ARCH}-unknown-linux-musl" "$TMP_DIR/$b" "${!PQ_SHA_VAR:-}" || { PQ_OK=0; PQ_REASON="$DL_FAIL_REASON"; break; }
     done
     if [[ $PQ_OK -eq 1 ]]; then
         for b in pueue pueued; do
@@ -678,7 +689,13 @@ if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOM
         done
         log_success "Pueue $TAG instalado en ~/.local/bin."
     else
-        log_warn "No se pudo descargar Pueue (red o release no disponible); se omite."
+        if [[ "$PQ_REASON" == "checksum" ]]; then
+            log_warn "Pueue no instalado: checksum no coincide con el SHA-256 fijado (binario alterado o pin obsoleto); se omite."
+        elif [[ -n "$PQ_REASON" ]]; then
+            log_warn "No se pudo descargar Pueue (red o release no disponible); se omite."
+        else
+            log_warn "Pueue no instalado (arquitectura no soportada); se omite."
+        fi
     fi
 fi
 
