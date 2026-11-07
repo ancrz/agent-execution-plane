@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-11-07 · Servidor MCP: **17 tools / 19 capacidades** · Rama: `dev` (`5bee5c1`; origin/dev `b605677`, push retenido) · Auditoría agy `1b983f1..b605677`: **VERIFIED tras fixes** (Dokimos: suite 659 passed, 0 xfail; gaps 94 → 122; own_gaps 0) · Modo por defecto: **Short** · Siguiente: ONT-42c E1 (juez no falsificable) → C1–C7
+> Rama: `dev` (`9638056`; origin/dev `be78115`, push retenido) · ONT-42c E1 + C1–C3 **VERIFIED** (Dokimos: suite 706 passed, 0 xfail, ruff limpio; D-EV-1 y D-EV-1b cerrados en 2 ciclos Pragma↔Dokimos) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: C4 (gate final por lotes) → C5 → C6 → C7
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -65,7 +65,8 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 
 - **Política de modo (2026-11-07)**: Short por defecto por costos; Full sólo si el usuario lo pide o el blast radius lo exige.
 - **Política de recarga (2026-11-07)**: AEP recarga sólo su propia sesión (ancestría estricta); nunca sesiones ajenas.
-- **ONT-42c (feature de ONT-42, E1 primero)**: E1 juez no falsificable (`verify` exige tests que fallen en base y pasen con parche; si no, `NON_DISCRIMINATING`); luego E2 specs incrementales por `(thread_hash, R)`, E3 supervisión OTP sobre SCC, E4 reconciliación acotada por tier, y C1–C7 (`evolve`, `GitPort`, gate final, ledger, rollback, Merkle `R_before`/`R_after`). Registro: `docs/pipeline/feature_20261107_011128_agy_audit.md` §8.
+- **ONT-42c (VERIFIED E1 + C1–C3, `9638056`)**: E1 juez no falsificable (`NON_DISCRIMINATING`); C1–C3 `evolve` (state machine, `GitPort`, ff-only, tiers, fence). D-EV-1 (ACCEPT atado al árbol juzgado) y D-EV-1b (`TREE_MUTATED_DURING_JUDGE`) cerrados. Riesgo aceptado M-2b (ignorados fuera de la huella); M-1 documentado.
+- **ONT-42c pendientes (orden)**: C4 gate final por lotes con `run_tests_batched` (rojo = sin merge); C5 ledger UNIQUE por `(gap_canonical, base_R, tree_hash)` y `MAX_CYCLES` persistido; C6 rollback con `git revert` sin push; C7 Merkle `R_before`/`R_after`, SDD §4/§7/§9, AP-1 restringido a FULL. Backlog: E2 specs incrementales, E3 OTP sobre SCC, E4 reconciliación. Registro: `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §19.
 - **Backlog bajo**: O-1 `matrix` con `mcp get` puede lanzar stdio del server (documentar); O-2 reapeo tras hot-swap reinicia presupuesto de iteraciones; `aep_ctl` ignora `select_fields`; `backup.lkg_restore` sin `covers`.
 - **B9**: el ACCEPT de agy no es reproducible (el `verify` no discrimina D-01b); el fix sí pasa en pytest. Queda cubierto por E1.
 

@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-659_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-706_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -349,7 +349,7 @@ The plane exposes 17 RPC tools organized across operational domains plus the roo
 | `query_system_docs` | `DIMINISHED` | `query_system_docs(query: str = "", q: Optional[str] = None, limit: int = 3, ingest_command: Optional[str] = None) -> str` | Offline semantic vectorizer of Ubuntu `man` pages on `system_docs.db` (`sqlite-vec`). Resolves exact syntax in <5 ms without web lookups. Supports `q` query alias. `ingest_command` allows on-demand ingestion. | `{"status": "OK", "query": str, "results": [{"command": str, "section": str, "distance": float, "chunk_text": str}]}` | Lazy loader. Degrades gracefully with actionable instructions if vector dependencies are missing. |
 | `visual_inspect` | `DIMINISHED` | `visual_inspect(url: str, viewport_width: int = 1280, viewport_height: int = 800, selector: Optional[str] = None, full_page: bool = True, include_base64: bool = False, verbosity: str = "summary") -> str` | Renders local (`file://`) or remote URLs in headless Chromium via Playwright offloaded to a thread worker. Uses compact volatile RAM (`/dev/shm`) screenshot mode by default (`include_base64=False`, `verbosity="summary"`, `-98.9%` token footprint with `screenshot_path`, `screenshot_sha256`, and `text_excerpt`). | `{"status": "SUCCESS", "url": str, "title": str, "viewport": {...}, "screenshot_bytes": int, "screenshot_path": str, "screenshot_sha256": str, "text_excerpt": str}` | Returns `status: "DISPLAY_UNAVAILABLE"` if Playwright/Chromium is absent or on timeout (25s). |
 | `topos_audit_dag` | `DIMINISHED` | `topos_audit_dag(tasks: Union[List[str], List[Dict[str, Any]]], dependencies: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, deps: Optional[Union[Dict[str, List[str]], List[Dict[str, Any]]]] = None, resources: Optional[Dict[str, Any]] = None) -> str` | Guardian of the Topos Integrity Protocol. Features polymorphic DAG input support (`tasks` as `list[str]` or `list[dict]`, `dependencies`/`deps` as `dict` or edge `list[dict]`) and shared state resource auditing (`resources`). Under Milestone ONT-30 (`GAP-DX-05`), provides resilient task-level resource fallback: when `resources` is omitted or unpassable by schema-cached clients, automatically parses task dictionaries for `writes`/`write`, `reads`/`read`, and `contract` definitions to extract resource sets and execute Bernstein hazard detection without schema errors. Executes topological sorting, cycle detection, Bernstein condition write-set hazard detection (`ToposVerdict.WARN` on uncoordinated writers without contract), and shared mutable state co-dependency checking (`ToposVerdict.BLOCKED` on mutual reader/writer coupling without an interface node). Populates edge relationship classifications (`dependency`, `interdependency`, `co-dependency`) while strictly preserving the 2-tuple return contract. | Approved: `{"verdict": "APPROVED", "details": [...], "edges": [...]}`<br/>Warn: `{"verdict": "WARN", "hazards": [...], "details": [...]}`<br/>Blocked: `{"verdict": "BLOCKED", "cycle": [...], "remediation": [...], "details": [...]}` | Deterministic in-memory algorithm with zero external dependencies and zero I/O operations. |
-| `autoevol` | `DIMINISHED` | `autoevol(action="graph"\|"gaps"\|"thread"\|"log"\|"diff"\|"spec"\|"verify"\|"fix_test"\|"heal", node=None, a=None, b=None, gap=None, base=None, cycle=None, job=None, apply=False, restart=False, probe=False, root=None, persist=True, limit=10, select_fields=None, verbosity="summary")` | Read-only thread graph of AEP (tools, actions, capabilities, functions, SQL state, tests, claims, budgets): Merkle root R over the SCC condensation, omission gaps (`Req(t)`), declared-vs-observed drift, PageRank ranking and `impacted_tests`. `probe=True` (tier >= 5r-x) adds runtime observations outside R. Generations persist (`threads_gen` + SHA-256 ledger) only at tier >= 6rw-. ONT-41 and ONT-42b add `spec` (mini-SDD per gap with actionable `change` field and `resolve_gap` kind+target survival across Merkle hashes, tier >= 4r--), `verify` (ACCEPT/REJECT/PENDING against a frozen base with batched synchronous sandbox execution `run_tests_batched` up to 24 selected tests, pinning-test caller inheritance, and `WRONG_TREE` isolation sentinel, tier >= 5r-x), `fix_test` (re-entrant gap -> patch -> test cycle with orphan cycle reaping `_reap_orphan_cycles`, max 3 iterations, EXHAUSTED suggests `heal`, never reverts on its own) and `heal` (dry-run from the LKG at tier >= 4r--; `apply=True` needs tier >= 6rw- plus a prior workspace snapshot). Only `evolve` remains out of scope (`INVALID_ACTION`) pending ONT-42c. | `{status, root, nodes, edges, gaps_open, codep, own_gaps, persisted}` (terse < 300 tokens) | Never executes target code statically; probes are fail-open (timeout is an observation, not a gap). |
+| `autoevol` | `DIMINISHED` | `autoevol(action="graph"\|"gaps"\|"thread"\|"log"\|"diff"\|"spec"\|"verify"\|"fix_test"\|"heal", node=None, a=None, b=None, gap=None, base=None, cycle=None, job=None, apply=False, restart=False, probe=False, root=None, persist=True, limit=10, select_fields=None, verbosity="summary")` | Read-only thread graph of AEP (tools, actions, capabilities, functions, SQL state, tests, claims, budgets): Merkle root R over the SCC condensation, omission gaps (`Req(t)`), declared-vs-observed drift, PageRank ranking and `impacted_tests`. `probe=True` (tier >= 5r-x) adds runtime observations outside R. Generations persist (`threads_gen` + SHA-256 ledger) only at tier >= 6rw-. ONT-41 and ONT-42b add `spec` (mini-SDD per gap with actionable `change` field and `resolve_gap` kind+target survival across Merkle hashes, tier >= 4r--), `verify` (ACCEPT/REJECT/PENDING against a frozen base with batched synchronous sandbox execution `run_tests_batched` up to 24 selected tests, pinning-test caller inheritance, and `WRONG_TREE` isolation sentinel, tier >= 5r-x), `fix_test` (re-entrant gap -> patch -> test cycle with orphan cycle reaping `_reap_orphan_cycles`, max 3 iterations, EXHAUSTED suggests `heal`, never reverts on its own) and `heal` (dry-run from the LKG at tier >= 4r--; `apply=True` needs tier >= 6rw- plus a prior workspace snapshot). ONT-42c adds `evolve` (C1–C3: state machine, `GitPort`, ff-only merge preconditions, tier gating and fence; the commit is bound to the judged tree and root, and `TREE_MUTATED_DURING_JUDGE` rejects a tree mutated during judgement). Pending C4–C7 (final gate, ledger, rollback, Merkle `R_before`/`R_after`). | `{status, root, nodes, edges, gaps_open, codep, own_gaps, persisted}` (terse < 300 tokens) | Never executes target code statically; probes are fail-open (timeout is an observation, not a gap). |
 
 #### Domain 6: Automation via Orchestration — Pico-Playbooks (1 Tool)
 
@@ -1034,7 +1034,7 @@ flowchart TD
 >
 > Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
-### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3)
+### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3, ONT-42c)
 
 Each intent is linked to its milestones and to the agent responsible for each one. Status is updated at every pipeline activation. Source of truth: `docs/MILESTONES.md`.
 
@@ -1107,15 +1107,16 @@ flowchart LR
     M5 --> M6["M6: pushed to origin/dev ⛔ retenido por usuario"]
 ```
 
-**ONT-42c evaluador (pendiente, E1 primero):**
+**ONT-42c evaluador (E1 y C1–C3 VERIFIED; D-EV-1 y D-EV-1b cerrados; C4–C7 pendientes):**
 
 ```mermaid
 flowchart LR
-    I["Intent: ONT-42c evaluador (juez y reconciliacion)"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) pendiente"]
-    E1 --> E2["E2: specs incrementales por (thread_hash, R) pendiente"]
-    E2 --> E3["E3: supervision OTP sobre SCC pendiente"]
-    E3 --> E4["E4: reconciliacion acotada por tier pendiente"]
-    E4 --> C["C1-C7: evolve, GitPort, gate final, ledger, rollback pendiente"]
+    I["Intent: ONT-42c evaluador (juez y evolve)"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) ✅"]
+    E1 --> C13["C1-C3: evolve state machine, GitPort, ff-only ✅"]
+    C13 --> D["D-EV-1 / D-EV-1b: ACCEPT atado al arbol juzgado (2 ciclos) ✅"]
+    D --> V["M: verified (Dokimos, 706 passed, 0 xfail) ✅"]
+    V --> C47["C4-C7: gate final, ledger, rollback, Merkle ⏳"]
+    C47 --> E234["E2-E4: specs incrementales, OTP sobre SCC, reconciliacion ⏳"]
 ```
 
 

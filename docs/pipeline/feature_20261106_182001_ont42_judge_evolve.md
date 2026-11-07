@@ -456,3 +456,74 @@ flowchart LR
 - **Ruta async**: al despachar (`PENDING`) la huella se guarda en el registro del ciclo (`pending_fp`); en el poll se compara con la huella actual y, si difiere, REJECT `TREE_MUTATED_DURING_JUDGE`. Tests en `tests/test_ont42c_audit_judged_order.py` (sync, async mutado, async intacto). El xfail estricto se retiro.
 - **Scope creep revertido**: linea `# d18 fixed` en `engine/matcher.py` (residuo ajeno).
 - **Riesgo aceptado M-2b**: los archivos ignorados por `.gitignore` visibles al sandbox no entran en `candidate_tree`/commit, por lo que lo juzgado puede diferir de lo commiteado. Mitigacion futura: incluir en la huella los ignorados visibles al sandbox.
+
+## 19. Graphos G2: VERIFIED de E1 + C1–C3 (ONT-42c, Short)
+
+- **Activación:** G2 tras el veredicto de Dokimos sobre E1 (`f8b92c8`), C1–C3 (`4a7b61f`) y los dos ciclos de fix de D-EV-1 (`0cc9b9a`) y D-EV-1b (`9638056`). Veredicto global: **VERIFIED**.
+- **Modo:** Short. Ontos y Archon no intervienen. Ciclos Archon↔Ontos: 0.
+- **Baseline:** `dev` @ `9638056` (origin/dev @ `be78115`, sin push).
+- **Camino y blast radius de esta activación:** registro documental en `docs/pipeline/`, `docs/STATE.md`, `docs/MILESTONES.md`, `docs/COMPACT.md` y `README.md`. Sin código, sin push. El commit lo registra Graphos (`docs(pipeline): record ONT-42c E1+C1-C3 VERIFIED`), no Hermon, por instrucción explícita del usuario.
+
+### 19.1 Veredictos por tarea
+
+| Tarea | Commit(s) | Veredicto | Evidencia |
+|---|---|---|---|
+| E1 juez no falsificable | `f8b92c8` | VERIFIED | D-01b en 4 variantes (ver §16.1). |
+| C1–C3 evolve, GitPort, precondiciones | `4a7b61f` | VERIFIED | Tiers, fence, ff-only, prohibiciones, stale antes de push. |
+| D-EV-1 (ACCEPT no atado al árbol) | `0cc9b9a` | VERIFIED tras fix 1/3 | ACCEPT atado a `judged_tree` / `judged_root` (§17). |
+| D-EV-1b (árbol mutado durante el juicio) | `ff8a48d`, `a3a5cfc`, `9638056` | VERIFIED tras fix 2/3 | Huella antes y después de `judge()`, `TREE_MUTATED_DURING_JUDGE`, rama async cubierta (§18). |
+
+### 19.2 Métricas de la ejecución
+
+- **Suite:** 706 passed, 0 xfail (el xfail strict de D-EV-1 se retiró al cerrarlo). Ruff limpio.
+- **Ciclos Pragma↔Dokimos:** 2 (D-EV-1 1/3, D-EV-1b 2/3; límite 3). No se alcanzó escalado a usuario.
+- **Ciclos Archon↔Ontos:** 0 (Short).
+- **Approximation ratio y duración total:** no reportados en el informe de Dokimos recibido; no se estiman aquí.
+
+### 19.3 Riesgos aceptados y menores
+
+- **M-1 (documentado):** E1 aplica solo a gaps `drift` / `open_discrepancy` o parches que tocan código público. Pendiente de reflejo en SDD §4 y §9 (C7).
+- **M-2 (documentado):** la discriminación entre seleccionados es una señal débil.
+- **M-2b (riesgo aceptado):** los archivos ignorados por `.gitignore` visibles al sandbox no entran en `candidate_tree` ni en el commit; lo juzgado puede diferir de lo commiteado. Mitigación futura: incluir en la huella los ignorados visibles al sandbox.
+- **M-3 (documentado):** docstring de `evolve` desfasado respecto al comportamiento actual.
+
+### 19.4 Pendientes (orden)
+
+1. C4: gate final, suite completa por lotes con `run_tests_batched` en sandbox (rojo = sin merge).
+2. C5: ledger UNIQUE por `(gap_canonical, base_R, tree_hash)` y `MAX_CYCLES` persistido.
+3. C6: rollback con `git revert` como commit nuevo; nunca push automático.
+4. C7: Merkle `R_before` / `R_after`, SDD §4, §7, §9 y AP-1 restringido a FULL.
+5. Backlog: E2 specs incrementales por `(thread_hash, R)`, E3 supervisión OTP sobre SCC, E4 reconciliación acotada por tier, O-1, O-2, `select_fields` en `aep_ctl`, `lkg_restore covers`.
+
+### 19.5 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-42c backlog @be78115"] --> A1["A.1: E1 f8b92c8 VERIFIED"]
+    A1 --> A2["A.2: C1-C3 4a7b61f VERIFIED"]
+    A2 --> A3["A.3: D-EV-1 DEFECTIVE @00cbadb"]
+    A3 --> A4["A.4: fix 1/3 0cc9b9a (ACCEPT atado a arbol)"]
+    A4 --> A5["A.5: D-EV-1b DEFECTIVE @ff8a48d"]
+    A5 --> A6["A.6: fix 2/3 9638056 VERIFIED"]
+    A6 --> A7["A.7: C4-C7 pendientes"]
+```
+
+### 19.6 Reinforcement Graph (intent ONT-42c evolve)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42c evolve"] --> M1["M1: planned (Orchestrator, Short) ✅"]
+    M1 --> M2["M2: E1 juez no falsificable (Pragma) ✅"]
+    M2 --> M3["M3: C1-C3 implemented (Pragma) ✅"]
+    M3 --> M4["M4: D-EV-1 / D-EV-1b fixed (Pragma, 2 ciclos) ✅"]
+    M4 --> M5["M5: verified E1 + C1-C3 (Dokimos, 706 passed, 0 xfail) ✅"]
+    M5 --> M6["M6: documented (Graphos G2) ✅"]
+    M6 --> M7["M7: committed (Graphos, local, sin push) ✅"]
+    M7 --> M8["M8: C4-C7 gate, ledger, rollback, Merkle (Pragma) ⏳"]
+```
+
+### 19.7 Chain and Routing
+
+- **Documento:** esta sección se añade a este mismo documento; no se crea documento nuevo, la cadena no avanza.
+- **Routing:** VERIFIED → Hermon. Este G2 lo cierra con el commit de documentación, sin push. Commit de código de C4–C7 pendiente.
+- **Siguiente (Orchestrator):** decidir si C4 entra en Short o en Full; ambos caminos requieren Pragma para el código.
