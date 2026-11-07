@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/bin/sh
+# sh/python polyglot: sh runs the next line (picks the project venv, falls back to system python3);
+# Python parses that same line as a no-op triple-quoted string.
+''''true; d=$(cd "$(dirname "$0")/.." && pwd); for p in "$d/.venv/bin/python" "$HOME/.local/share/agent-os/venv/bin/python"; do [ -x "$p" ] && exec "$p" "$0" "$@"; done; exec python3 "$0" "$@" # '''
 """
 aep-ctl — Unified System Control Plane (SPEC-OM-1)
 
