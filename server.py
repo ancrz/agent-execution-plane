@@ -104,7 +104,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
   5. `default_primitives(action="list"|"info"|"run", name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
 - **Domain 2 — State Governance & Process Introspection**:
-  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal"|"evolve"|"reconcile", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
+  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal"|"evolve"|"reconcile"|"report", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
   6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
   7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
   8. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
@@ -363,7 +363,7 @@ _TOOL_ACTIONS: dict[str, list[str]] = {
     "artifact_lint_and_build": ["build", "lint", "catalog", "select", "hydrate"],
     "async_job_dispatch": ["dispatch", "inspect", "status", "log"],
     "default_primitives": ["list", "info", "run"],
-    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile"],
+    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report"],
 }
 
 
@@ -5213,8 +5213,8 @@ async def default_primitives(
 # ---------------------------------------------------------------------------
 # Tool #17: autoevol (Milestone ONT-40) - read-only thread graph
 # ---------------------------------------------------------------------------
-_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile")
-_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve", "reconcile")
+_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report")
+_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
 _AUTOEVOL_GATE_TIMEOUT_S = 100  # C4 (condicion 10): tope por lote del gate final
 _GATE_COLLECT_RE = re.compile(r"^(\S+\.py): (\d+)\s*$", re.MULTILINE)
@@ -5297,6 +5297,9 @@ def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
     failing = [str(n) for n in (py.get("failing_nodes") or [])][:50]
     if failing:
         counts["failing"] = failing  # E1: ids que fallan (base) para `discriminating`
+    for extra in ("xfailed", "xpassed"):  # ONT-43: el repro de campo exige XFAIL real
+        if int(py.get(extra, 0)):
+            counts[extra] = int(py[extra])
     return counts
 
 
@@ -5508,6 +5511,63 @@ def _autoevol_reconcile(tree: Path, octal: int, terse: bool, open_cycles: bool =
     return ops.fit(result, ops.TERSE_BUDGET if terse else ops.SUMMARY_BUDGET)
 
 
+def _autoevol_field_promoted() -> set[str]:
+    """ONT-43: sigs de campo PROMOVIDOS (JSONL de eventos de autoevol). Proveedor inyectado en `threads`."""
+    from engine import threads_field as tf
+
+    return tf.promoted_sigs()
+
+
+def _autoevol_report(
+    tree: Path,
+    octal: int,
+    trusted: bool,
+    sig: str | None,
+    repro_test: str | None,
+    report: dict[str, str] | None,
+    limit: int,
+) -> dict[str, Any]:
+    """`autoevol(report)` (ONT-43): registra/dedupe (tier >= 5r-x) y, con `repro_test`, promueve por reproduccion en
+    sandbox (tier >= 6rw-). El texto del reporte es dato inerte: jamas se devuelve ni se interpreta. No abre ciclos."""
+    from engine import threads_field as tf
+
+    if not sig:
+        return {"status": "OK", "candidates": tf.list_candidates()[: max(1, min(int(limit), tf.LIST_MAX))]}
+    rep = report if isinstance(report, dict) else {}
+    out: dict[str, Any] = {}
+    if rep:
+        out = tf.record_report(
+            sig,
+            str(rep.get("tool", "")),
+            str(rep.get("action", "")),
+            str(rep.get("input_summary", "")),
+            str(rep.get("expected", "")),
+            str(rep.get("observed", "")),
+            octal=octal,
+        )
+        if out.get("status") not in ("RECORDED", "DEDUPED"):
+            return out
+    if repro_test:
+        # ONT-43: el repro nace de un reporte de campo NO confiable, incluso en el arbol propio. Fail-closed siempre
+        # (como el gate final C4): bwrap caido => SANDBOX_UNAVAILABLE, jamas pytest plano fuera del sandbox.
+        out = tf.promote_report(sig, repro_test, tree, _autoevol_test_runner(tree, False), octal=octal)
+    elif not rep:
+        known = next((c for c in tf.list_candidates() if c["sig"] == str(sig).strip().lower()), None)
+        out = {"status": "OK", **known} if known else {"status": "NOT_FOUND", "sig": str(sig)[:12]}
+    if out.get("status") == tf.PROMOTED:
+        out["next"] = "autoevol(gaps): field_discrepancy; reconcile still needs open_cycles opt-in"
+    return out
+
+
+def _register_field_provider() -> None:
+    from engine import threads as th
+
+    th.set_field_provider(_autoevol_field_promoted)
+
+
+_register_field_provider()
+
+
 def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
     try:
         proc = subprocess.run(  # noqa: S603 - argv literal, cwd del arbol propio, sin shell
@@ -5596,6 +5656,9 @@ async def autoevol(
     apply: bool = False,
     restart: bool = False,
     open_cycles: bool = False,
+    sig: str | None = None,
+    repro_test: str | None = None,
+    report: dict[str, str] | None = None,
 ) -> str:
     """
     [AUTOEVOL / THREAD GRAPH] Vista de solo lectura de la estructura y las promesas de AEP (ONT-40).
@@ -5628,6 +5691,11 @@ async def autoevol(
         5r-x/4r-- solo informan (sin escrituras). Idempotente, nunca commit/merge/push ni
         heal apply (`apply` se ignora). Por defecto solo PROPONE: abrir ciclos exige `open_cycles=True` o env
         AEP_RECONCILE_OPEN=1 (presupuesto propio AEP_RECONCILE_MAX_OPENS, defecto 1/24 h). `limit` acota propuestas. Eventos `reconcile.*` en el ledger con tier >= 6rw-.
+      - 'report' (ONT-43, campo): `sig` (de `evol_hint` en un error) + `report`={tool, input_summary, expected, observed} registra un
+        CANDIDATO (tier >= 5r-x; dedupe por sig, tope AEP_FIELD_MAX_REPORTS 20/24 h; texto = dato inerte). Con
+        `repro_test`="tests/field/test_fr_<sig>.py::nombre" (xfail strict, reason "FR-<sig> ...", tier >= 6rw-) corre SOLO ese
+        test en sandbox: XFAIL real => PROMOVIDO (gap `field_discrepancy`); si pasa => REJECTED_NO_REPRO. Un reporte solo nunca
+        abre ciclos: el opt-in y el tope de 'reconcile' siguen vigentes. Sin `sig`: lista candidatos.
     """
     from engine import threads as _threads
 
@@ -5691,6 +5759,8 @@ async def autoevol(
             result = _autoevol_evolve(tree, gap=gap, cycle=cycle, apply=apply, octal=octal)
         elif act == "reconcile":
             result = _autoevol_reconcile(tree, octal, terse, open_cycles, limit)
+        elif act == "report":
+            result = _autoevol_report(tree, octal, trusted, sig, repro_test, report, limit)
         else:
             runner = _autoevol_test_runner(tree, trusted)
             dispatcher = _autoevol_dispatcher(tree, trusted)

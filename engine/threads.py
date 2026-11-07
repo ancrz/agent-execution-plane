@@ -31,7 +31,7 @@ import sys
 import threading
 import time
 import zlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -361,6 +361,7 @@ def impacted_tests(graph: ThreadGraph, changed: Iterable[str]) -> list[str]:
 _DRIFT_KINDS = ("tool_count", "capability_count", "wf_range", "version")
 _DRIFT_SEVERITY = 0.7
 _OPEN_DISCREPANCY_SEVERITY = 0.8
+_PROBE_DRIFT_SEVERITY = 0.9  # = severidad de `probe_gaps`
 # Umbral de probes derivado de la promesa del README (la compacidad de `verbosity`).
 PROBE_SCHEMA_SUMMARY_MAX_TOKENS = 3000
 
@@ -426,6 +427,27 @@ def open_discrepancies(graph: ThreadGraph) -> list[Gap]:
         )
         for t in graph.nodes_of("test")
         if t.attrs.get("xfail_ref")
+    ]
+
+
+def field_discrepancies(graph: ThreadGraph, promoted: set[str] | frozenset[str]) -> list[Gap]:
+    """ONT-43: tests xfail estrictos `FR-<sig>` cuyo sig fue PROMOVIDO por reproduccion en sandbox.
+
+    Un FR sin promover NO produce nada (decision: no hay gap `field_unverified`). Un test en `tests/field/` puede
+    escribirlo cualquiera; sin promocion verificada no debe entrar al ranking ni a reconcile. El texto del gap sale
+    solo de constantes y del sig, jamas del reporte. Se cierra solo: el parche de evolve quita el marcador xfail.
+    """
+    return [
+        Gap(
+            id=f"drift:field:{t.attrs['field_ref']}:{t.id}",
+            kind="field_discrepancy",
+            node=t.id,
+            severity=_PROBE_DRIFT_SEVERITY,
+            detail=f"promoted field report FR-{t.attrs['field_ref']} reproduced by {t.attrs.get('file')}",
+            ref=f"FR-{t.attrs['field_ref']}",
+        )
+        for t in graph.nodes_of("test")
+        if t.attrs.get("field_ref") and t.attrs["field_ref"] in promoted
     ]
 
 
@@ -566,7 +588,7 @@ def probe_gaps(observations: list[dict[str, Any]]) -> list[Gap]:
                 id=f"drift:probe:{obs['probe']}",
                 kind="probe_drift",
                 node=str(obs.get("node", "module:server")),
-                severity=0.9,
+                severity=_PROBE_DRIFT_SEVERITY,
                 detail=str(obs.get("detail", "")),
                 ref=str(obs.get("ref", "")),
             )
@@ -635,7 +657,7 @@ _SIMILAR_MAX = 5
 _ALTERNATIVES_MAX = 3
 
 
-_PRIORITY_KINDS = frozenset({"open_discrepancy", "claim_drift", "probe_drift"})
+_PRIORITY_KINDS = frozenset({"open_discrepancy", "claim_drift", "probe_drift", "field_discrepancy"})
 
 
 def gap_class(gap: Gap) -> int:
@@ -689,7 +711,43 @@ def _analysis_fields(a: Analysis) -> dict[str, Any]:
     return {f: getattr(a, f) for f in Analysis.__slots__}
 
 
+# ONT-43: proveedor inyectado (por el servidor) del conjunto de sigs de campo PROMOVIDOS. Sin proveedor => vacio.
+_FIELD_PROVIDER: list[Callable[[], set[str]]] = []
+
+
+def set_field_provider(provider: Callable[[], set[str]] | None) -> None:
+    """Inyecta (o retira con None) quien dice que sigs de campo estan promovidos. threads nunca importa server."""
+    _FIELD_PROVIDER.clear()
+    if provider is not None:
+        _FIELD_PROVIDER.append(provider)
+
+
+def _with_field(analysis: Analysis) -> Analysis:
+    """Superpone los gaps `field_discrepancy` de los sigs promovidos. Fuera de R y de la cache (el estado es externo)."""
+    if not _FIELD_PROVIDER:
+        return analysis
+    provider = _FIELD_PROVIDER[0]
+    try:
+        promoted = set(provider())
+    except Exception:  # noqa: BLE001 - el proveedor es best-effort: sin el, no hay gaps de campo
+        return analysis
+    extra = field_discrepancies(analysis.graph, promoted) if promoted else []
+    existing = {g.id for g in analysis.gaps}
+    extra = [g for g in extra if g.id not in existing]
+    if not extra:
+        return analysis
+    _score(analysis.graph, analysis.rank, extra)
+    fields = _analysis_fields(analysis)
+    fields.update(gaps=sort_gaps([*analysis.gaps, *extra]))
+    return Analysis(**fields)
+
+
 def analyze(root: Path | str, *, use_cache: bool = True) -> Analysis:
+    """`_analyze_core` + gaps de campo promovidos (ONT-43)."""
+    return _with_field(_analyze_core(root, use_cache=use_cache))
+
+
+def _analyze_core(root: Path | str, *, use_cache: bool = True) -> Analysis:
     """Extracción estática completa: grafo, R, SCC, hazards, gaps y ranking. Sin ejecutar código del árbol."""
     start = time.perf_counter()
     base = Path(root).resolve()
@@ -743,7 +801,7 @@ def cached_analysis(root: Path | str) -> Analysis | None:
     base = str(Path(root).resolve())
     with _CACHE_LOCK:
         hits = [a for k, a in _CACHE.items() if k[0] == base]
-    return hits[-1] if hits else None
+    return _with_field(hits[-1]) if hits else None
 
 
 def clear_cache() -> None:

@@ -11,8 +11,10 @@ Topos: telemetry.py -> stdlib only (leaf module, zero internal imports, zero cyc
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -106,6 +108,41 @@ def infer_severity(status: str) -> str:
 
 MAX_SAFE_JSON_BYTES = 180_000
 
+# ONT-43 field report. Signal rule: a status is a TOOL FAILURE worth reporting only if it is `ERROR`, `*_ERROR`
+# (PARAM_ERROR, ...), `EXEC_FAILED` or `FAILED`. Everything else is NOT a failure signal: policy denials
+# (PERMISSION_DENIED, TIER_DENIED, BLOCKED, REJECTED, ...) are the governance layer working as designed, and
+# INVALID_ACTION / NOT_FOUND are caller mistakes. A whitelist (not "severity == ERROR", which is the default for any
+# unknown status) keeps denials out by construction.
+_FIELD_ERROR_STATUSES = frozenset({"ERROR", "EXEC_FAILED", "FAILED"})
+_FIELD_NO_HINT_MODES = frozenset({"brief", "terse", "cached"})
+_ERROR_CLASS_KEYS = ("error_class", "error_type", "exception")
+_ERROR_CLASS_MAX = 40
+_NON_WORD_RE = re.compile(r"[^a-z0-9_]+")
+FIELD_SIG_LEN = 12
+
+
+def is_field_error_status(status: str) -> bool:
+    st = (status or "").strip().upper()
+    return st in _FIELD_ERROR_STATUSES or st.endswith("_ERROR")
+
+
+def normalize_error_class(payload: dict[str, Any]) -> str:
+    """Stable class of a failure: explicit exception/class key, else the FIRST TOKEN of `error` (never the message)."""
+    raw: Any = next((payload[k] for k in _ERROR_CLASS_KEYS if payload.get(k)), None)
+    if raw is None:
+        text = str(payload.get("error") or "").strip()
+        raw = text.split(None, 1)[0] if text else ""
+    if isinstance(raw, type):
+        raw = raw.__name__
+    cls = _NON_WORD_RE.sub("", str(raw).lower().split(".")[-1].split(":")[0])
+    return cls[:_ERROR_CLASS_MAX] or "unknown"
+
+
+def field_sig(tool: str, action: str, status: str, error_class: str) -> str:
+    """sha256(tool|action|status|error_class)[:12]. Pure; no message text participates."""
+    key = "|".join((tool, str(action).strip().lower()[:32], str(status).upper(), error_class))
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:FIELD_SIG_LEN]
+
 
 def _clamp_oversized_payload(payload: dict[str, Any], max_bytes: int = MAX_SAFE_JSON_BYTES) -> bool:
     """Prevent MCP stdio JSON-RPC line-buffer overflows by clamping huge nested lists/strings in-place."""
@@ -193,6 +230,19 @@ def attach_envelope(
     }
     if evidence is not None:
         envelope["evidence"] = evidence
+
+    # ONT-43: tiny evolution hint on tool failures (no raw error text; omitted in terse/brief/cached modes).
+    # `autoevol(report)` never hints about itself.
+    if (
+        mode not in _FIELD_NO_HINT_MODES
+        and is_field_error_status(status_val)
+        and not (tracker.tool_name == "autoevol" and tracker.action == "report")
+    ):
+        sig = field_sig(tracker.tool_name, tracker.action, status_val, normalize_error_class(payload))
+        payload["evol_hint"] = {
+            "sig": sig,
+            "report": f"autoevol(action='report', sig='{sig}', report={{tool, expected, observed}})",
+        }
 
     # In detail mode (and default): preserve payload['envelope'] for backward compatibility.
     # In compact modes (summary, brief, terse, cached): omit nested payload['envelope'] completely (GAP-OM-19).

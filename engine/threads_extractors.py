@@ -132,7 +132,11 @@ def read_sources(root: Path | str) -> Sources:
         src.code[rel] = _parse(rel, _read(p))
     tests_dir = base / "tests"
     if tests_dir.is_dir():
-        for p in sorted(tests_dir.glob("*.py"), key=lambda f: f.name):
+        # ONT-43: `tests/field/` aloja los repros de reportes de campo (xfail estrictos FR-<sig>).
+        test_files = [*tests_dir.glob("*.py"), *(tests_dir / "field").glob("*.py")]
+        for p in sorted(test_files, key=lambda f: f.relative_to(base).as_posix()):
+            if p.is_symlink():
+                continue
             rel = p.relative_to(base).as_posix()
             src.tests[rel] = _parse(rel, _read(p))
     for rel in ("README.md", "schemas/database.sql", "pyproject.toml"):
@@ -783,6 +787,19 @@ def _xfail_ref(fn: ast.AST) -> str:
     return ""
 
 
+def _field_ref(fn: ast.AST) -> str:
+    """ONT-43: `FR-<12hex>` de un xfail estricto (reporte de campo). Inerte hasta que el sig sea promovido."""
+    for dec in getattr(fn, "decorator_list", []):
+        if isinstance(dec, ast.Call) and (_chain(dec.func) or [""])[-1] == "xfail":
+            strict = any(k.arg == "strict" and isinstance(k.value, ast.Constant) and k.value.value for k in dec.keywords)
+            for k in dec.keywords:
+                if k.arg == "reason" and isinstance(k.value, ast.Constant) and strict:
+                    m = re.match(r"\s*FR-([0-9a-f]{12})(?![0-9a-f])", str(k.value.value))
+                    if m:
+                        return m.group(1)
+    return ""
+
+
 def _kw_constants(call: ast.Call) -> dict[str, str]:
     return {
         k.arg: str(k.value.value)
@@ -921,6 +938,9 @@ def extract_tests(
             ref = _xfail_ref(node)
             if ref:
                 attrs["xfail_ref"] = ref
+            fref = _field_ref(node)
+            if fref:
+                attrs["field_ref"] = fref
             graph.add_node(Node("test", tid, _dump_hash(node), attrs))
             refs = _collect_test_refs(node, ctx, imports, fn_ids, class_names, project, tool_names, helpers, set())
             for fid in sorted(refs.fns):
