@@ -3453,7 +3453,8 @@ async def aep_ctl(
     limit: int = 50,
     cursor: int = 0,
     agent_id: str = "default",
-    params: dict[str, Any] | None = None,) -> str:
+    params: dict[str, Any] | None = None,
+    select_fields: list[str] | None = None,) -> str:
     """
     [SPEC-OM-1 / UNIFIED CONTROL PLANE] Plano de control determinista del sistema.
     - Para descubrir el contrato completo sin adivinar: `aep_ctl(action="schema")` (sin requerir dominio ficticio).
@@ -3461,6 +3462,7 @@ async def aep_ctl(
     - `name` (alias: `target`, `args`): nombre de servicio, paquete, snapshot o session_id IPC.
     - `verbosity`: 'detail' (default) | 'summary' | 'brief' (compacta listeners/mounts/interfaces ahorrando tokens).
     - `limit` y `cursor`: paginación determinista sobre listas extensas.
+    - `select_fields`: dot-paths para proyectar la respuesta (`unresolved_fields` lista los no resueltos).
     Ej: aep_ctl(action="schema") | aep_ctl("network","listeners",verbosity="summary") | aep_ctl("ipc","status",verbosity="summary").
     """
 
@@ -4006,7 +4008,15 @@ async def aep_ctl(
         except Exception as e:
             return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
 
-    return await anyio.to_thread.run_sync(_run)
+    raw = await anyio.to_thread.run_sync(_run)
+    if select_fields and isinstance(select_fields, list):
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return raw  # salida no JSON: sin proyeccion posible
+        if isinstance(parsed, dict):
+            return json.dumps(project_fields(parsed, select_fields), ensure_ascii=False)
+    return raw
 
 
 async def check_crash_alerts(resolve_after_report: bool = False) -> str:
