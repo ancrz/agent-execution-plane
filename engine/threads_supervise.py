@@ -245,14 +245,30 @@ def _changed_nodes(plan_files: set[str], repo: ThreadGraph, lkg: ThreadGraph) ->
     return out
 
 
+FILE_RESTORE = "restore"
+FILE_IDENTICAL = "identical"
+FILE_OUT_OF_LKG = "out_of_lkg"
+
+
 def plan(
-    repo: threads.Analysis,
+    repo:threads.Analysis,
     lkg: threads.Analysis,
     broken_files: Iterable[str],
-    restorable: Callable[[str], bool],
+    restorable: Callable[[str], bool | str],
     source: Callable[[str, str], str | None] | None = None,
 ) -> dict[str, Any]:
-    """Supervision plan for `broken_files`. `restorable` and `source(which, rel)` ("repo"|"lkg") are injectable."""
+    """Supervision plan for `broken_files`. `restorable` and `source(which, rel)` ("repo"|"lkg") are injectable.
+
+    `restorable(rel)` classifies a file as FILE_RESTORE | FILE_IDENTICAL | FILE_OUT_OF_LKG; a bool is accepted
+    (True -> restore, False -> out_of_lkg). Identical files are untouched: neither skipped nor partial.
+    """
+
+    def status(rel: str) -> str:
+        res = restorable(rel)
+        if isinstance(res, str):
+            return res
+        return FILE_RESTORE if res else FILE_OUT_OF_LKG
+
     rg, lg = repo.graph, lkg.graph
     graphs = (rg, lg)
     broken = sorted(set(broken_files))
@@ -291,7 +307,7 @@ def plan(
             if reason:
                 selected[nxt] = "dependent"
                 frontier.append(nxt)
-            elif restorable(f):
+            elif status(f) == FILE_RESTORE:
                 preserved[f] = "consumer is compatible with the restored contract (unrelated local edits kept)"
     for f in [f for f in preserved if unit_of.get(f) in selected]:
         del preserved[f]
@@ -300,8 +316,9 @@ def plan(
     skipped: list[dict[str, str]] = []
     partial = False
     for u in sorted(selected):  # index order == dependencies first
-        files = [f for f in units[u] if restorable(f)]
-        out_of_lkg = [f for f in units[u] if not restorable(f)]
+        statuses = {f: status(f) for f in units[u]}
+        files = [f for f, st in statuses.items() if st == FILE_RESTORE]
+        out_of_lkg = [f for f, st in statuses.items() if st == FILE_OUT_OF_LKG]
         skipped.extend({"file": f, "reason": SKIP_OUT_OF_LKG} for f in out_of_lkg)
         if files:
             planned.append({"id": f"scc:{units[u][0]}", "role": selected[u], "files": files})

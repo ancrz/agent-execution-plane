@@ -290,6 +290,30 @@ def test_partial_unit_marks_skipped_files_of_half_restored_scc() -> None:
     assert any(u["files"] == ["ca.py"] for u in res["units"])
 
 
+def test_identical_file_is_neither_skipped_nor_partial() -> None:
+    res = threads_supervise.plan(
+        _graph({"ca": "changed"}),
+        _graph({}),
+        ["ca.py"],
+        lambda rel: "identical" if rel == "cb.py" else "restore",
+        lambda which, rel: LKG_SRC.get(rel),
+    )
+    assert res["skipped"] == [] and res["partial_unit"] is False
+    assert any(u["files"] == ["ca.py"] for u in res["units"])
+
+
+def test_out_of_lkg_file_is_skipped_and_partial() -> None:
+    res = threads_supervise.plan(
+        _graph({"ca": "changed"}),
+        _graph({}),
+        ["ca.py"],
+        lambda rel: "out_of_lkg" if rel == "cb.py" else "restore",
+        lambda which, rel: LKG_SRC.get(rel),
+    )
+    assert res["skipped"] == [{"file": "cb.py", "reason": "fuera del LKG"}]
+    assert res["partial_unit"] is True
+
+
 def test_full_restore_is_not_partial_and_skips_nothing() -> None:
     res = _plan(["leaf.py"], {"leaf": "other"})
     assert res["partial_unit"] is False and res["skipped"] == []

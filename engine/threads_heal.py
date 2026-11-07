@@ -51,6 +51,19 @@ def _file_restorable(rel: str, manifest: dict[str, Any], root: Path) -> bool:
     return not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != manifest["files"][rel]
 
 
+def _file_status(rel: str, manifest: dict[str, Any], root: Path) -> str:
+    """restore (in LKG, differs) | identical (in LKG, same hash: untouched) | out_of_lkg (not restorable)."""
+    try:
+        aep_lkg.safe_rel(rel)
+    except aep_lkg.LkgError:
+        return threads_supervise.FILE_OUT_OF_LKG
+    if rel not in manifest["files"]:
+        return threads_supervise.FILE_OUT_OF_LKG
+    if _file_restorable(rel, manifest, root):
+        return threads_supervise.FILE_RESTORE
+    return threads_supervise.FILE_IDENTICAL
+
+
 def _broken_threads(repo: threads.Analysis, lkg: threads.Analysis, manifest: dict[str, Any], root: Path) -> list[dict]:
     lkg_gap_ids = {g.id for g in lkg.gaps}
     by_module: dict[str, list[threads.Gap]] = {}
@@ -101,7 +114,7 @@ def heal(
     lkg_a = threads.analyze(aep_lkg.tree_path(lkg_key), use_cache=False)
     broken = _broken_threads(repo_a, lkg_a, manifest, root)
     broken_files = sorted({e["file"] for e in broken if e["restorable"]})
-    sup = threads_supervise.plan(repo_a, lkg_a, broken_files, lambda rel: _file_restorable(rel, manifest, root))
+    sup = threads_supervise.plan(repo_a, lkg_a, broken_files, lambda rel: _file_status(rel, manifest, root))
     files = list(sup["files"])  # the restore set IS the supervision plan: nothing outside its units
     for entry in broken:
         if entry["restorable"]:
