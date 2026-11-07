@@ -201,6 +201,21 @@ def _has_strict_fr_marker(fn: ast.AST, sig: str) -> bool:
     return False
 
 
+def _declares_pytest_plugins(module: ast.Module) -> bool:
+    """F3: asignacion a nivel de modulo de `pytest_plugins` (carga plugins arbitrarios al colectar)."""
+    for node in module.body:
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+            targets = [node.target]
+        for t in targets:
+            names = [n.id for n in ast.walk(t) if isinstance(n, ast.Name)]
+            if "pytest_plugins" in names:
+                return True
+    return False
+
+
 def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, str]:
     """Ruta bajo `tests/field/` con el MISMO sig, archivo regular dentro del arbol y marcador xfail estricto FR-<sig>."""
     m = _REPRO_RE.match(str(repro_test or "").strip())
@@ -210,6 +225,12 @@ def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, s
         return False, "sig mismatch between repro_test path and sig"
     base = Path(tree).resolve()
     path = base / "tests" / "field" / f"{m.group(1)}.py"
+    # F3: solo el archivo repro validado por AST puede ejecutarse; ningun conftest.py bajo tests/field (autoload).
+    try:
+        if any(base.joinpath("tests", "field").rglob("conftest.py")):
+            return False, "conftest.py is not allowed under tests/field"
+    except OSError:
+        return False, "tests/field unreadable"
     try:
         if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(base / "tests" / "field"):
             return False, "repro file missing or not a regular file under tests/field"
@@ -218,6 +239,8 @@ def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, s
         module = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=path.name)
     except OSError, SyntaxError, ValueError:
         return False, "repro file unreadable or does not parse"
+    if _declares_pytest_plugins(module):
+        return False, "pytest_plugins is not allowed in a repro file"
     name = m.group(4)
     for fn in ast.walk(module):
         if (

@@ -72,6 +72,10 @@ def cover_hash(analysis: Any, tests: list[str], pins: list[str]) -> str:
     return h.hexdigest()
 
 
+# Bump when the gap-kind templates of `threads_spec` change: template text is not otherwise part of the key.
+TEMPLATE_REV = "2"
+
+
 def cache_key(gap: Any, terse: bool, deps: dict[str, str], cover: str = "") -> str:
     h = hashlib.sha256()
     parts = (
@@ -83,6 +87,7 @@ def cache_key(gap: Any, terse: bool, deps: dict[str, str], cover: str = "") -> s
         "t" if terse else "s",
         json.dumps(sorted(deps.items())),
         cover,
+        TEMPLATE_REV,
     )
     for part in parts:
         h.update(part.encode("utf-8"))

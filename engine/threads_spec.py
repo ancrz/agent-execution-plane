@@ -89,6 +89,10 @@ _BY_KIND: dict[str, tuple[str, str]] = {
         "The runtime behaviour must honour its promise.",
         "Make the observed behaviour of {node} match the promise ({detail}).",
     ),
+    "field_discrepancy": (
+        "A reproduced field failure (FR-<sig>) must be resolved in the tool, not in the test.",
+        "Fix {node}'s behaviour until the strict xfail FR test passes, then remove its xfail marker ({detail}).",
+    ),
 }
 
 _PLAN_COMMON = (

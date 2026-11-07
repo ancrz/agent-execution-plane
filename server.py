@@ -5333,7 +5333,9 @@ def _autoevol_interpreter(tree: Path) -> dict[str, Any] | None:
     return None
 
 
-def _autoevol_pytest_cmd(tree: Path, tests: list[str], interp: dict[str, Any] | None = None) -> str:
+def _autoevol_pytest_cmd(
+    tree: Path, tests: list[str], interp: dict[str, Any] | None = None, extra: tuple[str, ...] = ()
+) -> str:
     """Comando pytest con TODOS los tests dados (sin truncar). El troceo N<=20 lo decide `plan_tests` aguas arriba.
 
     Un solo proceso: el centinela WRONG_TREE precede a pytest. Sin interprete utilizable falla (LookupError).
@@ -5341,7 +5343,17 @@ def _autoevol_pytest_cmd(tree: Path, tests: list[str], interp: dict[str, Any] | 
     interp = interp or _autoevol_interpreter(tree)
     if interp is None:
         raise LookupError("no interpreter for autoevol tests")
-    argv = [interp["python"], "-c", _AUTOEVOL_SENTINEL, str(tree.resolve()), "-q", "-p", "no:cacheprovider", *tests]
+    argv = [
+        interp["python"],
+        "-c",
+        _AUTOEVOL_SENTINEL,
+        str(tree.resolve()),
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        *extra,
+        *tests,
+    ]
     return shlex.join(argv)
 
 
@@ -5366,14 +5378,16 @@ def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
     return counts
 
 
-def _autoevol_test_runner(tree: Path, trusted: bool, timeout_s: int = _AUTOEVOL_TEST_TIMEOUT_S) -> Any:
+def _autoevol_test_runner(
+    tree: Path, trusted: bool, timeout_s: int = _AUTOEVOL_TEST_TIMEOUT_S, pytest_args: tuple[str, ...] = ()
+) -> Any:
     """run_tests inyectado: sandbox_run(parse='pytest', N<=20, timeout 120). bwrap caido: plano solo en el arbol propio."""
 
     def run(tests: list[str]) -> dict[str, Any]:
         interp = _autoevol_interpreter(tree)
         if interp is None:
             return {"available": False}
-        cmd = _autoevol_pytest_cmd(tree, tests, interp)
+        cmd = _autoevol_pytest_cmd(tree, tests, interp, pytest_args)
 
         async def _call() -> str:
             return await sandbox_run(
@@ -5621,6 +5635,9 @@ def _autoevol_report(
 
     if not sig:
         return {"status": "OK", "candidates": tf.list_candidates()[: max(1, min(int(limit), tf.LIST_MAX))]}
+    # F1: sig estricto en TODA ruta (misma regex y mismo status ERROR que record/promote), antes de tocar estado.
+    if not tf.SIG_RE.match(str(sig).strip().lower()):
+        return {"status": "ERROR", "error": "sig invalido (12 hex)."}
     rep = report if isinstance(report, dict) else {}
     out: dict[str, Any] = {}
     if rep:
@@ -5638,7 +5655,12 @@ def _autoevol_report(
     if repro_test:
         # ONT-43: el repro nace de un reporte de campo NO confiable, incluso en el arbol propio. Fail-closed siempre
         # (como el gate final C4): bwrap caido => SANDBOX_UNAVAILABLE, jamas pytest plano fuera del sandbox.
-        out = tf.promote_report(sig, repro_test, tree, _autoevol_test_runner(tree, False), octal=octal)
+        # F3: --confcutdir=tests corta la busqueda ascendente de conftest en tests/ (solo el tests/conftest.py
+        # versionado del arbol; ningun conftest.py de la raiz ni superior). tests/field/conftest.py ya se rechaza.
+        confcut = ("--confcutdir", str(tree.resolve() / "tests"))
+        out = tf.promote_report(
+            sig, repro_test, tree, _autoevol_test_runner(tree, False, pytest_args=confcut), octal=octal
+        )
     elif not rep:
         known = next((c for c in tf.list_candidates() if c["sig"] == str(sig).strip().lower()), None)
         out = {"status": "OK", **known} if known else {"status": "NOT_FOUND", "sig": str(sig)[:12]}

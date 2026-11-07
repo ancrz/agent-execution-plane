@@ -18,7 +18,7 @@ import pytest
 
 import server
 from engine import telemetry as tm
-from engine import threads, threads_events, threads_field, threads_reconcile
+from engine import threads, threads_events, threads_field, threads_reconcile, threads_spec, threads_spec_cache
 from engine import threads_ledger as tl
 from engine.privilege import _PrivilegeCache
 from engine.threads_model import Gap
@@ -469,3 +469,99 @@ def test_threads_field_does_not_import_server_or_other_threads_modules() -> None
             imported.update(f"{node.module}.{a.name}" for a in node.names)
     assert not {m for m in imported if m == "server" or m.startswith("server.")}
     assert {m for m in imported if m.startswith("engine.threads")} <= {"engine.threads_events"}
+
+
+# -- ONT-43 follow-ups: F1 sig on every path, F2 field template, F3 conftest/pytest_plugins ----------------
+@pytest.mark.parametrize("bad", ["../../etc/x", "ABC", "0123456789a", "0123456789abc", "zzzzzzzzzzzz", " ../x "])
+def test_f1_lookup_only_malformed_sig_same_rejection_as_record_and_touches_no_state(
+    tool_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    _tier(monkeypatch, "6rw-")
+    touched: list[str] = []
+    monkeypatch.setattr(threads_field, "list_candidates", lambda *a, **k: touched.append("list") or [])
+    monkeypatch.setattr(threads_field, "_state", lambda *a, **k: touched.append("state") or {})
+    lookup = _call(action="report", sig=bad)
+    with_report = _call(action="report", sig=bad, report={"tool": "t", "observed": "o"})
+    with_repro = _call(action="report", sig=bad, repro_test="tests/field/test_fr_x.py::test_bug")
+    assert lookup["status"] == with_report["status"] == with_repro["status"] == "ERROR"
+    assert "evol_hint" not in lookup and touched == []
+    assert list(tool_env.state.iterdir()) == []
+
+
+def test_f1_valid_unknown_sig_lookup_still_not_found(
+    tool_env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tier(monkeypatch, "5r-x")
+    assert _call(action="report", sig=SIG)["status"] == "NOT_FOUND"
+
+
+def test_f2_field_discrepancy_template_is_specific_and_cache_key_tracks_templates() -> None:
+    what, task = threads_spec._template(_fgap())
+    assert what.startswith("A reproduced field failure (FR-<sig>) must be resolved in the tool")
+    assert task == "Fix test:t's behaviour until the strict xfail FR test passes, then remove its xfail marker (d)."
+    assert "Resolve" not in task
+    g = _fgap()
+    old = threads_spec_cache.cache_key(g, False, {})
+    threads_spec_cache.TEMPLATE_REV, prev = "other", threads_spec_cache.TEMPLATE_REV
+    try:
+        assert threads_spec_cache.cache_key(g, False, {}) != old
+    finally:
+        threads_spec_cache.TEMPLATE_REV = prev
+
+
+def _promote(tree: Path) -> tuple[dict[str, Any], list[Any]]:
+    called: list[Any] = []
+
+    def run(tests: list[str]) -> dict[str, Any]:
+        called.append(tests)
+        return XFAIL_OK
+
+    nodeid = f"tests/field/test_fr_{SIG}.py::test_bug"
+    return threads_field.promote_report(SIG, nodeid, tree, run, octal=6), called
+
+
+@pytest.mark.parametrize("where", ["", "sub"])
+def test_f3_conftest_under_tests_field_rejects_promotion(state: Path, tmp_path: Path, where: str) -> None:
+    tree = _tree(tmp_path / "t")
+    d = tree / "tests" / "field" / where
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "conftest.py").write_text("raise SystemExit('pwned')\n")
+    _rec()
+    before = threads_field.list_candidates()
+    res, called = _promote(tree)
+    assert res["status"] == "INVALID_REPRO" and "conftest" in res["reason"]
+    assert called == [] and threads_field.promoted_sigs() == set()
+    assert threads_field.list_candidates() == before
+
+
+@pytest.mark.parametrize(
+    "line", ['pytest_plugins = ["evil"]', 'pytest_plugins: list = ["evil"]', 'pytest_plugins += ["x"]']
+)
+def test_f3_pytest_plugins_in_repro_rejects_promotion(state: Path, tmp_path: Path, line: str) -> None:
+    tree = _tree(tmp_path / "t")
+    repro = tree / "tests" / "field" / f"test_fr_{SIG}.py"
+    repro.write_text(line + "\n" + _repro_src())
+    _rec()
+    res, called = _promote(tree)
+    assert res["status"] == "INVALID_REPRO" and "pytest_plugins" in res["reason"]
+    assert called == [] and threads_field.promoted_sigs() == set()
+
+
+def test_f3_clean_repro_still_promotes_and_runner_gets_confcutdir(
+    tool_env: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tier(monkeypatch, "6rw-")
+    tree = _tree(tmp_path / "t")
+    got: dict[str, Any] = {}
+
+    def fake_runner(*a: Any, **k: Any) -> Any:
+        got.update(k)
+        return lambda tests: XFAIL_OK
+
+    monkeypatch.setattr(server, "_autoevol_test_runner", fake_runner)
+    nodeid = f"tests/field/test_fr_{SIG}.py::test_bug"
+    res = _call(action="report", sig=SIG, report={"tool": "t", "observed": "o"}, repro_test=nodeid, root=str(tree))
+    assert res["status"] == "PROMOTED"
+    assert got["pytest_args"] == ("--confcutdir", str(tree.resolve() / "tests"))
+    cmd = server._autoevol_pytest_cmd(tree, [nodeid], {"python": "py"}, got["pytest_args"])
+    assert "--confcutdir" in cmd and cmd.index("--confcutdir") < cmd.index(nodeid)
