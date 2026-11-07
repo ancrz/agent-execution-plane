@@ -16,9 +16,11 @@ vacio): no toca el indice ni el HEAD del worktree del agente y no puede pisar un
 from __future__ import annotations
 
 import contextlib
+import io
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -97,6 +99,26 @@ class GitCli:
     def remote_head(self, ref: str) -> str | None:
         out = self._out(self.canonical, "ls-remote", REMOTE, ref)
         return out.split()[0] if out else None
+
+    def export_tree(self, ref: str, dest: Path | str) -> bool:
+        """Extrae el arbol COMMITEADO de `ref` en `dest` (vacio) con `git archive`: no toca worktree, indice ni HEAD."""
+        if ref != DEV and not BRANCH_RE.fullmatch(ref):
+            return False
+        try:
+            proc = subprocess.run(  # noqa: S603 - argv literal, sin shell
+                [self._git, "-C", str(self.canonical), "archive", "--format=tar", ref],
+                capture_output=True,
+                timeout=GIT_TIMEOUT_S,
+                check=False,
+                env={**os.environ, **_ENV},
+            )
+            if proc.returncode != 0:
+                return False
+            with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as tar:
+                tar.extractall(Path(dest), filter="data")
+        except (OSError, subprocess.SubprocessError, tarfile.TarError):
+            return False
+        return True
 
     # -- escritura local --------------------------------------------------------------------------
     def _candidate_paths(self) -> list[str]:

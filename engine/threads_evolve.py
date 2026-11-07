@@ -19,12 +19,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from engine import threads_events as ev
+from engine import threads_gate as tg
 from engine import threads_verify as tv
 
 PLAN = "PLAN"
@@ -55,11 +59,20 @@ class GitPort(Protocol):
     def candidate_tree(self) -> str | None: ...
     def work_root(self) -> str: ...
     def commit_branch(self, branch: str, tree: str, message: str) -> tuple[bool, str]: ...
+    def export_tree(self, ref: str, dest: Path | str) -> bool: ...
     def merge_ff(self, branch: str) -> tuple[bool, str]: ...
     def push(self, ref: str) -> tuple[bool, str]: ...
 
 
 LiveCheck = Callable[[], dict[str, Any]]  # {"stale": bool, "loaded": str, "disk": str}
+
+
+@dataclass
+class GateKit:
+    """Ejecutores inyectados desde `server.py` (sandbox_run). Sin kit no hay gate y, por tanto, no hay merge."""
+
+    collect: tg.Collect
+    run_batch: tg.RunBatch
 
 
 def gating(octal: int, label: str) -> str:
@@ -169,6 +182,7 @@ def run_evolve(
     octal: int,
     label: str,
     cycle_dir: Path | str | None = None,
+    kit: GateKit | None = None,
 ) -> dict[str, Any]:
     """`autoevol(evolve)`: avanza el ciclo de `fix_test` aceptado hasta donde permitan el tier y git. Re-entrante."""
     mode = gating(octal, label)
@@ -201,6 +215,9 @@ def run_evolve(
         if done is not None:
             return done
     if rec["state"] == COMMITTED and mode == "full":
+        done = _gate(store, git, kit, cycle, rec, branch)  # C4: suite completa sobre el commit, antes del ff-merge
+        if done is not None:
+            return done
         done = _merge(store, git, cycle, rec, branch)
         if done is not None:
             return done
@@ -246,6 +263,52 @@ def _commit(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], b
     store.save(cycle, rec)
     store.event("evolve.committed", {"cycle": cycle, "branch": branch, "sha": info[:12], "tree": tree[:12]})
     return None
+
+
+def _reject(store: EvolveStore, cycle: str, rec: dict[str, Any], reason: str, **extra: Any) -> dict[str, Any]:
+    reason = reason[:_REASON_MAX]
+    rec["blocked"] = reason
+    store.save(cycle, rec)
+    store.event("evolve.blocked", {"cycle": cycle, "state": rec["state"], "reason": reason})
+    return {"status": "REJECT", "reason": reason, "state": rec["state"], "cycle": cycle, "branch": rec["branch"], **extra}
+
+
+def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+    """C4 (condicion 10): suite completa por lotes en sandbox sobre el arbol commiteado. None = verde, seguir al merge."""
+    gate = rec.get("gate")
+    committed_tree = git.tree_of(branch)
+    if committed_tree is None or committed_tree != rec.get("judged_tree"):
+        return _blocked(store, cycle, rec, "gate_tree_mismatch")  # el commit no es el arbol juzgado
+    if gate is not None and gate.get("tree") != committed_tree:
+        gate = None
+    if gate is not None and gate["verdict"] == tg.GREEN:
+        return None
+    if gate is not None and gate["verdict"] == tg.RED:
+        return _reject(store, cycle, rec, "gate_failed", gate_reason=gate.get("reason", ""))
+    if kit is None:
+        return _blocked(store, cycle, rec, "no_gate_kit")
+    tmp = tempfile.mkdtemp(prefix="aep_gate_")
+    try:
+        if not git.export_tree(branch, tmp):
+            return _blocked(store, cycle, rec, "export_failed")
+        if gate is None:
+            found = kit.collect(Path(tmp))
+            files = found.get("files") if found.get("available") is not False else None
+            if not files:
+                return _reject(store, cycle, rec, "sandbox_unavailable", gate="0/0")
+            gate = tg.new_state(files, committed_tree)
+            rec["gate"] = gate
+        tg.step(gate, Path(tmp), kit.run_batch)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    store.save(cycle, rec)
+    if gate["verdict"] == tg.GREEN:
+        return None
+    if gate["verdict"] == tg.RED:
+        return _reject(store, cycle, rec, "gate_failed", gate_reason=gate.get("reason", ""))
+    if gate["verdict"] == tg.UNAVAILABLE:
+        return _reject(store, cycle, rec, "sandbox_unavailable", gate=tg.progress(gate))
+    return {"status": "OK", "state": COMMITTED, "cycle": cycle, "branch": branch, "awaiting": "gate", "gate": tg.progress(gate)}
 
 
 def _merge(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:

@@ -5183,6 +5183,8 @@ async def default_primitives(
 _AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve")
 _AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
+_AUTOEVOL_GATE_TIMEOUT_S = 100  # C4 (condicion 10): tope por lote del gate final
+_GATE_COLLECT_RE = re.compile(r"^(\S+\.py): (\d+)\s*$", re.MULTILINE)
 _AUTOEVOL_JOB_TIMEOUT_S = 900  # F8: tope del job async (pueue) para que un cuelgue no deje el ciclo PENDING indefinido
 _PUEUE_TERMINAL_RE = re.compile(r'"(?:Done|Failed)"\s*:|"status"\s*:\s*"(?:Done|Failed)\b')
 _AUTOEVOL_ENV_EXIT_CODES = (126, 127)  # no ejecutable / no encontrado: fallo de entorno, no de logica
@@ -5265,7 +5267,7 @@ def _pytest_counts(parsed: Any) -> dict[str, Any] | None:
     return counts
 
 
-def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
+def _autoevol_test_runner(tree: Path, trusted: bool, timeout_s: int = _AUTOEVOL_TEST_TIMEOUT_S) -> Any:
     """run_tests inyectado: sandbox_run(parse='pytest', N<=20, timeout 120). bwrap caido: plano solo en el arbol propio."""
 
     def run(tests: list[str]) -> dict[str, Any]:
@@ -5281,7 +5283,7 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
                 working_dir=str(tree),
                 ro_paths=interp["ro_paths"],
                 env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(tree.resolve())},
-                timeout=_AUTOEVOL_TEST_TIMEOUT_S,
+                timeout=timeout_s,
                 verbosity="detail",
             )
 
@@ -5308,6 +5310,40 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
         return {"ran": 0, "failed": 0, "errors": 0, "no_summary": True}
 
     return run
+
+
+def _autoevol_gate_collect(tree: Path) -> dict[str, Any]:
+    """C4: tests por archivo del arbol exportado (`pytest --collect-only -qq`) dentro de bwrap, mismo interprete y centinela."""
+    interp = _autoevol_interpreter(tree)
+    if interp is None:
+        return {"available": False}
+    argv = [interp["python"], "-c", _AUTOEVOL_SENTINEL, str(tree.resolve()), "-qq", "--collect-only", "-p", "no:cacheprovider"]
+
+    async def _call() -> str:
+        return await sandbox_run(
+            command=shlex.join(argv),
+            working_dir=str(tree),
+            ro_paths=interp["ro_paths"],
+            env={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(tree.resolve())},
+            timeout=_AUTOEVOL_GATE_TIMEOUT_S,
+            verbosity="detail",
+        )
+
+    res = json.loads(anyio.from_thread.run(_call))
+    if res.get("exit_code") not in (0, None) or res.get("status") in ("DEGRADED", "PERMISSION_DENIED", "PARAM_ERROR", "ERROR"):
+        return {"available": False}
+    files = {m.group(1): int(m.group(2)) for m in _GATE_COLLECT_RE.finditer(str(res.get("stdout", "")))}
+    return {"files": files} if files else {"available": False}
+
+
+def _autoevol_gate_kit() -> Any:
+    """C4: ejecutores del gate final. `trusted=False` siempre: jamas cae a pytest plano fuera del sandbox."""
+    from engine import threads_evolve as te
+
+    def run_batch(tree: Path, files: list[str]) -> dict[str, Any]:
+        return _autoevol_test_runner(tree, False, _AUTOEVOL_GATE_TIMEOUT_S)(files)  # type: ignore[no-any-return]
+
+    return te.GateKit(collect=_autoevol_gate_collect, run_batch=run_batch)
 
 
 def _autoevol_swap_fence() -> Path:
@@ -5349,6 +5385,7 @@ def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: b
         apply=bool(apply),
         octal=octal,
         label=capability_tier(),
+        kit=_autoevol_gate_kit(),
     )
 
 

@@ -28,6 +28,36 @@ def sh(repo: Path, *args: str, check: bool = True) -> str:
     return res.stdout.strip()
 
 
+class FakeKit:
+    """Ejecutores del gate sinteticos y rapidos: sin sandbox ni pytest real. `results` = respuesta por archivo (defecto verde)."""
+
+    def __init__(self, files: dict[str, int] | None = None) -> None:
+        self.files = files or {"tests/test_a.py": 3, "tests/test_b.py": 2, "tests/test_c.py": 4}
+        self.results: dict[str, dict[str, Any]] = {}
+        self.calls: list[list[str]] = []
+        self.trees: list[Path] = []
+        self.collect_result: dict[str, Any] | None = None
+        self.timeout_over: int | None = None  # lotes con mas archivos que esto agotan el tiempo
+
+    def collect(self, tree: Path) -> dict[str, Any]:
+        self.trees.append(tree)
+        return self.collect_result if self.collect_result is not None else {"files": dict(self.files)}
+
+    def run_batch(self, tree: Path, files: list[str]) -> dict[str, Any]:
+        self.calls.append(list(files))
+        self.trees.append(tree)
+        if self.timeout_over is not None and len(files) > self.timeout_over:
+            return {"timeout": True, "failed": 0, "errors": 0}
+        for name in files:
+            if name in self.results:
+                return self.results[name]
+        ran = sum(self.files[f] for f in files)
+        return {"ran": ran, "passed": ran, "failed": 0, "errors": 0, "exit_code": 0}
+
+    def kit(self) -> te.GateKit:
+        return te.GateKit(collect=self.collect, run_batch=self.run_batch)
+
+
 @dataclass
 class Rig:
     root: Path
@@ -38,6 +68,7 @@ class Rig:
     state: Path
     cycle: str
     live: dict[str, Any]
+    fake: FakeKit
 
     def port(self) -> gp.GitCli:
         return gp.GitCli(self.work, self.canon, self.fence)
@@ -56,7 +87,17 @@ class Rig:
             octal=octal,
             label=label,
             cycle_dir=self.state,
+            kit=self.fake.kit(),
         )
+
+    def drive(self, limit: int = 20, **kw: Any) -> dict[str, Any]:
+        """Reentra hasta que deje de pedir `awaiting: gate` (lotes re-entrantes)."""
+        out = self.run(**kw)
+        for _ in range(limit):
+            if out.get("awaiting") != "gate":
+                break
+            out = self.run(**kw)
+        return out
 
     def events(self) -> list[str]:
         from engine import threads_events as ev
@@ -90,4 +131,4 @@ def make_rig(tmp: Path, *, accepted: bool = True) -> Rig:
             cycle,
             {"verdict": tv.ACCEPT, "reasons": [], "judged": {"tree": judged.candidate_tree(), "root": os.path.realpath(work)}},
         )
-    return Rig(tmp, bare, canon, work, tmp / "swap_fence", state, cycle, {"stale": False, "loaded": "f1", "disk": "f1"})
+    return Rig(tmp, bare, canon, work, tmp / "swap_fence", state, cycle, {"stale": False, "loaded": "f1", "disk": "f1"}, FakeKit())
