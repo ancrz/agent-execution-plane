@@ -44,7 +44,6 @@ def test_info_via_helper():
 '''
 
 
-@pytest.mark.xfail(strict=True, reason="D-E4-1: el extractor pierde action/domain constantes pasados a un helper de test que reenvia **kw")
 def test_helper_forwarded_constant_kwargs_create_covers_edge(tmp_path: Path) -> None:
     for d in ("engine", "tests", "schemas"):
         (tmp_path / d).mkdir()
@@ -58,7 +57,6 @@ def test_helper_forwarded_constant_kwargs_create_covers_edge(tmp_path: Path) -> 
     assert a.graph.in_edges("action:autoevol:info", "covers")
 
 
-@pytest.mark.xfail(strict=True, reason="D-E4-2: reconcile abre ciclos sin presupuesto propio ni opt-in; 3 llamadas agotan el tope de la ventana")
 def test_reconcile_opening_is_not_default_and_has_own_budget(tmp_path: Path) -> None:
     gaps = [Gap(id=f"drift:claim:c{i}", kind="claim_drift", node="n", severity=0.8, detail="d") for i in range(3)]
     led = tl.EvolveLedger(tmp_path / "l.db", max_cycles=3)
@@ -80,7 +78,6 @@ def test_reconcile_opening_is_not_default_and_has_own_budget(tmp_path: Path) -> 
     assert len(live) == 0 or led.used() == 0 and len(live) <= 1  # por defecto no abre; o presupuesto propio acotado a 1
 
 
-@pytest.mark.xfail(strict=True, reason="D-E4-3: autoevol(reconcile) ignora limit")
 def test_reconcile_honours_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     gaps = [Gap(id=f"drift:claim:c{i}", kind="claim_drift", node="n", severity=0.8, detail="d") for i in range(6)]
     monkeypatch.setenv("HOME", str(tmp_path))

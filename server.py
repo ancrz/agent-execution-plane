@@ -5474,7 +5474,7 @@ def _reconcile_top() -> str | None:
     return tr.top(proposals)
 
 
-def _autoevol_reconcile(tree: Path, octal: int, terse: bool) -> dict[str, Any]:
+def _autoevol_reconcile(tree: Path, octal: int, terse: bool, open_cycles: bool = False, limit: int = 10) -> dict[str, Any]:
     """`autoevol(reconcile)` (E4): propone y, segun el tier, ejecuta SOLO lo seguro (heal dry-run, ciclos fix_test/evolve
     en plan). `apply` de la tool se ignora: nunca hay heal apply, commit, merge ni push desde aqui."""
     from engine import threads as th
@@ -5494,6 +5494,7 @@ def _autoevol_reconcile(tree: Path, octal: int, terse: bool) -> dict[str, Any]:
             "cycle_state": lambda cyc: (te.read_cycle(cyc) or {}).get("state"),
             "evolve_plan": lambda **kw: _autoevol_evolve(tree, gap=kw["gap"], cycle=kw["cycle"], apply=False, octal=octal),
             "heal_dry_run": lambda: ops.run_heal(tree, apply=False, octal=octal, snapshot_fn=None, terse=True),
+            "open_cycles": open_cycles,
         }
     result = tr.reconcile(
         analysis.gaps,
@@ -5502,8 +5503,8 @@ def _autoevol_reconcile(tree: Path, octal: int, terse: bool) -> dict[str, Any]:
         octal=octal,
         **kwargs,
     )
-    if terse:
-        result["proposals"] = result["proposals"][:3]
+    cap_n = min(max(int(limit), 0), tr.MAX_PROPOSALS)
+    result["proposals"] = result["proposals"][: min(3, cap_n) if terse else cap_n]
     return ops.fit(result, ops.TERSE_BUDGET if terse else ops.SUMMARY_BUDGET)
 
 
@@ -5594,6 +5595,7 @@ async def autoevol(
     job: str | None = None,
     apply: bool = False,
     restart: bool = False,
+    open_cycles: bool = False,
 ) -> str:
     """
     [AUTOEVOL / THREAD GRAPH] Vista de solo lectura de la estructura y las promesas de AEP (ONT-40).
@@ -5623,8 +5625,9 @@ async def autoevol(
         plan. Re-entrante; BLOCKED_GIT con motivo si no es posible. Nunca fuerza ni toca main.
       - 'reconcile' (E4): lista PROPUESTAS deterministas {gap, kind, action: heal|spec|evolve|report, reason, tier_required}
         (deseado vs observado). 7rwx ejecuta solo heal dry-run y ciclos fix_test/evolve en plan; 6rw- solo ciclos en plan;
-        5r-x/4r-- solo informan (sin escrituras). Respeta AEP_AUTOEVOL_MAX_CYCLES, idempotente, nunca commit/merge/push ni
-        heal apply (`apply` se ignora). Eventos `reconcile.*` en el ledger con tier >= 6rw-.
+        5r-x/4r-- solo informan (sin escrituras). Idempotente, nunca commit/merge/push ni
+        heal apply (`apply` se ignora). Por defecto solo PROPONE: abrir ciclos exige `open_cycles=True` o env
+        AEP_RECONCILE_OPEN=1 (presupuesto propio AEP_RECONCILE_MAX_OPENS, defecto 1/24 h). `limit` acota propuestas. Eventos `reconcile.*` en el ledger con tier >= 6rw-.
     """
     from engine import threads as _threads
 
@@ -5687,7 +5690,7 @@ async def autoevol(
         elif act == "evolve":
             result = _autoevol_evolve(tree, gap=gap, cycle=cycle, apply=apply, octal=octal)
         elif act == "reconcile":
-            result = _autoevol_reconcile(tree, octal, terse)
+            result = _autoevol_reconcile(tree, octal, terse, open_cycles, limit)
         else:
             runner = _autoevol_test_runner(tree, trusted)
             dispatcher = _autoevol_dispatcher(tree, trusted)

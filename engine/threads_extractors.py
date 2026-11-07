@@ -803,6 +803,20 @@ def _collect_test_refs(
     seen: set[str],
 ) -> _TestRefs:
     refs = _TestRefs()
+    called: set[str] = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in helpers and n.func.id not in seen:
+            # Sitio de llamada a helper local: recursar por sitio y fusionar sus kwargs constantes (D-E4-1).
+            hname = n.func.id
+            called.add(hname)
+            sub = _collect_test_refs(
+                helpers[hname], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen | {hname}
+            )
+            site = _kw_constants(n)
+            refs.fns |= sub.fns
+            refs.mods |= sub.mods
+            refs.tool_calls += [(t, {**site, **kws}) for t, kws in sub.tool_calls]
+            refs.budgets += sub.budgets
     for n in ast.walk(node):
         chain: list[str] | None = None
         if isinstance(n, ast.Attribute):
@@ -810,7 +824,7 @@ def _collect_test_refs(
         elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
             chain = [n.id]
         if chain:
-            if len(chain) == 1 and chain[0] in helpers and chain[0] not in seen:
+            if len(chain) == 1 and chain[0] in helpers and chain[0] not in seen and chain[0] not in called:
                 seen.add(chain[0])
                 sub = _collect_test_refs(
                     helpers[chain[0]], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen

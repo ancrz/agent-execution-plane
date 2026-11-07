@@ -57,6 +57,7 @@ class Spy:
             "cycle_state": self.cycle_state,
             "evolve_plan": self.evolve_plan,
             "heal_dry_run": self.heal_dry_run,
+            "open_cycles": True,
         }
 
 
@@ -138,7 +139,8 @@ def test_idempotent_no_duplicate_cycles_or_events(tmp_path: Path) -> None:
     assert len(led.recent("reconcile.opened")) == 1 and len(led.recent("reconcile.run")) == 1
 
 
-def test_expired_cycle_is_replaced_within_cap(tmp_path: Path) -> None:
+def test_expired_cycle_is_replaced_within_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AEP_RECONCILE_MAX_OPENS", "2")
     spy = Spy()
     led = _ledger(tmp_path)
     tr.reconcile([DRIFT], plane={}, cached_specs={DRIFT.id}, octal=6, **spy.kw(led))
@@ -224,7 +226,7 @@ def test_tool_7rwx_never_calls_git_heal_apply_or_evolve_apply(env: SimpleNamespa
     )
     monkeypatch.setattr(ops, "_open_cycle", lambda *a, **k: {"status": "OK", "cycle": "c" * 32})
     monkeypatch.setattr(server, "_autoevol_evolve", lambda tree, **kw: evolve_calls.append(kw["apply"]) or {"state": "PATCH_AWAITED"})
-    res = _call(action="reconcile", apply=True, restart=True)  # `apply=True` se ignora
+    res = _call(action="reconcile", apply=True, restart=True, open_cycles=True)  # `apply=True` se ignora
     assert heal_calls == [False] and evolve_calls and not any(evolve_calls)
     assert res["applied"] is False and any(e["action"] == "heal" for e in res["executed"])
 
@@ -237,9 +239,25 @@ def test_tool_cap_env_limits_cycles(env: SimpleNamespace, monkeypatch: pytest.Mo
     monkeypatch.setattr(ops, "_open_cycle", lambda store, tree, gap, *a: opened.append(gap) or {"status": "OK", "cycle": f"{len(opened):032x}"})
     monkeypatch.setattr(server, "_autoevol_evolve", lambda tree, **kw: {"state": "PATCH_AWAITED"})
     monkeypatch.setattr("engine.threads_evolve.read_cycle", lambda c, **k: {"state": "OPEN"})
+    monkeypatch.setenv("AEP_RECONCILE_MAX_OPENS", "2")
     for _ in range(4):
-        _call(action="reconcile")
-    assert len(opened) == 2  # AEP_AUTOEVOL_MAX_CYCLES=2
+        _call(action="reconcile", open_cycles=True)
+    assert len(opened) == 2  # AEP_RECONCILE_MAX_OPENS=2
+
+
+def test_tool_default_only_proposes_and_env_opt_in_opens(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    _tier(monkeypatch, "6rw-")
+    from engine import threads_ops as ops
+
+    opened: list[str] = []
+    monkeypatch.setattr(ops, "_open_cycle", lambda store, tree, gap, *a: opened.append(gap) or {"status": "OK", "cycle": "d" * 32})
+    monkeypatch.setattr(server, "_autoevol_evolve", lambda tree, **kw: {"state": "PATCH_AWAITED"})
+    monkeypatch.setattr("engine.threads_evolve.read_cycle", lambda c, **k: {"state": "OPEN"})
+    _call(action="reconcile")
+    assert opened == []
+    monkeypatch.setenv("AEP_RECONCILE_OPEN", "1")
+    _call(action="reconcile")
+    assert len(opened) == 1
 
 
 def test_reconcile_registered_in_actions() -> None:

@@ -13,8 +13,9 @@ Politica por tier (resuelta en cada llamada, nunca cacheada; `policy`):
   - 6rw-: igual, pero sin heal; abre/continua ciclos en plan. Sin escrituras git.
   - 5r-x y 4r--: solo informa. NO toca ledger, DB ni disco (el ledger ni se consulta).
 
-Limites: reutiliza el tope del ledger (C5, `AEP_AUTOEVOL_MAX_CYCLES`): ciclos de evolve + ciclos abiertos por
-reconcile en la ventana de 24 h; como maximo UN ciclo nuevo por llamada. Idempotente: misma entrada = mismas
+Limites: por defecto reconcile solo PROPONE y continua ciclos ya vivos; ABRIR ciclos exige opt-in explicito
+(`open_cycles=True` o env `AEP_RECONCILE_OPEN=1`). Presupuesto propio `AEP_RECONCILE_MAX_OPENS` (defecto 1 por
+ventana de 24 h) que cuenta solo eventos `reconcile.opened`; como maximo UN ciclo nuevo por llamada. Idempotente: misma entrada = mismas
 propuestas; un gap con ciclo vivo abierto por reconcile se continua, no se duplica. Eventos `reconcile.*` en el
 ledger solo con tier >= 6rw-. Sin bucles ni timers: se dispara bajo demanda.
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -39,6 +41,9 @@ HEAL_OCTAL = 7
 READ_TIER = 4
 DRIFT_KINDS = frozenset({"claim_drift", "probe_drift"})
 LIVE_CYCLE_STATES = frozenset({"OPEN", "PENDING", "ACCEPTED"})
+DEFAULT_MAX_OPENS = 1
+ENV_OPEN = "AEP_RECONCILE_OPEN"
+ENV_MAX_OPENS = "AEP_RECONCILE_MAX_OPENS"
 EV_RUN = "reconcile.run"
 EV_OPENED = "reconcile.opened"
 EV_CAPPED = "reconcile.capped"
@@ -52,6 +57,20 @@ def policy(octal: int) -> dict[str, Any]:
     if octal >= MIN_CYCLES_OCTAL:
         return {"mode": "plan", "writes": True, "heal": False, "cycles": True}
     return {"mode": "report", "writes": False, "heal": False, "cycles": False}
+
+
+def open_opted_in(explicit: bool = False) -> bool:
+    """Opt-in para abrir ciclos: argumento explicito o `AEP_RECONCILE_OPEN=1`."""
+    return bool(explicit) or os.environ.get(ENV_OPEN, "").strip() == "1"
+
+
+def max_opens() -> int:
+    """`AEP_RECONCILE_MAX_OPENS`: entero >= 1; ausente o invalido => 1."""
+    try:
+        value = int(os.environ.get(ENV_MAX_OPENS, ""))
+    except ValueError:
+        return DEFAULT_MAX_OPENS
+    return value if value >= 1 else DEFAULT_MAX_OPENS
 
 
 def _prop(gap: str, kind: str, action: str, reason: str, tier: int) -> dict[str, Any]:
@@ -112,10 +131,12 @@ def _handle_cycles(
     open_cycle: Callable[[str], dict[str, Any]],
     cycle_state: Callable[[str], str | None],
     evolve_plan: Callable[..., dict[str, Any]],
+    *,
+    may_open: bool,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     opened = ledger.recent(EV_OPENED)
     by_gap = {str(e["data"].get("gap")): str(e["cycle"]) for e in opened}
-    cap = {"used": int(ledger.used()) + len(opened), "max": int(ledger.max_cycles)}
+    cap = {"used": len(opened), "max": max_opens()}
     executed: list[dict[str, Any]] = []
     new_opened = 0
     for prop in (p for p in proposals if p["action"] == EVOLVE):
@@ -127,7 +148,7 @@ def _handle_cycles(
                 {"gap": gap, "action": EVOLVE, "cycle": cycle, "continued": True, "state": plan.get("state"), "applied": False}
             )
             continue
-        if new_opened >= 1:
+        if not may_open or new_opened >= 1:
             continue  # como maximo un ciclo nuevo por llamada
         if cap["used"] >= cap["max"]:
             executed.append({"gap": gap, "action": EVOLVE, "capped": True, **cap})
@@ -159,6 +180,7 @@ def reconcile(
     cycle_state: Callable[[str], str | None] | None = None,
     evolve_plan: Callable[..., dict[str, Any]] | None = None,
     heal_dry_run: Callable[[], dict[str, Any]] | None = None,
+    open_cycles: bool = False,
 ) -> dict[str, Any]:
     """Un paso del controlador. Con tier < 6rw- no se usa ningun efecto inyectado (ni el ledger)."""
     pol = policy(octal)
@@ -173,7 +195,9 @@ def reconcile(
             {"action": HEAL, "dry_run": True, "status": report.get("status"), "total_threads": report.get("total_threads", 0)}
         )
     if pol["cycles"] and open_cycle and cycle_state and evolve_plan:
-        cyc, cap = _handle_cycles(proposals, ledger, open_cycle, cycle_state, evolve_plan)
+        cyc, cap = _handle_cycles(
+            proposals, ledger, open_cycle, cycle_state, evolve_plan, may_open=open_opted_in(open_cycles)
+        )
         executed.extend(cyc)
         out["cap"] = cap
     out["executed"] = executed
