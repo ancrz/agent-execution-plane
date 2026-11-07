@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from engine import threads_verify as tv
-from tests.test_ont41_ops import GAP, GREEN, _fix, trees  # noqa: F401  (fixture reutilizada)
+from tests.test_ont41_ops import GAP, GREEN, _fix, isolated_home, trees  # noqa: F401  (fixtures reutilizadas)
 
 
 def _fp(tree: Path | str) -> str:
