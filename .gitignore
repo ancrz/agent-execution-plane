@@ -60,3 +60,6 @@ build/
 
 # AEP live plane multi-file swap fence (D-20)
 .aep_swap_fence
+
+# Live-plane test probes (created/removed by tests in engine/)
+engine/_ont39_probe_*.py
