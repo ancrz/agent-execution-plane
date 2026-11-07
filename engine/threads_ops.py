@@ -43,7 +43,7 @@ ENVELOPE_RESERVE = 130
 ENVIRONMENTAL: frozenset[str] = frozenset(
     {tv.SERVING_LKG, tv.RELOAD_PENDING, tv.BASE_UNAVAILABLE, tv.SANDBOX_UNAVAILABLE, tv.WRONG_TREE}
 )
-_SHRINK_ORDER = ("detail", "warnings", "diff", "threads", "files", "reasons")
+_SHRINK_ORDER = ("detail", "warnings", "diff", "unaffected_tools", "threads", "units", "files", "reasons")
 _AWAITING_BY_CAUSE: tuple[tuple[str, frozenset[str]], ...] = (
     ("base", frozenset({tv.BASE_UNAVAILABLE})),
     ("reload", frozenset({tv.RELOAD_PENDING, tv.SERVING_LKG, tv.RELOAD_BLOCKED})),
@@ -559,9 +559,8 @@ def run_heal(
     key: str | None = None,
 ) -> dict[str, Any]:
     """`autoevol(heal)`: lectura/dry-run por defecto (tier >= 4r--); `apply` exige tier >= 6rw- y snapshot previo."""
-    if apply and octal < MIN_APPLY_OCTAL:
-        return {"status": "PERMISSION_DENIED", "error": "heal con apply=True requiere tier >= 6rw-.", "applied": False}
-    report = threads_heal.heal(tree, key=key, apply=apply, snapshot_fn=snapshot_fn)
+    denied = apply and octal < MIN_APPLY_OCTAL  # below 6rw-: plan only, nothing is written
+    report = threads_heal.heal(tree, key=key, apply=apply and not denied, snapshot_fn=snapshot_fn)
     cap = _HEAL_THREADS_TERSE if terse else _HEAL_THREADS_SUMMARY
     out: dict[str, Any] = {
         "status": report["status"],
@@ -570,6 +569,14 @@ def run_heal(
         "threads": [_heal_thread(e, terse) for e in report.get("threads", [])[:cap]],
         "total_threads": len(report.get("threads", [])),
     }
+    if denied:
+        out.update(status="PERMISSION_DENIED", error="heal con apply=True requiere tier >= 6rw-; solo plan.")
+    if report.get("strategy", "none") != "none":
+        out["strategy"] = report["strategy"]
+        out["units"] = [{"id": u["id"], "role": u["role"], "files": u["files"]} for u in report["units"][:cap]]
+        out["supervisor"] = report["supervisor"][:cap]
+        out["unaffected_tools"] = report["unaffected_tools"][:_HEAL_THREADS_TERSE] if terse else report["unaffected_tools"]
+        out["unaffected_total"] = len(report["unaffected_tools"])
     for passthrough in ("key", "restored", "remaining_syntax_errors", "error"):
         if report.get(passthrough):
             out[passthrough] = report[passthrough]

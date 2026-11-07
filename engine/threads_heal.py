@@ -6,6 +6,9 @@ Engine: threads_heal.py (ONT-41 TB2: thread-scoped healing against the Last-Know
 hash changed and that introduce new gaps), their reach, files and diff hunks, and optionally restores
 ONLY those files from the LKG.
 
+Supervision (E3): the restore set is the OTP-style plan of `engine.threads_supervise` (one_for_one or
+rest_for_one over SCC units); `heal` never reverts the whole tree.
+
 Safety contract (apply=True):
   1. `snapshot_fn` is mandatory and injected (Phase C wires `workspace_snapshot`); it is called with the
      list of files about to be touched BEFORE any write. A raising/falsy-failure snapshot aborts with
@@ -24,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import aep_lkg
-from engine import threads
+from engine import threads, threads_supervise
 
 SCOPE_LIMIT = 50
 
@@ -34,6 +37,18 @@ def _snapshot_ok(result: Any) -> bool:
     if result is False:
         return False
     return not (isinstance(result, dict) and (result.get("ok") is False or result.get("error")))
+
+
+def _file_restorable(rel: str, manifest: dict[str, Any], root: Path) -> bool:
+    """In the LKG set and different from it (missing counts as different)."""
+    try:
+        aep_lkg.safe_rel(rel)
+    except aep_lkg.LkgError:
+        return False
+    if rel not in manifest["files"]:
+        return False
+    target = root / rel
+    return not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != manifest["files"][rel]
 
 
 def _broken_threads(repo: threads.Analysis, lkg: threads.Analysis, manifest: dict[str, Any], root: Path) -> list[dict]:
@@ -63,16 +78,7 @@ def _broken_threads(repo: threads.Analysis, lkg: threads.Analysis, manifest: dic
             "restorable": False,
             "diff": {"hunks": []},
         }
-        try:
-            aep_lkg.safe_rel(rel)
-            in_manifest = rel in manifest["files"]
-        except aep_lkg.LkgError:
-            in_manifest = False
-        if in_manifest:
-            target = root / rel
-            entry["restorable"] = (
-                not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != manifest["files"][rel]
-            )
+        entry["restorable"] = _file_restorable(rel, manifest, root)
         broken.append(entry)
     return broken
 
@@ -94,15 +100,21 @@ def heal(
     repo_a = threads.analyze(root, use_cache=False)
     lkg_a = threads.analyze(aep_lkg.tree_path(lkg_key), use_cache=False)
     broken = _broken_threads(repo_a, lkg_a, manifest, root)
+    broken_files = sorted({e["file"] for e in broken if e["restorable"]})
+    sup = threads_supervise.plan(repo_a, lkg_a, broken_files, lambda rel: _file_restorable(rel, manifest, root))
+    files = list(sup["files"])  # the restore set IS the supervision plan: nothing outside its units
     for entry in broken:
         if entry["restorable"]:
             entry["diff"] = aep_lkg.diff(lkg_key, entry["file"], root)
-    files = sorted({e["file"] for e in broken if e["restorable"]})
     report: dict[str, Any] = {
         "status": "BROKEN" if broken else "CLEAN",
         "key": lkg_key,
         "threads": broken,
         "files": files,
+        "strategy": sup["strategy"],
+        "units": sup["units"],
+        "supervisor": sup["supervisor"],
+        "unaffected_tools": sup["unaffected_tools"],
         "applied": False,
         "restored": [],
     }
