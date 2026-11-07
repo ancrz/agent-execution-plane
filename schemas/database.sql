@@ -129,3 +129,26 @@ CREATE TABLE IF NOT EXISTS threads_gen (
     codep_count INTEGER NOT NULL DEFAULT 0,
     snapshot_z BLOB
 );
+
+-- ONT-42c evolve: ledger de `autoevol(evolve)` (indice + testigo de gate/merge). engine/threads_ledger.py replica
+-- estos CREATE IF NOT EXISTS como red de seguridad (paridad testeada).
+CREATE TABLE IF NOT EXISTS evolve_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        gap_canonical TEXT NOT NULL,
+        base_r TEXT NOT NULL,
+        tree_hash TEXT NOT NULL,
+        cycle TEXT NOT NULL,
+        state TEXT NOT NULL,
+        r_before TEXT NOT NULL DEFAULT '',
+        r_after TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL,
+        UNIQUE (gap_canonical, base_r, tree_hash)
+    );
+
+CREATE TABLE IF NOT EXISTS evolve_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts REAL NOT NULL,
+        kind TEXT NOT NULL,
+        cycle TEXT NOT NULL,
+        data_json TEXT NOT NULL
+    );

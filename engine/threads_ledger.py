@@ -145,14 +145,17 @@ class EvolveLedger:
         finally:
             conn.close()
 
-    def resolve_revert(self, cycle: str) -> None:
-        """Decision del usuario sobre un revert: libera el bloqueo de push (`dev_dirty_by_revert`). Sin superficie MCP."""
+    def resolve_revert(self, cycle: str) -> bool:
+        """Decision del usuario sobre un revert: libera el bloqueo de push (`dev_dirty_by_revert`). Sin superficie MCP: solo `scripts/aep-ctl evolve resolve-revert`.
+        True si el ciclo estaba REVERTED."""
         conn = self._conn()
         try:
             with _LOCK, transaction_immediate(conn):
-                conn.execute(
+                cur = conn.execute(
                     "UPDATE evolve_keys SET state = 'REVERT_RESOLVED' WHERE cycle = ? AND state = ?", (cycle, REVERTED)
                 )
+                changed = cur.rowcount > 0
+            return changed
         finally:
             conn.close()
 
@@ -164,6 +167,12 @@ class EvolveLedger:
         finally:
             conn.close()
         return row is not None
+
+    def confirm(self, kind: str, cycle: str, **fields: Any) -> bool:
+        """DK-1: True si el ledger tiene un evento `kind` del ciclo cuya carga contiene TODOS los `fields` (testigo)."""
+        return any(
+            all(e["data"].get(k) == v for k, v in fields.items()) for e in self.events(cycle) if e["kind"] == kind
+        )
 
     # -- eventos evolve.* -------------------------------------------------------------------------
     def event(self, kind: str, cycle: str, data: dict[str, Any]) -> None:

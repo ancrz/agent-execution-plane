@@ -596,6 +596,22 @@ DOMAINS = {
 }
 
 
+def evolve_command(args: list[str]) -> Any:
+    """Decision HUMANA (DK-3): `evolve resolve-revert <ciclo> --confirm`. No existe como tool MCP a proposito."""
+    if len(args) < 3 or args[1] != "resolve-revert":
+        fail("Uso: aep-ctl evolve resolve-revert <ciclo> --confirm", valid=["resolve-revert"])
+    cycle = args[2]
+    if "--confirm" not in args[3:]:
+        fail("resolve-revert exige --confirm (decision humana: libera el push bloqueado por dev_dirty_by_revert)", cycle=cycle)
+    from engine import threads as th
+    from engine import threads_ledger as tl
+
+    ledger = tl.EvolveLedger(th.default_db_path())
+    if not ledger.resolve_revert(cycle):
+        fail("El ciclo no esta en estado REVERTED", cycle=cycle)
+    return {"status": "OK", "cycle": cycle, "state": "REVERT_RESOLVED", "revert_pending": ledger.revert_pending()}
+
+
 def main(argv: list[str]) -> None:
     args = [a for a in argv if a != "--json"]  # --json es el default; lo aceptamos y lo ignoramos
     if not args or args[0] in ("schema", "--schema"):
@@ -607,6 +623,8 @@ def main(argv: list[str]) -> None:
             "domains": SCHEMA,
         })
     domain = args[0]
+    if domain == "evolve":
+        emit(evolve_command(args))
     if domain not in DOMAINS:
         fail(f"Dominio desconocido: {domain}", valid=list(SCHEMA.keys()))
     action = args[1] if len(args) > 1 else None

@@ -5330,6 +5330,8 @@ def _autoevol_gate_collect(tree: Path) -> dict[str, Any]:
         )
 
     res = json.loads(anyio.from_thread.run(_call))
+    if res.get("exit_code") == _AUTOEVOL_WRONG_TREE_EXIT:
+        return {"wrong_tree": True}
     if res.get("exit_code") not in (0, None) or res.get("status") in ("DEGRADED", "PERMISSION_DENIED", "PARAM_ERROR", "ERROR"):
         return {"available": False}
     files = {m.group(1): int(m.group(2)) for m in _GATE_COLLECT_RE.finditer(str(res.get("stdout", "")))}
@@ -5371,6 +5373,7 @@ def _autoevol_live_check() -> dict[str, Any]:
         "stale": _is_front_stale() or bool(_get_live_meta().get("serving_from") == "lkg"),
         "loaded": LOADED_FINGERPRINT,
         "disk": code_fingerprint(REPO_ROOT),
+        "serving_from": _get_live_meta().get("serving_from"),
     }
 
 

@@ -256,7 +256,9 @@ def run_evolve(
         if done is not None:
             return done
     if rec["state"] == MERGED and mode == "full":
-        done = _post_verify(store, git, kit, cycle, rec, branch)  # C6: verify post-merge; si falla, revert antes del push
+        if not _merged_witnessed(store, git, cycle, rec, branch):
+            return _unverified(store, cycle, rec)  # DK-1: MERGED sin evento del ledger (estado forjado o ledger perdido)
+        done = _post_verify(store, git, kit, live_check, cycle, rec, branch)  # C6: verify post-merge; si falla, revert antes del push
         if done is not None:
             return done
         done = _push(store, git, live_check, cycle, rec, branch)
@@ -323,6 +325,40 @@ def _commit(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, r
     return None
 
 
+def _unverified(store: EvolveStore, cycle: str, rec: dict[str, Any]) -> dict[str, Any]:
+    return _blocked(store, cycle, rec, "state_unverified")  # DK-1: el JSON de /dev/shm es cache, no autoridad
+
+
+def _gate_witnessed(store: EvolveStore, cycle: str, tree: str) -> bool:
+    """DK-1: el ledger SQLite tiene un `evolve.gate` green sobre exactamente este arbol."""
+    if store.ledger is None or not tree:
+        return False
+    try:
+        return store.ledger.confirm("evolve.gate", cycle, verdict=tg.GREEN, tree=tree)
+    except (sqlite3.Error, OSError):
+        return False
+
+
+def _merged_witnessed(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], branch: str) -> bool:
+    """DK-1: `MERGED` exige un `evolve.merged` del ledger con el mismo sha completo. Si el proceso cayo entre el ff-merge y
+    el evento, git lo prueba (rama ancestro de dev, sha coincide) y hay testigo de gate verde: se registra el evento."""
+    if store.ledger is None:
+        return False
+    sha = str(rec.get("sha", ""))
+    tree = git.tree_of(branch)
+    if not sha or tree is None or git.rev_parse(branch) != sha:
+        return False
+    try:
+        if store.ledger.confirm("evolve.merged", cycle, sha_full=sha):
+            return True
+        if _gate_witnessed(store, cycle, tree) and git.is_ancestor(branch, DEV_BRANCH):
+            store.event("evolve.merged", {"cycle": cycle, "branch": branch, "sha": sha[:12], "sha_full": sha, "recovered": True})
+            return True
+    except (sqlite3.Error, OSError):
+        return False
+    return False
+
+
 def _reject(store: EvolveStore, cycle: str, rec: dict[str, Any], reason: str, **extra: Any) -> dict[str, Any]:
     reason = reason[:_REASON_MAX]
     rec["blocked"] = reason
@@ -340,7 +376,7 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
     if gate is not None and gate.get("tree") != committed_tree:
         gate = None
     if gate is not None and gate["verdict"] == tg.GREEN:
-        return None
+        return None if _gate_witnessed(store, cycle, committed_tree) else _unverified(store, cycle, rec)
     if gate is not None and gate["verdict"] == tg.RED:
         return _reject(store, cycle, rec, "gate_failed", gate_reason=gate.get("reason", ""))
     if kit is None:
@@ -351,6 +387,8 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
             return _blocked(store, cycle, rec, "export_failed")
         if gate is None:
             found = kit.collect(Path(tmp))
+            if found.get("wrong_tree"):
+                return _reject(store, cycle, rec, "wrong_tree", gate="0/0")  # rojo determinista, no ambiental
             files = found.get("files") if found.get("available") is not False else None
             if not files:
                 return _reject(store, cycle, rec, "sandbox_unavailable", gate="0/0")
@@ -360,9 +398,11 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     store.save(cycle, rec)
-    store.ledger_event("evolve.gate", {"cycle": cycle, "progress": tg.progress(gate), "verdict": gate["verdict"]})  # C10: gate i/n
+    store.ledger_event(
+        "evolve.gate", {"cycle": cycle, "progress": tg.progress(gate), "verdict": gate["verdict"], "tree": committed_tree}
+    )  # C10: gate i/n; DK-1: el ledger es el testigo del veredicto
     if gate["verdict"] == tg.GREEN:
-        return None
+        return None if _gate_witnessed(store, cycle, committed_tree) else _unverified(store, cycle, rec)
     if gate["verdict"] == tg.RED:
         return _reject(store, cycle, rec, "gate_failed", gate_reason=gate.get("reason", ""))
     if gate["verdict"] == tg.UNAVAILABLE:
@@ -388,6 +428,8 @@ def _cascade(kit: GateKit | None, git: GitPort, rec: dict[str, Any]) -> str | No
 
 def _merge(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
     """Precondiciones C3 (7, 8, 9, 12, 13) antes del ff-merge. `--ff-only` es el arbitro final."""
+    if not _gate_witnessed(store, cycle, git.tree_of(branch) or ""):
+        return _unverified(store, cycle, rec)  # DK-1: sin testigo green del ledger no hay ff-merge
     if git.current_branch() != DEV_BRANCH:
         return _blocked(store, cycle, rec, "not_on_dev")
     if not git.is_ancestor(DEV_BRANCH, branch):
@@ -405,18 +447,24 @@ def _merge(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], br
     rec["state"] = MERGED
     rec.pop("blocked", None)
     store.save(cycle, rec)
-    store.event("evolve.merged", {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12]})
+    store.event("evolve.merged", {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "sha_full": rec["sha"]})
     return None
 
 
-def _post_verify(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+def _plane_ready(live: dict[str, Any]) -> bool:
+    loaded = live.get("loaded")
+    return not live.get("stale") and bool(loaded) and loaded == live.get("disk") and live.get("serving_from") != "lkg"
+
+
+def _post_verify(store: EvolveStore, git: GitPort, kit: GateKit | None, live_check: LiveCheck, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
     """C6 (condicion 15): el verify post-merge falla tras el ff y antes del push => `git revert` nuevo, sin push."""
     if rec.get("post_verified") or kit is None or kit.post_verify is None:
         return None
     res = kit.post_verify(rec)
     if res.get("ok"):
-        rec["post_verified"] = True
-        store.save(cycle, rec)
+        if _plane_ready(live_check()):  # DK-4: solo se fija con el plano vivo cargado y fuera del LKG; si no, se re-evalua
+            rec["post_verified"] = True
+            store.save(cycle, rec)
         return None
     why = str(res.get("reason", "post_verify_failed"))
     if git.current_branch() != DEV_BRANCH or git.rev_parse(DEV_BRANCH) != rec.get("sha"):

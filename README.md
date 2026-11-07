@@ -420,6 +420,11 @@ flowchart TD
 
 ---
 
+
+### Revert de `evolve` (decision humana)
+
+Tras `BLOCKED_GIT dev_dirty_by_revert`, el usuario revisa `dev` frente a `origin/dev` y libera el bloqueo con `scripts/aep-ctl evolve resolve-revert <ciclo> --confirm` (`REVERT_RESOLVED`). No es tool MCP; ver SDD ONT-40 §9.
+
 ## 5. Hybrid Semantic Memory (sqlite-vec) & Hot SQLite Concurrency
 
 Resolves strict hashing fragility when handling natural language variability across LLMs via a

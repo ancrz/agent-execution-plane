@@ -24,9 +24,6 @@ def _red_rig(rig: Rig) -> dict:
     return out
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DK-1: veredicto del gate solo vive en el JSON de /dev/shm (sin MAC ni testigo en el ledger)"
-)
 def test_forged_green_gate_in_state_json_must_not_merge(rig: Rig) -> None:
     _red_rig(rig)
     store = rig.store()
@@ -37,9 +34,6 @@ def test_forged_green_gate_in_state_json_must_not_merge(rig: Rig) -> None:
     assert out.get("state") != te.MERGED and not (rig.canon / "new.txt").exists(), out
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DK-1: state=MERGED forjado salta gate y cascada; solo el verify post-merge y el push siguen"
-)
 def test_forged_merged_state_must_not_reach_push_without_gate(rig: Rig) -> None:
     _red_rig(rig)
     store = rig.store()
@@ -61,19 +55,20 @@ def test_cap_cannot_be_dodged_by_changing_gap_or_base_r(tmp_path: Path) -> None:
     assert led.claim("g1", "R1", "T1", "c9", r_before="R1", r_after="")["row"]["cycle"] == "c1"  # idempotente
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DK-2: evolve_keys/evolve_events solo con DDL perezoso; ausentes de schemas/database.sql"
-)
-def test_ledger_tables_are_in_migrated_schema() -> None:
+def test_ledger_tables_are_in_migrated_schema(tmp_path: Path) -> None:
+    from engine import threads_ledger as tl
+
     sql = (ROOT / "schemas" / "database.sql").read_text(encoding="utf-8")
+    led = tl.EvolveLedger(tmp_path / "l.db")
+    assert led.get("none") is None  # abre la BD y crea el DDL perezoso
     assert "evolve_keys" in sql and "evolve_events" in sql
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DK-3: resolve_revert sin superficie ni runbook: tras un revert el push queda bloqueado para siempre",
-)
-def test_resolve_revert_has_a_documented_user_path() -> None:
+def test_resolve_revert_has_a_documented_user_path(tmp_path: Path) -> None:
+    from engine import threads_ledger as tl
+
+    led = tl.EvolveLedger(tmp_path / "l.db")
+    assert led.resolve_revert("nope") is False  # solo desbloquea ciclos REVERTED
     docs = "".join(
         p.read_text(encoding="utf-8", errors="ignore")
         for p in (ROOT / "docs").rglob("*.md")
@@ -82,10 +77,6 @@ def test_resolve_revert_has_a_documented_user_path() -> None:
     assert "resolve_revert" in docs or "REVERT_RESOLVED" in docs
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DK-4: post_verified se fija en la 1a llamada (antes del hot-swap); un LKG posterior nunca dispara el revert",
-)
 def test_lkg_after_swap_triggers_revert_even_if_first_post_verify_was_ok(rig: Rig) -> None:
     rig.live.update(stale=True, loaded="old", disk="new")  # swap en curso: el push espera
     seen = {"n": 0}
@@ -101,3 +92,22 @@ def test_lkg_after_swap_triggers_revert_even_if_first_post_verify_was_ok(rig: Ri
     assert first.get("awaiting") == "reload", first
     second = rig.run()
     assert second.get("state") == te.REVERTED, second
+
+
+def test_ledger_ddl_parity_with_database_sql() -> None:
+    from engine import threads_ledger as tl
+
+    sql = " ".join((ROOT / "schemas" / "database.sql").read_text(encoding="utf-8").split())
+    for stmt in tl.DDL:
+        assert " ".join(stmt.split()) + ";" in sql
+
+
+def test_resolve_revert_is_not_an_mcp_tool_but_a_cli_subcommand(tmp_path: Path) -> None:
+    from engine import threads_ledger as tl
+
+    led = tl.EvolveLedger(tmp_path / "l.db")
+    assert led.claim("g", "R", "T", "c1", r_before="R", r_after="")["claimed"]
+    led.mark_reverted("c1")
+    assert led.revert_pending() is True and led.resolve_revert("c1") is True and led.revert_pending() is False
+    assert "resolve_revert" not in (ROOT / "server.py").read_text(encoding="utf-8")
+    assert "resolve-revert" in (ROOT / "scripts" / "aep-ctl").read_text(encoding="utf-8")
