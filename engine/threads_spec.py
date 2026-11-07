@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
-
 from pathlib import Path
+from typing import Any
 
 from engine import matcher, threads_pins, threads_spec_cache
 from engine import threads as th
@@ -150,7 +149,9 @@ def _change_targets(analysis: th.Analysis, gap: th.Gap) -> dict[str, list[str]]:
             dst = graph.nodes.get(edge.dst)
             if dst is None:
                 continue
-            impl = [e.dst for e in graph.out_edges(edge.dst, "implemented_by")] if dst.type in ("tool", "action") else []
+            impl = (
+                [e.dst for e in graph.out_edges(edge.dst, "implemented_by")] if dst.type in ("tool", "action") else []
+            )
             seeds.extend(impl or [edge.dst])
         seeds = seeds or [gap.node]
     nodes = list(dict.fromkeys(seeds))
@@ -264,7 +265,9 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
     covered = set(tests)
     pin = [
         t
-        for t in threads_pins.pinning_tests(analysis.graph, change["nodes"] or [gap.node], getattr(analysis, "root", None))
+        for t in threads_pins.pinning_tests(
+            analysis.graph, change["nodes"] or [gap.node], getattr(analysis, "root", None)
+        )
         if t not in covered
     ]
     validate = {
@@ -293,7 +296,14 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
         return _fit(payload, TERSE_MAX_TOKENS, ("pin", "tests", "files"))
     payload = {
         "status": "OK",
-        "gap": {"id": gap.id, "kind": gap.kind, "node": gap.node, "ref": gap.ref, "score": gap.score, "reach": gap.reach},
+        "gap": {
+            "id": gap.id,
+            "kind": gap.kind,
+            "node": gap.node,
+            "ref": gap.ref,
+            "score": gap.score,
+            "reach": gap.reach,
+        },
         "specify": {"what": what, "detail": gap.detail},
         "plan": [f"Edit {', '.join(files) or 'the owning file'}.", *_PLAN_COMMON],
         "tasks": [task, "Keep every public change covered by a direct test."],

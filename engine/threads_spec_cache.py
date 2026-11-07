@@ -60,7 +60,15 @@ def thread_hashes(analysis: Any, gap: Any, change_nodes: list[str]) -> dict[str,
 
 def cache_key(gap: Any, terse: bool, deps: dict[str, str]) -> str:
     h = hashlib.sha256()
-    parts = (gap.id, gap.kind, gap.node, str(gap.detail), str(gap.ref or ""), "t" if terse else "s", json.dumps(sorted(deps.items())))
+    parts = (
+        gap.id,
+        gap.kind,
+        gap.node,
+        str(gap.detail),
+        str(gap.ref or ""),
+        "t" if terse else "s",
+        json.dumps(sorted(deps.items())),
+    )
     for part in parts:
         h.update(part.encode("utf-8"))
         h.update(b"\x1f")
@@ -76,13 +84,14 @@ def _lookup(db: Path, gap_id: str, terse: bool, key: str) -> dict[str, Any] | No
         return None
     try:
         row = conn.execute(
-            "SELECT key_hash, spec_json FROM threads_spec_cache WHERE gap_canonical = ? AND terse = ?", (gap_id, int(terse))
+            "SELECT key_hash, spec_json FROM threads_spec_cache WHERE gap_canonical = ? AND terse = ?",
+            (gap_id, int(terse)),
         ).fetchone()
         if row is None or row["key_hash"] != key:
             return None
         loaded = json.loads(row["spec_json"])
         return loaded if isinstance(loaded, dict) else None
-    except (sqlite3.Error, ValueError):
+    except sqlite3.Error, ValueError:
         return None
     finally:
         conn.close()
@@ -102,7 +111,7 @@ def _store(db: Path, gap_id: str, terse: bool, key: str, deps: dict[str, str], s
             conn.commit()
         finally:
             conn.close()
-    except (sqlite3.Error, OSError):
+    except sqlite3.Error, OSError:
         log.debug("threads_spec_cache: store skipped", exc_info=True)
 
 
@@ -115,12 +124,12 @@ def stale_specs(changed: set[str], *, db_path: Path | str) -> list[str]:
         if not db.exists():
             return []
         conn = get_ro_connection(db)
-    except (sqlite3.Error, OSError):
+    except sqlite3.Error, OSError:
         return []
     try:
         rows = conn.execute("SELECT gap_canonical, deps_json FROM threads_spec_cache ORDER BY gap_canonical").fetchall()
         return sorted({r["gap_canonical"] for r in rows if changed & set(json.loads(r["deps_json"]))})
-    except (sqlite3.Error, ValueError):
+    except sqlite3.Error, ValueError:
         return []
     finally:
         conn.close()
