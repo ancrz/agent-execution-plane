@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Rama: `dev` (`00886c3` código; origin/dev `b6b5e66`, 3 commits por delante, push retenido) · E4 reconciliación por tier **VERIFIED** (829 passed reportado; 829 recolectados) · Plan autohealing **E2–E4 CERRADO** · Integridad de instalación en sala limpia: **INSTALA CON INTEGRIDAD** (ronda 3) · E3 **VERIFIED** · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: backlog menor y decisión de publicación (user-gated)
+> Rama: `dev` == `origin/dev` @ `46cc89e` (publicado) · E4 reconciliación por tier **VERIFIED** (829 passed reportado; 829 recolectados) · Plan autohealing **E2–E4 CERRADO** · Integridad de instalación en sala limpia: **INSTALA CON INTEGRIDAD** (ronda 3) · E3 **VERIFIED** · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: backlog menor
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -70,14 +70,14 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 - **E2 specs incrementales (VERIFIED, `74d5968`, `eff04ac`):** caché por `node_hash` de los hilos del gap; `cache: hit|miss`; `stale_specs` en diff; fail-open; tier < 6 no escribe. En vivo: miss 1337 ms, hit 367 ms. La spec es informativa (el juez no la usa). Suite 772 passed.
 
 ## Pendientes
-- **Plan E2–E4 (cerrado, 2026-11-07):** E2, E3 y E4 VERIFIED. Pendiente sólo el backlog menor de abajo y la decisión de publicar (push a `origin/dev` user-gated).
+- **Plan E2–E4 (cerrado, 2026-11-07):** E2, E3 y E4 VERIFIED y publicados (`origin/dev` @ `46cc89e`). Pendiente sólo el backlog menor de abajo.
 
 - **Backlog post-E3 (menor):** sondas Go sin `go.mod` (lint por archivo no afectado); errcheck en `socket-monitor` (1) y `landlock-guard` (4); LKG antiguo (`622fa0a7…`) conviene refrescarlo; `ruff format` pendiente en 76 archivos; prueba de descarga fallida con red caída no ejercitada; `feature_rollup.md` vencido.
 - **Endurecimientos opcionales E2 (backlog):** incluir `node_hash` de tests y pins en la clave de caché; validar la forma del hit en `_lookup`.
 - **Política de modo (2026-11-07)**: Short por defecto por costos; Full sólo si el usuario lo pide o el blast radius lo exige.
 - **Política de recarga (2026-11-07)**: AEP recarga sólo su propia sesión (ancestría estricta); nunca sesiones ajenas.
 - **ONT-42c (cerrado):** E1 + C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados. Decisiones: `resolve-revert` solo por CLI humano con `--confirm`; `recovered: true` solo con prueba git y testigo del gate. Modelo de amenaza en SDD §9 (el gate no protege contra un adversario con el mismo uid).
-- **Pendientes ONT-42c (tras cierre):** verificar AP-1 restringido a FULL (plan C7, no reportado en el cierre); M-2b (ignorados fuera de la huella) sigue aceptado; E2 cerrado; pendientes E3 (OTP sobre SCC) y E4 (reconciliación acotada por tier). Push a origin/dev: user-gated.
+- **ONT-42c (cerrado):** AP-1 restringido a FULL verificado (matriz de tiers C2, checkpoint tras C3; SDD §4/§7). M-2b (ignorados fuera de la huella) sigue como riesgo aceptado. E2, E3 y E4 cerrados.
 - **Backlog bajo**: cerrados O-1, O-2, `select_fields` de `aep_ctl` y cobertura de `backup.lkg_*` (ver Hecho). Abierto: `backup.lkg_restore` sin `covers` (verificar si sigue vigente).
 - **B9**: el ACCEPT de agy no es reproducible (el `verify` no discrimina D-01b); el fix sí pasa en pytest. Queda cubierto por E1.
 
@@ -90,7 +90,7 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
   - AE-5: el ranking de gaps entierra `open_discrepancy`.
   - AE-6: no predice tests que fijan comportamiento viejo.
   - Conclusión: autoevol cuenta gaps bien, pero no es aún juez autónomo.
-- **ONT-42a T8 (smoke en vivo `execute`, user-gated):** pendiente de consentimiento explícito del usuario. Riesgo abierto: `sudo use_pty` puede sustituir stdin (falla cerrado a manual). Plan: `docs/pipeline/feature_20261106_172315_ont42a_harness_reconnect.md`; SDD: `docs/sdd/sdd_ont42a_harness_reconnect.md`.
+- **ONT-42a T8 (hecho, 2026-11-06):** `harness_reconnect execute` con consentimiento del usuario recargó el front en vivo (pid 753000 → 921894, `front_stale=false`, sysctl restaurado a 0). Plan: `docs/pipeline/feature_20261106_172315_ont42a_harness_reconnect.md`; SDD: `docs/sdd/sdd_ont42a_harness_reconnect.md`.
 - **Roadmap Completo (33 → 15 tools MCP), Endurecimiento Post-Consolidación y Optimización Híbrida de Persistencia SQLite (mmap 256MB / 64MB cache): 100% CERRADOS y VERIFICADOS por Dokimos across Gates 1 to 5.**
 - **Línea base final: 15 herramientas FastMCP cubriendo 16 capacidades (1:1 parity), consultas vectoriales a velocidad de RAM con persistencia total en disco para colaboración multiagente, enmascaramiento de secretos activo. Tarea 110 PROMOTED (0.9958 TRUST).**
 - Listo para Stage 6 (Hermon: commit atómico convencional y release).
