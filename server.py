@@ -5374,6 +5374,14 @@ def _autoevol_tree_fingerprint(tree: Path | str) -> str | None:
     return gp.GitCli(Path(tree), REPO_ROOT, _autoevol_swap_fence()).candidate_tree()
 
 
+def _autoevol_ledger() -> Any:
+    """C5: ledger de evolve en la BD de AEP; tope `AEP_AUTOEVOL_MAX_CYCLES` (defecto 3, ventana 24 h por DB)."""
+    from engine import threads as th
+    from engine import threads_ledger as tl
+
+    return tl.EvolveLedger(th.default_db_path(), max_cycles=tl.max_cycles_from_env(os.environ.get("AEP_AUTOEVOL_MAX_CYCLES")))
+
+
 def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: bool, octal: int) -> dict[str, Any]:
     """`autoevol(evolve)`: GitPort inyectado. `apply` jamas actua sobre el repo canonico (solo sobre un worktree `root`)."""
     from engine import threads_evolve as te
@@ -5383,7 +5391,7 @@ def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: b
         return {"status": "ERROR", "error": "evolve apply exige root=<worktree del parche>, no el repo canonico."}
     git = gp.GitCli(tree, REPO_ROOT, _autoevol_swap_fence())
     return te.run_evolve(
-        te.EvolveStore(),
+        te.EvolveStore(ledger=_autoevol_ledger()),
         git,
         _autoevol_live_check,
         cycle=cycle,

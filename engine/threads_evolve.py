@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 from collections.abc import Callable
@@ -29,6 +30,7 @@ from typing import Any, Protocol
 
 from engine import threads_events as ev
 from engine import threads_gate as tg
+from engine import threads_ledger as tl
 from engine import threads_verify as tv
 
 PLAN = "PLAN"
@@ -129,9 +131,12 @@ def evolve_file_name(uid: int, cycle: str) -> str:
 class EvolveStore:
     """Estado de evolve por ciclo (indice; la verdad es git)."""
 
-    def __init__(self, *, base_dir: Path | str | None = None, uid: int | None = None) -> None:
+    def __init__(
+        self, *, base_dir: Path | str | None = None, uid: int | None = None, ledger: tl.EvolveLedger | None = None
+    ) -> None:
         self._dir = base_dir
         self._uid = os.geteuid() if uid is None else int(uid)
+        self.ledger = ledger  # C5: indice SQLite (git manda). Sin ledger no hay commit: fail-closed en `_commit`.
 
     def load(self, cycle: str) -> dict[str, Any] | None:
         with ev.state_dir(self._dir) as dfd:
@@ -151,6 +156,25 @@ class EvolveStore:
 
     def event(self, kind: str, data: dict[str, Any]) -> None:
         ev.append_event(kind, data, base_dir=self._dir)
+        self.ledger_event(kind, data)
+
+    def ledger_event(self, kind: str, data: dict[str, Any]) -> None:
+        """Evento `evolve.*` solo en el ledger (p. ej. progreso del gate). Fail-soft: el ledger es el indice, no la verdad."""
+        if self.ledger is None:
+            return
+        try:
+            self.ledger.event(kind, str(data.get("cycle", "")), data)
+        except (sqlite3.Error, OSError):
+            return
+
+    def sync_state(self, cycle: str, state: str) -> None:
+        """Reconcilia el indice con el estado real (git) del ciclo."""
+        if self.ledger is None:
+            return
+        try:
+            self.ledger.set_state(cycle, state)
+        except (sqlite3.Error, OSError):
+            return
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +236,10 @@ def run_evolve(
         judged = fix.get("judged") or {}
         rec["judged_tree"] = judged.get("tree", "")
         rec["judged_root"] = judged.get("root", "")
+        base = fix.get("base") if isinstance(fix.get("base"), dict) else {}
+        rec["base_root"] = str(base.get("root", ""))  # C5/C7: R de la generacion base (clave de idempotencia)
     rec = _reconcile(git, rec, branch)
+    store.sync_state(cycle, rec["state"])  # C5: git manda, el ledger se reconcilia en cada reentrada
     if rec["state"] == REVERTED:  # C6: dev quedo adelantado a origin por el revert; solo el usuario decide
         return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch}
     if rec["state"] == JUDGED:
@@ -234,6 +261,7 @@ def run_evolve(
         if done is not None:
             return done
     store.save(cycle, rec)
+    store.sync_state(cycle, rec["state"])
     out: dict[str, Any] = {"status": "OK", "state": rec["state"], "cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "gating": mode, "applied": True}
     if mode == "local" and rec["state"] == COMMITTED:
         out["local_only"] = True  # 6rw- / DIMINISHED: sin ff-merge ni push
@@ -260,6 +288,20 @@ def _commit(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], b
         return _blocked(store, cycle, rec, "no_changes")
     if tree != rec["judged_tree"]:
         return _blocked(store, cycle, rec, "tree_changed_after_accept")  # re-juzgar con un nuevo fix_test
+    if store.ledger is None:
+        return _blocked(store, cycle, rec, "no_ledger")
+    try:
+        claim = store.ledger.claim(
+            str(rec.get("gap", "")), str(rec.get("base_root", "")), tree, cycle,
+            r_before=str(rec.get("base_root", "")), r_after=str(rec.get("r_after", "")),
+        )
+    except (sqlite3.Error, OSError):
+        return _blocked(store, cycle, rec, "ledger_unavailable")
+    if claim.get("capped"):
+        return _reject(store, cycle, rec, "max_cycles", used=claim["used"], max=claim["max"])  # condicion 14
+    row = claim.get("row")
+    if row is not None and row["cycle"] != cycle:  # misma (gap, base_R, tree): ya promovida por otro ciclo
+        return {"status": "OK", "state": row["state"], "cycle": cycle, "duplicate_of": row["cycle"], "applied": False}
     ok, info = git.commit_branch(branch, tree, f"feat(autoevol): evolve {rec.get('gap', '')} [{cycle}]")
     if not ok:
         existing = git.tree_of(branch)
@@ -269,7 +311,10 @@ def _commit(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], b
         return _blocked(store, cycle, rec, "branch_other_tree" if info == "branch_exists" else info)
     rec.update(state=COMMITTED, sha=info, tree=tree)
     store.save(cycle, rec)
-    store.event("evolve.committed", {"cycle": cycle, "branch": branch, "sha": info[:12], "tree": tree[:12]})
+    store.event(
+        "evolve.committed",
+        {"cycle": cycle, "branch": branch, "sha": info[:12], "tree": tree[:12], "r_before": str(rec.get("base_root", ""))[:16], "r_after": str(rec.get("r_after", ""))[:16]},
+    )
     return None
 
 
@@ -310,6 +355,7 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     store.save(cycle, rec)
+    store.ledger_event("evolve.gate", {"cycle": cycle, "progress": tg.progress(gate), "verdict": gate["verdict"]})  # C10: gate i/n
     if gate["verdict"] == tg.GREEN:
         return None
     if gate["verdict"] == tg.RED:
@@ -359,11 +405,15 @@ def _post_verify(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: s
         return _blocked(store, cycle, rec, f"{info}:post_verify")
     rec.update(state=REVERTED, revert_sha=info, post_verify_reason=why[:_REASON_MAX])
     store.save(cycle, rec)
+    if store.ledger is not None:
+        store.ledger.mark_reverted(cycle)
     store.event("evolve.reverted", {"cycle": cycle, "branch": branch, "sha": rec["sha"][:12], "revert": info[:12], "why": why[:_REASON_MAX]})
     return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch, "revert_sha": info[:12], "why": why[:_REASON_MAX]}
 
 
 def _push(store: EvolveStore, git: GitPort, live_check: LiveCheck, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+    if store.ledger is not None and store.ledger.revert_pending():
+        return _blocked(store, cycle, rec, "dev_dirty_by_revert")  # un revert sin decision del usuario: dev esta sucio
     live = live_check()
     if live.get("stale") or not live.get("loaded") or live.get("loaded") != live.get("disk"):
         # El plano vivo aun no cargo lo mergeado (hot-swap en curso): se espera, no es un fallo.

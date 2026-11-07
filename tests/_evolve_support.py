@@ -10,6 +10,7 @@ from typing import Any
 
 from engine import threads_evolve as te
 from engine import threads_gitport as gp
+from engine import threads_ledger as tl
 from engine import threads_verify as tv
 
 _ENV = {
@@ -74,7 +75,10 @@ class Rig:
         return gp.GitCli(self.work, self.canon, self.fence)
 
     def store(self) -> te.EvolveStore:
-        return te.EvolveStore(base_dir=self.state)
+        return te.EvolveStore(base_dir=self.state, ledger=self.ledger())
+
+    def ledger(self, max_cycles: int = 3) -> tl.EvolveLedger:
+        return tl.EvolveLedger(self.state / "ledger.db", max_cycles=max_cycles)
 
     def run(self, *, octal: int = 7, label: str = "FULL", apply: bool = True, cycle: str | None = "") -> dict[str, Any]:
         return te.run_evolve(
