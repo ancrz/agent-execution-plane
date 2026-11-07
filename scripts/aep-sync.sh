@@ -43,7 +43,9 @@ validate() {
     local err_compile err_import
     err_compile="$(mktemp -t aep_sync_compile.XXXXXX)"
     err_import="$(mktemp -t aep_sync_import.XXXXXX)"
-    trap 'rm -f "$err_compile" "$err_import"' RETURN
+    # RETURN traps are global in bash: clear it inside itself, or it re-fires (with the locals gone,
+    # tripping `set -u`) on the return of every later function.
+    trap 'rm -f "$err_compile" "$err_import"; trap - RETURN' RETURN
     if ! "$py" -m py_compile "$PROJECT_ROOT/server.py" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" "$PROJECT_ROOT"/engine/*.py 2>"$err_compile"; then
         err "py_compile falló:"; cat "$err_compile"; return 1
     fi
