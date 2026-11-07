@@ -543,6 +543,19 @@ def next_state(state: str, verdict: str, iteration: int, *, max_iterations: int 
     return (EXHAUSTED if nxt >= max_iterations else OPEN), nxt
 
 
+def _pid_alive(pid: int) -> bool:
+    """True si el proceso existe (señal 0). EPERM significa que existe aunque no sea nuestro."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 class CycleStore:
     """Estado del ciclo en un directorio privado. Reloj, uid y directorio inyectables (tests)."""
 
@@ -554,7 +567,9 @@ class CycleStore:
         base_dir: Path | str | None = None,
         clock: Callable[[], float] = time.time,
         uid: int | None = None,
+        pid_alive: Callable[[int], bool] = _pid_alive,
     ) -> None:
+        self._pid_alive = pid_alive
         self._dir = base_dir
         self._clock = clock
         self._uid = os.geteuid() if uid is None else int(uid)
@@ -573,7 +588,8 @@ class CycleStore:
         ev.write_file_atomic(dfd, name, json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
     def _reap_orphan_cycles(self, dfd: int, gap: str, now: float) -> int:
-        """G4: limpia ciclos vencidos (TTL) y ciclos OPEN huérfanos previos para el mismo `(uid, gap)`."""
+        """G4 (D-02): limpia ciclos vencidos (TTL) y ciclos OPEN del mismo `(uid, gap)` cuyo dueño (`owner_pid`) ya no
+        existe. Un ciclo OPEN vivo de otro llamante, o sin dueño registrado, nunca se borra antes del TTL."""
         reaped = 0
         for fname in ev.list_names(dfd):
             if not (fname.startswith("cycle_") and fname.endswith(".json")):
@@ -582,7 +598,13 @@ class CycleStore:
             if rec is None or rec.get("uid") != self._uid:
                 continue
             expired = (now - float(rec.get("updated", 0))) > CYCLE_TTL_SECONDS
-            same_open = rec.get("gap") == gap and rec.get("state") == OPEN
+            owner = rec.get("owner_pid")
+            same_open = (
+                rec.get("gap") == gap
+                and rec.get("state") == OPEN
+                and isinstance(owner, int)
+                and not self._pid_alive(owner)
+            )
             if expired or same_open:
                 ev.remove_file(dfd, fname)
                 reaped += 1
@@ -617,6 +639,7 @@ class CycleStore:
                     "base": base,
                     "history": [],
                     "job": None,
+                    "owner_pid": os.getpid(),
                 }
                 blob = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 if ev.create_file_exclusive(dfd, cycle_file_name(self._uid, cycle_id), blob):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -152,9 +153,23 @@ def test_g2_private_helper_inherits_caller_pins(tmp_path: Path) -> None:
     assert sel == [_tid(0), _tid(1)] and info["direct"] == 1 and info["pins"] == 1
 
 
-def test_g4_open_cycle_reaps_orphan_open_cycle_for_same_gap(tmp_path: Path) -> None:
-    store = tv.CycleStore(base_dir=tmp_path / "shm")
+def test_g4_open_cycle_keeps_live_cycle_and_reaps_dead_owner(tmp_path: Path) -> None:
+    alive = {os.getpid(): True}
+    store = tv.CycleStore(base_dir=tmp_path / "shm", pid_alive=lambda pid: alive.get(pid, False))
     c1 = store.open_cycle("gap:1", {"gaps": ["gap:1"]})["cycle_id"]
-    assert store.load(c1) is not None
+    # D-02: a live OPEN cycle of the same (uid, gap) is NOT deleted by a second open
     c2 = store.open_cycle("gap:1", {"gaps": ["gap:1"]})["cycle_id"]
-    assert c2 != c1 and store.load(c1) is None and store.load(c2) is not None
+    assert c2 != c1 and store.load(c1) is not None and store.load(c2) is not None
+    # once the owner is gone the cycle is orphaned and reaped by the next open
+    alive[os.getpid()] = False
+    c3 = store.open_cycle("gap:1", {"gaps": ["gap:1"]})["cycle_id"]
+    assert store.load(c1) is None and store.load(c2) is None and store.load(c3) is not None
+
+
+def test_g4_ttl_expired_cycle_is_reaped_regardless_of_owner(tmp_path: Path) -> None:
+    now = [1000.0]
+    store = tv.CycleStore(base_dir=tmp_path / "shm", clock=lambda: now[0], pid_alive=lambda _p: True)
+    c1 = store.open_cycle("gap:2", {"gaps": ["gap:2"]})["cycle_id"]
+    now[0] += tv.CYCLE_TTL_SECONDS + 1
+    c2 = store.open_cycle("gap:2", {"gaps": ["gap:2"]})["cycle_id"]
+    assert store.load(c1) is None and store.load(c2) is not None
