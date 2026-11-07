@@ -509,8 +509,9 @@ fi
 
 # Instalar dependencias del proyecto en modo editable con extras dev
 log_step "Sincronizando dependencias en el venv hermético..."
-VIRTUAL_ENV="$VENV_DIR" uv pip install -e ".[dev]"
-VIRTUAL_ENV="$VENV_DIR" uv pip install -q sqlite-vec fastembed playwright
+# Reproducible install from uv.lock (sqlite-vec, fastembed, playwright are declared in pyproject + locked).
+# --frozen: never re-resolve; the lock is the source of truth.
+(cd "$PROJECT_ROOT" && UV_PROJECT_ENVIRONMENT="$VENV_DIR" uv sync --frozen --extra dev)
 
 # Sincronizar symlink canónico para ~/.local/share/agent-os/venv
 mkdir -p "$HOME/.local/share/agent-os"
