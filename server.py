@@ -5349,7 +5349,14 @@ def _autoevol_gate_kit() -> Any:
             return {"ok": False, "reason": "serving_lkg"}
         return {"ok": True}
 
-    return te.GateKit(collect=_autoevol_gate_collect, run_batch=run_batch, post_verify=post_verify)
+    def summarize(tree: Path) -> dict[str, Any]:
+        """C7: R y Gaps del arbol (analisis estatico AST, no ejecuta codigo del arbol)."""
+        from engine import threads as th
+        from engine import threads_verify as tv
+
+        return tv.summarize(th.analyze(Path(tree), use_cache=False))
+
+    return te.GateKit(collect=_autoevol_gate_collect, run_batch=run_batch, summarize=summarize, post_verify=post_verify)
 
 
 def _autoevol_swap_fence() -> Path:

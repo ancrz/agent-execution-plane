@@ -38,6 +38,7 @@ class FakeKit:
         self.calls: list[list[str]] = []
         self.trees: list[Path] = []
         self.collect_result: dict[str, Any] | None = None
+        self.summary: dict[str, Any] = {"root": "R1", "gaps": ["D-90"], "codep": []}  # G' del parche: D-88 arreglado
         self.timeout_over: int | None = None  # lotes con mas archivos que esto agotan el tiempo
 
     def collect(self, tree: Path) -> dict[str, Any]:
@@ -55,8 +56,11 @@ class FakeKit:
         ran = sum(self.files[f] for f in files)
         return {"ran": ran, "passed": ran, "failed": 0, "errors": 0, "exit_code": 0}
 
+    def summarize(self, tree: Path) -> dict[str, Any]:
+        return dict(self.summary)
+
     def kit(self) -> te.GateKit:
-        return te.GateKit(collect=self.collect, run_batch=self.run_batch)
+        return te.GateKit(collect=self.collect, run_batch=self.run_batch, summarize=self.summarize)
 
 
 @dataclass
@@ -127,7 +131,7 @@ def make_rig(tmp: Path, *, accepted: bool = True) -> Rig:
     (work / "a.txt").write_text("patched\n", encoding="utf-8")  # el parche (tracked) + un archivo nuevo
     (work / "new.txt").write_text("new\n", encoding="utf-8")
     store = tv.CycleStore(base_dir=state)
-    opened = store.open_cycle("drift:open:D-88:test:t", {"gaps": []})
+    opened = store.open_cycle("drift:open:D-88:test:t", {"root": "R0", "gaps": ["D-88", "D-90"]})
     cycle = opened["cycle_id"]
     if accepted:
         judged = gp.GitCli(work, canon, tmp / "swap_fence")  # D-EV-1: ACCEPT atado al arbol juzgado

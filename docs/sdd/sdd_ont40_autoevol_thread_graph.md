@@ -84,15 +84,15 @@ Cada hilo es una unidad con identidad estable y hash de contenido.
 
 | Tier | Alcance |
 |---|---|
-| `7rwx` / `6rw-` + repo con remoto | `evolve` completo. Auto-commit en la rama `autoevol/<gap-id>`, fast-forward a `dev` **solo si `verify` = ACCEPT**. El push sigue gateado por el usuario salvo autorización explícita |
-| `7rwx` / `6rw-` sin remoto | Lo mismo, con commits locales |
-| `5r-x` | `graph`, `gaps`, `spec` y `verify`. Los parches se proponen como artefactos (catálogo) sin escribir en el árbol |
-| `4r--` | Solo lectura: `graph`, `gaps`, `thread`, `log` |
+| `7rwx` etiqueta `FULL` + remoto | `evolve` completo: commit en `autoevol/<ciclo>`, gate final (§9), ff-merge a `dev` y push de `dev` y `autoevol/<ciclo>` |
+| `6rw-` / `DIMINISHED` | Solo commit local en `autoevol/<ciclo>`: sin ff-merge ni push |
+| `5r-x` | `graph`, `gaps`, `spec`, `verify`. Los parches se proponen sin escribir en el árbol; `evolve` solo planifica |
+| `4r--` | Solo lectura: `graph`, `gaps`, `thread`, `log`; `evolve` solo planifica |
 
 Disparadores automáticos (sin bucle desbocado):
 - Tras cada hot-swap promovido, el front marca `graph_dirty`.
 - `discover(capabilities, terse)` expone `autoevol: {root, gaps_open, top_gap}`.
-- `evolve` nunca se encadena a sí mismo: un ciclo por invocación y un máximo de N ciclos por sesión (`AEP_AUTOEVOL_MAX_CYCLES=3`), igual que el límite de 3 ciclos del pipeline.
+- `evolve` nunca se encadena a sí mismo: un ciclo por invocación y un máximo de N ciclos por sesión (`AEP_AUTOEVOL_MAX_CYCLES=3`, persistido en el ledger SQLite con ventana móvil de 24 h por DB; entero >= 1, inválido => 3), igual que el límite de 3 ciclos del pipeline.
 
 ## 5. Fases
 
@@ -119,7 +119,7 @@ Disparadores automáticos (sin bucle desbocado):
 | DQ-3 | `threads_gen` y el ledger se persisten solo con tier ≥ `6rw-`. En `4r--` se devuelve R con `persisted:false` | Orquestador |
 | DQ-4 | `autoevol` se integra en la capacidad `topos_audit` (integridad estructural). Se mantienen **19 capacidades** y 17 tools | Orquestador |
 | DQ-5 | Marcador histórico explícito `(histórico)`, `(historical)` o `<!-- aep:hist -->`. El CHANGELOG queda excluido de los claims | Orquestador |
-| AP-1 | **Auto-push autorizado por el usuario.** Condiciones (ONT-42): tier `7rwx`/`6rw-`, remoto alcanzable, `verify` = ACCEPT y tests verdes. Se empuja `autoevol/<gap>` y el fast-forward de `dev`. **Nunca** `--force`, nunca `main`, nunca reescribir historia. Si el push falla, se reporta y no se reintenta con fuerza | Usuario |
+| AP-1 | **Auto-push autorizado por el usuario, restringido (ONT-42c).** Solo con etiqueta `FULL` (7rwx), remoto alcanzable, `verify` = ACCEPT, gate final verde y `stale == false`. `6rw-`/`DIMINISHED` hace commit local y nunca ff-merge ni push. Se empuja `autoevol/<gap>` y el ff de `dev`. **Nunca** `--force`, nunca `main`, nunca reescribir historia. Un push rechazado se reporta (`BLOCKED_GIT`) y no se reintenta | Usuario |
 
 **Premisa (usuario):** solo un agente que puede evaluarse a sí mismo puede evolucionar una herramienta que a su vez lo evoluciona. La consola es una limitación; el agente usa la capacidad de mayor alcance disponible.
 
@@ -133,3 +133,13 @@ Como el reload es en vivo (ONT-39), el ciclo de corrección no reinicia nada:
 3. **Ejecución:** los tests seleccionados corren vía `sandbox_run(parse="pytest")`, o `async_job_dispatch` si tardan más de 60 s. Las tools en vivo se prueban contra el backend recién promovido.
 4. **Veredicto incremental:** `Gaps(G') ⊊ Gaps(G)` más los tests seleccionados en verde dan `fix_ok`; si no, se hace rollback por hilo (LKG) y se devuelve el diff.
    - **ONT-41:** `autoevol(action="fix_test", gap=..)` orquesta los pasos 1 a 4, con un máximo de 3 iteraciones por gap.
+
+## 9. `evolve` (ONT-42c)
+
+Máquina de estados re-entrante: `PLAN -> PATCH_AWAITED -> JUDGED(ACCEPT) -> COMMITTED -> (gate) -> MERGED -> PUSHED`; `BLOCKED_GIT` y `REVERTED` son laterales. Git es la verdad; el ledger es el índice y se reconcilia en cada reentrada.
+
+- **Precondición (C7):** `Gaps(G') ⊊ Gaps(G)` recomputado sobre el árbol juzgado antes del commit; un gap nuevo (`NEW_GAPS`), una co-dependencia o la ausencia de progreso estricto dan `REJECT` sin commit. `R_before` (raíz de la base) y `R_after` (raíz del árbol parcheado) se registran en el ledger y en `evolve.committed`.
+- **Gate final (C4):** suite completa en lotes re-entrantes de `sandbox_run` (<= 100 s, mismo intérprete y centinela `WRONG_TREE` que el juez) sobre el árbol *commiteado* exportado a un temporal (`tree == judged_tree`). Progreso `gate i/n`, `awaiting:"gate"`. Rojo, `ran < selected` o `unsandboxed` = `REJECT gate_failed`; sandbox caído = `REJECT sandbox_unavailable` (reintentable). Nunca sin sandbox.
+- **Ledger (C5):** `evolve_keys` UNIQUE `(gap_canonical, base_R, tree_hash)` con `INSERT OR IGNORE` y `evolve_events` (`evolve.committed|gate|merged|reverted|pushed|blocked`). Misma clave desde otro ciclo = devuelve el estado existente, sin commit. Sin ledger no hay commit.
+- **Rollback (C6):** solo si el verify post-merge falla tras el ff y antes del push: `git revert` como commit nuevo dentro del fence (O_EXCL, `finally`), sin push. Estado `REVERTED` y `BLOCKED_GIT dev_dirty_by_revert` (también para el push de otros ciclos) hasta decisión del usuario. Nunca reset/rebase/amend; `dev` adelantado = `BLOCKED_GIT dev_ahead`.
+- **E1 (M-1):** la exigencia de cobertura directa aplica a gaps `drift`/`open_discrepancy` o parches que tocan código público.

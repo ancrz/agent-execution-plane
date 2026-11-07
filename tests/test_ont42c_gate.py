@@ -97,7 +97,7 @@ def test_no_kit_means_no_merge(rig: Rig) -> None:
         cycle_dir=rig.state,
         kit=None,
     )
-    assert out["status"] == "BLOCKED_GIT" and out["reason"] == "no_gate_kit"
+    assert out["reason"] in ("no_gate_kit", "no_summarize")
     assert not (rig.canon / "new.txt").exists()
 
 

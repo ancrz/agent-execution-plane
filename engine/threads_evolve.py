@@ -77,6 +77,7 @@ class GateKit:
 
     collect: tg.Collect
     run_batch: tg.RunBatch
+    summarize: Callable[[Any], dict[str, Any]] | None = None  # C7: resumen del grafo (`root`, `gaps`, `codep`) de un arbol
     post_verify: Callable[[dict[str, Any]], dict[str, Any]] | None = None  # C6: {"ok": bool, "reason": str}
 
 
@@ -238,12 +239,13 @@ def run_evolve(
         rec["judged_root"] = judged.get("root", "")
         base = fix.get("base") if isinstance(fix.get("base"), dict) else {}
         rec["base_root"] = str(base.get("root", ""))  # C5/C7: R de la generacion base (clave de idempotencia)
+        rec["base_gaps"] = sorted(str(g) for g in base.get("gaps", []))  # C7: Gaps(G)
     rec = _reconcile(git, rec, branch)
     store.sync_state(cycle, rec["state"])  # C5: git manda, el ledger se reconcilia en cada reentrada
     if rec["state"] == REVERTED:  # C6: dev quedo adelantado a origin por el revert; solo el usuario decide
         return {"status": BLOCKED_GIT, "reason": "dev_dirty_by_revert", "state": REVERTED, "cycle": cycle, "branch": branch}
     if rec["state"] == JUDGED:
-        done = _commit(store, git, cycle, rec, branch)
+        done = _commit(store, git, kit, cycle, rec, branch)
         if done is not None:
             return done
     if rec["state"] == COMMITTED and mode == "full":
@@ -278,7 +280,7 @@ def _reconcile(git: GitPort, rec: dict[str, Any], branch: str) -> dict[str, Any]
     return rec
 
 
-def _commit(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
+def _commit(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
     if not rec.get("judged_tree") or not rec.get("judged_root"):
         return _blocked(store, cycle, rec, "no_judged_tree")  # ciclo previo a D-EV-1: sin ACCEPT implicito
     if os.path.realpath(git.work_root()) != rec["judged_root"]:
@@ -288,6 +290,9 @@ def _commit(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], b
         return _blocked(store, cycle, rec, "no_changes")
     if tree != rec["judged_tree"]:
         return _blocked(store, cycle, rec, "tree_changed_after_accept")  # re-juzgar con un nuevo fix_test
+    cascade = _cascade(kit, git, rec)
+    if cascade is not None:
+        return _reject(store, cycle, rec, cascade)
     if store.ledger is None:
         return _blocked(store, cycle, rec, "no_ledger")
     try:
@@ -363,6 +368,22 @@ def _gate(store: EvolveStore, git: GitPort, kit: GateKit | None, cycle: str, rec
     if gate["verdict"] == tg.UNAVAILABLE:
         return _reject(store, cycle, rec, "sandbox_unavailable", gate=tg.progress(gate))
     return {"status": "OK", "state": COMMITTED, "cycle": cycle, "branch": branch, "awaiting": "gate", "gate": tg.progress(gate)}
+
+
+def _cascade(kit: GateKit | None, git: GitPort, rec: dict[str, Any]) -> str | None:
+    """C7: Gaps(G') estrictamente dentro de Gaps(G), sin gaps nuevos ni co-dependencias. Fija `r_after`. None = cumple."""
+    if kit is None or kit.summarize is None:
+        return "no_summarize"  # fail-closed: sin recomputar R no hay garantia de cascada
+    after = kit.summarize(Path(git.work_root()))
+    rec["r_after"] = str(after.get("root", ""))
+    base, new = set(rec.get("base_gaps", [])), {str(g) for g in after.get("gaps", [])}
+    if new - base:
+        return tv.NEW_GAPS.lower()  # X1 -> X2: el arreglo introduce un gap que antes no existia
+    if after.get("codep"):
+        return "codep"
+    if not new < base:
+        return "no_gap_progress"
+    return None
 
 
 def _merge(store: EvolveStore, git: GitPort, cycle: str, rec: dict[str, Any], branch: str) -> dict[str, Any] | None:
