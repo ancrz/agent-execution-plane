@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from engine import threads_evolve as te
 from engine import threads_events as ev
+from engine import threads_evolve as te
 from engine import threads_gitport as gp
 from tests._evolve_support import Rig, make_rig, sh
 
