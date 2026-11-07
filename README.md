@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-772_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-805_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1039,7 +1039,7 @@ flowchart TD
 >
 > Si no se cumple, el cambio **no** está cargado en el proceso activo y cualquier prueba o verificación sobre él es **inválida**.
 
-### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3, ONT-42c)
+### 10.3 Intent Reinforcement Graphs (ONT-39, ONT-40, ONT-41, ONT-42a, L3, ONT-42c, E2, E3, install integrity)
 
 Each intent is linked to its milestones and to the agent responsible for each one. Status is updated at every pipeline activation. Source of truth: `docs/MILESTONES.md`.
 
@@ -1122,7 +1122,19 @@ flowchart LR
     D --> C47["C4-C7: gate final por lotes, ledger UNIQUE, revert sin push, Merkle R_before/R_after ✅"]
     C47 --> V["M: verified (Dokimos, 772 passed; DK-1..DK-4 en 1 ciclo) ✅"]
     V --> E2["E2: specs incrementales (cache node_hash, stale_specs; 772 passed) ✅"]
-    E2 --> E34["E3-E4: supervision OTP sobre SCC, reconciliacion acotada por tier ⏳"]
+    E2 --> E3["E3: supervision OTP sobre SCC (096ef95..f8eaa9c; 805 tests) ✅"]
+    E3 --> E4["E4: reconciliacion acotada por tier ⏳"]
+```
+
+**Integridad de instalación en sala limpia (INSTALA CON INTEGRIDAD, ronda 3; push retenido):**
+
+```mermaid
+flowchart LR
+    I["Intent: Integridad de instalacion (sala limpia Ubuntu 26.04)"] --> R1["M1: ronda 1, 7 bugs, degradacion controlada (92c9661..aa468e1) ✅"]
+    R1 --> R2["M2: ronda 2, 3 bugs menores, checksums (10b8608..f8b0d11) ✅"]
+    R2 --> R3["M3: ronda 3, INSTALA CON INTEGRIDAD (81ba56b) ✅"]
+    R3 --> M4["M4: documented (Graphos G2) ✅"]
+    M4 --> M5["M5: backlog menor: Go go.mod probes, errcheck, LKG ⏳"]
 ```
 
 Decisiones vigentes: `resolve-revert` solo por CLI humano con `--confirm`; `recovered: true` solo con prueba git y testigo del gate. Modelo de amenaza: el gate protege contra fallos del flujo, no contra un adversario con el mismo uid (SDD §9).

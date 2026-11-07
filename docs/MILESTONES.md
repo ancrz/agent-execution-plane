@@ -267,9 +267,33 @@ flowchart LR
 |-----------|--------|--------|--------|
 | M1 | Backlog post-ONT-42: tests `recovered`, `select_fields`, cobertura `lkg_*`, doc `probe_cli`, O-2 herencia de presupuesto | Pragma / Dokimos | ✅ VERIFIED |
 | M2 | E2 specs incrementales (caché `node_hash`, `stale_specs`, fail-open, tier < 6) | Pragma / Dokimos | ✅ VERIFIED (772 passed; miss 1337 ms, hit 367 ms) |
-| M3 | Prueba de instalación en sala limpia (Ubuntu 26.04, no root, 6rw-) | Dokimos | ⛔ INSTALA CON DEGRADACIÓN CONTROLADA (7 defectos) |
-| M4 | Corrección de instalación (7 defectos, checksums, versiones fijas, `uv.lock`) | Pragma | ⏳ en curso (fuera de este registro) |
-| M5 | Repetir sala limpia tras la corrección | Dokimos | ⏳ pendiente |
-| M6 | E3 supervisión OTP sobre SCC; E4 reconciliación acotada por tier | Archon / Pragma | ⏳ pendiente |
+| M3 | Prueba de instalación en sala limpia (Ubuntu 26.04, no root, 6rw-) | Dokimos | ✅ rondas 1-2 degradación controlada; ronda 3 INSTALA CON INTEGRIDAD (sección 7) |
+| M4 | Corrección de instalación (7 defectos, checksums, versiones fijas, `uv.lock`) | Pragma | ✅ `92c9661..f8b0d11` |
+| M5 | Repetir sala limpia tras la corrección | Dokimos | ✅ ronda 3 (`81ba56b`) |
+| M6 | E3 supervisión OTP sobre SCC (E4 reconciliación por tier: pendiente, sección 7) | Pragma / Dokimos | ✅ E3 VERIFIED (`096ef95..f8eaa9c`) |
 | M7 | Registro documental de este tramo | Graphos G2 | ✅ (`feature_20261107_104734_e2_backlog_install.md`) |
+
+## 7. Integridad de instalación (ronda 3) y E3 (2026-11-07)
+
+Registro: `docs/pipeline/feature_20261107_113335_install_integrity_e3.md` (anterior: `feature_20261107_104734_e2_backlog_install.md`). Informe: `docs/reports/2026-11-07_aep_clean_room_install_retest.md`.
+
+```mermaid
+flowchart LR
+    I7["Intent: Integridad de instalacion y E3"] --> R1["Ronda 1: degradacion controlada, 7 bugs (92c9661..aa468e1) ✅"]
+    R1 --> R2["Ronda 2: 3 bugs menores (10b8608..f8b0d11) ✅"]
+    R2 --> R3["Ronda 3: INSTALA CON INTEGRIDAD (81ba56b) ✅"]
+    I7 --> E3["E3 supervision OTP sobre SCC (096ef95..f8eaa9c) VERIFIED ✅"]
+    E3 --> E4["E4 reconciliacion acotada por tier ⏳"]
+```
+
+| Milestone | Intent | Agente | Estado |
+|-----------|--------|--------|--------|
+| M1 | Sala limpia ronda 1 y correcciones | Pragma / Dokimos | ✅ `92c9661..aa468e1` |
+| M2 | Sala limpia ronda 2 (x86_64 + arm64, checksums alterados) y correcciones | Pragma / Dokimos | ✅ `10b8608..f8b0d11` |
+| M3 | Sala limpia ronda 3: INSTALA CON INTEGRIDAD | Dokimos | ✅ (`b6c50c4`, `81ba56b`) |
+| M4 | E3 supervisión OTP: `one_for_one` / `rest_for_one`, clasificador restore/identical/out_of_lkg | Pragma / Dokimos | ✅ VERIFIED (805 tests recolectados) |
+| M5 | Test intermitente `om7` aislado (singletons reales) | Pragma | ✅ `9c6a913` |
+| M6 | E4 reconciliación acotada por tier | Archon (Full) / orquestador (Short) | ⏳ siguiente |
+| M7 | Backlog menor: sondas Go sin `go.mod`, errcheck, LKG antiguo, `ruff format` (76 archivos) | Pragma | ⏳ pendiente |
+| M8 | Registro documental de este tramo | Graphos G2 | ✅ (`feature_20261107_113335_install_integrity_e3.md`) |
 

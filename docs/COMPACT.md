@@ -1,10 +1,11 @@
-# Context Compaction Guidance: AEP (backlog post-ONT-42 y E2 VERIFIED; instalación con degradación controlada)
-Preserve: pipeline mode Short (default, cost control; Full only on user request or blast radius); active intent: instalación en sala limpia (corrección en curso) and E3/E4 backlog.
-Baseline: `dev` @ `eff04ac` (origin/dev @ `00eafb0`, no push). Suite 772 passed (reported by Dokimos), ruff clean. Doc commit: local, no push.
-Files and why: `engine/threads_evolve.py`, `engine/threads_verify.py` (E2 cache, `stale_specs`, judge unchanged); `server.py` (autoevol, aep_ctl select_fields); `engine/backup.py` (lkg_* coverage); `scripts/setup.sh` (edited by another agent: do not touch from Graphos); `docs/pipeline/feature_20261107_104734_e2_backlog_install.md`.
-Decisions taken by the user: O-2 budget inherited after reap, also with `restart=True`, no skipping cap or EXHAUSTED lock; E2 spec informative only; `resolve-revert` only via human CLI with `--confirm`; `recovered: true` only with git proof plus gate witness; Short by default; Graphos records docs locally, no push.
-Accepted risks and minors: E2 hardening optional (node_hash of tests/pins in key; validate `_lookup` hit shape); M-2b still open; threat model: gate does not protect against a same-uid adversary.
-Open defects (install, clean room): canary not seeded (--check FAIL); aep-ctl needs python3; Chromium libs missing; sandbox_run without bwrap -> ERROR; curl without -f and Go removed before verify; amd64 fixed; success banner with 0 MCP clients; downloads without checksum/pinned version; uv.lock unused.
-Next 3 pending actions: (1) install correction and repeat clean room (Dokimos); (2) E3 OTP over SCC; (3) E4 tier-bound reconciliation. Also pending: push dev (user-gated); rollup feature_rollup.md overdue.
-Drop: pytest traces, intermediate diffs, subagent logs, superseded plans, resolved DK findings, the detailed clean-room log once the correction is recorded.
+# Context Compaction Guidance: AEP (integridad de instalación VERIFIED; E3 VERIFIED; siguiente E4)
+Preserve: pipeline mode Short (default, cost control; Full only on user request or blast radius); active intent: E4 reconciliación por tier.
+Baseline: `dev` @ `f8eaa9c` (origin/dev @ `550875f`, 24 commits ahead, NO push; push is user-gated). Suite 805 tests collected; 805 passed reported by Dokimos; ruff clean (reported).
+Files and why: `scripts/setup.sh`, `scripts/aep-sync.sh`, `scripts/aep-ctl`, `server.py` (install integrity, `aep_ctl` via sys.executable); `engine/threads_supervise.py`, `engine/threads_heal.py` (E3 OTP); `docs/reports/2026-11-07_aep_clean_room_install_retest.md`; `docs/pipeline/feature_20261107_113335_install_integrity_e3.md`.
+Decisions taken by the user: Short by default; Graphos records docs locally, no push; O-2 budget inherited after reap; `resolve-revert` only via human CLI with `--confirm`; `recovered: true` only with git proof plus gate witness; E2 spec informative only.
+Accepted risks and minors: E2 hardening optional (node_hash of tests/pins in key; validate `_lookup` hit shape); M-2b open; threat model: gate does not protect against a same-uid adversary; clean-room round 3 did not run pytest; pueue pin has no official checksum (SHA calculated).
+Open backlog (minor): Go probes without go.mod; errcheck in socket-monitor (1) and landlock-guard (4); LKG old (622fa0a7…) should be refreshed; ruff format pending in 76 files; download-failure branch (network down) not exercised.
+Next 3 pending actions: (1) E4 reconciliation bounded by tier (Archon in Full / orchestrator in Short); (2) minor install backlog (Go go.mod probes, errcheck); (3) LKG refresh and ruff format scope (user decision).
+Also pending: `feature_rollup.md` overdue (chain more than five docs since last rollup).
+Drop: pytest traces, intermediate diffs, subagent logs, superseded plans, resolved clean-room rounds 1-2 detail, resolved E3 defect investigation.
 Recovery: after a crash, read the latest docs/pipeline/feature_*.md and this file, then `git fsck`.
