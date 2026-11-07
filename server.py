@@ -362,7 +362,7 @@ _TOOL_ACTIONS: dict[str, list[str]] = {
     "artifact_lint_and_build": ["build", "lint", "catalog", "select", "hydrate"],
     "async_job_dispatch": ["dispatch", "inspect", "status", "log"],
     "default_primitives": ["list", "info", "run"],
-    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal"],
+    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve"],
 }
 
 
@@ -5180,8 +5180,8 @@ async def default_primitives(
 # ---------------------------------------------------------------------------
 # Tool #17: autoevol (Milestone ONT-40) - read-only thread graph
 # ---------------------------------------------------------------------------
-_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal")
-_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal")
+_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve")
+_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
 _AUTOEVOL_JOB_TIMEOUT_S = 900  # F8: tope del job async (pueue) para que un cuelgue no deje el ciclo PENDING indefinido
 _PUEUE_TERMINAL_RE = re.compile(r'"(?:Done|Failed)"\s*:|"status"\s*:\s*"(?:Done|Failed)\b')
@@ -5310,6 +5310,41 @@ def _autoevol_test_runner(tree: Path, trusted: bool) -> Any:
     return run
 
 
+def _autoevol_swap_fence() -> Path:
+    """Misma ubicacion que `aep_front.swap_fence_path` (AEP_SWAP_FENCE_PATH o REPO_ROOT/.aep_swap_fence)."""
+    override = os.environ.get("AEP_SWAP_FENCE_PATH", "").strip()
+    return Path(override) if override else REPO_ROOT / ".aep_swap_fence"
+
+
+def _autoevol_live_check() -> dict[str, Any]:
+    """Condicion 8: antes del push, `stale == false` y fingerprint cargado == disco (regla ONT-39 #10)."""
+    return {
+        "stale": _is_front_stale() or bool(_get_live_meta().get("serving_from") == "lkg"),
+        "loaded": LOADED_FINGERPRINT,
+        "disk": code_fingerprint(REPO_ROOT),
+    }
+
+
+def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: bool, octal: int) -> dict[str, Any]:
+    """`autoevol(evolve)`: GitPort inyectado. `apply` jamas actua sobre el repo canonico (solo sobre un worktree `root`)."""
+    from engine import threads_evolve as te
+    from engine import threads_gitport as gp
+
+    if apply and tree.resolve() == REPO_ROOT.resolve():
+        return {"status": "ERROR", "error": "evolve apply exige root=<worktree del parche>, no el repo canonico."}
+    git = gp.GitCli(tree, REPO_ROOT, _autoevol_swap_fence())
+    return te.run_evolve(
+        te.EvolveStore(),
+        git,
+        _autoevol_live_check,
+        cycle=cycle,
+        gap=gap,
+        apply=bool(apply),
+        octal=octal,
+        label=capability_tier(),
+    )
+
+
 def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
     try:
         proc = subprocess.run(  # noqa: S603 - argv literal, cwd del arbol propio, sin shell
@@ -5421,7 +5456,9 @@ async def autoevol(
         restaura desde el LKG solo los modulos rotos. Un EXHAUSTED con tier < 6rw- queda en el JSONL de eventos
         hasta una llamada con tier >= 6rw- que lo espeja al ledger.
     El tier se resuelve en cada llamada; los tests corren en sandbox (N<=20, timeout 120 s).
-    La accion 'evolve' queda fuera de ONT-40/41 (INVALID_ACTION).
+      - 'evolve' (ONT-42c): promueve un ciclo fix_test ACCEPTED (`cycle`, `root`=worktree): commit en `autoevol/<ciclo>`;
+        ff-merge a dev y push SOLO con etiqueta FULL (7rwx); 6rw-/DIMINISHED = commit local; 5r-x/4r-- y `apply=False` =
+        plan. Re-entrante; BLOCKED_GIT con motivo si no es posible. Nunca fuerza ni toca main.
     """
     from engine import threads as _threads
 
@@ -5481,6 +5518,8 @@ async def autoevol(
             )
             if _is_front_stale():  # ONT-42a: heal only points to the (read-only) reconnect plan
                 result["next_action"] = RECONNECT_POINTER
+        elif act == "evolve":
+            result = _autoevol_evolve(tree, gap=gap, cycle=cycle, apply=apply, octal=octal)
         else:
             runner = _autoevol_test_runner(tree, trusted)
             dispatcher = _autoevol_dispatcher(tree, trusted)

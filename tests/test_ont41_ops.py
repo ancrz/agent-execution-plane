@@ -311,7 +311,7 @@ def test_every_new_action_is_directly_invoked_and_registered(trees: tuple[Path, 
     heal = json.loads(asyncio.run(server.autoevol(action="heal", root=str(new))))
     assert heal["status"] in ("NO_LKG", "CLEAN", "BROKEN", "LKG_INVALID")
     assert {"spec", "verify", "fix_test", "heal"} <= set(server._AUTOEVOL_ACTIONS)
-    assert "evolve" not in server._AUTOEVOL_ACTIONS
+    assert "evolve" in server._AUTOEVOL_ACTIONS  # ONT-42c C2
 
 
 def test_docs_and_playbook_carry_the_self_heal_rule() -> None:

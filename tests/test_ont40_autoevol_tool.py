@@ -37,7 +37,7 @@ def test_tool_registered_without_output_schema() -> None:
     assert "autoevol" in names and names["autoevol"].output_schema is None
 
 
-@pytest.mark.parametrize("act", ["evolve", "bogus"])
+@pytest.mark.parametrize("act", ["bogus"])
 def test_planned_and_unknown_actions_invalid(act: str) -> None:
     res = _call(action=act)
     assert res["status"] == "INVALID_ACTION" and "graph" in res["valid_actions"]

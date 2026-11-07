@@ -59,7 +59,7 @@ logger = logging.getLogger("aep.threads")
 GRAPH_SCHEMA_VERSION = "threads/1"
 
 # Acciones previstas fuera de ONT-40/41 (evolve): sin nodos, INVALID_ACTION en la tool.
-_PLANNED_ACTIONS: tuple[str, ...] = ("evolve",)
+_PLANNED_ACTIONS: tuple[str, ...] = ()
 
 PAGERANK_DAMPING = 0.85
 PAGERANK_ITERATIONS = 50
