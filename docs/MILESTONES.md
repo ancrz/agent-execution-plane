@@ -319,3 +319,19 @@ flowchart LR
 | M5 | Registro documental, STATE, COMPACT, rollup atrasado y badge de tests | Graphos G2 | ✅ este commit |
 | M6 | Backlog menor (LKG, sondas Go sin `go.mod`, errcheck, caché E2, `ruff format` en ~80 archivos, test de helper multi-sitio) | Pragma | ⏳ pendiente, decisión de alcance del usuario |
 
+
+## 9. ONT-43 field report y backlog track A (2026-11-07)
+
+Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`. SDD: `docs/sdd/sdd_ont43_field_report.md`. Estado: staged sobre `c0fb71a`, sin commit.
+
+| Milestone | Intent | Agente | Estado |
+|-----------|--------|--------|--------|
+| M1 | Señal `evol_hint` en sobres de error (lista blanca, firma sin texto, omitida en modos compactos) | Pragma / Dokimos | ✅ VERIFIED |
+| M2 | Cuarentena `engine/threads_field.py` (dedupe, tope `AEP_FIELD_MAX_REPORTS`, texto inerte) | Pragma / Dokimos | ✅ VERIFIED |
+| M3 | Promoción por reproducción `autoevol(action="report")` en `bwrap`, fail-closed (corrección F1) | Pragma / Dokimos | ✅ VERIFIED |
+| M4 | Gap `field_discrepancy` fuera de R, tratado como drift por reconcile | Pragma / Dokimos | ✅ VERIFIED (texto de spec pendiente) |
+| M5 | Caché E2 endurecida (`cover_hash`, hit malformado = miss) | Pragma / Dokimos | ✅ VERIFIED |
+| M6 | Sondas Go: lint con `go.mod` temporal (`go.mod` real descartado) | Pragma / Dokimos | ✅ VERIFIED |
+| M7 | Setup sin red: falla cerrado, sin binarios parciales | Pragma / Dokimos | ✅ VERIFIED |
+| M8 | Documentación: feature, SDD, STATE, COMPACT, rollup 6, README, MILESTONES | Graphos G2 | ✅ este registro |
+| M9 | Commit de la rama `integ/ont43-backlog` | Hermon | ⏳ retenido por el usuario |

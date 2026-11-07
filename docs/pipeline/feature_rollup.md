@@ -233,3 +233,26 @@ Cadena desde el Catch-up Rollup: `feature_20261107_011128_agy_audit.md` → `fea
 **Documento activo:** [`feature_20261107_115813_e4_reconcile.md`](feature_20261107_115813_e4_reconcile.md)
 
 **Próximo rollup:** al quinto documento posterior a `feature_20261107_115813_e4_reconcile.md` (0 de 5 al cierre de este registro).
+
+---
+
+## Rollup 6: ONT-43 field report y backlog track A (Graphos G2, 2026-11-07)
+
+Cadena desde Rollup 5: `feature_20261107_115813_e4_reconcile.md` → `feature_20261107_135303_ont43_field_report.md`.
+
+**Nota de cadencia:** este rollup se pidió de forma explícita por el usuario. La regla de cada quinto documento no se cumple todavía (sólo hay un documento posterior al Rollup 5). El contador del quinto documento se reinicia aquí: el próximo rollup por regla llega al quinto documento posterior a `feature_20261107_135303_ont43_field_report.md`.
+
+- **ONT-43 field report** (staged sobre `c0fb71a`, sin commit): los fallos reales de herramientas llegan a `autoevol` por cuarentena. `evol_hint` en sobres de error (lista blanca, firma sin texto, omitido en modos compactos, nunca en denegaciones); `autoevol(action="report")` registra candidatos (tier >= 5r-x, dedupe, tope 20/24 h) y promueve por reproducción (tier >= 6rw-, test `xfail(strict)` de la misma firma, sólo ese test, en `bwrap`, fail-closed). Gap `field_discrepancy` fuera de R, tratado como drift por reconcile. VERIFIED: 913 passed, ruff limpio, gaps 120, 17 tools / 19 capacidades.
+- **Backlog track A** (mismo tramo): caché E2 con `cover_hash` y hit malformado = miss; prueba de fusión de kwargs de helpers multi-sitio (sin defecto); sondas Go (errcheck ya resuelto; `go.mod` descartado por riesgo sobre el glob `tpl_*.go`; lint con `go.mod` temporal); setup sin red falla cerrado.
+- **Ciclo de corrección:** Dokimos hallazgos F1 (promoción sin fallo cerrado cuando cae `bwrap`) y F2 (aserción vacía) → 1 ciclo Pragma → VERIFIED.
+
+**Invariantes preservadas en el tramo:**
+1. Un reporte de campo nunca abre ciclos ni modifica código; la cuarentena es dato inerte.
+2. La promoción siempre corre en `bwrap` y falla cerrada.
+3. `field_discrepancy` queda fuera de la raíz Merkle R y de la caché E2.
+4. Ningún tier hace commit, merge, push ni `heal apply` desde reconcile; tier < 6 no escribe.
+5. Modo Short por defecto; commit y push user-gated.
+
+**Documento activo:** [`feature_20261107_135303_ont43_field_report.md`](feature_20261107_135303_ont43_field_report.md)
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261107_135303_ont43_field_report.md` (0 de 5 al cierre de este registro).
