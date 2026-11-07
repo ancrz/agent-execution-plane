@@ -591,6 +591,7 @@ log_step "Inicializando catálogo de artefactos (SQLite)..."
 PYTHONPATH="$PROJECT_ROOT" "$VENV_DIR/bin/python" - "$PROJECT_ROOT" <<'PY' 2>/dev/null || log_warn "Init de catálogo omitido (posible lock activo)."
 import sys
 from pathlib import Path
+from engine.backup import verify_database_integrity
 from engine.catalog import ArtifactCatalog
 
 project_root = Path(sys.argv[1]).resolve()
@@ -626,7 +627,12 @@ for name in ("fd-rescuer", "fd_rescuer"):
         intent_description="inspect the open file descriptors of a process to diagnose hung or deadlocked threads",
         source_template="fd-rescuer",
     )
-print(f"Catálogo SQLite listo (vec_available={cat._vec_available}).")
+# Siembra el canario anti-envenenamiento: `setup.sh --check` lo verifica con auto_seed_canary=False.
+ok, status, _ = verify_database_integrity(db_path=cat.db_path, auto_seed_canary=True)
+if not ok:
+    print(f"Integridad del catálogo: {status}", file=sys.stderr)
+    sys.exit(1)
+print(f"Catálogo SQLite listo (vec_available={cat._vec_available}, integridad={status}).")
 PY
 
 # -----------------------------------------------------------------------------
