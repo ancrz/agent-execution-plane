@@ -146,3 +146,15 @@ Máquina de estados re-entrante: `PLAN -> PATCH_AWAITED -> JUDGED(ACCEPT) -> COM
 - **Procedimiento tras un revert (DK-3):** `resolve_revert` es decisión humana y NO es tool MCP. Revisar `git log dev..origin/dev` / `git log origin/dev..dev`, decidir qué hacer con el commit de revert (empujarlo manualmente o descartarlo según la política del repo) y luego ejecutar `scripts/aep-ctl evolve resolve-revert <ciclo> --confirm`: el ciclo pasa a `REVERT_RESOLVED` y se libera `dev_dirty_by_revert`.
 - **E1 (M-1):** la exigencia de cobertura directa aplica a gaps `drift`/`open_discrepancy` o parches que tocan código público.
 - **Modelo de amenaza (cierre ONT-42c, 2026-11-06):** el gate final (C4), el ledger (C5) y la reconciliación protegen contra fallos del flujo: caídas entre merge y evento, estado en `/dev/shm` desfasado, árbol mutado durante el juicio, sandbox caído. No protegen contra un adversario con el mismo uid, que ya controla el repositorio y la base de datos: frente a ese actor no hay garantía de integridad local. `recovered: true` exige prueba git y testigo del gate en el ledger; `resolve-revert` es decisión humana por CLI con `--confirm`.
+
+## 9.1 E4: `reconcile` (autohealing acotado por tier)
+
+Controlador al estilo Kubernetes, bajo demanda (`autoevol(action="reconcile")`; sin bucles ni timers). Módulo puro `engine/threads_reconcile.py`: compara lo DESEADO (claims y presupuestos del grafo, specs cacheadas E2) con lo OBSERVADO (`claim_drift`, `probe_drift`, `open_discrepancy`, omisiones, `serving_from`/`stale`/`front_stale` del plano vivo inyectado) y emite propuestas deterministas `{gap, kind, action: heal|spec|evolve|report, reason, tier_required}` (plano primero, luego gaps por clase de prioridad y score; máx. 10). Reglas: plano en LKG o con error de recarga = `heal`; gap sin spec cacheada = `spec`; con spec = `evolve`; `open_discrepancy` y plano obsoleto = `report`.
+
+| Tier | Ejecuta | No hace |
+|------|---------|---------|
+| 7rwx | `heal` en dry-run; abre/continúa ciclo `fix_test` y `evolve` con `apply=False` | commit, merge, push, `heal` apply (exigen una llamada explícita de `evolve` con apply y su ciclo completo: gate, testigos del ledger) |
+| 6rw- | abre/continúa ciclos `fix_test`/`evolve` en plan | git, `heal` |
+| 5r-x, 4r-- | nada (solo propuestas) | escribir en DB o disco; ni siquiera abre el ledger |
+
+El tier se resuelve en cada llamada. Límites: reutiliza el tope C5 (`AEP_AUTOEVOL_MAX_CYCLES`, ventana 24 h): cuentan los ciclos de `evolve_keys` más los `reconcile.opened`; como máximo un ciclo nuevo por llamada. Idempotente: misma entrada, mismas propuestas; un gap con ciclo vivo abierto por reconcile se continúa, no se duplica. Eventos `reconcile.run|opened|capped` en `evolve_events` solo con tier >= 6rw- (`run` deduplicado por digest). Pasivo: `discover(capabilities, terse)` añade `reconcile_top` (cadena `action:gap`, solo si existe propuesta de plano o drift; solo lectura sobre el análisis ya en caché, nunca analiza ni ejecuta; terse sigue <= 400 tokens). `_TOOL_ACTIONS["autoevol"]` anuncia `reconcile`.

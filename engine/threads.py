@@ -738,6 +738,14 @@ def analyze(root: Path | str, *, use_cache: bool = True) -> Analysis:
     return analysis
 
 
+def cached_analysis(root: Path | str) -> Analysis | None:
+    """Ultimo `Analysis` en cache para `root`, sin leer fuentes ni recalcular (E4: `discover` nunca paga un analyze)."""
+    base = str(Path(root).resolve())
+    with _CACHE_LOCK:
+        hits = [a for k, a in _CACHE.items() if k[0] == base]
+    return hits[-1] if hits else None
+
+
 def clear_cache() -> None:
     """Vacía la caché de análisis (tests y recarga)."""
     with _CACHE_LOCK:

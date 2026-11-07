@@ -104,7 +104,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
   5. `default_primitives(action="list"|"info"|"run", name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
 - **Domain 2 — State Governance & Process Introspection**:
-  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
+  17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal"|"evolve"|"reconcile", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
   6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
   7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
   8. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
@@ -363,7 +363,7 @@ _TOOL_ACTIONS: dict[str, list[str]] = {
     "artifact_lint_and_build": ["build", "lint", "catalog", "select", "hydrate"],
     "async_job_dispatch": ["dispatch", "inspect", "status", "log"],
     "default_primitives": ["list", "info", "run"],
-    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve"],
+    "autoevol": ["graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile"],
 }
 
 
@@ -788,6 +788,13 @@ async def discover(
                 payload["reload_error"] = err_s
             if live_meta["lkg_module_drift"]:
                 payload["lkg_module_drift"] = True
+            if compact:  # E4: <= 1 propuesta, solo si existe; lectura pura, nunca ejecuta
+                try:
+                    reconcile_top = _reconcile_top()
+                except Exception:  # noqa: BLE001 - fail-soft: discover no depende del reconciliador
+                    reconcile_top = None
+                if reconcile_top:
+                    payload["reconcile_top"] = reconcile_top
             if v_mode not in ("terse", "cached"):
                 payload["session_hint"] = (
                     "Pass session_id & verbosity='terse' in subagent calls to reuse cached capabilities (>95% token savings)."
@@ -5206,8 +5213,8 @@ async def default_primitives(
 # ---------------------------------------------------------------------------
 # Tool #17: autoevol (Milestone ONT-40) - read-only thread graph
 # ---------------------------------------------------------------------------
-_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve")
-_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve")
+_AUTOEVOL_ACTIONS = ("graph", "gaps", "thread", "log", "diff", "spec", "verify", "fix_test", "heal", "evolve", "reconcile")
+_AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve", "reconcile")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
 _AUTOEVOL_GATE_TIMEOUT_S = 100  # C4 (condicion 10): tope por lote del gate final
 _GATE_COLLECT_RE = re.compile(r"^(\S+\.py): (\d+)\s*$", re.MULTILINE)
@@ -5439,6 +5446,67 @@ def _autoevol_evolve(tree: Path, *, gap: str | None, cycle: str | None, apply: b
     )
 
 
+def _autoevol_plane_signals() -> dict[str, Any]:
+    """E4: estado del plano vivo (lo OBSERVADO) para el reconciliador. Solo lectura."""
+    meta = _get_live_meta()
+    live = _autoevol_live_check()
+    loaded, disk = live.get("loaded"), live.get("disk")
+    return {
+        "serving_from": meta.get("serving_from"),
+        "reload_error": bool(meta.get("reload_error")),
+        "front_stale": _is_front_stale(),
+        "stale": bool(disk and loaded and loaded != disk),
+    }
+
+
+def _reconcile_top() -> str | None:
+    """E4: UNA propuesta compacta para `discover(capabilities, terse)`. Solo lectura: usa el analisis YA en cache
+    (nunca analiza), la cache de specs en modo RO y el plano vivo. No ejecuta nada ni abre la BD de escritura."""
+    from engine import threads as th
+    from engine import threads_reconcile as tr
+    from engine import threads_spec_cache as sc
+
+    cached = th.cached_analysis(REPO_ROOT)
+    gaps = list(cached.gaps) if cached is not None else []
+    proposals = tr.propose(
+        gaps, plane=_autoevol_plane_signals(), cached_specs=sc.cached_gap_ids(th.default_db_path()), include_omissions=False
+    )
+    return tr.top(proposals)
+
+
+def _autoevol_reconcile(tree: Path, octal: int, terse: bool) -> dict[str, Any]:
+    """`autoevol(reconcile)` (E4): propone y, segun el tier, ejecuta SOLO lo seguro (heal dry-run, ciclos fix_test/evolve
+    en plan). `apply` de la tool se ignora: nunca hay heal apply, commit, merge ni push desde aqui."""
+    from engine import threads as th
+    from engine import threads_evolve as te
+    from engine import threads_ops as ops
+    from engine import threads_reconcile as tr
+    from engine import threads_spec_cache as sc
+    from engine import threads_verify as tv
+
+    analysis = th.analyze(tree)
+    kwargs: dict[str, Any] = {}
+    if tr.policy(octal)["writes"]:
+        store = tv.CycleStore()
+        kwargs = {
+            "ledger": _autoevol_ledger(),
+            "open_cycle": lambda gap: ops._open_cycle(store, tree, gap, None, False, ops.TERSE_BUDGET),
+            "cycle_state": lambda cyc: (te.read_cycle(cyc) or {}).get("state"),
+            "evolve_plan": lambda **kw: _autoevol_evolve(tree, gap=kw["gap"], cycle=kw["cycle"], apply=False, octal=octal),
+            "heal_dry_run": lambda: ops.run_heal(tree, apply=False, octal=octal, snapshot_fn=None, terse=True),
+        }
+    result = tr.reconcile(
+        analysis.gaps,
+        plane=_autoevol_plane_signals(),
+        cached_specs=sc.cached_gap_ids(th.default_db_path()),
+        octal=octal,
+        **kwargs,
+    )
+    if terse:
+        result["proposals"] = result["proposals"][:3]
+    return ops.fit(result, ops.TERSE_BUDGET if terse else ops.SUMMARY_BUDGET)
+
+
 def _autoevol_plain_pytest(tree: Path, cmd: str) -> dict[str, Any]:
     try:
         proc = subprocess.run(  # noqa: S603 - argv literal, cwd del arbol propio, sin shell
@@ -5553,6 +5621,10 @@ async def autoevol(
       - 'evolve' (ONT-42c): promueve un ciclo fix_test ACCEPTED (`cycle`, `root`=worktree): commit en `autoevol/<ciclo>`;
         ff-merge a dev y push SOLO con etiqueta FULL (7rwx); 6rw-/DIMINISHED = commit local; 5r-x/4r-- y `apply=False` =
         plan. Re-entrante; BLOCKED_GIT con motivo si no es posible. Nunca fuerza ni toca main.
+      - 'reconcile' (E4): lista PROPUESTAS deterministas {gap, kind, action: heal|spec|evolve|report, reason, tier_required}
+        (deseado vs observado). 7rwx ejecuta solo heal dry-run y ciclos fix_test/evolve en plan; 6rw- solo ciclos en plan;
+        5r-x/4r-- solo informan (sin escrituras). Respeta AEP_AUTOEVOL_MAX_CYCLES, idempotente, nunca commit/merge/push ni
+        heal apply (`apply` se ignora). Eventos `reconcile.*` en el ledger con tier >= 6rw-.
     """
     from engine import threads as _threads
 
@@ -5614,6 +5686,8 @@ async def autoevol(
                 result["next_action"] = RECONNECT_POINTER
         elif act == "evolve":
             result = _autoevol_evolve(tree, gap=gap, cycle=cycle, apply=apply, octal=octal)
+        elif act == "reconcile":
+            result = _autoevol_reconcile(tree, octal, terse)
         else:
             runner = _autoevol_test_runner(tree, trusted)
             dispatcher = _autoevol_dispatcher(tree, trusted)

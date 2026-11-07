@@ -174,6 +174,30 @@ class EvolveLedger:
             all(e["data"].get(k) == v for k, v in fields.items()) for e in self.events(cycle) if e["kind"] == kind
         )
 
+    # -- consultas para `threads_reconcile` (E4) ---------------------------------------------------
+    def used(self) -> int:
+        """Ciclos de evolve contados en la ventana de 24 h (los mismos que consume el tope de `claim`)."""
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM evolve_keys WHERE created_at > ?", (self._clock() - WINDOW_SECONDS,)
+            ).fetchone()
+        finally:
+            conn.close()
+        return int(row[0])
+
+    def recent(self, kind: str, *, window: bool = True) -> list[dict[str, Any]]:
+        """Eventos `kind` (en la ventana de 24 h si `window`), en orden de insercion: `{cycle, data}`."""
+        since = self._clock() - WINDOW_SECONDS if window else 0.0
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT cycle, data_json FROM evolve_events WHERE kind = ? AND ts > ? ORDER BY id", (kind, since)
+            ).fetchall()
+        finally:
+            conn.close()
+        return [{"cycle": r[0], "data": json.loads(r[1])} for r in rows]
+
     # -- eventos evolve.* -------------------------------------------------------------------------
     def event(self, kind: str, cycle: str, data: dict[str, Any]) -> None:
         conn = self._conn()

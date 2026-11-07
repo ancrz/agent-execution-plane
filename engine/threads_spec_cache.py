@@ -133,3 +133,20 @@ def stale_specs(changed: set[str], *, db_path: Path | str) -> list[str]:
         return []
     finally:
         conn.close()
+
+
+def cached_gap_ids(db_path: Path | str) -> set[str]:
+    """E4: ids de gaps con spec cacheada (solo lectura; sin BD o con error = conjunto vacio, nunca crea la BD)."""
+    try:
+        db = Path(db_path)
+        if not db.exists():
+            return set()
+        conn = get_ro_connection(db)
+    except sqlite3.Error, OSError:
+        return set()
+    try:
+        return {r["gap_canonical"] for r in conn.execute("SELECT gap_canonical FROM threads_spec_cache")}
+    except sqlite3.Error:
+        return set()
+    finally:
+        conn.close()
