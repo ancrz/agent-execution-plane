@@ -3211,6 +3211,21 @@ async def sandbox_run(
             ]
         )
 
+        if shutil.which("bwrap") is None:
+            return attach_envelope(
+                {
+                    "status": "DEGRADED",
+                    "agent_id": agent_id,
+                    "error": "bubblewrap (bwrap) no está instalado: no se puede crear el jail; el comando NO se ejecutó.",
+                    "remediation": [
+                        "Ubuntu/Debian: sudo apt-get install -y bubblewrap",
+                        "Requiere user namespaces sin privilegios (kernel.unprivileged_userns_clone=1 / "
+                        "apparmor_restrict_unprivileged_userns=0 en Ubuntu 24.04+).",
+                    ],
+                },
+                tracker,
+            )
+
         try:
             res = subprocess.run(
                 bwrap_cmd,
