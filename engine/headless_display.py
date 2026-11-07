@@ -48,6 +48,7 @@ def visual_inspect(
     """Renderiza `url` en Chromium headless y captura un screenshot.
     `url` puede ser http(s):// o un file:// local. FAIL-SOFT ante ausencia de navegador."""
     try:
+        from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
     except ImportError:
         return {
@@ -65,10 +66,15 @@ def visual_inspect(
                     headless=True,
                     args=["--no-sandbox", "--disable-gpu", "--password-store=basic", "--use-mock-keychain"],
                 )
-            except (RuntimeError, OSError) as exc:
+            except (RuntimeError, OSError, PlaywrightError) as exc:
+                # Missing browser binary OR missing system libraries (libnss3, libatk...) both land here.
                 return {
                     "status": "DISPLAY_UNAVAILABLE",
-                    "message": f"No se pudo lanzar Chromium: {exc}. Ejecuta: playwright install chromium",
+                    "message": (
+                        f"No se pudo lanzar Chromium: {str(exc).strip().splitlines()[0] if str(exc).strip() else exc}. "
+                        "Ejecuta: playwright install chromium; si faltan librerías del sistema: "
+                        "sudo playwright install-deps chromium (requiere root)."
+                    ),
                 }
             try:
                 page = browser.new_page(viewport={"width": viewport_width, "height": viewport_height})
@@ -107,6 +113,6 @@ def visual_inspect(
             result["screenshot_base64"] = base64.b64encode(data).decode("ascii")
         _prune_old_shm_screenshots()
         return result
-    except (RuntimeError, OSError, TimeoutError, ValueError) as exc:
+    except (RuntimeError, OSError, TimeoutError, ValueError, PlaywrightError) as exc:
         shot_path.unlink(missing_ok=True)
         return {"status": "ERROR", "url": url, "error": str(exc)}

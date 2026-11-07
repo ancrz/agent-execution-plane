@@ -461,8 +461,22 @@ else
     log_warn "Modelo semántico bge-small-en-v1.5 se descargará en primer uso."
 fi
 
-# Chromium headless para visual_inspect (fail-soft)
-"$VENV_DIR/bin/python" -m playwright install chromium &>/dev/null     && log_success "Chromium headless provisionado (visual_inspect)."     || log_warn "Chromium no se pudo provisionar; visual_inspect degrada a DISPLAY_UNAVAILABLE."
+# Chromium headless para visual_inspect (fail-soft): descargar el binario NO basta, hay que comprobar que arranca.
+if "$VENV_DIR/bin/python" -m playwright install chromium &>/dev/null; then
+    if "$VENV_DIR/bin/python" - <<'PY' &>/dev/null
+from playwright.sync_api import sync_playwright
+
+with sync_playwright() as p:
+    p.chromium.launch(headless=True, args=["--no-sandbox"]).close()
+PY
+    then
+        log_success "Chromium headless provisionado y verificado (visual_inspect)."
+    else
+        log_warn "Chromium descargado pero NO arranca (faltan librerías del sistema). Ejecuta como root: $VENV_DIR/bin/python -m playwright install-deps chromium. Hasta entonces visual_inspect devuelve DISPLAY_UNAVAILABLE."
+    fi
+else
+    log_warn "Chromium no se pudo descargar; visual_inspect degrada a DISPLAY_UNAVAILABLE."
+fi
 
 # -----------------------------------------------------------------------------
 # 4. Golang Toolchain & Static Diagnostic Probes
