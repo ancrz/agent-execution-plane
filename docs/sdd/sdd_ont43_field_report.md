@@ -172,3 +172,33 @@ Si el parche no quita el `xfail`, el test sigue fallando de forma esperada y el 
 - **D-FR-3**: promoción siempre en `bwrap`, fail-closed. Razón: el repro es código no confiable. Sin `trusted=False`, ni en `bwrap` caído.
 - **D-FR-4**: `field_discrepancy` fuera de R y de la caché. Razón: el estado de cuarentena es externo al árbol; incluirlo cambiaría R con cada reporte.
 - **D-FR-5**: `open_discrepancy` (D-xx) sigue en `REPORT`. Razón: cambiar su clase afectaría a la política de ciclos existente.
+
+---
+
+## 6. Addendum: seguimiento F1–F3
+
+### 6.1 Cambios
+
+| Id | Cambio | Dónde |
+|----|--------|-------|
+| F1 | Validación de firma (`SIG_RE`, 12 hex) en la entrada de `autoevol(report)`, antes de toda rama y del tier. Firma inválida: ERROR sin tocar estado. | `engine/threads_field.py`, `server.py` |
+| F2 | Plantilla de spec específica para `field_discrepancy`. `TEMPLATE_REV` en la clave de caché E2. | `engine/threads_spec.py`, `engine/threads_spec_cache.py` |
+| F3 | Promoción rechaza `INVALID_REPRO` ante cualquier `conftest.py` bajo `tests/field` (incl. symlinks) o `pytest_plugins` a nivel de módulo. Corrida con `--confcutdir <árbol>/tests`. | `engine/threads_field.py`, `server.py` |
+
+### 6.2 Decisiones registradas
+
+- **D-FR-6**: la firma se valida antes de cualquier rama y del tier. Razón: una entrada malformada no debe tocar estado ni consumir cupo.
+- **D-FR-7**: `TEMPLATE_REV` forma parte de la clave de caché E2. Razón: un cambio de plantilla no debe servir specs cacheadas anteriores. Regla: subir `TEMPLATE_REV` al cambiar plantillas.
+- **D-FR-8**: el repro se ejecuta sin `conftest.py` del árbol de `tests/field` ni `pytest_plugins`, y con `--confcutdir` sobre `tests/`. Razón: evitar autocarga de código no revisado al colectar.
+
+### 6.3 Riesgo residual
+
+Un módulo auxiliar en `tests/field` importado por el repro ejecuta código fuera de la cobertura del AST. Contenido por `bwrap` (sólo lectura, sin red); no añade capacidad sobre el repro. Endurecimiento opcional: permitir sólo `test_fr_*.py` en `tests/field` (decisión de política).
+
+### 6.4 Criterio de aceptación añadido
+
+| Propiedad | Prueba |
+|-----------|--------|
+| Firma inválida en `report` no toca estado | `test_ont43_field_report.py` (seguimiento F1) |
+| Cambio de `TEMPLATE_REV` invalida la caché E2 | `test_ont43_field_report.py` (seguimiento F2) |
+| `conftest.py` o `pytest_plugins` en repro => `INVALID_REPRO` | `test_ont43_field_report.py` (seguimiento F3) |

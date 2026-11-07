@@ -172,3 +172,57 @@ Actualizado respecto al registro E4 (§6 de `feature_20261107_115813_e4_reconcil
 **Restricciones vigentes**: commit y push user-gated. Modo Short por defecto. `resolve-revert` sólo por CLI humano con `--confirm`. `recovered: true` sólo con prueba git y testigo del gate. Reconcile sólo propone salvo opt-in explícito. Un reporte de campo nunca abre ciclos.
 
 [↑ Back to top](#top)
+
+---
+
+## Seguimiento ONT-43 (F1–F3)
+
+- **Modo**: Short (orquestador inline; Archon y Ontos omitidos por política de costos).
+- **Etapa**: Graphos G2 tras veredicto de Dokimos **VERIFIED**: 927 passed (antes 913), ruff check y ruff format limpios, gaps 120.
+- **Ruta de resolución**: corrección acotada de F1–F3 sobre el mismo ONT-43. Sin nuevas capacidades de herramienta.
+- **Radio de acción (blast radius)**: `engine/threads_field.py`, `engine/threads_spec.py`, `engine/threads_spec_cache.py`, `server.py` (acción `autoevol(report)` y promoción) y `tests/test_ont43_field_report.py`. Ningún otro módulo.
+- **Worktree**: `agent-a1e2aa22767bc6627`, base `14756a2` (según la orquestación). El registro principal indica base `c0fb71a` en `integ/ont43-backlog`; la divergencia debe verificarse antes de integrar.
+- **Estado de git**: cambios de código y docs staged, **sin commit** (Hermon no invocado).
+
+### Correcciones
+
+| Hallazgo | Corrección | Evidencia en código |
+|----------|------------|---------------------|
+| F1 | `autoevol(report)` valida la firma con `SIG_RE` (12 hex minúsculas) en la entrada, antes de toda rama y del tier. Firma inválida produce ERROR sin tocar estado. | `engine/threads_field.py` (`SIG_RE`), `server.py` (validación previa a la acción) |
+| F2 | Plantilla de spec específica para `field_discrepancy`. `TEMPLATE_REV` entra en la clave de caché E2; subir su valor cuando cambien las plantillas. | `engine/threads_spec.py`, `engine/threads_spec_cache.py` (`TEMPLATE_REV = "2"`) |
+| F3 | La promoción rechaza `INVALID_REPRO` si existe cualquier `conftest.py` bajo `tests/field` (incluidos symlinks) o `pytest_plugins` a nivel de módulo en el repro. La corrida de promoción usa `--confcutdir <árbol>/tests`, de modo que sólo carga `tests/conftest.py` del repo. | `engine/threads_field.py` (`_declares_pytest_plugins`, validación de `conftest.py`), `server.py` (`--confcutdir`) |
+
+### Riesgo residual aceptado
+
+Un módulo auxiliar en `tests/field` importado por el repro ejecuta código que el AST no cubre. Queda contenido por `bwrap` (sólo lectura, sin red) y no añade capacidad sobre el propio repro.
+
+**Endurecimiento opcional (decisión de política)**: permitir únicamente `test_fr_*.py` en `tests/field`.
+
+### Opcional (no bloqueante)
+
+Exigir que la razón de fallo del repro contenga la firma.
+
+### Estado de los milestones (seguimiento)
+
+| Milestone | Estado |
+|-----------|--------|
+| M3 (promoción fail-closed) | ✅ VERIFIED (F1 y F3 corregidos) |
+| M4 (normalización `field_discrepancy`) | ✅ VERIFIED (F2: plantilla específica) |
+| M9 (commit) | ⏳ retenido por el usuario (sin commit) |
+
+### Estado de la transición
+
+```mermaid
+flowchart LR
+    A5["A.5: docs(pipeline) y SDD ONT-43 (staged)"] --> B1["B.1: Dokimos hallazgos F1 a F3"]
+    B1 --> B2["B.2: Correcciones F1 (firma), F2 (plantilla E2), F3 (conftest y pytest_plugins)"]
+    B2 --> B3["B.3: VERIFIED (927 passed, ruff limpio, gaps 120) ✅"]
+    B3 --> B4["B.4: docs, STATE y COMPACT actualizados (staged, sin commit)"]
+```
+
+### Backlog pendiente (tras este seguimiento)
+
+- Ciclo `482c9115f84a`: caduca por TTL (sin acción).
+- Worktree `a783d592846aab250` (ONT-42b B9): conservado por decisión del usuario.
+- Endurecimiento opcional de `tests/field` (sólo `test_fr_*.py`): decisión de política.
+- Opcional: exigir que la razón del fallo del repro contenga la firma.

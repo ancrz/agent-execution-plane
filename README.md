@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-913_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-927_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1156,7 +1156,7 @@ flowchart LR
     E4 --> B["Backlog menor: LKG, sondas Go, errcheck, cache E2, ruff format ⏳"]
 ```
 
-**ONT-43 field report y backlog track A (VERIFIED, staged sin commit; 913 passed):** `autoevol(action="report")` convierte fallos reales de herramientas en gaps `field_discrepancy` sólo tras reproducción en `bwrap` (fail-closed); un reporte nunca abre ciclos. Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`; SDD: `docs/sdd/sdd_ont43_field_report.md`.
+**ONT-43 field report y backlog track A (VERIFIED, staged sin commit; 927 passed):** `autoevol(action="report")` convierte fallos reales de herramientas en gaps `field_discrepancy` sólo tras reproducción en `bwrap` (fail-closed); un reporte nunca abre ciclos. Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`; SDD: `docs/sdd/sdd_ont43_field_report.md`.
 
 ```mermaid
 flowchart LR
@@ -1164,7 +1164,7 @@ flowchart LR
     M1 --> M2["M2: cuarentena threads_field (dedupe, tope 20/24 h, texto inerte) ✅"]
     M2 --> M3["M3: promocion por reproduccion en bwrap, fail-closed ✅"]
     M3 --> M4["M4: field_discrepancy fuera de R, drift en reconcile ✅"]
-    M4 --> M5["M5: verified (Dokimos, 913 passed; F1 y F2 en 1 ciclo) ✅"]
+    M4 --> M5["M5: verified (Dokimos, 927 passed; F1 a F3 corregidos en 1 ciclo) ✅"]
     M5 --> M6["M6: commit (Hermon) ⏳ retenido por el usuario"]
 ```
 
