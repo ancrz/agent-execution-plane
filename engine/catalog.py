@@ -12,8 +12,10 @@ opera idénticamente al comportamiento previo (solo hash), sin romper ninguna ll
 Relación Topos: catalog.py -> embedder.py es dependencia unidireccional (A -> B). Sin ciclos.
 """
 
+import contextlib
 import hashlib
 import logging
+import os
 import sqlite3
 import uuid
 from pathlib import Path
@@ -47,11 +49,29 @@ DEFAULT_SEMANTIC_THRESHOLD = 0.32
 class ArtifactCatalog:
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DB_DEFAULT_PATH
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._secure_storage()
         # Estado de disponibilidad del tier vectorial: se fija UNA vez en _init_db y
         # es de solo-lectura después (fix Ontos HF-2: _get_connection no lo reescribe).
         self._vec_available = False
         self._init_db()
+
+    def _secure_storage(self) -> None:
+        """Directorio 0700 y DB 0600: el catálogo contiene intents/código de artefactos del usuario.
+
+        El archivo se crea con 0600 *antes* de que SQLite lo abra, de modo que los sidecars -wal/-shm
+        heredan el modo restrictivo y no hay ventana con permisos del umask.
+        """
+        parent = self.db_path.parent
+        created = not parent.exists()
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Solo endurecemos un directorio que creamos o el propio agent-os (nunca un dir compartido como /tmp).
+        if created or parent == DB_DEFAULT_PATH.parent:
+            with contextlib.suppress(OSError):
+                os.chmod(parent, 0o700)
+        if not self.db_path.exists():
+            os.close(os.open(self.db_path, os.O_CREAT | os.O_WRONLY, 0o600))
+        with contextlib.suppress(OSError):
+            os.chmod(self.db_path, 0o600)
 
     # ------------------------------------------------------------------ conexión
     def _get_ro_conn(self) -> sqlite3.Connection:
