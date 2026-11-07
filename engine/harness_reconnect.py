@@ -316,7 +316,7 @@ try:
     major, minor, payload = int(sys.argv[1]), int(sys.argv[2]), bytes.fromhex(sys.argv[3])
 except (IndexError, ValueError):
     done(2, error="bad_args")
-if not re.fullmatch(rb"(/mcp reconnect [a-z0-9][a-z0-9_-]{0,63}|hello world)\r", payload):
+if not re.fullmatch(rb"/mcp reconnect [a-z0-9][a-z0-9_-]{0,63}\r", payload):
     done(2, error="payload_rejected")
 try:
     st = os.fstat(0)
@@ -713,84 +713,56 @@ def execute(
 def certify_loopback(
     message: str = "hello world",
     *,
-    proc_root: str | Path = "/proc",
-    start_pid: int | None = None,
     uid: int | None = None,
-    target_harness: str | None = None,
     adapters: Adapters | None = None,
 ) -> dict[str, Any]:
-    """Autonomous Session Steward loopback self-certification: opens an isolated kernel PTY pair,
-    validates the slave fd via `check_tty_fd`, transmits `message` across the stewardship channel,
-    verifies SHA-256 round-trip integrity, and records `CERTIFIED` in the audit ledger."""
+    """Unprivileged pty loopback self-check. Opens an isolated pty pair, validates the slave fd and round-trips
+    `message` through the master. It NEVER runs the sudo helper nor touches the sysctl (D-HR-2/3): the kernel
+    TIOCSTI path is not exercised, so `certified` is always False and the ledger records UNVERIFIED (D-HR-4)."""
     ad = adapters or real_adapters()
     me = os.getuid() if uid is None else uid
     clean_msg = (message or "hello world").strip()[:128] or "hello world"
-    harness = find_harness(
-        proc_root,
-        os.getpid() if start_pid is None else start_pid,
-        me,
-        target_harness=target_harness,
-    )
-    master_fd, slave_fd = pty.openpty()
+    if not clean_msg.isascii() or not clean_msg.isprintable():
+        return {"status": "ERROR", "primitive": PRIMITIVE_NAME, "mode": "certify", "certified": False, "error": "message_not_printable_ascii"}
     sysctl_before = ad.read_sysctl()
-    kernel_report: dict[str, Any] = {}
+    master_fd, slave_fd = pty.openpty()
+    received, fd_ok, fd_reason, pts_name = "", False, "pty_error", ""
     try:
         attrs = termios.tcgetattr(slave_fd)
         attrs[3] &= ~(termios.ECHO | termios.ICANON)
         termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
-        st = os.fstat(slave_fd)
-        fd_ok, fd_reason = check_tty_fd(slave_fd, st.st_rdev, me)
+        fd_ok, fd_reason = check_tty_fd(slave_fd, os.fstat(slave_fd).st_rdev, me)
         pts_name = os.ttyname(slave_fd)
-        major, minor = os.major(st.st_rdev), os.minor(st.st_rdev)
-        payload = (clean_msg + "\r").encode("ascii", errors="replace")
-        rc, helper_out, timed_out = ad.run_helper(major, minor, payload.hex(), slave_fd, timeout=HELPER_TIMEOUT_S)
-        with contextlib.suppress(ValueError, TypeError):
-            kernel_report = json.loads(helper_out or "{}")
-        if not select.select([slave_fd], [], [], 0.05)[0]:
-            wire = (clean_msg + "\n").encode("utf-8")
-            os.write(master_fd, wire)
-            kernel_report.setdefault("mode", "dry_pty_fallback")
-        else:
-            kernel_report["mode"] = "kernel_tiocsti"
-            kernel_report["rc"] = rc
-        received = os.read(slave_fd, len(payload) + 64).decode("utf-8", errors="replace").rstrip("\r\n")
+        os.write(master_fd, (clean_msg + "\n").encode("ascii"))
+        if select.select([slave_fd], [], [], 1.0)[0]:
+            received = os.read(slave_fd, len(clean_msg) + 64).decode("ascii", errors="replace").rstrip("\r\n")
     finally:
         for fd in (slave_fd, master_fd):
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
     sysctl_after = ad.read_sysctl()
-    sysctl_restored = sysctl_before == sysctl_after
     digest = hashlib.sha256(received.encode("utf-8")).hexdigest()
-    expected_digest = hashlib.sha256(clean_msg.encode("utf-8")).hexdigest()
-    certified = bool(fd_ok and sysctl_restored and received == clean_msg and digest == expected_digest)
+    loopback_ok = bool(fd_ok and sysctl_before == sysctl_after and received == clean_msg)
     details: dict[str, Any] = {
         "primitive": PRIMITIVE_NAME,
         "mode": "certify",
-        "certified": certified,
-        "autonomy_loop": "agent_plane -> kernel_legacy_tiocsti_ioctl -> agent_plane",
-        "harness": harness.get("harness"),
-        "harness_pid": harness.get("pid"),
+        "certify_mode": "pty_loopback",
+        "certified": False,
+        "certified_requires": "mode=kernel_tiocsti and rc==0 (privileged path, not exercised here)",
         "loopback_pts": pts_name,
         "tty_validation": fd_reason,
         "sysctl_before": sysctl_before,
         "sysctl_after": sysctl_after,
-        "kernel_tiocsti": kernel_report,
         "message_sent": clean_msg,
         "message_received": received,
         "sha256": digest,
     }
     audit_ok = False
     try:
-        audit_ok = bool(ad.audit("CERTIFIED" if certified else "FAIL", details))
+        audit_ok = bool(ad.audit("UNVERIFIED" if loopback_ok else "FAIL", details))
     except Exception as exc:  # noqa: BLE001
         logger.warning("certify_loopback audit failed: %s", exc)
-    return {
-        "status": "OK" if certified else "FAIL",
-        **details,
-        "audit_degraded": not audit_ok,
-    }
+    return {"status": "LOOPBACK_OK" if loopback_ok else "FAIL", **details, "audit_degraded": not audit_ok}
 
 
 def probe_console_reach(
