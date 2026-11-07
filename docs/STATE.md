@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Rama: `dev` (`9638056`; origin/dev `be78115`, push retenido) · ONT-42c E1 + C1–C3 **VERIFIED** (Dokimos: suite 706 passed, 0 xfail, ruff limpio; D-EV-1 y D-EV-1b cerrados en 2 ciclos Pragma↔Dokimos) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: C4 (gate final por lotes) → C5 → C6 → C7
+> Rama: `dev` (`be9887c` código; origin/dev `3d2ef4e`, push retenido) · ONT-42c **cerrado**: C4–C7 + DK-1..DK-4 **VERIFIED** (Dokimos: suite 754 passed, ruff limpio, gate real con bwrap verde/rojo/wrong_tree; un ciclo de corrección) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: decisión de push (user-gated), verificación de AP-1, backlog E2–E4
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -61,12 +61,14 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 
 - **L3 Contrato de tokens (D-01..D-05, Short, VERIFIED sobre `e36a608`):** `discover(schema, summary)` compactado a `{tool:{params,actions}}` (`4af584d`, 18 k → 2.2 k tokens); `aep_ctl(schema, summary)` con `defaults` + excepciones (`5999cb1`, 3.8 k → 1.3 k); `aep_ctl(ipc status)` sin `mux.pool` duplicado en `summary` (`9b2f11e`, 458 → 312); `select_fields` con `unresolved_fields` y listas preservadas (`8068f8b`); `summary` plano sin `envelope`/`telemetry` en `playbook_run`, `artifact_catalog`, `kanban_board` (`e36a608`). `detail` intacto. Pragma↔Dokimos: 0 ciclos de fix. Registro: `docs/pipeline/feature_20261106_181608_l3_token_contract.md`.
 
+- **ONT-42c evolve C4–C7 (VERIFIED, `be9887c`; cierre del arco ONT-42b/c):** gate final por lotes en sandbox antes del ff-merge (C4, `2c7074b`); rollback por `git revert` como commit nuevo dentro del fence, sin push (C6, `a424f55`); ledger `evolve_keys` UNIQUE `(gap_canonical, base_R, tree_hash)` con tope de ciclos persistido 24 h (C5, `1ee3c79`); Merkle `R_before`/`R_after`, precondición `Gaps(G') ⊊ Gaps(G)` y `NEW_GAPS` (C7, `c50c409`); `safe_extract` en `export_tree` (Semgrep, `0f3a31c`); tests de cobertura directa (`699e254`); des-trackeo del probe de test (`50ac3eb`, orquestador); xfails de auditoría (`f3d234f`). Primer pase DEFECTIVE (DK-1 estado JSON sin respaldo, DK-4 `post_verified` prematuro; DK-2/DK-3 menores) y corrección en `be9887c`. Registro: `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §20.
+
 ## Pendientes
 
 - **Política de modo (2026-11-07)**: Short por defecto por costos; Full sólo si el usuario lo pide o el blast radius lo exige.
 - **Política de recarga (2026-11-07)**: AEP recarga sólo su propia sesión (ancestría estricta); nunca sesiones ajenas.
-- **ONT-42c (VERIFIED E1 + C1–C3, `9638056`)**: E1 juez no falsificable (`NON_DISCRIMINATING`); C1–C3 `evolve` (state machine, `GitPort`, ff-only, tiers, fence). D-EV-1 (ACCEPT atado al árbol juzgado) y D-EV-1b (`TREE_MUTATED_DURING_JUDGE`) cerrados. Riesgo aceptado M-2b (ignorados fuera de la huella); M-1 documentado.
-- **ONT-42c pendientes (orden)**: C4 gate final por lotes con `run_tests_batched` (rojo = sin merge); C5 ledger UNIQUE por `(gap_canonical, base_R, tree_hash)` y `MAX_CYCLES` persistido; C6 rollback con `git revert` sin push; C7 Merkle `R_before`/`R_after`, SDD §4/§7/§9, AP-1 restringido a FULL. Backlog: E2 specs incrementales, E3 OTP sobre SCC, E4 reconciliación. Registro: `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §19.
+- **ONT-42c (cerrado):** E1 + C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados. Decisiones: `resolve-revert` solo por CLI humano con `--confirm`; `recovered: true` solo con prueba git y testigo del gate. Modelo de amenaza en SDD §9 (el gate no protege contra un adversario con el mismo uid).
+- **Pendientes ONT-42c (tras cierre):** verificar AP-1 restringido a FULL (plan C7, no reportado en el cierre); M-2b (ignorados fuera de la huella) sigue aceptado; tests propios para `recovered: true`; E2–E4 (specs incrementales, OTP sobre SCC, reconciliación acotada por tier). Push a origin/dev: user-gated.
 - **Backlog bajo**: O-1 `matrix` con `mcp get` puede lanzar stdio del server (documentar); O-2 reapeo tras hot-swap reinicia presupuesto de iteraciones; `aep_ctl` ignora `select_fields`; `backup.lkg_restore` sin `covers`.
 - **B9**: el ACCEPT de agy no es reproducible (el `verify` no discrimina D-01b); el fix sí pasa en pytest. Queda cubierto por E1.
 

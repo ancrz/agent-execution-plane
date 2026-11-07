@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-706_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-754_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1112,17 +1112,19 @@ flowchart LR
     M5 --> M6["M6: pushed to origin/dev ⛔ retenido por usuario"]
 ```
 
-**ONT-42c evaluador (E1 y C1–C3 VERIFIED; D-EV-1 y D-EV-1b cerrados; C4–C7 pendientes):**
+**ONT-42c evaluador (cerrado: E1, C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados; backlog E2–E4):**
 
 ```mermaid
 flowchart LR
     I["Intent: ONT-42c evaluador (juez y evolve)"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) ✅"]
     E1 --> C13["C1-C3: evolve state machine, GitPort, ff-only ✅"]
     C13 --> D["D-EV-1 / D-EV-1b: ACCEPT atado al arbol juzgado (2 ciclos) ✅"]
-    D --> V["M: verified (Dokimos, 706 passed, 0 xfail) ✅"]
-    V --> C47["C4-C7: gate final, ledger, rollback, Merkle ⏳"]
-    C47 --> E234["E2-E4: specs incrementales, OTP sobre SCC, reconciliacion ⏳"]
+    D --> C47["C4-C7: gate final por lotes, ledger UNIQUE, revert sin push, Merkle R_before/R_after ✅"]
+    C47 --> V["M: verified (Dokimos, 754 passed; DK-1..DK-4 en 1 ciclo) ✅"]
+    V --> E234["E2-E4: specs incrementales, OTP sobre SCC, reconciliacion ⏳"]
 ```
+
+Decisiones vigentes: `resolve-revert` solo por CLI humano con `--confirm`; `recovered: true` solo con prueba git y testigo del gate. Modelo de amenaza: el gate protege contra fallos del flujo, no contra un adversario con el mismo uid (SDD §9).
 
 
 [↑ Back to top](#top)

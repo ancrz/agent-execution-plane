@@ -5,7 +5,7 @@
 - **Mode:** Full (Topos). Archon (Stage 1) → Graphos G1 (este documento) → Ontos pendiente.
 - **Stage:** 2 — Graphos G1 (Weave & Record) tras el plan de Archon.
 - **Baseline:** `dev` @ `07ff47a`. Árbol con `?? .claude/` (no versionado, fuera de alcance). Sin código tocado. Sin commit (Hermon).
-- **Status:** B1–B8 integrados (dev @ a34b5ac); B9 DEFECTIVE (PLAN_GAP) → Archon re-plan; C1–C7 no iniciados (§13). Sin push.
+- **Status:** ONT-42b y ONT-42c (C1–C7, E1) VERIFIED. Cierre en §20 (dev @ `be9887c`, origin/dev @ `3d2ef4e`, sin push).
 - **Fuente del plan:** `/tmp/claude-1000/-home-ancruz-Documents-workspaces-agent-execution-plane/35ca3808-1a4d-4b75-ac5d-4ce0a6c2d86b/scratchpad/ont42_plan.md` (incluye la decisión del orquestador sobre C2 al final).
 
 ## 1. Intent & Premises
@@ -527,3 +527,87 @@ flowchart LR
 - **Documento:** esta sección se añade a este mismo documento; no se crea documento nuevo, la cadena no avanza.
 - **Routing:** VERIFIED → Hermon. Este G2 lo cierra con el commit de documentación, sin push. Commit de código de C4–C7 pendiente.
 - **Siguiente (Orchestrator):** decidir si C4 entra en Short o en Full; ambos caminos requieren Pragma para el código.
+
+## 20. Graphos G2: VERIFIED de C4–C7 y cierre de ONT-42c (Short)
+
+- **Activación:** G2 tras el veredicto de Dokimos sobre C4 (`2c7074b`), C6 (`a424f55`), C5 (`1ee3c79`), C7 (`c50c409`), `safe_extract` en `export_tree` (`0f3a31c`), tests de cobertura directa (`699e254`), xfails de auditoría (`f3d234f`) y correcciones DK-1..DK-4 (`be9887c`). Des-trackeo del probe de test (`50ac3eb`) lo hizo el orquestador fuera del pipeline. Veredicto global: **VERIFIED** tras un ciclo de corrección.
+- **Modo:** Short. Ciclos Archon↔Ontos: 0. Ciclos Pragma↔Dokimos: 1 de corrección (límite 3).
+- **Baseline:** `dev` @ `be9887c` (origin/dev @ `3d2ef4e`, sin push).
+- **Camino y blast radius de esta activación:** registro documental en `docs/` y `README.md`. Sin código. El commit `docs(pipeline): record ONT-42c C4-C7 VERIFIED (evolve complete)` es local, sin push.
+
+### 20.1 Veredictos por tarea
+
+| Tarea | Commit | Veredicto | Evidencia |
+|---|---|---|---|
+| C4 gate final por lotes en sandbox | `2c7074b` | VERIFIED | Gate real con bwrap probado en verde, rojo y `wrong_tree`. Rojo, `ran < selected` o `unsandboxed` = `REJECT gate_failed`. |
+| C6 revert en fence, sin push | `a424f55` | VERIFIED | `git revert` como commit nuevo dentro del fence (O_EXCL, `finally`); `BLOCKED_GIT dev_dirty_by_revert`. |
+| C5 ledger UNIQUE + tope 24 h | `1ee3c79` | VERIFIED | UNIQUE `(gap_canonical, base_R, tree_hash)`; `AEP_AUTOEVOL_MAX_CYCLES` (3 por ventana de 24 h) persistido en la DB. |
+| C7 Merkle R_before/R_after, NEW_GAPS, SDD | `c50c409` | VERIFIED | Precondición `Gaps(G') ⊊ Gaps(G)` recomputada antes del commit; `NEW_GAPS` y ausencia de progreso = `REJECT` sin commit. |
+| `safe_extract` en `export_tree` | `0f3a31c` | VERIFIED | Semgrep `tarfile-extractall-traversal` cerrado; reutiliza `threads_verify.safe_extract`. |
+| Tests de cobertura directa | `699e254` | VERIFIED | Gaps del grafo de vuelta a 122; `own_gaps` 0. |
+| xfails de auditoría DK-1..DK-4 | `f3d234f` | VERIFIED (xfail estricto) | Estado forjado, schema, runbook de revert, LKG tardío. |
+| Correcciones DK-1..DK-4 | `be9887c` | VERIFIED tras ciclo 1 | DK-1: JSON de `/dev/shm` sin respaldo, ahora `BLOCKED_GIT state_unverified`. DK-4: `post_verified` prematuro, ahora exige `loaded == disk` y `serving_from != lkg`. DK-2 (DDL del ledger en el schema) y DK-3 (runbook de revert, `resolve-revert` en CLI humano) menores. |
+
+### 20.2 Primer pase de Dokimos y ciclo de corrección
+
+- **Primer pase:** DEFECTIVE. Hallazgos principales DK-1 (estado JSON sin respaldo en el ledger) y DK-4 (`post_verified` fijado antes de tiempo). DK-2 y DK-3 menores.
+- **Ciclo de corrección 1:** `be9887c` cierra los cuatro. Segundo pase: VERIFIED.
+- **Evidencia reportada por Dokimos:** suite 754 passed, ruff limpio. Gate real con bwrap probado (verde, rojo, `wrong_tree`). Graphos no re-ejecutó la suite; la cifra es la del informe de Dokimos.
+
+### 20.3 Decisiones del usuario (vigentes)
+
+- `resolve-revert` solo por CLI humano con `--confirm` (`scripts/aep-ctl evolve resolve-revert`). No es tool MCP.
+- Recuperación tras caída entre merge y evento: `recovered: true` solo con prueba git y testigo del gate en el ledger.
+
+### 20.4 Modelo de amenaza (registrado en SDD §9)
+
+El gate protege contra fallos del flujo (caídas, estado desfasado, árbol mutado). No protege contra un adversario con el mismo uid, que ya controla el repositorio y la base de datos. Nota añadida a `docs/sdd/sdd_ont40_autoevol_thread_graph.md` §9.
+
+### 20.5 Métricas
+
+- **Commits ONT-42c C4–C7 en dev:** 9 (`2c7074b` … `be9887c`), más el des-trackeo `50ac3eb` del orquestador.
+- **Suite:** 754 passed (reportado por Dokimos), ruff limpio. Antes de C4: 706 passed.
+- **Ciclos Archon↔Ontos:** 0 (Short). **Ciclos Pragma↔Dokimos:** 1 de corrección (límite 3). No hubo escalado a usuario.
+- **Approximation ratio y duración total:** no reportados en el informe de Dokimos; no se estiman aquí.
+
+### 20.6 Riesgos aceptados, pendientes y backlog
+
+- **M-2b (riesgo aceptado, sin cerrar en evidencia):** archivos ignorados por `.gitignore` visibles al sandbox no entran en la huella. Lo juzgado puede diferir de lo commiteado. No hay evidencia de cierre en el informe de cierre.
+- **AP-1 restringido a FULL (plan C7, §4 del SDD):** no aparece en el informe de cierre. Pendiente de verificación antes de cualquier push automático.
+- **Backlog:** tests propios para la rama `recovered: true`; E2–E4 (specs incrementales, OTP sobre SCC, reconciliación acotada por tier); O-1 (`matrix` con `mcp get` puede lanzar stdio, documentar); O-2 (reapeo tras hot-swap reinicia presupuesto); `aep_ctl` ignora `select_fields`; `backup.lkg_restore` sin `covers`; M-2b.
+
+### 20.7 State Evolution
+
+```mermaid
+flowchart LR
+    A["A: ONT-42c C1-C3 VERIFIED @9638056"] --> A1["A.1: C4 gate 2c7074b"]
+    A1 --> A2["A.2: C6 revert a424f55"]
+    A2 --> A3["A.3: C5 ledger 1ee3c79"]
+    A3 --> A4["A.4: C7 Merkle c50c409"]
+    A4 --> A5["A.5: safe_extract, tests, xfails 0f3a31c/699e254/f3d234f"]
+    A5 --> A6["A.6: Dokimos DEFECTIVE (DK-1, DK-4; DK-2/DK-3 menores)"]
+    A6 --> A7["A.7: fix 1/1 be9887c VERIFIED (754 passed)"]
+    A7 --> A8["A.8: G2 docs, commit local sin push"]
+```
+
+### 20.8 Reinforcement Graph (intent ONT-42c evolve, cerrado)
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42c evolve"] --> M1["M1: planned (Orchestrator, Short) ✅"]
+    M1 --> M2["M2: E1 juez no falsificable (Pragma) ✅"]
+    M2 --> M3["M3: C1-C3 implemented (Pragma) ✅"]
+    M3 --> M4["M4: D-EV-1 / D-EV-1b fixed (2 ciclos) ✅"]
+    M4 --> M5["M5: verified E1 + C1-C3 (706 passed) ✅"]
+    M5 --> M6["M6: C4-C7 implemented (Pragma) ✅"]
+    M6 --> M7["M7: verified C4-C7 (Dokimos, 754 passed; DK-1..DK-4 fixed) ✅"]
+    M7 --> M8["M8: documented (Graphos G2) ✅"]
+    M8 --> M9["M9: committed local, sin push (Graphos) ✅"]
+    M9 --> B["Backlog: E2-E4, recovered tests, O-1/O-2, M-2b, AP-1 check ⏳"]
+```
+
+### 20.9 Chain and Routing
+
+- **Documento:** esta sección se añade a este mismo documento; no se crea documento nuevo, la cadena no avanza.
+- **Routing:** VERIFIED → Hermon. Este G2 cierra la documentación con un commit local, sin push. Cualquier push queda user-gated.
+- **Siguiente (Orchestrator):** decidir si se hace push a `origin/dev` (user-gated), verificar AP-1 y priorizar el backlog.
