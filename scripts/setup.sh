@@ -385,6 +385,15 @@ download() {
     curl -fsSL --retry 3 --connect-timeout 15 -o "$2" "$1" && [[ -s "$2" ]]
 }
 
+# Arquitectura: mapea `uname -m` a los nombres de cada proyecto. Arquitectura no soportada => ARCH_OK=0 y
+# cada herramienta binaria degrada con aviso (no se aborta a mitad de la instalación).
+case "$(uname -m)" in
+    x86_64|amd64)  ARCH_OK=1; GO_ARCH="amd64"; UV_ARCH="x86_64";  PUEUE_ARCH="x86_64" ;;
+    aarch64|arm64) ARCH_OK=1; GO_ARCH="arm64"; UV_ARCH="aarch64"; PUEUE_ARCH="aarch64" ;;
+    *)             ARCH_OK=0; GO_ARCH="";      UV_ARCH="";        PUEUE_ARCH=""
+                   log_warn "Arquitectura $(uname -m) no soportada para binarios precompilados (Go, golangci-lint, pueue): se degradará." ;;
+esac
+
 # -----------------------------------------------------------------------------
 # DIR-ONT-03: Subshell PATH Injection
 # -----------------------------------------------------------------------------
@@ -423,6 +432,10 @@ git -C "$PROJECT_ROOT" config core.hooksPath scripts/hooks 2>/dev/null     && ch
 log_step "Verificando gestor Astral uv..."
 if ! command -v uv &>/dev/null && [[ ! -x "$HOME/.local/bin/uv" ]]; then
     log_step "uv ausente; descargando instalador oficial de Astral..."
+    if [[ $ARCH_OK -ne 1 ]]; then
+        log_err "uv no tiene binario para $(uname -m) en este script; instala uv manualmente y reejecuta."
+        exit 1
+    fi
     curl -fLsS https://astral.sh/uv/install.sh | env CARGO_DIST_FORCE_INSTALL_DIR="$HOME/.local/bin" sh
     export PATH="$HOME/.local/bin:$PATH"
 fi
@@ -497,9 +510,9 @@ if ! command -v go &>/dev/null && [[ ! -x "$HOME/.local/bin/go" ]]; then
     if ! command -v go &>/dev/null; then
         log_step "Instalando Golang en espacio de usuario desde tarball oficial..."
         GO_VERSION="1.22.5"
-        GO_TARBALL="go${GO_VERSION}.linux-amd64.tar.gz"
+        GO_TARBALL="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
         # Descarga -> valida -> extrae en tmp -> solo entonces reemplaza (nunca borrar la instalación previa antes).
-        if download "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" \
+        if [[ $ARCH_OK -eq 1 ]] && download "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" \
             && mkdir -p "$TMP_DIR/go_extract" \
             && tar -C "$TMP_DIR/go_extract" -xzf "$TMP_DIR/$GO_TARBALL" \
             && [[ -x "$TMP_DIR/go_extract/go/bin/go" ]]; then
@@ -544,8 +557,8 @@ if command -v go &>/dev/null || [[ -x "$HOME/.local/bin/go" ]]; then
     log_step "Verificando linter estático golangci-lint..."
     if ! command -v golangci-lint &>/dev/null && [[ ! -x "$HOME/.local/bin/golangci-lint" ]]; then
         log_step "golangci-lint ausente; instalando binario oficial en ~/.local/bin..."
-        GL_DIR="golangci-lint-1.61.0-linux-amd64"
-        if download "https://github.com/golangci/golangci-lint/releases/download/v1.61.0/$GL_DIR.tar.gz" "$TMP_DIR/golangci-lint.tar.gz" \
+        GL_DIR="golangci-lint-1.61.0-linux-${GO_ARCH}"
+        if [[ $ARCH_OK -eq 1 ]] && download "https://github.com/golangci/golangci-lint/releases/download/v1.61.0/$GL_DIR.tar.gz" "$TMP_DIR/golangci-lint.tar.gz" \
             && tar -C "$TMP_DIR" -xzf "$TMP_DIR/golangci-lint.tar.gz" \
             && [[ -x "$TMP_DIR/$GL_DIR/golangci-lint" ]]; then
             mv "$TMP_DIR/$GL_DIR/golangci-lint" "$HOME/.local/bin/golangci-lint"
@@ -583,9 +596,10 @@ log_step "Verificando demonio Pueue..."
 if [[ "$MODE" == "update" ]] || ! command -v pueued &>/dev/null || [[ ! -x "$HOME/.local/bin/pueued" ]]; then
     log_step "Descargando binarios estáticos musl de Pueue a ~/.local/bin..."
     TAG="v4.0.4"
-    PQ_OK=1
+    PQ_OK=$ARCH_OK
     for b in pueue pueued; do
-        download "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-x86_64-unknown-linux-musl" "$TMP_DIR/$b" || PQ_OK=0
+        [[ $ARCH_OK -eq 1 ]] || break
+        download "https://github.com/Nukesor/pueue/releases/download/$TAG/${b}-${PUEUE_ARCH}-unknown-linux-musl" "$TMP_DIR/$b" || PQ_OK=0
     done
     if [[ $PQ_OK -eq 1 ]]; then
         for b in pueue pueued; do
