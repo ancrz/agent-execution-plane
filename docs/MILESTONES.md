@@ -244,9 +244,32 @@ flowchart LR
 ```mermaid
 flowchart LR
     I6["Intent: ONT-42c evaluador"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) ✅"]
-    E1 --> E2["E2: specs incrementales pendiente"]
+    E1 --> E2["E2: specs incrementales (VERIFIED, 772 passed) ✅"]
     E2 --> E3["E3: supervision OTP sobre SCC pendiente"]
     E3 --> E4["E4: reconciliacion acotada por tier pendiente"]
-    E4 --> C7["C1-C7 ✅ (VERIFIED 754 passed); E2-E4 backlog pendiente"]
+    E4 --> C7["C1-C7 ✅ (VERIFIED 754 passed); E3-E4 backlog pendiente"]
 ```
+
+## 6. Backlog post-ONT-42, E2 y prueba de instalación en sala limpia (2026-11-07)
+
+Registro: `docs/pipeline/feature_20261107_104734_e2_backlog_install.md` (anterior: `feature_20261107_011128_agy_audit.md`).
+
+```mermaid
+flowchart LR
+    I6["Intent: Backlog post-ONT-42 y E2"] --> B1["Backlog cbe7cde..052cb22: VERIFIED ✅"]
+    B1 --> B2["E2 specs incrementales 74d5968, eff04ac: VERIFIED (772 passed) ✅"]
+    B2 --> B3["Sala limpia: INSTALA CON DEGRADACION (7 defectos) ⛔"]
+    B3 --> B4["Correccion de instalacion y repetir sala limpia: pendiente"]
+    B4 --> B5["E3 OTP sobre SCC y E4 reconciliacion por tier: pendiente"]
+```
+
+| Milestone | Intent | Agente | Estado |
+|-----------|--------|--------|--------|
+| M1 | Backlog post-ONT-42: tests `recovered`, `select_fields`, cobertura `lkg_*`, doc `probe_cli`, O-2 herencia de presupuesto | Pragma / Dokimos | ✅ VERIFIED |
+| M2 | E2 specs incrementales (caché `node_hash`, `stale_specs`, fail-open, tier < 6) | Pragma / Dokimos | ✅ VERIFIED (772 passed; miss 1337 ms, hit 367 ms) |
+| M3 | Prueba de instalación en sala limpia (Ubuntu 26.04, no root, 6rw-) | Dokimos | ⛔ INSTALA CON DEGRADACIÓN CONTROLADA (7 defectos) |
+| M4 | Corrección de instalación (7 defectos, checksums, versiones fijas, `uv.lock`) | Pragma | ⏳ en curso (fuera de este registro) |
+| M5 | Repetir sala limpia tras la corrección | Dokimos | ⏳ pendiente |
+| M6 | E3 supervisión OTP sobre SCC; E4 reconciliación acotada por tier | Archon / Pragma | ⏳ pendiente |
+| M7 | Registro documental de este tramo | Graphos G2 | ✅ (`feature_20261107_104734_e2_backlog_install.md`) |
 

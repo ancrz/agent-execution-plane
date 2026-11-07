@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Rama: `dev` (`be9887c` código; origin/dev `3d2ef4e`, push retenido) · ONT-42c **cerrado**: C4–C7 + DK-1..DK-4 **VERIFIED** (Dokimos: suite 754 passed, ruff limpio, gate real con bwrap verde/rojo/wrong_tree; un ciclo de corrección) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: decisión de push (user-gated), verificación de AP-1, backlog E2–E4
+> Rama: `dev` (`eff04ac` código; origin/dev `00eafb0`, push retenido) · Backlog post-ONT-42 **VERIFIED** y E2 (specs incrementales) **VERIFIED** (Dokimos: suite 772 passed) · Prueba de instalación en sala limpia: **INSTALA CON DEGRADACIÓN CONTROLADA** (7 defectos, corrección en curso) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: corrección de instalación y repetir sala limpia, E3 (OTP sobre SCC), E4 (reconciliación por tier)
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -63,13 +63,18 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 
 - **ONT-42c evolve C4–C7 (VERIFIED, `be9887c`; cierre del arco ONT-42b/c):** gate final por lotes en sandbox antes del ff-merge (C4, `2c7074b`); rollback por `git revert` como commit nuevo dentro del fence, sin push (C6, `a424f55`); ledger `evolve_keys` UNIQUE `(gap_canonical, base_R, tree_hash)` con tope de ciclos persistido 24 h (C5, `1ee3c79`); Merkle `R_before`/`R_after`, precondición `Gaps(G') ⊊ Gaps(G)` y `NEW_GAPS` (C7, `c50c409`); `safe_extract` en `export_tree` (Semgrep, `0f3a31c`); tests de cobertura directa (`699e254`); des-trackeo del probe de test (`50ac3eb`, orquestador); xfails de auditoría (`f3d234f`). Primer pase DEFECTIVE (DK-1 estado JSON sin respaldo, DK-4 `post_verified` prematuro; DK-2/DK-3 menores) y corrección en `be9887c`. Registro: `docs/pipeline/feature_20261106_182001_ont42_judge_evolve.md` §20.
 
+- **Backlog post-ONT-42 (VERIFIED, `cbe7cde..052cb22`):** tests de `recovered: true` y `state_unverified`; `aep_ctl` honra `select_fields` (`87cab16`); cobertura de `backup.lkg_restore`/`lkg_status`/`lkg_diff` vía `aep_ctl` (`0306303`); matriz documenta que `probe_cli` puede arrancar el servidor stdio (O-1, `828b071`); O-2: el presupuesto de ciclo se hereda tras reapeo, también con `restart=True` (`d6d75bf`). Sin saltar tope ni lock EXHAUSTED.
+- **E2 specs incrementales (VERIFIED, `74d5968`, `eff04ac`):** caché por `node_hash` de los hilos del gap; `cache: hit|miss`; `stale_specs` en diff; fail-open; tier < 6 no escribe. En vivo: miss 1337 ms, hit 367 ms. La spec es informativa (el juez no la usa). Suite 772 passed.
+
 ## Pendientes
 
+- **Instalación (prueba en sala limpia, Docker Ubuntu 26.04, no root, 6rw-):** veredicto INSTALA CON DEGRADACIÓN CONTROLADA. Defectos: (1) canario no sembrado → `--check` FAIL; (2) `aep-ctl` requiere `python3`; (3) Chromium sin libs; (4) `sandbox_run` sin `bwrap` → ERROR; (5) `curl` sin `-f` y Go borrado antes de verificar; (6) arquitectura fija amd64; (7) banner de éxito con 0 clientes MCP. Además: descargas sin checksum ni versión fija; `uv.lock` no usado. Corrección en curso (no tocar `scripts/setup.sh` desde este registro); pendiente repetir sala limpia.
+- **Endurecimientos opcionales E2 (backlog):** incluir `node_hash` de tests y pins en la clave de caché; validar la forma del hit en `_lookup`.
 - **Política de modo (2026-11-07)**: Short por defecto por costos; Full sólo si el usuario lo pide o el blast radius lo exige.
 - **Política de recarga (2026-11-07)**: AEP recarga sólo su propia sesión (ancestría estricta); nunca sesiones ajenas.
 - **ONT-42c (cerrado):** E1 + C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados. Decisiones: `resolve-revert` solo por CLI humano con `--confirm`; `recovered: true` solo con prueba git y testigo del gate. Modelo de amenaza en SDD §9 (el gate no protege contra un adversario con el mismo uid).
-- **Pendientes ONT-42c (tras cierre):** verificar AP-1 restringido a FULL (plan C7, no reportado en el cierre); M-2b (ignorados fuera de la huella) sigue aceptado; tests propios para `recovered: true`; E2–E4 (specs incrementales, OTP sobre SCC, reconciliación acotada por tier). Push a origin/dev: user-gated.
-- **Backlog bajo**: O-1 `matrix` con `mcp get` puede lanzar stdio del server (documentar); O-2 reapeo tras hot-swap reinicia presupuesto de iteraciones; `aep_ctl` ignora `select_fields`; `backup.lkg_restore` sin `covers`.
+- **Pendientes ONT-42c (tras cierre):** verificar AP-1 restringido a FULL (plan C7, no reportado en el cierre); M-2b (ignorados fuera de la huella) sigue aceptado; E2 cerrado; pendientes E3 (OTP sobre SCC) y E4 (reconciliación acotada por tier). Push a origin/dev: user-gated.
+- **Backlog bajo**: cerrados O-1, O-2, `select_fields` de `aep_ctl` y cobertura de `backup.lkg_*` (ver Hecho). Abierto: `backup.lkg_restore` sin `covers` (verificar si sigue vigente).
 - **B9**: el ACCEPT de agy no es reproducible (el `verify` no discrimina D-01b); el fix sí pasa en pytest. Queda cubierto por E1.
 
 - **ONT-42 (insumo: backlog del primer ciclo real de autoevol, bloqueante para `autoevol evolve` y auto-commit):**
