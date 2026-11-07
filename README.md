@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-638_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-659_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1093,6 +1093,29 @@ flowchart LR
     M3 --> M4["M4: documented (Graphos G2) ✅"]
     M4 --> M5["M5: committed in docs (Hermon) pending"]
     M3 --> B1["Backlog: ONT-42 AE-1..AE-6 + D-01b (autoevol) ⛔"]
+```
+
+**Auditoría agy `1b983f1..b605677` (VERIFIED tras fixes; Short; push retenido):**
+
+```mermaid
+flowchart LR
+    I["Intent: Auditoria agy range 1b983f1..b605677"] --> M1["M1: planned (Orchestrator, Short) ✅"]
+    M1 --> M2["M2: audited (Dokimos DEFECTIVE, 9 hallazgos) ✅"]
+    M2 --> M3["M3: fixed (Pragma, d0ff416..5bee5c1) ✅"]
+    M3 --> M4["M4: verified (Dokimos, 659 passed, 0 xfail) ✅"]
+    M4 --> M5["M5: documented (Graphos G2) ✅"]
+    M5 --> M6["M6: pushed to origin/dev ⛔ retenido por usuario"]
+```
+
+**ONT-42c evaluador (pendiente, E1 primero):**
+
+```mermaid
+flowchart LR
+    I["Intent: ONT-42c evaluador (juez y reconciliacion)"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) pendiente"]
+    E1 --> E2["E2: specs incrementales por (thread_hash, R) pendiente"]
+    E2 --> E3["E3: supervision OTP sobre SCC pendiente"]
+    E3 --> E4["E4: reconciliacion acotada por tier pendiente"]
+    E4 --> C["C1-C7: evolve, GitPort, gate final, ledger, rollback pendiente"]
 ```
 
 

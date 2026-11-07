@@ -361,3 +361,14 @@ flowchart LR
   - `message_sent`: `"hello world"` $\rightarrow$ `message_received`: `"hello world"`
   - `sha256`: `"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"`, `certified=True`, `audit_degraded=False`.
 
+## 15. Backlog ONT-42c (registrado por Graphos G2, 2026-11-07)
+
+Ver registro completo en [`feature_20261107_011128_agy_audit.md`](feature_20261107_011128_agy_audit.md) §8.
+
+- **E1 (primero)**: juez no falsificable. `verify` exige tests que fallen en base y pasen con parche; si no, `NON_DISCRIMINATING`. Motivo: el ACCEPT de B9 reportado por agy no discrimina D-01b.
+- **E2**: specs incrementales cacheadas por `(thread_hash, R)`; re-spec sólo de hilos del diff.
+- **E3**: supervisión por hilo estilo OTP sobre SCC (`one_for_one` / `rest_for_one`); tools comprimidas como supervisores de sus acciones.
+- **E4**: bucle de reconciliación acotado por tier.
+- **C1–C7**: máquina de estados `evolve`, `GitPort`, gate final con `run_tests_batched`, ledger e idempotencia, rollback `git revert`, Merkle `R_before`/`R_after`.
+- **Observaciones bajas**: O-1 (`matrix` con `mcp get` puede lanzar stdio), O-2 (reapeo tras hot-swap reinicia iteraciones), `select_fields` ignorado en `aep_ctl`, `backup.lkg_restore` sin `covers`.
+

@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Fecha: 2026-11-06 · Servidor MCP: **17 tools / 19 capacidades** · Rama: `dev` (`e36a608`; push retenido hasta autorización explícita del usuario) · ONT-39 Live Plane: **VERIFIED** · ONT-40 `autoevol`: **VERIFIED** · ONT-41 `autoevol` spec/verify/fix_test/heal + LKG + self-healing N0-N3: **VERIFIED** · ONT-42a `aep_ctl ipc harness_reconnect`: **VERIFIED excluyendo T8** · L3 contrato de tokens (D-01..D-05): **VERIFIED** (Dokimos en vivo; suite 576 passed, 0 xfail, ruff limpio; autoevol gaps 103 → 97) · Siguiente: Hermon (commit de documentación, sin push) -> ONT-42 (AE-1..AE-6 + D-01b, bloqueante para `autoevol evolve` y auto-commit) -> T8 smoke en vivo (user-gated)
+> Fecha: 2026-11-07 · Servidor MCP: **17 tools / 19 capacidades** · Rama: `dev` (`5bee5c1`; origin/dev `b605677`, push retenido) · Auditoría agy `1b983f1..b605677`: **VERIFIED tras fixes** (Dokimos: suite 659 passed, 0 xfail; gaps 94 → 122; own_gaps 0) · Modo por defecto: **Short** · Siguiente: ONT-42c E1 (juez no falsificable) → C1–C7
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -62,6 +62,12 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 - **L3 Contrato de tokens (D-01..D-05, Short, VERIFIED sobre `e36a608`):** `discover(schema, summary)` compactado a `{tool:{params,actions}}` (`4af584d`, 18 k → 2.2 k tokens); `aep_ctl(schema, summary)` con `defaults` + excepciones (`5999cb1`, 3.8 k → 1.3 k); `aep_ctl(ipc status)` sin `mux.pool` duplicado en `summary` (`9b2f11e`, 458 → 312); `select_fields` con `unresolved_fields` y listas preservadas (`8068f8b`); `summary` plano sin `envelope`/`telemetry` en `playbook_run`, `artifact_catalog`, `kanban_board` (`e36a608`). `detail` intacto. Pragma↔Dokimos: 0 ciclos de fix. Registro: `docs/pipeline/feature_20261106_181608_l3_token_contract.md`.
 
 ## Pendientes
+
+- **Política de modo (2026-11-07)**: Short por defecto por costos; Full sólo si el usuario lo pide o el blast radius lo exige.
+- **Política de recarga (2026-11-07)**: AEP recarga sólo su propia sesión (ancestría estricta); nunca sesiones ajenas.
+- **ONT-42c (feature de ONT-42, E1 primero)**: E1 juez no falsificable (`verify` exige tests que fallen en base y pasen con parche; si no, `NON_DISCRIMINATING`); luego E2 specs incrementales por `(thread_hash, R)`, E3 supervisión OTP sobre SCC, E4 reconciliación acotada por tier, y C1–C7 (`evolve`, `GitPort`, gate final, ledger, rollback, Merkle `R_before`/`R_after`). Registro: `docs/pipeline/feature_20261107_011128_agy_audit.md` §8.
+- **Backlog bajo**: O-1 `matrix` con `mcp get` puede lanzar stdio del server (documentar); O-2 reapeo tras hot-swap reinicia presupuesto de iteraciones; `aep_ctl` ignora `select_fields`; `backup.lkg_restore` sin `covers`.
+- **B9**: el ACCEPT de agy no es reproducible (el `verify` no discrimina D-01b); el fix sí pasa en pytest. Queda cubierto por E1.
 
 - **ONT-42 (insumo: backlog del primer ciclo real de autoevol, bloqueante para `autoevol evolve` y auto-commit):**
   - D-01b LOW: 4 tools sin `actions` en `summary` (`artifact_lint_and_build`, `async_job_dispatch`, `default_primitives`, `autoevol`); constante `_TOOL_ACTIONS` + test.

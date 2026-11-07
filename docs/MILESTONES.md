@@ -214,3 +214,36 @@ This section provides permanent physical context anchors to prevent hallucinatio
 - **Hardware Domain & Accelerator Engine**: [`engine/hardware.py`](../engine/hardware.py) (Sysfs DRM VRAM/GTT inspection, CPU/RAM inventory, pre-flight safety admission)
 - **Multi-Agent Ecosystem Sync**: [`scripts/aep-sync.sh`](../scripts/aep-sync.sh) (Claude Code, agy, Codex, Gemini)
 - **Comprehensive Test Suite**: [`tests/test_uma_admission_apport_and_pytest_parsing.py`](../tests/test_uma_admission_apport_and_pytest_parsing.py), [`tests/test_hardware_and_apport_alerts.py`](../tests/test_hardware_and_apport_alerts.py), [`tests/test_version_integrity.py`](../tests/test_version_integrity.py), [`tests/test_default_primitives.py`](../tests/test_default_primitives.py), [`tests/test_privilege_degradation.py`](../tests/test_privilege_degradation.py), [`tests/test_net_security_telemetry.py`](../tests/test_net_security_telemetry.py), [`tests/test_ont30_schema_and_runner_ergonomics.py`](../tests/test_ont30_schema_and_runner_ergonomics.py), [`tests/test_ont29_bridge_stabilization.py`](../tests/test_ont29_bridge_stabilization.py), [`tests/test_spec_om7_ipc_batch.py`](../tests/test_spec_om7_ipc_batch.py), [`tests/test_agent_experience_evaluation.py`](../tests/test_agent_experience_evaluation.py), [`tests/test_engine_suite.py`](../tests/test_engine_suite.py)
+
+---
+
+## 5. Agy-Range Audit (`1b983f1..b605677`) and ONT-42c Backlog
+
+```mermaid
+flowchart LR
+    I5["Intent: Auditoria agy range 1b983f1..b605677"] --> N1["M1: planned (Orchestrator, Short) ✅"]
+    N1 --> N2["M2: audited (Dokimos DEFECTIVE, 9 hallazgos) ✅"]
+    N2 --> N3["M3: fixed (Pragma, d0ff416..5bee5c1) ✅"]
+    N3 --> N4["M4: verified (Dokimos, 659 passed, 0 xfail, gaps 122) ✅"]
+    N4 --> N5["M5: documented (Graphos G2) ✅"]
+    N5 --> N6["M6: pushed to origin/dev ⛔ retenido por usuario"]
+```
+
+| Milestone | Intent | Agente | Estado |
+|-----------|--------|--------|--------|
+| M1 | Auditoría de los 7 commits directos de agy | Orchestrator (Short) | ✅ |
+| M2 | Dokimos sobre `1b983f1..b605677` (D-HR-1..6, D-AE-1, O3, D-02) | Dokimos | ✅ DEFECTIVE |
+| M3 | Fixes en 6 commits | Pragma | ✅ |
+| M4 | Re-verificación (68 dirigidos; suite 659 passed, 0 xfail; own_gaps 0) | Dokimos | ✅ VERIFIED |
+| M5 | Registro, README §10.3, STATE, COMPACT | Graphos G2 | ✅ (`feature_20261107_011128_agy_audit.md`) |
+| M6 | Push a origin/dev | Hermon | ⛔ retenido |
+
+```mermaid
+flowchart LR
+    I6["Intent: ONT-42c evaluador"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) pendiente"]
+    E1 --> E2["E2: specs incrementales pendiente"]
+    E2 --> E3["E3: supervision OTP sobre SCC pendiente"]
+    E3 --> E4["E4: reconciliacion acotada por tier pendiente"]
+    E4 --> C7["C1-C7: evolve, GitPort, gate final, ledger, rollback, Merkle pendiente"]
+```
+

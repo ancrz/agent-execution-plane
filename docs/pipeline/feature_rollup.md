@@ -190,3 +190,23 @@ Cadena desde Rollup 2: `feature_20261106_011249_ont40_autoevol.md` → `feature_
 - **Backlog ONT-42:** D-01b, AE-1..AE-6. Su plan está en `feature_20261106_182001_ont42_judge_evolve.md`: 42b (B1 a B9, juez autónomo) y 42c (C1 a C7, `evolve`). DAG APPROVED. Pendiente Ontos.
 
 **Invariantes preservadas:** 17 herramientas y 19 capacidades; R (raíz Merkle) sin cambio de esquema; el juez no hace commits (git entra por puerto inyectado); push solo con autorización explícita.
+
+---
+
+## Catch-up Rollup (documentos desde ONT-21 hasta ONT-42c, registrado 2026-11-07)
+
+Este rollup estaba vencido. Cubre la cadena posterior a `feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md`.
+
+- **ONT-22 a ONT-24**: concurrencia pico-trío, no pico y semántica Kali (reportes de ejecución).
+- **ONT-29 a ONT-33**: estabilización del bridge AEP, schema y ergonomía del runner, telemetría de red sin dependencias, privilegio predictivo y degradación chmod.
+- **ONT-34 a ONT-38**: primitivas por defecto y desacople de factorías, hardware y apport, UMA y parsing pytest, drift del README.
+- **ONT-39 a ONT-41**: Live Plane hot-swap, `autoevol` thread graph y write-path con self-healing N0–N3. VERIFIED.
+- **ONT-42a**: `harness_reconnect` multi-harness. VERIFIED excepto T8 (smoke en vivo, user-gated).
+- **L3**: contrato de tokens D-01..D-05. VERIFIED en modo Short (576 passed).
+- **ONT-42 (judge/evolve)**: B1–B8 integrados; B9 PLAN_GAP resuelto por G1–G4; B9 ACCEPT agy no discriminante.
+- **Auditoría agy `1b983f1..b605677`**: DEFECTIVE → fixes `d0ff416..5bee5c1` → VERIFIED (659 passed, 0 xfail). Ver `feature_20261107_011128_agy_audit.md`.
+
+**Decisiones acumuladas:** modo Short por defecto; AEP recarga sólo su propia sesión; push retenido hasta autorización.
+
+**Documento activo:** [`feature_20261107_011128_agy_audit.md`](feature_20261107_011128_agy_audit.md)
+
