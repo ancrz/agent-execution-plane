@@ -35,6 +35,7 @@ from engine.threads_model import HASH_EDGE_KINDS, ThreadGraph
 ONE_FOR_ONE = "one_for_one"
 REST_FOR_ONE = "rest_for_one"
 NO_STRATEGY = "none"
+SKIP_OUT_OF_LKG = "fuera del LKG"
 
 _TRACKED_TYPES = ("function", "tool")
 
@@ -264,6 +265,8 @@ def plan(
             "supervisor": [],
             "unaffected_tools": [],
             "preserved": [],
+            "skipped": [],
+            "partial_unit": False,
         }
 
     edges = _union_edges(graphs)
@@ -294,10 +297,15 @@ def plan(
         del preserved[f]
 
     planned: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    partial = False
     for u in sorted(selected):  # index order == dependencies first
         files = [f for f in units[u] if restorable(f)]
+        out_of_lkg = [f for f in units[u] if not restorable(f)]
+        skipped.extend({"file": f, "reason": SKIP_OUT_OF_LKG} for f in out_of_lkg)
         if files:
             planned.append({"id": f"scc:{units[u][0]}", "role": selected[u], "files": files})
+            partial = partial or bool(out_of_lkg)
     plan_files = sorted({f for pu in planned for f in pu["files"]})
 
     fn_adj: dict[str, list[str]] = {}
@@ -306,7 +314,9 @@ def plan(
             fn_adj.setdefault(src, []).append(dst)
     changed = _changed_nodes(set(plan_files), rg, lg)
     affected = [t for t in tools if (_tool_subtree(t, fn_adj) | {f"tool:{t}"}) & changed]
-    strategy = NO_STRATEGY if not planned else (REST_FOR_ONE if len(selected) > len(broken_units) else ONE_FOR_ONE)
+    # strategy follows the units actually planned, not the ones merely selected
+    has_dependent = any(pu["role"] == "dependent" for pu in planned)
+    strategy = NO_STRATEGY if not planned else (REST_FOR_ONE if has_dependent else ONE_FOR_ONE)
     return {
         "strategy": strategy,
         "units": planned,
@@ -314,4 +324,6 @@ def plan(
         "supervisor": affected,
         "unaffected_tools": [t for t in tools if t not in affected],
         "preserved": [{"file": f, "reason": r} for f, r in sorted(preserved.items())],
+        "skipped": sorted(skipped, key=lambda d: d["file"]),
+        "partial_unit": partial,
     }

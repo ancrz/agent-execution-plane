@@ -260,3 +260,38 @@ def test_real_consumer_with_local_edit_is_preserved_when_contract_module_breaks(
     assert "engine/privilege.py" in [p["file"] for p in res["preserved"]]
     threads_heal.heal(repo, apply=True, snapshot_fn=lambda files: {"ok": True})
     assert "# my own edit" in priv.read_text()
+
+
+def test_strategy_follows_planned_units_not_selected() -> None:
+    """mid.py (dependiente) no es restaurable: no entra en el plan, luego la estrategia es one_for_one."""
+    repo = {**LKG_SRC, "mid.py": "from base import fn as bfn\nbfn(1, 2, 3)\n"}
+    res = threads_supervise.plan(
+        _graph({"base": "x"}),
+        _graph({}),
+        ["base.py"],
+        lambda rel: rel == "base.py",
+        lambda which, rel: (repo if which == "repo" else LKG_SRC).get(rel),
+    )
+    assert res["strategy"] == "one_for_one"
+    assert [u["role"] for u in res["units"]] == ["broken"]
+    assert {"file": "mid.py", "reason": "fuera del LKG"} in res["skipped"]
+
+
+def test_partial_unit_marks_skipped_files_of_half_restored_scc() -> None:
+    res = threads_supervise.plan(
+        _graph({"ca": "changed"}),
+        _graph({}),
+        ["ca.py"],
+        lambda rel: rel != "cb.py",
+        lambda which, rel: LKG_SRC.get(rel),
+    )
+    assert res["partial_unit"] is True
+    assert res["skipped"] == [{"file": "cb.py", "reason": "fuera del LKG"}]
+    assert any(u["files"] == ["ca.py"] for u in res["units"])
+
+
+def test_full_restore_is_not_partial_and_skips_nothing() -> None:
+    res = _plan(["leaf.py"], {"leaf": "other"})
+    assert res["partial_unit"] is False and res["skipped"] == []
+    empty = _plan([], {})
+    assert empty["skipped"] == [] and empty["partial_unit"] is False
