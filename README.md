@@ -1156,6 +1156,28 @@ flowchart LR
 AEP incorporates a unified lifecycle engine in `scripts/setup.sh` operating as a zero-dependency
 bootstrapper, continuous updater, and non-destructive health auditor.
 
+### Requisitos
+
+`setup.sh` instala todo en espacio de usuario (sin root) pero asume unos prerrequisitos mínimos del sistema.
+Si faltan, la instalación **degrada con aviso** en lugar de fallar; `./scripts/setup.sh --check` informa el estado.
+
+| Prerrequisito | Para qué | Si falta |
+|---|---|---|
+| `git`, `curl`, `ca-certificates`, `tar`, `coreutils` (`sha256sum`) | Clonado, descargas verificadas por SHA-256 | Sin `curl`/certificados no se puede instalar nada: el script aborta antes de provisionar. |
+| `bubblewrap` (`bwrap`) + user namespaces sin privilegios | `sandbox_run` (jail) | `sandbox_run` devuelve `DEGRADED` con instrucciones; nada se ejecuta fuera del jail. Instalar: `sudo apt-get install -y bubblewrap`. En Ubuntu 24.04+ puede requerir `kernel.apparmor_restrict_unprivileged_userns=0`. |
+| Librerías de sistema de Chromium (`sudo playwright install-deps chromium`) | `visual_inspect` | `setup.sh` descarga Chromium pero comprueba que arranca; si no, avisa con la orden anterior y `visual_inspect` devuelve `DISPLAY_UNAVAILABLE`. |
+| `python3` del sistema (opcional) | Solo fallback de `scripts/aep-ctl` y de `aep-sync.sh` antes de que exista el venv | `aep-ctl` usa el Python del venv del proyecto (`.venv`) y solo recurre a `python3` si no existe. |
+| Arquitectura `x86_64` o `aarch64` | Binarios de uv, Go, golangci-lint, pueue | En otras arquitecturas se omiten Go/golangci-lint/pueue (sondas Go y cola asíncrona degradan); uv es imprescindible. |
+| Un cliente MCP (`claude`, `agy`, `codex` o `gemini`) | Registro automático del servidor | La instalación termina con "0 clientes MCP registrados" (aviso, no éxito pleno). |
+
+Versiones fijadas con SHA-256 (cabecera de `scripts/setup.sh`): uv 0.13.7, Go 1.26.10, golangci-lint v1.61.0,
+pueue v4.0.4. Las dependencias Python se instalan con `uv sync --frozen` desde `uv.lock`.
+
+Dominios de red usados por `setup.sh`: `github.com` y `objects.githubusercontent.com` (uv, golangci-lint, pueue),
+`go.dev` y `dl.google.com` (Go), `pypi.org` y `files.pythonhosted.org` (dependencias Python),
+`cdn.playwright.dev` / `playwright.azureedge.net` (Chromium), `huggingface.co` (modelo `bge-small-en-v1.5`, opcional)
+y `python-build-standalone` vía GitHub (`uv python install 3.14`). `apt` solo con `sudo -n` disponible (tier 7rwx).
+
 ### 12.1 CLI Invocation Modes
 
 ```bash
@@ -1173,7 +1195,7 @@ cd /path/to/agent-execution-plane
 # 4. Read-Only System Health Audit calibrated to detected tier (exit 0/1)
 ./scripts/setup.sh --check
 
-# 5. Autonomous Updater (uv self update, venv upgrade & probe recompilation)
+# 5. Autonomous Updater (re-pins uv, venv sync from uv.lock & probe recompilation)
 ./scripts/setup.sh --update
 ```
 
@@ -1183,7 +1205,7 @@ cd /path/to/agent-execution-plane
 flowchart TD
     A["scripts/setup.sh"] --> Flag{"CLI Flag?"}
     Flag -->|"--check"| CHK["run_check() — 100% Read-Only<br/>(Audit of 9 subsystems, exit 0/1)"]
-    Flag -->|"--update"| UPD["Update Mode<br/>(uv self update + venv upgrade + probes)"]
+    Flag -->|"--update"| UPD["Update Mode<br/>(pinned uv + venv sync + probes)"]
     Flag -->|"default"| PROV["Idempotent Full Provisioning"]
 
     PROV --> B1["Astral uv Auto-install<br/>(~/.local/bin/uv)"]

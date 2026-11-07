@@ -40,12 +40,16 @@ resolve_py() {
 validate() {
     local py; py="$(resolve_py)"
     log "Validando con $py"
-    if ! "$py" -m py_compile "$PROJECT_ROOT/server.py" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" "$PROJECT_ROOT"/engine/*.py 2>/tmp/aep_sync_compile.err; then
-        err "py_compile falló:"; cat /tmp/aep_sync_compile.err; return 1
+    local err_compile err_import
+    err_compile="$(mktemp -t aep_sync_compile.XXXXXX)"
+    err_import="$(mktemp -t aep_sync_import.XXXXXX)"
+    trap 'rm -f "$err_compile" "$err_import"' RETURN
+    if ! "$py" -m py_compile "$PROJECT_ROOT/server.py" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" "$PROJECT_ROOT"/engine/*.py 2>"$err_compile"; then
+        err "py_compile falló:"; cat "$err_compile"; return 1
     fi
     # Smoke de import: construye el server completo (registra las tools). Falla => no se enchufa.
-    if ! PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp'); assert len(server.mcp._tool_manager._tools) == 17, f'Expected 17 tools, got {len(server.mcp._tool_manager._tools)}'" 2>/tmp/aep_sync_import.err; then
-        err "import de server falló:"; cat /tmp/aep_sync_import.err; return 1
+    if ! PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp'); assert len(server.mcp._tool_manager._tools) == 17, f'Expected 17 tools, got {len(server.mcp._tool_manager._tools)}'" 2>"$err_import"; then
+        err "import de server falló:"; cat "$err_import"; return 1
     fi
     chmod +x "$LAUNCHER" "$SCRIPT_DIR/aep-ctl" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" 2>/dev/null || true
     ok "Validación superada (server importable, tools registradas)."
