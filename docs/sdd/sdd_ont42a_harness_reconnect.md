@@ -129,6 +129,7 @@ To elevate `harness_reconnect` from a Claude-only workaround into an extended au
 Audit hardening (Dokimos range 1b983f1..b605677):
 - **D-HR-1**: `find_harness` returns only real ancestors (same uid, `/proc/<pid>/exe`). There is no peer-process or `target_override` fallback; `execute` requires `reason == "ok"`. Peer sessions appear in `matrix` only as an informational count (`peer_sessions_informational`), never as a pid or tty.
 - **D-HR-2**: `certify` and `matrix` require tier >= `5r-x`. `certify` never calls the sudo helper nor touches the sysctl; `matrix` spawns external CLIs (`<cli> mcp list|get|--version`) only from the server gate (>= `5r-x`).
+- **Known side effect (O-1)**: `matrix` with `probe_cli=true` executes `<cli> mcp get <server>`; a CLI may resolve that by spawning the registered MCP server's stdio command to check its health, so the AEP server can be started as a side effect of the probe. The default (`probe_cli` omitted/false, or `AEP_HARNESS_RECONNECT_DRY=1`) spawns nothing.
 - **D-HR-3**: the helper allowlist is exactly `/mcp reconnect <server>`.
 - **D-HR-5/6**: no verified out-of-band reload channel exists, so `agy`/`codex` RPC is `UNSUPPORTED` with a manual route and is never reported `OK`. `AEP_AGY_RPC_URL` and `CODEX_HOME` are no longer read. Harnesses whose command has no verified source (`verified: false`) default to the manual route and `execute` returns `UNSUPPORTED`.
 
