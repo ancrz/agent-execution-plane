@@ -604,9 +604,11 @@ class CycleStore:
     def _put(self, dfd: int, name: str, obj: dict[str, Any]) -> None:
         ev.write_file_atomic(dfd, name, json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
-    def _reap_orphan_cycles(self, dfd: int, gap: str, now: float) -> int:
+    def _reap_orphan_cycles(self, dfd: int, gap: str, now: float, inherit: dict[str, int] | None = None) -> int:
         """G4 (D-02): limpia ciclos vencidos (TTL) y ciclos OPEN del mismo `(uid, gap)` cuyo dueño (`owner_pid`) ya no
-        existe. Un ciclo OPEN vivo de otro llamante, o sin dueño registrado, nunca se borra antes del TTL."""
+        existe. Un ciclo OPEN vivo de otro llamante, o sin dueño registrado, nunca se borra antes del TTL.
+        O-2: el presupuesto (`iteration`, `env_retries`) del ciclo huerfano vigente se acumula en `inherit` (maximo)
+        para que un hot-swap no lo reinicie."""
         reaped = 0
         for fname in ev.list_names(dfd):
             if not (fname.startswith("cycle_") and fname.endswith(".json")):
@@ -623,6 +625,9 @@ class CycleStore:
                 and not self._pid_alive(owner)
             )
             if expired or same_open:
+                if same_open and not expired and inherit is not None:
+                    inherit["iteration"] = max(inherit.get("iteration", 0), int(rec.get("iteration", 0)))
+                    inherit["env_retries"] = max(inherit.get("env_retries", 0), int(rec.get("env_retries", 0)))
                 ev.remove_file(dfd, fname)
                 reaped += 1
         return reaped
@@ -640,7 +645,8 @@ class CycleStore:
                 lock = self._read_json(dfd, lock_name)
                 if lock and float(lock.get("until", 0)) > now:
                     return {"status": "LOCKED", "retry_after_s": round(float(lock["until"]) - now, 1)}
-            self._reap_orphan_cycles(dfd, gap, now)
+            inherited: dict[str, int] = {}
+            self._reap_orphan_cycles(dfd, gap, now, inherited)
             for _ in range(8):
                 cycle_id = new_cycle_id()
                 record = {
@@ -649,7 +655,7 @@ class CycleStore:
                     "uid": self._uid,
                     "gap": gap,
                     "state": OPEN,
-                    "iteration": 0,
+                    "iteration": min(inherited.get("iteration", 0), MAX_ITERATIONS - 1),
                     "max_iterations": MAX_ITERATIONS,
                     "created": now,
                     "updated": now,
@@ -658,9 +664,11 @@ class CycleStore:
                     "job": None,
                     "owner_pid": os.getpid(),
                 }
+                if inherited.get("env_retries"):
+                    record["env_retries"] = inherited["env_retries"]
                 blob = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 if ev.create_file_exclusive(dfd, cycle_file_name(self._uid, cycle_id), blob):
-                    return {"status": "OK", "cycle_id": cycle_id, "state": OPEN, "iteration": 0}
+                    return {"status": "OK", "cycle_id": cycle_id, "state": OPEN, "iteration": record["iteration"]}
         return {"status": "ERROR", "error": "cycle id collision"}
 
     def load(self, cycle_id: str) -> dict[str, Any] | None:
