@@ -6,8 +6,9 @@ Engine: threads_spec_cache.py (E2: specs incrementales por hilo)
 Eleccion de la clave: (gap canonico, terse, hash de los hilos del objetivo). Los hilos son el nodo del gap, los nodos
 de su `change` y el modulo que los contiene, cada uno con su hash Merkle de hilo (`Analysis.node_hash`, que ya incluye
 sus dependencias). NO se usa la raiz R global: cualquier edicion ajena la cambiaria e invalidaria todo. Aproximacion
-asumida: tests impactados/pins y el nombre canonico dependen de vecinos fuera de la clave; se refrescan cuando cambia
-algun hilo propio o el gap (es un cache de "hilos sin cambios", no de grafo completo).
+asumida: el nombre canonico depende de vecinos fuera de la clave; se refresca cuando cambia algun hilo propio o el gap.
+Los tests impactados y los pins SI entran en la clave (`cover_hash`: ids + hash de cada test), de modo que un cambio en
+los tests que cubren/fijan el nodo invalida el hit aunque los hilos propios no cambien.
 
 Almacen: tabla `threads_spec_cache` en la BD de AEP (una fila por (gap, terse)). Fail-open: si la BD no existe, no
 abre o falla, se recalcula y el resultado es el mismo; el cache nunca altera el contenido de la spec.
@@ -58,7 +59,20 @@ def thread_hashes(analysis: Any, gap: Any, change_nodes: list[str]) -> dict[str,
     return out
 
 
-def cache_key(gap: Any, terse: bool, deps: dict[str, str]) -> str:
+def cover_hash(analysis: Any, tests: list[str], pins: list[str]) -> str:
+    """Hash de los tests impactados y los pins: ids (con su rol) mas el hash de hilo/contenido de cada test."""
+    graph = analysis.graph
+    merkle = getattr(analysis, "node_hash", None) or {}
+    h = hashlib.sha256()
+    for role, ids in (("t", tests), ("p", pins)):
+        for tid in sorted(set(ids)):
+            node = graph.nodes.get(tid)
+            digest = str(merkle.get(tid) or (node.content_hash if node is not None else ""))
+            h.update(f"{role}\x1f{tid}\x1f{digest}\x1e".encode())
+    return h.hexdigest()
+
+
+def cache_key(gap: Any, terse: bool, deps: dict[str, str], cover: str = "") -> str:
     h = hashlib.sha256()
     parts = (
         gap.id,
@@ -68,11 +82,24 @@ def cache_key(gap: Any, terse: bool, deps: dict[str, str]) -> str:
         str(gap.ref or ""),
         "t" if terse else "s",
         json.dumps(sorted(deps.items())),
+        cover,
     )
     for part in parts:
         h.update(part.encode("utf-8"))
         h.update(b"\x1f")
     return h.hexdigest()
+
+
+_REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {"status": str, "gap": (str, dict), "tasks": list, "change": dict}
+
+
+def _valid_spec(spec: Any) -> bool:
+    """Forma minima de un hit: dict `status == OK` con las claves/tipos que `build_spec` siempre emite."""
+    return (
+        isinstance(spec, dict)
+        and spec.get("status") == "OK"
+        and all(isinstance(spec.get(k), t) for k, t in _REQUIRED_TYPES.items())
+    )
 
 
 def _lookup(db: Path, gap_id: str, terse: bool, key: str) -> dict[str, Any] | None:
@@ -90,8 +117,8 @@ def _lookup(db: Path, gap_id: str, terse: bool, key: str) -> dict[str, Any] | No
         if row is None or row["key_hash"] != key:
             return None
         loaded = json.loads(row["spec_json"])
-        return loaded if isinstance(loaded, dict) else None
-    except sqlite3.Error, ValueError:
+        return loaded if _valid_spec(loaded) else None  # hit malformado = miss (se recalcula y sobrescribe)
+    except sqlite3.Error, ValueError, TypeError:
         return None
     finally:
         conn.close()

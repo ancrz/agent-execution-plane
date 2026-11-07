@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from engine import threads as th
 from engine import threads_spec as ts
 from engine import threads_spec_cache as sc
@@ -87,3 +89,58 @@ def test_diff_lists_stale_specs(tmp_path: Path) -> None:
 def test_ddl_parity_with_database_sql() -> None:
     sql = " ".join((ROOT / "schemas" / "database.sql").read_text(encoding="utf-8").split())
     assert " ".join(sc.DDL.split()) + ";" in sql
+
+
+TEST_ID = "test:tests/t.py::test_mod_run_job"
+
+
+def test_covering_test_change_invalidates_hit(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    ts.cached_spec(_analysis(), GAP.id, db_path=db)
+    assert ts.cached_spec(_analysis(), GAP.id, db_path=db)["cache"] == "hit"
+    # el hilo propio no cambia, solo el hash del test que cubre el nodo
+    assert ts.cached_spec(_analysis({TEST_ID: "edited"}), GAP.id, db_path=db)["cache"] == "miss"
+
+
+def test_pin_set_or_pin_hash_change_invalidates_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _db(tmp_path)
+    pin = "test:tests/p.py::test_pins_run_job"
+    monkeypatch.setattr(ts.threads_pins, "pinning_tests", lambda *a, **k: [])
+    ts.cached_spec(_analysis(), GAP.id, db_path=db)
+    assert ts.cached_spec(_analysis(), GAP.id, db_path=db)["cache"] == "hit"
+    monkeypatch.setattr(ts.threads_pins, "pinning_tests", lambda *a, **k: [pin])
+    assert ts.cached_spec(_analysis(), GAP.id, db_path=db)["cache"] == "miss"  # aparece un pin
+    assert ts.cached_spec(_analysis(), GAP.id, db_path=db)["cache"] == "hit"
+    assert ts.cached_spec(_analysis({pin: "edited"}), GAP.id, db_path=db)["cache"] == "miss"  # cambia el pin
+
+
+def test_cover_hash_is_deterministic_and_role_sensitive() -> None:
+    a = _analysis()
+    assert sc.cover_hash(a, ["t1", "t2"], []) == sc.cover_hash(a, ["t2", "t1"], [])
+    assert sc.cover_hash(a, ["t1"], []) != sc.cover_hash(a, [], ["t1"])
+    assert sc.cache_key(GAP, False, {}, "a") != sc.cache_key(GAP, False, {}, "b")
+    assert sc.cache_key(GAP, False, {}) == sc.cache_key(GAP, False, {}, "")  # API anterior compatible
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "[]",
+        "null",
+        "not json{",
+        '{"status": "OK"}',
+        '{"status": "ERR", "gap": "g", "tasks": [], "change": {}}',
+        '{"status": "OK", "gap": "g", "tasks": "x", "change": {}}',
+        '{"status": "OK", "gap": "g", "tasks": [], "change": []}',
+    ],
+)
+def test_malformed_hit_is_miss_and_gets_overwritten(tmp_path: Path, bad: str) -> None:
+    db = _db(tmp_path)
+    ts.cached_spec(_analysis(), GAP.id, db_path=db)
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE threads_spec_cache SET spec_json = ?", (bad,))
+    conn.commit()
+    conn.close()
+    out = ts.cached_spec(_analysis(), GAP.id, db_path=db)  # no lanza
+    assert out["cache"] == "miss" and out["status"] == "OK"
+    assert ts.cached_spec(_analysis(), GAP.id, db_path=db)["cache"] == "hit"  # fila saneada

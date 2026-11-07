@@ -225,6 +225,11 @@ def _tag_cache(spec: dict[str, Any], state: str, terse: bool) -> dict[str, Any]:
     return out
 
 
+def _pinning(analysis: th.Analysis, nodes: list[str], covered: set[str]) -> list[str]:
+    """Tests que fijan el comportamiento de `nodes` y no estan ya en la cobertura directa."""
+    return [t for t in threads_pins.pinning_tests(analysis.graph, nodes, getattr(analysis, "root", None)) if t not in covered]
+
+
 def cached_spec(
     analysis: th.Analysis, gap_id: str, *, terse: bool = False, db_path: Path | str | None = None, write: bool = True
 ) -> dict[str, Any]:
@@ -239,7 +244,10 @@ def cached_spec(
         db = Path(db_path) if db_path is not None else th.default_db_path()
         change = _change_targets(analysis, gap)
         deps = threads_spec_cache.thread_hashes(analysis, gap, change["nodes"])
-        key = threads_spec_cache.cache_key(gap, terse, deps)
+        tests = th.impacted_tests(analysis.graph, [gap.node])
+        pins = _pinning(analysis, change["nodes"] or [gap.node], set(tests))
+        cover = threads_spec_cache.cover_hash(analysis, tests, pins)
+        key = threads_spec_cache.cache_key(gap, terse, deps, cover)
     except Exception:  # noqa: BLE001 - el cache jamas rompe `spec`
         return _tag_cache(build_spec(analysis, gap_id, terse=terse), "miss", terse)
     hit = threads_spec_cache._lookup(db, gap.id, terse, key)
@@ -262,14 +270,7 @@ def build_spec(analysis: th.Analysis, gap_id: str, *, terse: bool = False) -> di
     name = canonical_name(analysis, gap.node)
     change = _change_targets(analysis, gap)
     # B8: `pin` = tests que fijan el comportamiento viejo del nodo a editar (B7); `validate.tests` = cobertura directa.
-    covered = set(tests)
-    pin = [
-        t
-        for t in threads_pins.pinning_tests(
-            analysis.graph, change["nodes"] or [gap.node], getattr(analysis, "root", None)
-        )
-        if t not in covered
-    ]
+    pin = _pinning(analysis, change["nodes"] or [gap.node], set(tests))
     validate = {
         "gap_must_close": gap.id,
         "no_new_gaps": True,
