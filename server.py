@@ -812,6 +812,8 @@ async def discover(
             payload.update(caps_meta)
             if commit_drift:  # D-25: emitted only when true (token budget)
                 payload["commit_drift"] = True
+                # ONT-47 T1: disambiguate commit_drift vs stale (bool kept for compatibility).
+                payload["drift_kind"] = "unverified" if fp_unavailable else ("code" if fp_stale else "docs_only")
             # ONT-39 D-19/D-20: integrity counters/flags are emitted only when non-default (token budget).
             if live_meta["failure_kind"]:
                 payload["failure_kind"] = live_meta["failure_kind"]
@@ -876,6 +878,7 @@ async def discover(
                 summary = f"Capability manifest loaded ({source}, tier={payload.get('capability_tier', manifest.get('capability_tier'))}, 19 capabilities)."
                 next_action = "Call discover(action='playbook') for workflows or invoke a ready tool."
                 if commit_drift:
+                    summary = f"{summary[:-1]}; HEAD {repo_head} differs from loaded {LOADED_COMMIT} (docs-only, no reload needed)."
                     next_action = (
                         "HEAD moved by a commit that does not change code (docs-only); no reload needed. " + next_action
                     )
