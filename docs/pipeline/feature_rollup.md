@@ -256,6 +256,8 @@ Cadena desde Rollup 5: `feature_20261107_115813_e4_reconcile.md` → `feature_20
 
 - **ONT-44 cobertura MCP (2026-11-13, Graphos G2):** 120 omisiones de cobertura de la superficie MCP reducidas a 46 con 5 archivos `tests/test_cov_*.py` (dos tracks Pragma en worktrees). Correcciones: P1 gate por tier en backup mutante; P2 `verify_integrity` de sólo lectura; P3 listeners paginados; P4 reindex `force` con SAVEPOINT; P5 schema summary 1524 a 1278 tokens. Trinquete `GAPS_BASELINE = 46`. VERIFIED: 1092 passed, ruff limpio, 17 tools / 19 capacidades. Decisión: `micro_snapshot` sin gate en servidor (diferencia con el CLI).
 
-**Documento activo:** [`feature_20261113_004026_mcp_coverage_reinforcement.md`](feature_20261113_004026_mcp_coverage_reinforcement.md)
+- **ONT-45 residuo Topos (2026-11-13, Graphos G2):** 46 omisiones de cobertura ordenadas en 4 niveles con clasificación Topos (dependencia / interdependencia / co-dependencia). Tres tracks Pragma en paralelo; Ontos BLOCKED rev1 (3 errores factuales) y APPROVED rev2; Dokimos DEFECTIVE (promesa falsa de `service.*` en `6rw-`, corregida) y VERIFIED. Gaps 46 a 1 (residuo visible: `test_gate8_semantic_sanitization`). VERIFIED: 1121 passed, ruff limpio, 0 co-dependencias, 0 claim_drift; sin código de producción tocado. Hallazgos: los claims `doc` no se comparan en `claim_drift`; `aep_front`/`aep_backend` sólo comparten protocolo de cable; `import aep_backend` corrompe fd 1 (guarda `_Fd1Guard`). Backlog: ONT-46 precisión del extractor.
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261113_004026_mcp_coverage_reinforcement.md` (1 de 5 al cierre de este registro).
+**Documento activo:** [`feature_20261113_080406_ont45_topos_residue.md`](feature_20261113_080406_ont45_topos_residue.md)
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261113_004026_mcp_coverage_reinforcement.md` (2 de 5 al cierre de `feature_20261113_080406_ont45_topos_residue.md`).

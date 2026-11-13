@@ -375,3 +375,32 @@ flowchart LR
 | M5 | Trinquete `GAPS_BASELINE` = 46 (1 ciclo advisory) | Dokimos | ✅ VERIFIED |
 | M6 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ staged (este registro) |
 | M7 | Commit de la tranche | Hermon | ⛔ pendiente de autorización |
+
+
+## 12. Residuo Topos ONT-45: grafo de hilos por criticidad (2026-11-13)
+
+Registro: `docs/pipeline/feature_20261113_080406_ont45_topos_residue.md` (anterior: `feature_20261113_004026_mcp_coverage_reinforcement.md`). SDD: `docs/sdd/sdd_ont45_topos_residue.md`. Estado: staged sobre `e1d661f`, sin commit.
+
+```mermaid
+flowchart LR
+    I12["Intent: residuo ordenado por criticidad con clasificacion Topos (ONT-45)"] --> N1["N1: contrato aep_ctl, budgets de lectura y README (Pragma track A) VERIFIED"]
+    N1 --> N2["N2: plano vivo, socketpair y fd 1 guard (Pragma track B) VERIFIED"]
+    N2 --> N3["N3: puntos de entrada (Pragma track B) VERIFIED"]
+    N3 --> N4["N4: 15 tests con aserciones aditivas (Pragma track C) VERIFIED"]
+    N4 --> C5["C5: correccion de promesa service.* en 6rw- (Dokimos DEFECTIVE, Graphos) VERIFIED"]
+    C5 --> C6["C6: documentacion (Graphos G2) staged"]
+    C6 --> C7["C7: commit (Hermon) pendiente de autorizacion"]
+    N4 --> R["Residuo: 1 gap, test_gate8_semantic_sanitization (visible, no maquillado)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Clasificación Topos de los 4 niveles y ruta Short (3 tracks en worktrees) | Orquestador / Ontos | ✅ APPROVED rev2 |
+| M2 | N1: budgets de lectura de `aep_ctl` y tabla de contrato en README (sólo líneas nuevas) | Pragma (A) / Dokimos | ✅ VERIFIED |
+| M3 | N2 y N3: tests in-process de `aep_front` / `aep_backend` con guarda `_Fd1Guard` | Pragma (B) / Dokimos | ✅ VERIFIED |
+| M4 | N4: aserciones aditivas en 15 tests sin referencia a código | Pragma (C) / Dokimos | ✅ VERIFIED |
+| M5 | Corrección de la promesa de `service.*` en `6rw-` (DEFECTIVE → VERIFIED) | Pragma (docs) / Dokimos | ✅ VERIFIED |
+| M6 | Trinquete `GAPS_BASELINE` = 1; suite 1121 passed; ruff limpio | Dokimos | ✅ VERIFIED |
+| M7 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ staged (este registro) |
+| M8 | Commit de la tranche | Hermon | ⛔ pendiente de autorización |
+| B1 | Backlog ONT-46: precisión del extractor de threads (resolución por nombre, imports sólo top-level) | Pragma | ⏳ candidato |

@@ -1,9 +1,9 @@
-# Context Compaction Guidance: AEP (ONT-44 cobertura MCP VERIFIED, staged sin commit; gaps 46)
-Preserve: pipeline mode Short (default, cost control; Full only on user request or blast radius); ONT-44: VERIFIED (1092 passed, previo 987; ruff check y format limpios; gaps 120 a 46 con trinquete GAPS_BASELINE=46; 17 tools / 19 capacidades; sin claim_drift); cambios staged, NO commit.
-Baseline: branch `integ/coverage`, worktree `integ-cov`, base `e0a9317`; ONT-43 y endurecimiento ya publicados (`d12e090`, `e0a9317`).
-Files and why: `engine/backup.py`, `engine/catalog.py`, `engine/privilege.py`, `server.py` (correcciones P1 a P5); `tests/test_cov_*.py` (5 archivos nuevos, cobertura de superficie); `tests/test_ont41_coverage.py` (trinquete 46); `tests/test_l3_contract_compaction.py` (schema D-04); docs (STATE, MILESTONES §11, rollup, SDD ONT-44, README).
-Decisions taken by the user: Short by default; commit (Hermon) and push user-gated; `micro_snapshot` sin gate en servidor aceptado como diferencia conocida con el CLI.
-Open defects: none blocking. Residuo: 15 tests sin referencia a código; gaps tipo `asserts`; sin covers en `aep_front.main`, `aep_front.create_front_server`, `aep_backend.main`, `BackendWorker`.
-Next 3 pending actions: (1) user authorizes commit (Hermon) of the staged tranche; (2) user authorizes publication to `dev` (check `git log origin/dev` and reflog first); (3) next batch: residuo `asserts` before lowering GAPS_BASELINE.
-Drop: pytest output, intermediate diffs, subagent logs, superseded plans, resolved P1 to P5 detail.
-Recovery: after a crash, read `docs/pipeline/feature_20261113_004026_mcp_coverage_reinforcement.md` and this file, then `git status` in the worktree.
+# Context Compaction Guidance: AEP (ONT-45 residuo Topos VERIFIED, staged sin commit; gaps 1)
+Preserve: pipeline mode Short (default, cost control; Full only on user request or blast radius); ONT-45: VERIFIED (1121 passed, previo 1092; ruff check limpio; gaps 46 a 1 con trinquete GAPS_BASELINE=1; 17 tools / 19 capacidades; sin claim_drift; 0 co-dependencias); cambios staged, NO commit.
+Baseline: branch `integ/ont45`, worktree `integ-ont45`, base `e1d661f`; ONT-43 y ONT-44 ya publicados (`d12e090`, `e0a9317`).
+Files and why: `tests/test_token_budgets.py` (budgets de lectura de aep_ctl); `tests/test_cov_live_plane_core.py` (N2/N3 con guarda `_Fd1Guard`); diez archivos de tests con aserciones aditivas (N4); `README.md` (badge 1121, línea de gaps 1, tabla de contrato aep_ctl solo con líneas nuevas); docs (STATE, MILESTONES §12, rollup, SDD ONT-45).
+Decisions taken by the user: Short by default; commit (Hermon) y push user-gated; residuo de 1 gap (`test_gate8_semantic_sanitization`) se deja visible, sin símbolo ficticio; budgets dependientes del host descartados.
+Open defects: none blocking. Residuo: 1 gap; `test_d11` usa `server.mcp._tool_manager._tools` (privado, fragilidad leve).
+Next 3 pending actions: (1) user authorizes commit (Hermon) of the staged tranche (ONT-44 + ONT-45); (2) user authorizes publication to `dev` (check `git log origin/dev` and reflog first); (3) ONT-46: precisión del extractor de threads (resolución por nombre de métodos; imports sólo top-level).
+Drop: pytest output, intermediate diffs, subagent logs, superseded plans, resolved N1 to N4 detail, the rate-limit interruption trail.
+Recovery: after a crash, read `docs/pipeline/feature_20261113_080406_ont45_topos_residue.md` and this file, then `git status` in the worktree.
