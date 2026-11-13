@@ -95,7 +95,8 @@ def test_analyze_repo_deterministic_and_no_codep() -> None:
     assert a.scc.codependencies == []
     assert threads.analyze(REPO).cached is False and threads.analyze(REPO).cached is True
     assert threads.graph_payload(a, terse=True)["nodes"] > 100
-    assert threads.gaps_payload(a, limit=3)["gaps"]
+    # ONT-46: el repo real ya no tiene gaps abiertos; el payload debe ser coherente con el análisis, haya o no gaps.
+    assert len(threads.gaps_payload(a, limit=3)["gaps"]) == min(3, len(a.gaps))
     assert threads.thread_payload(a, "tool:discover")["status"] == "OK"
     assert threads.thread_payload(a, "nope")["status"] == "NOT_FOUND"
 

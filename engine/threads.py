@@ -57,7 +57,7 @@ from engine.threads_model import (
 
 logger = logging.getLogger("aep.threads")
 
-GRAPH_SCHEMA_VERSION = "threads/1"
+GRAPH_SCHEMA_VERSION = "threads/2"
 
 # Acciones previstas aun no implementadas (vacio desde ONT-42c: `evolve` ya es una accion valida de la tool).
 _PLANNED_ACTIONS: tuple[str, ...] = ()
@@ -143,10 +143,13 @@ class SccReport:
     lazy_only_codependencies: list[list[str]] = field(default_factory=list)  # desaparecen sin imports perezosos
 
 
-def _dependency_adjacency(graph: ThreadGraph, *, include_lazy: bool) -> dict[str, list[str]]:
+def _dependency_adjacency(graph: ThreadGraph, *, include_lazy: bool, include_weak: bool = True) -> dict[str, list[str]]:
+    """Adyacencia de dependencia. `include_weak=False` omite las aristas por nombre único sin tipo (ONT-46)."""
     adj: dict[str, list[str]] = {}
     for e in graph.edges(HASH_EDGE_KINDS):
         if not include_lazy and e.lazy:
+            continue
+        if not include_weak and e.weak:
             continue
         adj.setdefault(e.src, []).append(e.dst)
     return adj
@@ -160,10 +163,12 @@ def classify_sccs(graph: ThreadGraph) -> SccReport:
     - tamaño > 1 todo dentro de un mismo módulo: recursión mutua (informativa).
     - tamaño > 1 cruzando módulos sin contrato: CO-DEPENDENCIA (bloquea).
     Los ciclos que solo existen por imports perezosos se anotan aparte (calibración T0).
+    ONT-46: las aristas débiles (`weak`, nombre único sin tipo de receptor) NO participan: una arista que puede
+    ser falsa jamás produce una co-dependencia bloqueante.
     """
-    adj = _dependency_adjacency(graph, include_lazy=True)
+    adj = _dependency_adjacency(graph, include_lazy=True, include_weak=False)
     comps = tarjan_scc(graph.nodes.keys(), adj)
-    strict_adj = _dependency_adjacency(graph, include_lazy=False)
+    strict_adj = _dependency_adjacency(graph, include_lazy=False, include_weak=False)
     strict_comps = {tuple(c) for c in tarjan_scc(graph.nodes.keys(), strict_adj) if len(c) > 1}
 
     codep: list[list[str]] = []
@@ -889,8 +894,12 @@ def graph_payload(analysis: Analysis, *, terse: bool = False) -> dict[str, Any]:
             "code_fingerprint": analysis.code_fp,
             "extraction_ms": analysis.elapsed_ms,
             "extraction_errors": analysis.info.errors[:10],
+            "weak_edges": analysis.info.weak_edges,
             "cached": analysis.cached,
-            "limits": "static extraction; heuristic coverage is strong for tools/actions and weak for functions",
+            "limits": (
+                "static extraction; heuristic coverage is strong for tools/actions and weak for functions; "
+                "obj.method with an untyped receiver falls back to a unique project name and is marked weak"
+            ),
         }
     )
     if analysis.probes is not None:
@@ -924,6 +933,14 @@ def gaps_payload(analysis: Analysis, *, limit: int = 10, kind: str | None = None
     }
 
 
+def _edge_row(e: Any, key: str, other: str) -> dict[str, Any]:
+    """Fila de arista para `thread`: `weak: true` solo aparece en aristas débiles (ONT-46)."""
+    row: dict[str, Any] = {"kind": e.kind, key: other}
+    if e.weak:
+        row["weak"] = True
+    return row
+
+
 def thread_payload(analysis: Analysis, node_id: str, *, limit: int = 20) -> dict[str, Any]:
     """Inspección de un hilo: aristas, alcance, centralidad, hash e `impacted_tests` (solo lectura)."""
     node = analysis.graph.nodes.get(node_id)
@@ -940,8 +957,8 @@ def thread_payload(analysis: Analysis, node_id: str, *, limit: int = 20) -> dict
         "type": node.type,
         "hash": analysis.node_hash.get(node_id, ""),
         "content_hash": node.content_hash,
-        "out": [{"kind": e.kind, "to": e.dst} for e in analysis.graph.out_edges(node_id)][:limit],
-        "in": [{"kind": e.kind, "from": e.src} for e in analysis.graph.in_edges(node_id)][:limit],
+        "out": [_edge_row(e, "to", e.dst) for e in analysis.graph.out_edges(node_id)][:limit],
+        "in": [_edge_row(e, "from", e.src) for e in analysis.graph.in_edges(node_id)][:limit],
         "reach": len(reach),
         "centrality": round(analysis.rank.get(anchor, 1.0 / n) * n, 6),
         "missing": [f"{d}:{k}" for d, k in missing_edges(analysis.graph, node)],
