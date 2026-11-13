@@ -234,16 +234,39 @@ def test_h_pytest_fixture_types_the_test_parameter_precisely(tmp_path: Path) -> 
     assert unknown["fn:engine.mgr.Manager.refresh_all"] is True
 
 
-def test_test_launching_a_project_file_by_path_covers_its_module(tmp_path: Path) -> None:
-    g, _ = _build(
+def test_m_spawning_a_project_file_covers_its_module_weakly(tmp_path: Path) -> None:
+    g, info = _build(
         tmp_path,
         {
             "aep_front.py": "def main():\n    return 1\n",
-            "tests/test_e2e.py": "def test_launch():\n    args = ['aep_front.py', 'ghost.py', 'a note about aep_front.py']\n",
+            "server.py": "def tool():\n    return 1\n",
+            "tests/test_e2e.py": (
+                "import subprocess, sys\n"
+                "from mcp import StdioServerParameters\n\n"
+                "def test_run():\n    subprocess.run([sys.executable, 'server.py'])\n\n"
+                "def test_params():\n    StdioServerParameters(command='py', args=['aep_front.py'])\n"
+            ),
         },
     )
-    covered = {e.dst for e in g.out_edges("test:tests/test_e2e.py::test_launch", "covers")}
-    assert covered == {"module:aep_front"}
+    run = {e.dst: e.weak for e in g.out_edges("test:tests/test_e2e.py::test_run", "covers")}
+    params = {e.dst: e.weak for e in g.out_edges("test:tests/test_e2e.py::test_params", "covers")}
+    assert run == {"module:server": True}
+    assert params == {"module:aep_front": True}
+    assert info.weak_edges == 2
+
+
+def test_n_reading_or_quoting_a_project_file_does_not_cover_it(tmp_path: Path) -> None:
+    g, _ = _build(
+        tmp_path,
+        {
+            "server.py": "def tool():\n    return 1\n",
+            "tests/test_read.py": (
+                "from pathlib import Path\n\n"
+                "def test_read():\n    Path('server.py').read_text()\n    args = ['server.py', 'a note about server.py']\n"
+            ),
+        },
+    )
+    assert g.out_edges("test:tests/test_read.py::test_read", "covers") == []
 
 
 def test_j_weak_edge_never_forms_a_codependency_but_counts_for_coverage_and_impact(tmp_path: Path) -> None:

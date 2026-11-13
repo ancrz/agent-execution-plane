@@ -1467,6 +1467,7 @@ def extract_capabilities(graph: ThreadGraph, src: Sources, tools: dict[str, dict
 class _TestRefs:
     fns: set[str] = field(default_factory=set)
     weak_fns: set[str] = field(default_factory=set)  # ONT-46: cobertura por nombre único sin tipo
+    spawn_mods: set[str] = field(default_factory=set)  # ONT-46 F1: módulos lanzados como subproceso
     mods: set[str] = field(default_factory=set)
     tool_calls: list[tuple[str, dict[str, str]]] = field(default_factory=list)  # (tool, kwargs constantes)
     budgets: list[tuple[str, dict[str, str], str, int]] = field(default_factory=list)  # tool, kw, op, limit
@@ -1499,6 +1500,22 @@ def _field_ref(fn: ast.AST) -> str:
                     if m:
                         return m.group(1)
     return ""
+
+
+_SPAWN_CALLEES: frozenset[str] = frozenset(
+    {
+        "Popen", "run", "check_output", "check_call", "call", "create_subprocess_exec",
+        "StdioServerParameters", "execv", "execvp", "execve", "spawn",
+    }
+)  # fmt: skip
+
+
+def _is_spawn_call(call: ast.Call) -> bool:
+    """Llamada que lanza un proceso: callee conocido, o `sys.executable` entre sus argumentos."""
+    chain = _chain(call.func)
+    if chain and chain[-1] in _SPAWN_CALLEES:
+        return True
+    return any(_chain(n) == ["sys", "executable"] for n in ast.walk(call) if isinstance(n, ast.Attribute))
 
 
 def _kw_constants(call: ast.Call) -> dict[str, str]:
@@ -1537,6 +1554,7 @@ def _collect_test_refs(
             refs.fns |= sub.fns
             refs.weak_fns |= sub.weak_fns
             refs.mods |= sub.mods
+            refs.spawn_mods |= sub.spawn_mods
             refs.tool_calls += [(t, {**site, **kws}) for t, kws in sub.tool_calls]
             refs.budgets += sub.budgets
     for n in ast.walk(node):
@@ -1554,6 +1572,7 @@ def _collect_test_refs(
                 refs.fns |= sub.fns
                 refs.weak_fns |= sub.weak_fns
                 refs.mods |= sub.mods
+                refs.spawn_mods |= sub.spawn_mods
                 refs.tool_calls += sub.tool_calls
                 refs.budgets += sub.budgets
             expanded = _expand(chain, ctx, imports, project)
@@ -1577,11 +1596,15 @@ def _collect_test_refs(
                         refs.tool_calls.append((tname, _kw_constants(n)))
         if isinstance(n, ast.Dict):
             _collect_dict_tool(n, tool_names, refs)
-        if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.endswith(".py"):
-            # ONT-46: un test que lanza o toca un archivo del proyecto por ruta (`"aep_front.py"`) cubre su módulo.
-            lit = n.value.strip()
-            if lit.isascii() and " " not in lit and module_name(lit) in project:
-                refs.mods.add(module_name(lit))
+        if isinstance(n, ast.Call) and _is_spawn_call(n):
+            # ONT-46 F1 (cobertura por spawn): un literal que nombra un archivo del proyecto SOLO cuenta si está
+            # en los argumentos de una llamada que lo lanza. Leerlo o citarlo no es ejercitarlo. Es cobertura
+            # dinámica a nivel de módulo: la arista se emite `weak`.
+            for lit_node in ast.walk(n):
+                if isinstance(lit_node, ast.Constant) and isinstance(lit_node.value, str):
+                    lit = lit_node.value.strip()
+                    if lit.endswith(".py") and lit.isascii() and " " not in lit and module_name(lit) in project:
+                        refs.spawn_mods.add(module_name(lit))
     # Presupuestos: `assert tok < N` junto a una llamada a tool dentro del mismo test.
     for n in ast.walk(node):
         if isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id in ("tok", "tokens"):
@@ -1672,6 +1695,8 @@ def extract_tests(
                 graph.add_edge(tid, fid, "covers", weak=fid not in refs.fns)
             for mname in sorted(refs.mods):
                 graph.add_edge(tid, f"module:{mname}", "covers")
+            for mname in sorted(refs.spawn_mods):
+                graph.add_edge(tid, f"module:{mname}", "covers", weak=True)
             for tool, kws in refs.tool_calls:
                 graph.add_edge(tid, f"tool:{tool}", "covers")
                 for aid in _call_action_ids(tool, kws, tools):
