@@ -254,6 +254,8 @@ Cadena desde Rollup 5: `feature_20261107_115813_e4_reconcile.md` → `feature_20
 4. Ningún tier hace commit, merge, push ni `heal apply` desde reconcile; tier < 6 no escribe.
 5. Modo Short por defecto; commit y push user-gated.
 
-**Documento activo:** [`feature_20261107_135303_ont43_field_report.md`](feature_20261107_135303_ont43_field_report.md)
+- **ONT-44 cobertura MCP (2026-11-13, Graphos G2):** 120 omisiones de cobertura de la superficie MCP reducidas a 46 con 5 archivos `tests/test_cov_*.py` (dos tracks Pragma en worktrees). Correcciones: P1 gate por tier en backup mutante; P2 `verify_integrity` de sólo lectura; P3 listeners paginados; P4 reindex `force` con SAVEPOINT; P5 schema summary 1524 a 1278 tokens. Trinquete `GAPS_BASELINE = 46`. VERIFIED: 1092 passed, ruff limpio, 17 tools / 19 capacidades. Decisión: `micro_snapshot` sin gate en servidor (diferencia con el CLI).
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261107_135303_ont43_field_report.md` (0 de 5 al cierre de este registro).
+**Documento activo:** [`feature_20261113_004026_mcp_coverage_reinforcement.md`](feature_20261113_004026_mcp_coverage_reinforcement.md)
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261113_004026_mcp_coverage_reinforcement.md` (1 de 5 al cierre de este registro).

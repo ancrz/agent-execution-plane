@@ -350,3 +350,28 @@ Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md` (§Endur
 | M6 | R3: prueba de dos promociones seguidas (sin `__pycache__`) | Short (orquestador) / Dokimos | ✅ VERIFIED |
 | M7 | Refresco documental: README, STATE, COMPACT, MILESTONES §10, rollup, SDD §7 | Graphos G2 | ✅ (staged) |
 | M8 | Commit de la tranche | Hermon | ⏳ retenido por el usuario |
+
+
+## 11. Cobertura MCP ONT-44: reforzar puntos débiles y trinquete de gaps (2026-11-13)
+
+Registro: `docs/pipeline/feature_20261113_004026_mcp_coverage_reinforcement.md` (anterior: `feature_20261107_135303_ont43_field_report.md`). SDD: `docs/sdd/sdd_ont44_mcp_coverage_ratchet.md`. Estado: staged sobre `e0a9317`, sin commit.
+
+```mermaid
+flowchart LR
+    I11["Intent: reforzar puntos debiles del MCP (ONT-44)"] --> C1["C1: cobertura de superficie MCP, 120 a 46 gaps (Pragma tracks A y B) VERIFIED"]
+    C1 --> C2["C2: correcciones P1 a P5 (gate backup, verify pura, listeners, reindex, schema D-04) VERIFIED"]
+    C2 --> C3["C3: trinquete GAPS_BASELINE = 46 VERIFIED"]
+    C3 --> C4["C4: documentacion (Graphos G2) staged"]
+    C4 --> C5["C5: commit (Hermon) pendiente de autorizacion"]
+    C1 --> R["Residuo: 15 tests sin referencia, gaps asserts, 4 funciones sin covers"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Tests de cobertura de superficie MCP: 5 archivos `tests/test_cov_*.py` | Pragma (tracks A y B) / Dokimos | ✅ VERIFIED |
+| M2 | P1: gate por tier de acciones mutantes de backup (`PERMISSION_DENIED` bajo 6) | Pragma / Dokimos | ✅ VERIFIED |
+| M3 | P2 a P4: `verify_integrity` de sólo lectura, sidecars, listeners paginados, reindex `force` | Pragma / Dokimos | ✅ VERIFIED |
+| M4 | P5 D-04: schema summary 1524 a 1278 tokens (`shared_exceptions`) | Pragma / Dokimos | ✅ VERIFIED |
+| M5 | Trinquete `GAPS_BASELINE` = 46 (1 ciclo advisory) | Dokimos | ✅ VERIFIED |
+| M6 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ staged (este registro) |
+| M7 | Commit de la tranche | Hermon | ⛔ pendiente de autorización |
