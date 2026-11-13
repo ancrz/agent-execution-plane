@@ -613,6 +613,23 @@ def _is_fixture(fn: ast.AST) -> bool:
     return False
 
 
+@dataclass(slots=True)
+class _FnFacts:
+    """Hechos de un cuerpo de función obtenidos en UNA sola pasada (ONT-46 perf): se cachean por nodo."""
+
+    nodes: list[ast.AST]
+    relevant: list[ast.AST]  # nodos que alteran el tipo de un local, en orden de `ast.walk`
+    names: set[str]  # nombres ligados en el cuerpo (incluye parámetros)
+    has_exec: bool  # el cuerpo menciona `sys.executable`
+
+
+_BINDING_NODES = (
+    ast.Assign, ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor, ast.comprehension,
+    ast.With, ast.AsyncWith, ast.NamedExpr,
+)  # fmt: skip
+_FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
 class _TypeIndex:
     """Inferencia barata de tipos de receptor sobre el AST (sin ejecutar código ni dependencias nuevas).
 
@@ -635,6 +652,10 @@ class _TypeIndex:
         self.root = src.root
         self._returns: dict[str, str | None] = {}
         self._local_tops: dict[str, bool] = {}
+        self._facts: dict[int, tuple[ast.AST, _FnFacts]] = {}
+        self._envs: dict[int, tuple[ast.AST, dict[str, str | None]]] = {}
+        self._global_assigns: dict[int, tuple[ast.AST, list[tuple[set[str], list[ast.Assign]]]]] = {}
+        self._frozen = False  # los entornos solo se cachean cuando las tablas de tipos ya son definitivas
         for rel, pf in src.code.items():
             if pf.tree is None:
                 continue
@@ -657,6 +678,7 @@ class _TypeIndex:
                         self.class_attrs[f"{mod}.{stmt.name}"] = self._scan_class(mod, stmt)
             if before == (self.module_types, self.class_attrs):
                 break
+        self._frozen = True
 
     # -- nombres, clases y anotaciones ------------------------------------------------------------
 
@@ -928,18 +950,37 @@ class _TypeIndex:
 
         visit(tree.body)
         # `global X; X = Ctor()` dentro de funciones (singletons perezosos).
-        for fn in ast.walk(tree):
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            declared = {n for g in ast.walk(fn) if isinstance(g, ast.Global) for n in g.names}
-            if not declared:
-                continue
-            for a in ast.walk(fn):
-                if isinstance(a, ast.Assign) and not _is_none_const(a.value):
+        for declared, assigns in self._global_assignments(tree):
+            for a in assigns:
+                if not _is_none_const(a.value):
                     for tgt in a.targets:
                         if isinstance(tgt, ast.Name) and tgt.id in declared:
                             add(tgt.id, self.expr_type(a.value, scope))
         return {name: _agree(ts) for name, ts in sorted(cands.items())}
+
+    def _global_assignments(self, tree: ast.Module) -> list[tuple[set[str], list[ast.Assign]]]:
+        """(nombres `global`, asignaciones) por función que declara `global`; se calcula una vez por árbol."""
+        hit = self._global_assigns.get(id(tree))
+        if hit is not None and hit[0] is tree:
+            return hit[1]
+        out: list[tuple[set[str], list[ast.Assign]]] = []
+        for fn in self._function_defs(tree):
+            nodes = self.facts(fn).nodes
+            declared = {n for g in nodes if isinstance(g, ast.Global) for n in g.names}
+            if declared:
+                out.append((declared, [a for a in nodes if isinstance(a, ast.Assign)]))
+        self._global_assigns[id(tree)] = (tree, out)
+        return out
+
+    def _function_defs(self, tree: ast.Module) -> list[ast.AST]:
+        """Funciones de nivel de módulo y métodos de clases de nivel de módulo (sin recorrer el árbol entero)."""
+        out: list[ast.AST] = []
+        for st in tree.body:
+            if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                out.append(st)
+            elif isinstance(st, ast.ClassDef):
+                out.extend(c for c in st.body if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)))
+        return out
 
     def _scan_class(self, mod: str, cls: ast.ClassDef) -> dict[str, str | None]:
         imports = self.imports[mod]
@@ -968,7 +1009,7 @@ class _TypeIndex:
                     add(st.name, self.ann_type(st.returns, mod, imports))
                 env = self.local_env(st, mod, cls.name, imports, globals_)
                 scope = _Scope(mod, cls.name, imports, env, globals_)
-                for n in ast.walk(st):
+                for n in self.facts(st).nodes:
                     if isinstance(n, ast.Assign) and not _is_none_const(n.value):
                         t = self.expr_type(n.value, scope)
                         for tgt in n.targets:
@@ -986,6 +1027,40 @@ class _TypeIndex:
                             add(attr, self.ann_type(n.annotation, mod, imports) or self.expr_type(n.value, scope))
         return {name: _agree(ts) for name, ts in sorted(cands.items())}
 
+    def facts(self, fn: ast.AST) -> _FnFacts:
+        """Pasada única sobre `fn`: lista de nodos, nodos que ligan nombres y nombres ligados."""
+        hit = self._facts.get(id(fn))
+        if hit is not None and hit[0] is fn:
+            return hit[1]
+        nodes = list(ast.walk(fn))
+        relevant: list[ast.AST] = []
+        names: set[str] = set()
+        has_exec = False
+        for n in nodes:
+            if isinstance(n, ast.Name):
+                if isinstance(n.ctx, ast.Store):
+                    names.add(n.id)
+            elif isinstance(n, ast.Attribute):
+                if n.attr == "executable" and isinstance(n.value, ast.Name) and n.value.id == "sys":
+                    has_exec = True
+            elif isinstance(n, _FUNCTION_NODES):
+                relevant.append(n)
+                a = n.args
+                names.update(x.arg for x in (*a.posonlyargs, *a.args, *a.kwonlyargs))
+                if a.vararg:
+                    names.add(a.vararg.arg)
+                if a.kwarg:
+                    names.add(a.kwarg.arg)
+            elif isinstance(n, ast.ExceptHandler):
+                if n.name:
+                    names.add(n.name)
+                    relevant.append(n)
+            elif isinstance(n, _BINDING_NODES):
+                relevant.append(n)
+        facts = _FnFacts(nodes, relevant, names, has_exec)
+        self._facts[id(fn)] = (fn, facts)
+        return facts
+
     def local_env(
         self,
         fn: ast.AST,
@@ -994,30 +1069,21 @@ class _TypeIndex:
         imports: _Imports,
         globals_: dict[str, str | None],
         fixtures: dict[str, str | None] | None = None,
+        cache: bool = True,
     ) -> dict[str, str | None]:
         """Tipo de los nombres locales de `fn` (params anotados, `x = Ctor()`, `with Ctor() as x`, fixtures).
 
         Un nombre con asignaciones de tipos distintos o desconocidos queda en None (desconocido).
         """
+        if cache and self._frozen:
+            hit = self._envs.get(id(fn))
+            if hit is not None and hit[0] is fn:
+                return hit[1]
         skip_first = bool(cls) and not any(
             (_chain(d) or [""])[-1] == "staticmethod" for d in getattr(fn, "decorator_list", [])
         )
-        names: set[str] = set()
-        for n in ast.walk(fn):
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-                names.add(n.id)
-            elif isinstance(n, ast.ExceptHandler) and n.name:
-                names.add(n.name)
-            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                a = n.args
-                every = [
-                    *a.posonlyargs,
-                    *a.args,
-                    *a.kwonlyargs,
-                    *([a.vararg] if a.vararg else []),
-                    *([a.kwarg] if a.kwarg else []),
-                ]
-                names.update(x.arg for x in every)
+        facts = self.facts(fn)
+        names = set(facts.names)
         if skip_first:
             args = getattr(fn, "args", None)
             first = (args.posonlyargs + args.args) if args else []
@@ -1031,7 +1097,7 @@ class _TypeIndex:
             def add(name: str, t: str | None) -> None:
                 cands.setdefault(name, []).append(t)
 
-            for n in ast.walk(fn):
+            for n in facts.relevant:
                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                     a = n.args
                     is_root = n is fn
@@ -1085,6 +1151,8 @@ class _TypeIndex:
             if new == env:
                 break
             env = new
+        if cache and self._frozen:
+            self._envs[id(fn)] = (fn, env)
         return env
 
     def _with_type(self, ctx: ast.AST, scope: _Scope) -> str | None:
@@ -1100,9 +1168,7 @@ class _TypeIndex:
         inherited: dict[str, str | None],
     ) -> dict[str, str | None]:  # fmt: skip
         """Tipo de las fixtures de pytest de un archivo: `-> T`, o `return/yield Ctor(...)` concordantes."""
-        defs: list[ast.AST] = [
-            n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_fixture(n)
-        ]
+        defs: list[ast.AST] = [n for n in self._function_defs(tree) if _is_fixture(n)]
         out: dict[str, str | None] = dict(inherited)
         for _ in range(2):
             for fn in sorted(defs, key=lambda d: (d.lineno, d.name)):  # type: ignore[attr-defined]
@@ -1112,10 +1178,10 @@ class _TypeIndex:
                     ann = sl.elts[0] if isinstance(sl, ast.Tuple) and sl.elts else sl
                 t = self.ann_type(ann, mod, imports)
                 if t is None:
-                    env = self.local_env(fn, mod, "", imports, globals_, out)
+                    env = self.local_env(fn, mod, "", imports, globals_, out, cache=False)
                     scope = _Scope(mod, "", imports, env, globals_)
                     vals: list[ast.AST | None] = []
-                    for n in ast.walk(fn):
+                    for n in self.facts(fn).nodes:
                         if isinstance(n, ast.Return) and n.value is not None:
                             vals.append(n.value)
                         elif isinstance(n, (ast.Yield,)) and n.value is not None:
@@ -1172,7 +1238,7 @@ def _add_function_edges(
 ) -> None:
     globals_ = types.module_types.get(fn.module, {})
     scope = _Scope(fn.module, fn.cls, imports, types.local_env(fn.tree, fn.module, fn.cls, imports, globals_), globals_)
-    for node in ast.walk(fn.tree):
+    for node in types.facts(fn.tree).nodes:
         chain: list[str] | None = None
         if isinstance(node, ast.Attribute):
             chain = _chain(node)
@@ -1510,11 +1576,13 @@ _SPAWN_CALLEES: frozenset[str] = frozenset(
 )  # fmt: skip
 
 
-def _is_spawn_call(call: ast.Call) -> bool:
+def _is_spawn_call(call: ast.Call, has_exec: bool) -> bool:
     """Llamada que lanza un proceso: callee conocido, o `sys.executable` entre sus argumentos."""
     chain = _chain(call.func)
     if chain and chain[-1] in _SPAWN_CALLEES:
         return True
+    if not has_exec:
+        return False
     return any(_chain(n) == ["sys", "executable"] for n in ast.walk(call) if isinstance(n, ast.Attribute))
 
 
@@ -1542,13 +1610,15 @@ def _collect_test_refs(
     called: set[str] = set()
     env = tc.types.local_env(node, ctx.module, "", imports, tc.globals, tc.fixtures)
     scope = _Scope(ctx.module, "", imports, env, tc.globals)
+    facts = tc.types.facts(node)
+    nodes = facts.nodes
     local_assigns: dict[str, list[ast.AST]] = {}
-    for a in ast.walk(node):
+    for a in nodes:
         if isinstance(a, ast.Assign) and len(a.targets) == 1 and isinstance(a.targets[0], ast.Name):
             local_assigns.setdefault(a.targets[0].id, []).append(a.value)
         elif isinstance(a, ast.AnnAssign) and isinstance(a.target, ast.Name) and a.value is not None:
             local_assigns.setdefault(a.target.id, []).append(a.value)
-    for n in ast.walk(node):
+    for n in nodes:
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in helpers and n.func.id not in seen:
             # Sitio de llamada a helper local: recursar por sitio y fusionar sus kwargs constantes (D-E4-1).
             hname = n.func.id
@@ -1563,7 +1633,7 @@ def _collect_test_refs(
             refs.spawn_mods |= sub.spawn_mods
             refs.tool_calls += [(t, {**site, **kws}) for t, kws in sub.tool_calls]
             refs.budgets += sub.budgets
-    for n in ast.walk(node):
+    for n in nodes:
         chain: list[str] | None = None
         if isinstance(n, ast.Attribute):
             chain = _chain(n)
@@ -1602,7 +1672,7 @@ def _collect_test_refs(
                         refs.tool_calls.append((tname, _kw_constants(n)))
         if isinstance(n, ast.Dict):
             _collect_dict_tool(n, tool_names, refs)
-        if isinstance(n, ast.Call) and _is_spawn_call(n):
+        if isinstance(n, ast.Call) and _is_spawn_call(n, facts.has_exec):
             # ONT-46 F1 (cobertura por spawn): un literal que nombra un archivo del proyecto SOLO cuenta si está
             # en los argumentos de una llamada que lo lanza. Leerlo o citarlo no es ejercitarlo. Es cobertura
             # dinámica a nivel de módulo: la arista se emite `weak`. Un único nivel de alias local: un `Name`
@@ -1619,7 +1689,7 @@ def _collect_test_refs(
                         if lit.endswith(".py") and lit.isascii() and " " not in lit and module_name(lit) in project:
                             refs.spawn_mods.add(module_name(lit))
     # Presupuestos: `assert tok < N` junto a una llamada a tool dentro del mismo test.
-    for n in ast.walk(node):
+    for n in nodes:
         if isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id in ("tok", "tokens"):
             for op, comp in zip(n.ops, n.comparators, strict=True):
                 if isinstance(op, (ast.Lt, ast.LtE)) and isinstance(comp, ast.Constant) and isinstance(comp.value, int):
