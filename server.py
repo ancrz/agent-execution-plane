@@ -2985,6 +2985,14 @@ def _parse_runner_output(raw_text: str, command: str, mode: str | None) -> dict[
     return None
 
 
+def _bwrap_device_args() -> list[str]:
+    """bwrap args for /proc, /dev (sandbox devtmpfs) and /dev/shm. Must be emitted AFTER all user binds (ONT-48/G24)."""
+    return ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/dev/shm"]
+
+
+_EXEC_SUSPECT_MARKERS = ("Traceback (most recent call last)", "PermissionError")
+
+
 def _deduplicate_lines(lines: list[str]) -> list[str]:
     """Deduplicate consecutive identical lines into '<line> (repeated N times)' (GAP-DX-07)."""
     if not lines:
@@ -3157,14 +3165,8 @@ async def sandbox_run(
                 "--ro-bind-try",
                 "/etc/hosts",
                 "/etc/hosts",
-                "--proc",
-                "/proc",
-                "--dev",
-                "/dev",
                 "--tmpfs",
                 "/tmp",
-                "--tmpfs",
-                "/dev/shm",
             ]
         )
 
@@ -3172,6 +3174,8 @@ async def sandbox_run(
         mounted_rw: list[str] = []
         for p in eff_ro:
             rp = str(Path(p).expanduser().resolve())
+            if rp == "/":
+                continue  # ONT-48/G24: never bind the whole host root
             if Path(rp).exists():
                 bwrap_cmd.extend(["--ro-bind", rp, rp])
                 mounted_ro.append(rp)
@@ -3191,6 +3195,8 @@ async def sandbox_run(
                         pass
         for p in eff_rw:
             rp = str(Path(p).expanduser().resolve())
+            if rp == "/":
+                continue  # ONT-48/G24: never bind the whole host root
             if Path(rp).exists():
                 bwrap_cmd.extend(["--bind", rp, rp])
                 mounted_rw.append(rp)
@@ -3211,6 +3217,9 @@ async def sandbox_run(
                                 mounted_ro.append(py_root)
                     except OSError:
                         pass
+
+        # ONT-48/G24: device/proc mounts go AFTER user binds so no bind can mask the sandbox /dev.
+        bwrap_cmd.extend(_bwrap_device_args())
 
         # Auto-mount uv binary and cache if working_dir or mounted paths contain a Python/uv project (GAP-OM-04 / Ergonomics)
         has_uv_project = False
@@ -3345,6 +3354,13 @@ async def sandbox_run(
                         st = "EXEC_FAILED"
                         exit_code_masked = True
 
+            exec_suspect = False
+            if eff_parse == "auto" and res.returncode == 0 and not exit_code_masked:
+                combined_out = res.stdout + "\n" + res.stderr
+                if any(mk in combined_out for mk in _EXEC_SUSPECT_MARKERS):
+                    st = "EXEC_SUSPECT"
+                    exec_suspect = True
+
             is_brief = (verbosity or "detail").strip().lower() in ("brief", "terse")
             if is_brief and parse is not None:
                 res_payload: dict[str, Any] = {
@@ -3416,6 +3432,12 @@ async def sandbox_run(
                 if exit_code_masked
                 else None
             )
+            if exec_suspect:
+                res_payload["hint"] = (
+                    "Exit code 0 but output contains a Python Traceback/PermissionError (a pipe such as '| tail' may "
+                    "mask the failure). Inspect stdout/stderr before trusting this run."
+                )
+                eff_next_action = "Inspect stdout/stderr: a Traceback or PermissionError was found despite exit code 0."
 
             return attach_envelope(
                 res_payload,
