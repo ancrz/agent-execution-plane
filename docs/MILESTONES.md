@@ -431,3 +431,28 @@ flowchart LR
 | M5 | Dokimos ciclo 2: 1147 passed, 0 failed, ruff limpio, gaps 1, co-dependencias 0 | Dokimos | ✅ VERIFIED |
 | M6 | Documentación (feature, SDD, README, STATE, COMPACT, MILESTONES) | Graphos G2 | ✅ |
 | M7 | Commit de la tanda y ff a `dev` | Hermon | ✅ |
+
+## 14. Fricciones de dogfooding ONT-47 (2026-11-13)
+
+Registro: `docs/pipeline/feature_20261113_ont47_dogfood_frictions.md` (anterior: `feature_20261113_ont46_extractor_precision.md`). SDD: `docs/sdd/sdd_ont47_dogfood_frictions.md`. Estado: VERIFIED en worktree `agent-a0087296b87a19bbe`, HEAD `5377589`, base `dev` `3541211`, publicado en dev.
+
+```mermaid
+flowchart LR
+    I14["Intent: fricciones de dogfooding (ONT-47)"] --> N1["N1: ronda dogfood sobre el plano vivo, F1-F9 (orquestador) ✅"]
+    N1 --> N2["N2: T1-T9 fixes en contratos compactos y aditivos (c455b4b..51a8eca, Pragma) ✅"]
+    N2 --> N3["N3: T10 suite de regresion (5377589, Pragma) ✅"]
+    N3 --> V14["M: verified (Dokimos, 1174 passed, 1 fallo de carga conocido; gaps 1) ✅"]
+    V14 --> D14["M: documentado (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES) ✅"]
+    D14 --> H14["M: commit (Hermon, pendiente: commit en este track)"]
+    V14 --> R14["Residuo: backlog ONT-48 G10-G23 y decision network.neighbors (G21) ⛔"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Ronda dogfood sobre el plano vivo: fricciones F1–F9 observadas con llamadas reales | Orquestador (tools AEP) | ✅ |
+| M2 | Fixes T1–T9 (`c455b4b`, `4f8048a`, `dd0bb31`, `3158370`, `1893ac6`, `c084b29`, `5a90232`, `4185412`, `51a8eca`) y suite T10 (`5377589`) | Pragma | ✅ |
+| M3 | Dokimos VERIFIED: 1174 passed, 1 fallo de carga conocido (pasa aislado), ruff limpio, gaps 1, budgets sin subir | Dokimos | ✅ VERIFIED |
+| M4 | Documentación: feature, SDD, README (badge 1174 y grafo), STATE, COMPACT, MILESTONES, reporte de ronda | Graphos G2 | ✅ |
+| M5 | Commit de la tanda y ff a `dev`; repetir las 8 llamadas en el plano vivo | Hermon | pendiente: commit en este track |
+
+Residuo fuera de ONT-47: backlog ONT-48 (G10–G23) y decisión de diseño `network.neighbors` (G21), pendiente del usuario.

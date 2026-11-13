@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1147_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1174_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1098,6 +1098,17 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-47 fricciones de dogfooding (VERIFIED, publicado en dev; 1174 passed, gaps 1):** nueve fricciones de la ronda de uso real del plano vivo cerradas en contratos compactos y aditivos, sin cambiar la forma de `detail`: `discover` emite `drift_kind` sólo con drift; `socket-monitor` pliega y pagina (3783 → 483 tok); `network.listeners` resuelve `pid` y `process` desde el inode (33 de 47 filas, 18.5 ms); `network.probe` compacto lista sólo filas `open` con `closed_by_reason` (570 → 102 tok); `query_system_docs` expone `confidence` y `match_status` (distancia 0.30 ya no es OK); `error_class` se deriva de `stderr`; el sobre garantiza `truncated ⇒ cursor` en el tablero y en pueue; el schema por dominio es compacto (1120 → 444 tok). Los tests de la ronda ya no escriben en la base real. Detalle: `docs/sdd/sdd_ont47_dogfood_frictions.md`.
+
+```mermaid
+flowchart LR
+    I["Intent: fricciones de dogfooding (ONT-47)"] --> M1["M1: ronda dogfood sobre el plano vivo (F1-F9, orquestador) ✅"]
+    M1 --> M2["M2: implemented (Pragma, T1-T10, c455b4b..5377589) ✅"]
+    M2 --> M3["M3: verified (Dokimos, 1174 passed, 1 fallo de carga conocido) ✅"]
+    M3 --> M4["M4: documented (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES) ✅"]
+    M4 --> M5["M5: committed (Hermon, pendiente: commit en este track)"]
 ```
 
 **ONT-46 precision del extractor de hilos (VERIFIED, publicado en `dev`; 1147 passed, gaps 1):** el tipado del receptor en `obj.method()` precede a la resolucion por nombre unico; las resoluciones sin tipo se registran como aristas `weak` (`Edge.weak`), nunca forman co-dependencia y se exponen en `autoevol(graph)` como `weak_edges`, con `"weak": true` en las filas de `autoevol(thread)`; el esquema del grafo es `threads/2`. Detalle: `docs/sdd/sdd_ont46_extractor_precision.md`.
