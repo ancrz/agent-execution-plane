@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> Rama: `dev` == `origin/dev` (ONT-43 publicado en `93c7d9f`/`63be4f9`, formato `14756a2`, seguimiento F1–F3 encima) · ONT-43 field report **VERIFIED** (927 passed, previo 913; ruff check y format limpios; gaps 120) · Backlog track A (caché E2 endurecida, sondas Go, setup sin red) **VERIFIED** en el mismo tramo · Plan autohealing **E2–E4 CERRADO** · Integridad de instalación en sala limpia: **INSTALA CON INTEGRIDAD** (ronda 3) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: backlog mínimo (opcional)
+> Rama: `dev` == `origin/dev` (ONT-43 publicado en `93c7d9f`/`63be4f9`, formato `14756a2`, seguimiento F1–F3 encima) · ONT-43 field report **VERIFIED** (987 passed, previo 927; ruff check y format limpios; gaps 120) · endurecimiento ONT-43 O1–O3 / R1–R3 **VERIFIED** (staged, sin commit) · Backlog track A (caché E2 endurecida, sondas Go, setup sin red) **VERIFIED** en el mismo tramo · Plan autohealing **E2–E4 CERRADO** · Integridad de instalación en sala limpia: **INSTALA CON INTEGRIDAD** (ronda 3) · Servidor MCP: **17 tools / 19 capacidades** · Modo por defecto: **Short** · Siguiente: commit (Hermon, sólo con autorización) y publicación a `dev` (user-gated)
 
 Ancla del hilo: si la conversación se compacta o se reinicia, este documento + `docs/COMPACT.md`
 + la memoria `aep-state-and-pendings` permiten retomar sin perder contexto.
@@ -76,7 +76,9 @@ léxicas bilingües EN/ES) · ponderación unificada (artefactos+playbooks) · *
 - **Plan E2–E4 (cerrado, 2026-11-07):** E2, E3 y E4 VERIFIED y publicados (`origin/dev` @ `46cc89e`).
 - **Publicado:** ONT-43 + backlog track A (`e183e5e`, `93c7d9f`, `63be4f9`), `ruff format` (`14756a2`) y seguimiento F1–F3, todos fast-forward a `origin/dev` bajo AP-1 (tier 7rwx).
 
-- **Backlog menor (pendiente):** ciclo `482c9115f84a` caduca por TTL (sin acción); worktree `a783d592846aab250` (ONT-42b B9, dogfood BLOCKED) conservado por decisión del usuario; endurecimiento opcional de `tests/field` (permitir sólo `test_fr_*.py`, decisión de política); opcional: exigir que la razón del fallo del repro contenga la firma.
+- **Endurecimiento ONT-43 O1–O3 / R1–R3 (VERIFIED, staged, sin commit; registro `docs/pipeline/feature_20261107_135303_ont43_field_report.md` §Endurecimiento):** (O1) lista blanca `tests/field/test_fr_<12hex>.py`, archivo regular, sin helpers ni subdirectorios. (O2) `xfail(strict=True, raises=<Clase>)` obligatorio; la clase debe coincidir con `error_class`. (O3) `field_sig(tool, action, status, error_class)` única en `threads_field`; `report` exige los cuatro componentes y recalcula la firma; formato `{tool, expected, observed}` retirado. (R1) el repro no puede redefinir la excepción vinculada. (R2) paridad de normalización. (R3) dos promociones seguidas. Riesgo residual: el repro es código no confiable (bwrap ro, sin red); `raises=` no demuestra la causa raíz. Suite 987 passed.
+- **Backlog (vacío salvo TTL):** ciclo `482c9115f84a` caduca por TTL (sin acción).
+- **Worktree `a783d592846aab250`** (ONT-42b B9, dogfood BLOCKED): eliminado el 2026-11-12 sin cambios pendientes; B9 se completó por otra vía.
 - **Resuelto en este tramo:** endurecimiento de la caché E2 (`node_hash` de tests y pins en la clave; validación de la forma del hit), sondas Go (errcheck resuelto; `go.mod` descartado), `feature_rollup.md` (Rollup 6 registrado).
 - **Política de modo (2026-11-07)**: Short por defecto por costos; Full sólo si el usuario lo pide o el blast radius lo exige.
 - **Política de recarga (2026-11-07)**: AEP recarga sólo su propia sesión (ancestría estricta); nunca sesiones ajenas.

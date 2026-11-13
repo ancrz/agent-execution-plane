@@ -335,3 +335,18 @@ Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`. SDD: `d
 | M7 | Setup sin red: falla cerrado, sin binarios parciales | Pragma / Dokimos | ✅ VERIFIED |
 | M8 | Documentación: feature, SDD, STATE, COMPACT, rollup 6, README, MILESTONES | Graphos G2 | ✅ este registro |
 | M9 | Commit de la rama `integ/ont43-backlog` | Hermon | ⏳ retenido por el usuario |
+
+## 10. Endurecimiento ONT-43 (O1–O3, R1–R3) (2026-11-12)
+
+Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md` (§Endurecimiento). SDD: `docs/sdd/sdd_ont43_field_report.md` (§7). Estado: staged sobre `d12e090`, sin commit. Verdict Dokimos: VERIFIED (987 passed, ruff check y format limpios, gaps 120, 17 tools / 19 capacidades).
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | O1: lista blanca en `tests/field` (`test_fr_<12hex>.py`, archivo regular; sin helpers, subdirectorios ni `__init__`) | Short (orquestador) / Dokimos | ✅ VERIFIED |
+| M2 | O2: `xfail(strict=True, raises=<Clase>)` obligatorio, con clase igual a `error_class`; candidato sin `error_class` => `REJECTED_NO_REPRO` ("re-record") | Short (orquestador) / Dokimos | ✅ VERIFIED |
+| M3 | O3: `field_sig` única en `threads_field`; `report` exige tool, action, status y error_class y recalcula la firma; formato antiguo retirado | Short (orquestador) / Dokimos | ✅ VERIFIED |
+| M4 | R1: el repro no puede redefinir el nombre de la excepción vinculada | Short (orquestador) / Dokimos | ✅ VERIFIED |
+| M5 | R2: prueba de paridad de normalización | Short (orquestador) / Dokimos | ✅ VERIFIED |
+| M6 | R3: prueba de dos promociones seguidas (sin `__pycache__`) | Short (orquestador) / Dokimos | ✅ VERIFIED |
+| M7 | Refresco documental: README, STATE, COMPACT, MILESTONES §10, rollup, SDD §7 | Graphos G2 | ✅ (staged) |
+| M8 | Commit de la tranche | Hermon | ⏳ retenido por el usuario |

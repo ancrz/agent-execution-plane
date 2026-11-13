@@ -226,3 +226,55 @@ flowchart LR
 - Worktree `a783d592846aab250` (ONT-42b B9): conservado por decisión del usuario.
 - Endurecimiento opcional de `tests/field` (sólo `test_fr_*.py`): decisión de política.
 - Opcional: exigir que la razón del fallo del repro contenga la firma.
+
+---
+
+## Endurecimiento ONT-43 (O1–O3, R1–R3)
+
+- **Fecha**: 2026-11-12. **Documento**: sección añadida a este registro (sin documento nuevo; la cadena no avanza).
+- **Pipeline mode**: **Short** (orquestador inline; Archon y Ontos omitidos por política de costos).
+- **Etapa**: Graphos G2 tras veredicto de Dokimos **VERIFIED**: 987 passed (antes 927), ruff check y ruff format limpios, gaps 120, 17 tools / 19 capacidades.
+- **Worktree**: `agent-afb771b30e8d25b56`, base `d12e090`.
+- **Estado de git**: cambios de código y docs sin commit; docs staged. Hermon no invocado. No se añadieron remotos ni se hizo push.
+- **Ruta de resolución**: endurecimiento acotado del mismo ONT-43 (O1–O3, R1–R3). Sin nuevas capacidades de herramienta.
+- **Radio de acción (blast radius)**: `engine/threads_field.py`, `engine/telemetry.py` (nueva arista `telemetry -> threads_field` vía `field_sig`, unidireccional), `server.py` (validación de `report`), `tests/test_ont43_field_report.py`, `tests/test_ont43_adversarial.py`, y documentación (README, `docs/STATE.md`, `docs/COMPACT.md`, `docs/MILESTONES.md` §10, `docs/pipeline/feature_rollup.md`, `docs/sdd/sdd_ont43_field_report.md` §7).
+
+### Cambios
+
+| Id | Cambio | Dónde |
+|----|--------|-------|
+| O1 | Lista blanca `tests/field`: sólo `test_fr_<12hex>.py` regular; sin symlinks, subdirectorios, helpers ni `__init__`. Repros multiarchivo fuera de política. | `engine/threads_field.py` |
+| O2 | `xfail(strict=True, reason="FR-<sig> ...", raises=<Clase>)` obligatorio; `<Clase>` == `error_class` del candidato. Otra excepción hace fallar el test. Sin `error_class` => `REJECTED_NO_REPRO` ("re-record"). | `engine/threads_field.py` |
+| O3 | `field_sig(tool, action, status, error_class)` única en `threads_field`; `telemetry` la importa. `evol_hint` lleva `status` y `error_class`. `report` exige los cuatro componentes y recalcula la firma; mismatch o falta => ERROR sin guardar. Formato `{tool, expected, observed}` retirado. | `engine/threads_field.py`, `engine/telemetry.py`, `server.py` |
+| R1 | El repro no puede redefinir el nombre de la excepción vinculada (`class`, `def`, asignación, `import ... as`; en forma atributo la raíz debe ser `builtins` o módulo importado plano). | `engine/threads_field.py` |
+| R2 | Prueba de paridad de normalización. | `tests/test_ont43_field_report.py` |
+| R3 | Prueba de dos promociones seguidas (sin `__pycache__`). | `tests/test_ont43_field_report.py` |
+
+### Riesgo residual
+
+- El repro es código no confiable: contenido por `bwrap` (sólo lectura, sin red).
+- `raises=` ata el fallo a la clase declarada; no demuestra la causa raíz.
+- El riesgo de módulo auxiliar en `tests/field` (§Seguimiento F1–F3) queda cerrado por O1.
+
+### Documentación refrescada
+
+- Forma vigente de `report`: `{tool, action, status, error_class, input_summary?, expected?, observed?}`; `sig = sha256(tool|action|status|error_class)[:12]`.
+- README (badge 987, §10.3), `docs/STATE.md`, `docs/COMPACT.md`, `docs/MILESTONES.md` §10, `docs/pipeline/feature_rollup.md` (actualización bajo Rollup 6), `docs/sdd/sdd_ont43_field_report.md` §7.
+- Los registros históricos (F1–F3, Rollup 6 y su sección de seguimiento con 927 passed) se conservan como estaban en su fecha.
+
+### Estado de la transición
+
+```mermaid
+flowchart LR
+    A["A: ONT-43 field report (staged)"] --> B4["B.4: F1 a F3 VERIFIED (927 passed)"]
+    B4 --> C1["C.1: endurecimiento O1 a O3 y R1 a R3 (staged)"]
+    C1 --> C2["C.2: Dokimos VERIFIED (987 passed, ruff limpio, gaps 120) ✅"]
+    C2 --> C3["C.3: docs refrescadas (README, STATE, COMPACT, MILESTONES, rollup, SDD §7) (staged)"]
+    C3 --> C4["C.4: commit (Hermon) ⏳ retenido por el usuario"]
+```
+
+### Backlog tras este tramo
+
+- Ciclo `482c9115f84a`: caduca por TTL (sin acción).
+- Worktree `a783d592846aab250` (ONT-42b B9): conservado por decisión del usuario.
+- Próximas acciones: (1) el usuario autoriza el commit (Hermon); (2) publicación a `dev` user-gated, fast-forward bajo AP-1 sólo en tier 7rwx.

@@ -1,6 +1,6 @@
 # SDD ONT-43: field report de herramientas hacia `autoevol` (cuarentena y promoción por reproducción)
 
-- **Estado**: VERIFIED (Dokimos, 913 passed). Ver registro `docs/pipeline/feature_20261107_135303_ont43_field_report.md`.
+- **Estado**: VERIFIED (Dokimos, 987 passed; F1–F3 en §6 y endurecimiento O1–O3 / R1–R3 en §7). Ver registro `docs/pipeline/feature_20261107_135303_ont43_field_report.md`.
 - **Código**: `engine/telemetry.py`, `engine/threads_field.py`, `engine/threads.py`, `engine/threads_reconcile.py`, `server.py` (`autoevol(action="report")`).
 - **Tests**: `tests/test_ont43_field_report.py` (48), `tests/test_ont43_adversarial.py` (11).
 - **Pipeline**: Short. Specify -> Plan -> Tasks -> Validate, en forma resumida (sin Archon/Ontos).
@@ -41,10 +41,10 @@
 Forma en el sobre de error (sólo cuando aplica):
 
 ```json
-"evol_hint": {"sig": "<12 hex>", "report": "autoevol(action='report', sig='<sig>', report={tool, expected, observed})"}
+"evol_hint": {"sig": "<12 hex>", "report": "autoevol(action='report', sig='<sig>', report={tool, action, status, error_class, expected, observed})"}
 ```
 
-- `sig = sha256(tool | action[:32] | STATUS | error_class)[:12]`.
+- `sig = sha256(tool | action[:32] | STATUS | error_class)[:12]`, verificada al registrar (§7).
 - `error_class`: clave explícita (`error_class`, `error_type`, `exception`), o el **primer token** de `error` en minúsculas, sin puntos ni dos puntos, con caracteres `[a-z0-9_]` y máximo 40. Vacío => `unknown`.
 - Estados que emiten señal: `ERROR`, `*_ERROR`, `EXEC_FAILED`, `FAILED`.
 
@@ -100,7 +100,7 @@ Con tier menor que el requerido: `PERMISSION_DENIED`, sin escritura.
 | Argumentos | Resultado |
 |------------|-----------|
 | (ninguno) o sólo `limit` | Lista candidatos (estado y ocurrencias) |
-| `sig` + `report={tool, expected, observed}` | `RECORDED` (nuevo), `DEDUPED` / ocurrencia (existente), `CAPPED` (tope) |
+| `sig` + `report={tool, action, status, error_class, input_summary?, expected?, observed?}` | `RECORDED` (nuevo), `DEDUPED` / ocurrencia (existente), `CAPPED` (tope) |
 | `sig` + `repro_test` | `PROMOTED`, `REJECTED_NO_REPRO`, `SANDBOX_UNAVAILABLE` (fail-closed), `PERMISSION_DENIED` (tier) |
 
 ### 2.3 Validación del repro (antes de ejecutar)
@@ -155,7 +155,7 @@ Se ejecuta **sólo** el nodo indicado. El resultado es real si y sólo si `xfail
 El ciclo se cierra cuando el gap queda resuelto de forma verificable:
 
 1. Un fallo real produce `evol_hint` con `sig`.
-2. El operador registra el reporte (`autoevol(report)`), con `expected` y `observed`.
+2. El operador registra el reporte (`autoevol(report)`), con `tool`, `action`, `status` y `error_class` (la firma se recomputa) y, opcionalmente, `expected` y `observed`.
 3. Se escribe `test_fr_<sig>.py` con XFAIL estricto que reproduce el fallo.
 4. `promote` lo confirma: el gap `field_discrepancy` aparece.
 5. Reconcile **propone** `spec` / `evolve` para él. Abrir el ciclo exige el opt-in y el cupo.
@@ -202,3 +202,38 @@ Un módulo auxiliar en `tests/field` importado por el repro ejecuta código fuer
 | Firma inválida en `report` no toca estado | `test_ont43_field_report.py` (seguimiento F1) |
 | Cambio de `TEMPLATE_REV` invalida la caché E2 | `test_ont43_field_report.py` (seguimiento F2) |
 | `conftest.py` o `pytest_plugins` en repro => `INVALID_REPRO` | `test_ont43_field_report.py` (seguimiento F3) |
+
+## 7. Addendum: endurecimiento O1–O3 y R1–R3 (2026-11-12)
+
+### 7.1 Cambios
+
+| Id | Cambio | Dónde |
+|----|--------|-------|
+| O1 | Lista blanca en `tests/field`: sólo archivos regulares `test_fr_<12hex>.py`; sin symlinks, subdirectorios, helpers ni `__init__`. El repro no puede importar vecinos ni usar imports relativos. Repros multiarchivo quedan fuera de política. Cierra la opción de endurecimiento de §6.3. | `engine/threads_field.py` |
+| O2 | Vinculación del fallo: `xfail(strict=True, reason="FR-<sig> ...", raises=<Clase>)` obligatorio; `<Clase>` debe coincidir con `error_class` del candidato. Pytest falla el test si salta otra excepción. Candidato sin `error_class` => `REJECTED_NO_REPRO` ("re-record"). | `engine/threads_field.py` |
+| O3 | Firma verificable: `field_sig(tool, action, status, error_class)` única en `engine/threads_field.py`; `engine/telemetry.py` la importa (arista unidireccional). `evol_hint` lleva `status` y `error_class`. `report` exige los cuatro componentes y recalcula la firma; mismatch o falta => ERROR sin guardar. El formato antiguo `{tool, expected, observed}` ya no se acepta. | `engine/threads_field.py`, `engine/telemetry.py`, `server.py` |
+| R1 | El repro no puede redefinir el nombre de la excepción vinculada (`class`, `def`, asignación, `import ... as`; en forma atributo, la raíz debe ser `builtins` o un módulo importado plano). | `engine/threads_field.py` |
+| R2 | Prueba de paridad de normalización entre `norm_error_class` y `normalize_error_class`. | `tests/test_ont43_field_report.py` |
+| R3 | Prueba de dos promociones seguidas, sin `__pycache__`. | `tests/test_ont43_field_report.py` |
+
+### 7.2 Decisiones registradas
+
+- **D-FR-9**: el reporte tiene forma `{tool, action, status, error_class, input_summary?, expected?, observed?}` y la firma `sha256(tool|action|status|error_class)[:12]` se recomputa en cada `report`. Razón: `error_class` no puede mentirse; un sig no verificable permitiría reportar una clase falsa.
+- **D-FR-10**: `raises=` es obligatorio y debe coincidir con `error_class`. Razón: un XFAIL causado por otra excepción no es la falla reportada.
+- **D-FR-11**: lista blanca `tests/field/test_fr_<12hex>.py`. Razón: elimina el módulo auxiliar importable que era el riesgo residual de §6.3.
+
+### 7.3 Riesgo residual
+
+- El repro es código no confiable. Queda contenido por `bwrap` (sólo lectura, sin red), sin capacidad adicional sobre el propio repro.
+- `raises=` liga el fallo a la clase declarada; no demuestra la causa raíz.
+
+### 7.4 Criterio de aceptación añadido
+
+| Propiedad | Prueba |
+|-----------|--------|
+| O1: sólo `test_fr_<12hex>.py` regular, sin helpers | `test_ont43_adversarial.py`, `test_ont43_field_report.py` |
+| O2: `raises=` obligatorio y coincidente; otra excepción falla el test | `test_ont43_adversarial.py`, `test_ont43_field_report.py` |
+| O3: firma recalculada; mismatch o falta => ERROR sin guardar | `test_ont43_field_report.py` |
+| R1: no redefinir la excepción vinculada | `test_ont43_adversarial.py` |
+| R2: paridad de normalización | `test_ont43_field_report.py` |
+| R3: dos promociones seguidas | `test_ont43_field_report.py` |
