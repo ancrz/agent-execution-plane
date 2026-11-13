@@ -91,7 +91,7 @@ def test_network_listeners_pagination_with_synthetic_sockets(tier, monkeypatch: 
     rows = [
         {"proto": "tcp", "local": f"0.0.0.0:{9000 + i}", "process": f"p{i}", "pid": i, "extra": "x"} for i in range(60)
     ]
-    monkeypatch.setattr(net_telemetry, "parse_proc_net_sockets", lambda protocol="tcp": rows)
+    monkeypatch.setattr(net_telemetry, "parse_proc_net_sockets", lambda protocol="tcp", **_kw: rows)
 
     first = _j(server.aep_ctl(domain="network", action="listeners", verbosity="summary", limit=3))
     assert first["count"] == 3 and first["total_count"] == 60

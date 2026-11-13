@@ -3719,7 +3719,7 @@ async def aep_ctl(
                 res_obj = {"status": "OK", "count": len(arps), "arp": arps}
                 return attach_envelope(res_obj, tracker, verbosity=verbosity)
             elif a == "listeners":
-                socks = net_telemetry.parse_proc_net_sockets("tcp")
+                socks = net_telemetry.parse_proc_net_sockets("tcp", resolve_pids=True)
                 if socks:
                     # Same shaping as the aep-ctl fallback path: honour summary/limit/cursor (token budget).
                     cap = min(eff_limit, 25) if is_compact else eff_limit

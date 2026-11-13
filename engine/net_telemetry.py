@@ -8,6 +8,7 @@ Zero external binary dependencies (no nmap, no tshark, no docker).
 import asyncio
 import ipaddress
 import logging
+import os
 import shutil
 import socket
 import struct
@@ -197,10 +198,62 @@ def _decode_hex_port(hex_str: str) -> int:
         return 0
 
 
-def parse_proc_net_sockets(protocol: str = "tcp") -> list[dict[str, Any]]:
+_SOCKET_LINK_PREFIX = "socket:["
+
+
+def map_socket_inodes(inodes: set[int]) -> dict[int, tuple[int, str]]:
+    """
+    Map socket inodes to (pid, comm) by a single bounded pass over /proc/[0-9]*/fd (ONT-47 T3).
+
+    Deterministic for a given /proc view (PIDs visited in ascending order; the lowest PID owning an inode wins).
+    Processes that vanish or deny access (PermissionError, FileNotFoundError, ProcessLookupError) are skipped,
+    so unprivileged callers only see their own processes. Stops early once every requested inode is resolved.
+    """
+    wanted = set(inodes)
+    found: dict[int, tuple[int, str]] = {}
+    if not wanted:
+        return found
+    try:
+        pids = sorted(int(name) for name in os.listdir("/proc") if name.isdigit())
+    except OSError:
+        return found
+    for pid in pids:
+        fd_dir = f"/proc/{pid}/fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:  # PermissionError / FileNotFoundError / ProcessLookupError are OSError subclasses
+            continue
+        comm: str | None = None
+        for fd in fds:
+            try:
+                target = os.readlink(f"{fd_dir}/{fd}")
+            except OSError:
+                continue
+            if not target.startswith(_SOCKET_LINK_PREFIX) or not target.endswith("]"):
+                continue
+            try:
+                ino = int(target[len(_SOCKET_LINK_PREFIX) : -1])
+            except ValueError:
+                continue
+            if ino not in wanted or ino in found:
+                continue
+            if comm is None:
+                try:
+                    with open(f"/proc/{pid}/comm", encoding="utf-8", errors="replace") as fh:
+                        comm = fh.read().strip()
+                except OSError:
+                    comm = ""
+            found[ino] = (pid, comm)
+        if len(found) == len(wanted):
+            break
+    return found
+
+
+def parse_proc_net_sockets(protocol: str = "tcp", *, resolve_pids: bool = False) -> list[dict[str, Any]]:
     """
     Parse Linux kernel /proc/net/{tcp,tcp6,udp,udp6} tables directly in memory.
     Decodes little-endian hex IPv4/IPv6 addresses, hex ports, and kernel socket states.
+    With resolve_pids=True each row also gets `pid` and `process` (None when the owner cannot be resolved).
     """
     proto_norm = (protocol or "tcp").strip().lower()
     targets: list[tuple[str, str, bool]] = []
@@ -277,6 +330,12 @@ def parse_proc_net_sockets(protocol: str = "tcp") -> list[dict[str, Any]]:
                     "inode": inode,
                 }
             )
+    if resolve_pids:
+        owners = map_socket_inodes({s["inode"] for s in sockets if s.get("inode")})
+        for sock in sockets:
+            owner = owners.get(sock.get("inode") or 0)
+            sock["pid"] = owner[0] if owner else None
+            sock["process"] = (owner[1] or None) if owner else None
     return sockets
 
 

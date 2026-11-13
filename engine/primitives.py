@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from engine.landlock import get_landlock_status
-from engine.net_telemetry import parse_proc_net_sockets
+from engine.net_telemetry import map_socket_inodes, parse_proc_net_sockets
 
 logger = logging.getLogger("aep.primitives")
 
@@ -147,6 +147,11 @@ def _run_socket_monitor(params: dict[str, Any]) -> dict[str, Any]:
 
     rows_src = sockets if state_filter else [s for s in sockets if str(s.get("state", "")).upper() == "LISTEN"]
     page = rows_src[offset : offset + limit]
+    owners = map_socket_inodes({s["inode"] for s in page if s.get("inode")})
+    for sock in page:
+        owner = owners.get(sock.get("inode") or 0)
+        if owner:
+            sock["pid"] = owner[0]
     rows = [_slim_socket(s, with_state=bool(state_filter)) for s in page]
     next_offset = offset + limit
     truncated = next_offset < len(rows_src)
