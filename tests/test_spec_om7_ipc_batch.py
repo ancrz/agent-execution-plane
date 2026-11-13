@@ -462,11 +462,14 @@ def isolated_server_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     """Aísla kanban DB, catálogo y TEMP_BIN_DIR del estado global (otro pytest/servidor a la vez)."""
     from engine.catalog import ArtifactCatalog
     from engine.kanban import KanbanBoard
+    from engine.playbook import PlaybookStore
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     monkeypatch.setattr(server, "kanban", KanbanBoard(db_path=tmp_path / "kanban.db"))
     monkeypatch.setattr(server, "catalog", ArtifactCatalog(db_path=tmp_path / "catalog.db"))
+    # ONT-47 T9: the saved playbook created/run by these tests (pb_multi_isolation) used to land in the real DB.
+    monkeypatch.setattr(server, "playbook_store", PlaybookStore(db_path=tmp_path / "playbooks.db"))
     monkeypatch.setattr(server, "TEMP_BIN_DIR", bin_dir)
 
 
