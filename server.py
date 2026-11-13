@@ -3708,6 +3708,8 @@ async def aep_ctl(
                     if collected:
                         parsed_ports = collected
                 res_obj = asyncio.run(net_telemetry.probe_tcp_ports(target_host, parsed_ports))
+                if (verbosity or "detail").strip().lower() in ("summary", "brief", "terse", "cached"):
+                    res_obj = net_telemetry.compact_probe_result(res_obj)  # ONT-47 T4
                 return attach_envelope(res_obj, tracker, verbosity=verbosity)
             elif a == "interfaces":
                 devs = net_telemetry.parse_proc_net_dev()

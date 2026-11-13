@@ -169,6 +169,23 @@ async def probe_tcp_ports(
     }
 
 
+def compact_probe_result(result: dict[str, Any]) -> dict[str, Any]:
+    """
+    ONT-47 T4: compact view of a probe_tcp_ports result. `ports` keeps only the open rows and the closed rows are
+    folded into `closed_by_reason` ({timeout: n, refused: n, ...}). Counters and `open_ports` are unchanged.
+    """
+    compact = dict(result)
+    rows = result.get("ports") or []
+    closed_by_reason: dict[str, int] = {}
+    for row in rows:
+        if row.get("state") != "open":
+            reason = str(row.get("reason") or "closed")
+            closed_by_reason[reason] = closed_by_reason.get(reason, 0) + 1
+    compact["ports"] = [row for row in rows if row.get("state") == "open"]
+    compact["closed_by_reason"] = closed_by_reason
+    return compact
+
+
 def _decode_hex_ipv4(hex_str: str) -> str:
     """Decode Linux /proc/net little-endian hex IPv4 string to dotted-decimal notation."""
     try:
