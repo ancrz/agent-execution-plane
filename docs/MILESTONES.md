@@ -158,8 +158,8 @@ flowchart LR
 | **Hardware Admission & Apport Alerts (ONT-36)** | Hardware domain in aep_ctl (inventory, accelerators, admit with 4096 MiB desktop safety margin, GAP-CP-05); Apport crash alerts sync in artifacts.db with status OK and deduplication fingerprint, plus envelope deduplication & t stub (GAP-OM-20); strict 16-tool FastMCP invariant. | Archon, Graphos, Ontos, Pragma, Dokimos, Hermon | `engine/hardware.py`, `engine/privilege.py`, `engine/crash_router.py`, `engine/telemetry.py`, `scripts/aep-ctl`, `server.py`, `tests/test_hardware_and_apport_alerts.py` | **VERIFIED & COMPLETED (10/10 Gates Passed, 143/143 Suite Passed) ✅** |
 | **UMA Admission, Apport RFC822 & Pytest Anti-Masking (ONT-37)** | UMA-aware hardware admission in `engine/hardware.py` (auto-route to GTT, named params, actionable rejection, GAP-DX-06); Apport RFC822 streaming forensics in `engine/crash_router.py` (64 KiB cap, POSIX signal mapping, GAP-OM-21); `sandbox_run(parse="pytest")` extended metrics (`deselected`, `xfailed`, `xpassed`, `coverage`), anti-masking failure check & brief `stdout_tail` deduplication (GAP-DX-07); FastMCP 16-tool invariant preservation. | Archon, Graphos, Ontos, Pragma, Dokimos, Hermon | `engine/hardware.py`, `engine/privilege.py`, `engine/crash_router.py`, `server.py`, `scripts/aep-ctl`, `tests/test_uma_admission_apport_and_pytest_parsing.py` | **VERIFIED & COMPLETED (10/10 Gates Passed, 153/153 Suite Passed) ✅** |
 | **Live Plane Hot-Swap (ONT-39 / ONT-39b)** | Permanent MCP front with fail-safe backend hot-swap (`aep_front.py`, `aep_backend.py`, `engine/fingerprint.py`); integrity hardening D-18 (non-sticky reload error), D-19 (deterministic/transient classification, backoff), D-20 (quiescence and `.aep_swap_fence`), D-21 (self-contained front fingerprint), per-front logs. | Orchestrator, Pragma, Dokimos, Graphos | `aep_front.py`, `aep_backend.py`, `engine/fingerprint.py`, `server.py`, `engine/privilege.py`, `tests/test_live_plane_integrity.py` | **VERIFIED (ONT-39b: 198 passed, 6 xfailed) ✅; committed in dev (`d6a23d8`…`3515a22`)** |
-| **autoevol Thread Graph (ONT-40)** | Read-only thread graph with Merkle integrity and gap detection; tool 17 `autoevol` (`graph`, `gaps`, `thread`, `log`, `diff`). ONT-41 and ONT-42 follow. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/threads*.py`, `server.py`, `aep_front.py` | **VERIFIED (Dokimos: 261 passed, 6 xfailed; Ontos ciclo 2 APPROVED). M1-M4 ✅; ONT-40b sin commit, commit pendiente (Hermon). Registro: `feature_20261106_011249_ont40_autoevol.md` §16** |
-| **autoevol write-path + Self-Healing N0-N3 (ONT-41)** | `spec`/`verify`/`fix_test`/`heal`, LKG content-addressed (`aep_lkg.py`), front N0-N2 + barrera, `aep_ctl lkg_*`, `crash_events.source`, `--audit` D-24 | Archon, Ontos, Pragma, Orchestrator | `aep_lkg.py`, `aep_front.py`, `engine/threads_{spec,verify,events,heal,ops}.py`, `engine/lkg_ctl.py`, `server.py` | **VERIFIED (Dokimos re-verificación sobre `c52861c`: 562 passed, 6 xfailed; F1 a F8 cerrados; 2 ciclos de fix; Ontos APPROVED ciclo 2). Commit de documentación pendiente (Hermon); push pendiente de autorización. Registro: `feature_20261106_080856_ont41_autoevol_heal.md` §19** |
+| **autoevol Thread Graph (ONT-40)** | Read-only thread graph with Merkle integrity and gap detection; tool 17 `autoevol` (`graph`, `gaps`, `thread`, `log`, `diff`). ONT-41 and ONT-42 follow. | Archon, Ontos, Pragma, Dokimos, Graphos, Hermon | `engine/threads*.py`, `server.py`, `aep_front.py` | **VERIFIED (Dokimos: 261 passed, 6 xfailed; Ontos ciclo 2 APPROVED). M1-M4 ✅; ONT-40b publicado en `dev`. Registro: `feature_20261106_011249_ont40_autoevol.md` §16** |
+| **autoevol write-path + Self-Healing N0-N3 (ONT-41)** | `spec`/`verify`/`fix_test`/`heal`, LKG content-addressed (`aep_lkg.py`), front N0-N2 + barrera, `aep_ctl lkg_*`, `crash_events.source`, `--audit` D-24 | Archon, Ontos, Pragma, Orchestrator | `aep_lkg.py`, `aep_front.py`, `engine/threads_{spec,verify,events,heal,ops}.py`, `engine/lkg_ctl.py`, `server.py` | **VERIFIED (Dokimos re-verificación sobre `c52861c`: 562 passed, 6 xfailed; F1 a F8 cerrados; 2 ciclos de fix; Ontos APPROVED ciclo 2). Documentación publicada en `dev`. Registro: `feature_20261106_080856_ont41_autoevol_heal.md` §19** |
 | **Harness Reconnect `ipc harness_reconnect` (ONT-42a)** | N4 de self-healing: `aep_ctl ipc harness_reconnect` plan/execute; detección de harness por ascendencia (`claude/versions/X.Y.Z`, L1); reaper del árbol LKG (L3); lockfile `O_NOFOLLOW`; D-25 `commit_drift` informativo | Archon, Ontos, Pragma, Dokimos, Graphos | `engine/harness_reconnect.py`, `scripts/aep-ctl`, `aep_backend.py`, `engine/lkg_ctl.py` | **VERIFIED excluyendo T8 (Dokimos sobre `c52861c`; Archon↔Ontos 0 revisiones; Pragma↔Dokimos 1 ciclo). T8 smoke en vivo pendiente de consentimiento del usuario (user-gated). Registro: `feature_20261106_172315_ont42a_harness_reconnect.md` §16** |
 | **ONT-42c E1 + evolve C1–C7 (judge and evolve, cerrado)** | E1 juez no falsificable (`NON_DISCRIMINATING`); C1–C3 `evolve` state machine, `GitPort`, ff-only, tier gating, fence; D-EV-1 and D-EV-1b closed (ACCEPT bound to judged tree and root, `TREE_MUTATED_DURING_JUDGE`) | Orchestrator (Short), Pragma, Dokimos, Graphos | `engine/threads_evolve.py`, `engine/threads_gitport.py`, `engine/threads_verify.py`, `server.py` | **VERIFIED (Dokimos: 706 passed, 0 xfail, ruff limpio; Pragma↔Dokimos 2 fix cycles; accepted risk M-2b, M-1 documented). C4–C7 VERIFIED (754 passed; 1 ciclo de corrección DK-1..DK-4). Registro: `feature_20261106_182001_ont42_judge_evolve.md` §19 y §20** |
 | **L3 Token Contract (D-01..D-05)** | Contrato de respuesta de `summary`: `discover(schema)` a `{tool:{params,actions}}`, `aep_ctl(schema)` con `defaults` + excepciones, `aep_ctl(ipc status)` sin `mux.pool`, `select_fields` con `unresolved_fields`, sobre plano en `playbook_run`/`artifact_catalog`/`kanban_board` | Orchestrator (Short), Pragma, Dokimos, Graphos | Archivos tocados por `4af584d`, `5999cb1`, `9b2f11e`, `8068f8b`, `e36a608` | **VERIFIED (Dokimos en vivo sobre `e36a608`: 576 passed, 0 xfail, ruff limpio; 0 ciclos de fix; autoevol gaps 103 → 97). Backlog ONT-42: AE-1..AE-6 y D-01b (bloqueante para `autoevol evolve` y auto-commit). Registro: `feature_20261106_181608_l3_token_contract.md`** |
@@ -229,7 +229,7 @@ flowchart LR
     N2 --> N3["M3: fixed (Pragma, d0ff416..5bee5c1) ✅"]
     N3 --> N4["M4: verified (Dokimos, 659 passed, 0 xfail, gaps 122) ✅"]
     N4 --> N5["M5: documented (Graphos G2) ✅"]
-    N5 --> N6["M6: pushed to origin/dev ⛔ retenido por usuario"]
+    N5 --> N6["M6: pushed to origin/dev (be78115) ✅"]
 ```
 
 | Milestone | Intent | Agente | Estado |
@@ -239,7 +239,7 @@ flowchart LR
 | M3 | Fixes en 6 commits | Pragma | ✅ |
 | M4 | Re-verificación (68 dirigidos; suite 659 passed, 0 xfail; own_gaps 0) | Dokimos | ✅ VERIFIED |
 | M5 | Registro, README §10.3, STATE, COMPACT | Graphos G2 | ✅ (`feature_20261107_011128_agy_audit.md`) |
-| M6 | Push a origin/dev | Hermon | ⛔ retenido |
+| M6 | Push a origin/dev | Hermon | ✅ (`be78115`) |
 
 ```mermaid
 flowchart LR
@@ -322,7 +322,7 @@ flowchart LR
 
 ## 9. ONT-43 field report y backlog track A (2026-11-07)
 
-Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`. SDD: `docs/sdd/sdd_ont43_field_report.md`. Estado: staged sobre `c0fb71a`, sin commit.
+Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`. SDD: `docs/sdd/sdd_ont43_field_report.md`. Estado: publicado en `dev` (`93c7d9f`..`d12e090`).
 
 | Milestone | Intent | Agente | Estado |
 |-----------|--------|--------|--------|
@@ -338,7 +338,7 @@ Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`. SDD: `d
 
 ## 10. Endurecimiento ONT-43 (O1–O3, R1–R3) (2026-11-12)
 
-Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md` (§Endurecimiento). SDD: `docs/sdd/sdd_ont43_field_report.md` (§7). Estado: staged sobre `d12e090`, sin commit. Verdict Dokimos: VERIFIED (987 passed, ruff check y format limpios, gaps 120, 17 tools / 19 capacidades).
+Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md` (§Endurecimiento). SDD: `docs/sdd/sdd_ont43_field_report.md` (§7). Estado: publicado en `dev` (`7e8e051`, `e0a9317`). Verdict Dokimos: VERIFIED (987 passed, ruff check y format limpios, gaps 120, 17 tools / 19 capacidades).
 
 | Milestone | Descripción | Agente | Estado |
 |-----------|-------------|--------|--------|
@@ -348,21 +348,21 @@ Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md` (§Endur
 | M4 | R1: el repro no puede redefinir el nombre de la excepción vinculada | Short (orquestador) / Dokimos | ✅ VERIFIED |
 | M5 | R2: prueba de paridad de normalización | Short (orquestador) / Dokimos | ✅ VERIFIED |
 | M6 | R3: prueba de dos promociones seguidas (sin `__pycache__`) | Short (orquestador) / Dokimos | ✅ VERIFIED |
-| M7 | Refresco documental: README, STATE, COMPACT, MILESTONES §10, rollup, SDD §7 | Graphos G2 | ✅ (staged) |
-| M8 | Commit de la tranche | Hermon | ⏳ retenido por el usuario |
+| M7 | Refresco documental: README, STATE, COMPACT, MILESTONES §10, rollup, SDD §7 | Graphos G2 | ✅ |
+| M8 | Commit de la tranche | Hermon | ✅ (`e0a9317`) |
 
 
 ## 11. Cobertura MCP ONT-44: reforzar puntos débiles y trinquete de gaps (2026-11-13)
 
-Registro: `docs/pipeline/feature_20261113_004026_mcp_coverage_reinforcement.md` (anterior: `feature_20261107_135303_ont43_field_report.md`). SDD: `docs/sdd/sdd_ont44_mcp_coverage_ratchet.md`. Estado: staged sobre `e0a9317`, sin commit.
+Registro: `docs/pipeline/feature_20261113_004026_mcp_coverage_reinforcement.md` (anterior: `feature_20261107_135303_ont43_field_report.md`). SDD: `docs/sdd/sdd_ont44_mcp_coverage_ratchet.md`. Estado: publicado en `dev` (`9f796d9`, `e1d661f`).
 
 ```mermaid
 flowchart LR
     I11["Intent: reforzar puntos debiles del MCP (ONT-44)"] --> C1["C1: cobertura de superficie MCP, 120 a 46 gaps (Pragma tracks A y B) VERIFIED"]
     C1 --> C2["C2: correcciones P1 a P5 (gate backup, verify pura, listeners, reindex, schema D-04) VERIFIED"]
     C2 --> C3["C3: trinquete GAPS_BASELINE = 46 VERIFIED"]
-    C3 --> C4["C4: documentacion (Graphos G2) staged"]
-    C4 --> C5["C5: commit (Hermon) pendiente de autorizacion"]
+    C3 --> C4["C4: documentacion (Graphos G2) ✅"]
+    C4 --> C5["C5: commit y push (Hermon, e1d661f) ✅"]
     C1 --> R["Residuo: 15 tests sin referencia, gaps asserts, 4 funciones sin covers"]
 ```
 
@@ -373,13 +373,13 @@ flowchart LR
 | M3 | P2 a P4: `verify_integrity` de sólo lectura, sidecars, listeners paginados, reindex `force` | Pragma / Dokimos | ✅ VERIFIED |
 | M4 | P5 D-04: schema summary 1524 a 1278 tokens (`shared_exceptions`) | Pragma / Dokimos | ✅ VERIFIED |
 | M5 | Trinquete `GAPS_BASELINE` = 46 (1 ciclo advisory) | Dokimos | ✅ VERIFIED |
-| M6 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ staged (este registro) |
-| M7 | Commit de la tranche | Hermon | ⛔ pendiente de autorización |
+| M6 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ |
+| M7 | Commit de la tranche | Hermon | ✅ (`e1d661f`) |
 
 
 ## 12. Residuo Topos ONT-45: grafo de hilos por criticidad (2026-11-13)
 
-Registro: `docs/pipeline/feature_20261113_080406_ont45_topos_residue.md` (anterior: `feature_20261113_004026_mcp_coverage_reinforcement.md`). SDD: `docs/sdd/sdd_ont45_topos_residue.md`. Estado: staged sobre `e1d661f`, sin commit.
+Registro: `docs/pipeline/feature_20261113_080406_ont45_topos_residue.md` (anterior: `feature_20261113_004026_mcp_coverage_reinforcement.md`). SDD: `docs/sdd/sdd_ont45_topos_residue.md`. Estado: publicado en `dev` (`92459e2`, `99f80bb`).
 
 ```mermaid
 flowchart LR
@@ -388,8 +388,8 @@ flowchart LR
     N2 --> N3["N3: puntos de entrada (Pragma track B) VERIFIED"]
     N3 --> N4["N4: 15 tests con aserciones aditivas (Pragma track C) VERIFIED"]
     N4 --> C5["C5: correccion de promesa service.* en 6rw- (Dokimos DEFECTIVE, Graphos) VERIFIED"]
-    C5 --> C6["C6: documentacion (Graphos G2) staged"]
-    C6 --> C7["C7: commit (Hermon) pendiente de autorizacion"]
+    C5 --> C6["C6: documentacion (Graphos G2) ✅"]
+    C6 --> C7["C7: commit y push (Hermon, 99f80bb) ✅"]
     N4 --> R["Residuo: 1 gap, test_gate8_semantic_sanitization (visible, no maquillado)"]
 ```
 
@@ -401,9 +401,9 @@ flowchart LR
 | M4 | N4: aserciones aditivas en 15 tests sin referencia a código | Pragma (C) / Dokimos | ✅ VERIFIED |
 | M5 | Corrección de la promesa de `service.*` en `6rw-` (DEFECTIVE → VERIFIED) | Pragma (docs) / Dokimos | ✅ VERIFIED |
 | M6 | Trinquete `GAPS_BASELINE` = 1; suite 1121 passed; ruff limpio | Dokimos | ✅ VERIFIED |
-| M7 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ staged (este registro) |
-| M8 | Commit de la tranche | Hermon | ⛔ pendiente de autorización |
-| B1 | Backlog ONT-46: precisión del extractor de threads (resolución por nombre, imports sólo top-level) | Pragma | ✅ VERIFIED (ver sección 13) |
+| M7 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ |
+| M8 | Commit de la tranche | Hermon | ✅ (`99f80bb`) |
+| B1 | Backlog ONT-46: precisión del extractor de threads (resolución por nombre sin tipar al receptor) | Pragma | ✅ VERIFIED (ver sección 13) |
 
 ## 13. Precisión del extractor de hilos ONT-46 (2026-11-13)
 

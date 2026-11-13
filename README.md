@@ -1102,7 +1102,7 @@ flowchart LR
 
 **ONT-46 precision del extractor de hilos (VERIFIED, publicado en `dev`; 1147 passed, gaps 1):** el tipado del receptor en `obj.method()` precede a la resolucion por nombre unico; las resoluciones sin tipo se registran como aristas `weak` (`Edge.weak`), nunca forman co-dependencia y se exponen en `autoevol(graph)` como `weak_edges`, con `"weak": true` en las filas de `autoevol(thread)`; el esquema del grafo es `threads/2`. Detalle: `docs/sdd/sdd_ont46_extractor_precision.md`.
 
-**ONT-41 autoevol write-path & self-healing N0-N3 (VERIFIED; committed in dev; push pending):**
+**ONT-41 autoevol write-path & self-healing N0-N3 (VERIFIED; published in dev):**
 
 ```mermaid
 flowchart LR
@@ -1110,10 +1110,10 @@ flowchart LR
     M1 --> M2["M2: implemented A, B1, C1, C2 (Pragma, worktrees) ✅"]
     M2 --> M3["M3: verified (Dokimos, 562 passed, 6 xfailed; 2 fix cycles) ✅"]
     M3 --> M4["M4: documented (Graphos/orchestrator) ✅"]
-    M4 --> M5["M5: pushed to origin/dev (Hermon) pending"]
+    M4 --> M5["M5: pushed to origin/dev (Hermon) ✅"]
 ```
 
-**ONT-42a harness reconnect N4 (VERIFIED excluding T8; T8 user-gated):**
+**ONT-42a harness reconnect N4 (VERIFIED; T8 live smoke executed 2026-11-13):**
 
 ```mermaid
 flowchart LR
@@ -1122,7 +1122,7 @@ flowchart LR
     M2 --> M3["M3: implemented T1 a T7 (Pragma) ✅"]
     M3 --> M4["M4: verified (Dokimos, excluding T8; 1 fix cycle) ✅"]
     M4 --> M5["M5: committed in dev (feb088c, 0578484) ✅"]
-    M5 --> M6["M6: live smoke T8 (user-gated) pending"]
+    M5 --> M6["M6: live smoke T8 (harness_reconnect from mobile, 2026-11-13) ✅"]
 ```
 
 **L3 token contract, D-01..D-05 (VERIFIED on `dev` @ `e36a608`; Short mode):**
@@ -1133,11 +1133,11 @@ flowchart LR
     M1 --> M2["M2: implemented (Pragma, 5 commits) ✅"]
     M2 --> M3["M3: verified (Dokimos, 576 passed, 0 xfail; 0 fix cycles) ✅"]
     M3 --> M4["M4: documented (Graphos G2) ✅"]
-    M4 --> M5["M5: committed in docs (Hermon) pending"]
-    M3 --> B1["Backlog: ONT-42 AE-1..AE-6 + D-01b (autoevol) ⛔"]
+    M4 --> M5["M5: committed in docs (Hermon, 07ff47a) ✅"]
+    M3 --> B1["Backlog: ONT-42 AE-1..AE-6 + D-01b (autoevol) ✅ closed by ONT-40..42c"]
 ```
 
-**Auditoría agy `1b983f1..b605677` (VERIFIED tras fixes; Short; push retenido):**
+**Auditoría agy `1b983f1..b605677` (VERIFIED tras fixes; Short; publicado `be78115`):**
 
 ```mermaid
 flowchart LR
@@ -1146,7 +1146,7 @@ flowchart LR
     M2 --> M3["M3: fixed (Pragma, d0ff416..5bee5c1) ✅"]
     M3 --> M4["M4: verified (Dokimos, 659 passed, 0 xfail) ✅"]
     M4 --> M5["M5: documented (Graphos G2) ✅"]
-    M5 --> M6["M6: pushed to origin/dev ⛔ retenido por usuario"]
+    M5 --> M6["M6: pushed to origin/dev (be78115) ✅"]
 ```
 
 **ONT-42c evaluador (cerrado: E1, C1–C7 VERIFIED; D-EV-1, D-EV-1b y DK-1..DK-4 cerrados; E2, E3 y E4 VERIFIED):**
@@ -1193,7 +1193,7 @@ flowchart LR
     E4 --> B["Backlog menor: LKG, sondas Go, errcheck, cache E2, ruff format ⏳"]
 ```
 
-**ONT-43 field report y backlog track A (VERIFIED, staged sin commit; 987 passed, previo 927):** `autoevol(action="report")` convierte fallos reales de herramientas en gaps `field_discrepancy` sólo tras reproducción en `bwrap` (fail-closed); un reporte nunca abre ciclos. Endurecimiento O1–O3 y R1–R3 (VERIFIED, staged): `report` exige `tool`, `action`, `status` y `error_class`; `sig = sha256(tool|action|status|error_class)[:12]` se verifica al registrar; el repro sólo puede ser `tests/field/test_fr_<sig>.py` (archivo regular, sin helpers) con `xfail(strict=True, raises=<error_class>)`. Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`; SDD: `docs/sdd/sdd_ont43_field_report.md`.
+**ONT-43 field report y backlog track A (VERIFIED, publicado en `dev` `93c7d9f`..`e0a9317`; 987 passed, previo 927):** `autoevol(action="report")` convierte fallos reales de herramientas en gaps `field_discrepancy` sólo tras reproducción en `bwrap` (fail-closed); un reporte nunca abre ciclos. Endurecimiento O1–O3 y R1–R3 (VERIFIED, `7e8e051`): `report` exige `tool`, `action`, `status` y `error_class`; `sig = sha256(tool|action|status|error_class)[:12]` se verifica al registrar; el repro sólo puede ser `tests/field/test_fr_<sig>.py` (archivo regular, sin helpers) con `xfail(strict=True, raises=<error_class>)`. Registro: `docs/pipeline/feature_20261107_135303_ont43_field_report.md`; SDD: `docs/sdd/sdd_ont43_field_report.md`.
 
 ```mermaid
 flowchart LR
