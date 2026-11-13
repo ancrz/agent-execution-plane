@@ -17,6 +17,17 @@ nunca abre un ciclo ni toca codigo. Estados (derivados del JSONL de eventos de a
     inyectado (`run_repro`) y debe dar XFAIL (falla de verdad). Solo entonces el sig entra en `promoted_sigs`, que
     alimenta `threads.field_discrepancies`. Abrir un ciclo sigue exigiendo el opt-in y el tope de reconcile.
 
+Politica de repro (O1/O2): UN solo archivo autocontenido. `tests/field` solo puede contener archivos regulares
+`test_fr_<12hex>.py` (nada de subdirectorios, `__init__.py`, helpers, symlinks ni otros tipos) y el repro no puede
+importar modulos hermanos de `tests/field` ni usar imports relativos: los repros multi-archivo estan FUERA de politica.
+Enlace falla<->clase de error (O2): el candidato guarda `error_class` (normalizada como en `telemetry`) y el marcador
+debe ser `xfail(strict=True, reason="FR-<sig> ...", raises=<Clase>)` con `Clase` == `error_class`. Se eligio la via AST
+sobre parsear el resumen de pytest: `-rx` imprime la razon del marcador, no la excepcion real, y con `raises=` +
+`strict=True` pytest ya falla el test (no XFAIL) si la excepcion es de otra clase, asi que XFAIL real implica clase real.
+El sig se VERIFICA al registrar: `field_sig(tool, action, status, error_class)` debe reproducir el sig (O3), asi
+`error_class` no puede mentirse. `telemetry` importa `field_sig` de aqui (hoja: sin ciclo).
+Un candidato sin `error_class` (registrado antes de O2) no promueve: REJECTED_NO_REPRO, hay que re-registrarlo.
+
 Nota de rotacion: el JSONL conserva el actual y `.1`; con tier >= 6rw- el servidor lo espeja al ledger.
 
 Topos: depende solo de `engine.threads_events` y `engine.security`; NO importa `server` ni otros `threads_*`.
@@ -26,6 +37,7 @@ El sandbox llega inyectado (`run_repro`).
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import re
 import time
@@ -52,6 +64,11 @@ _EVENT_KINDS = frozenset({EV_CANDIDATE, EV_OCCURRENCE, EV_PROMOTED, EV_REJECTED}
 
 SIG_RE = re.compile(r"^[0-9a-f]{12}$")
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_NON_WORD_RE = re.compile(r"[^a-z0-9_]+")  # igual que telemetry.normalize_error_class (sin importarlo: Topos)
+ERROR_CLASS_MAX = 40
+FIELD_SIG_LEN = 12
+_FIELD_FILE_RE = re.compile(r"^test_fr_[0-9a-f]{12}\.py$")
+NO_ERROR_CLASS_REASON = "candidate has no error_class; re-record"
 _REPRO_RE = re.compile(r"^tests/field/(test_fr_([0-9a-f]{12}))\.py::(?:([A-Za-z_]\w*)::)?([A-Za-z_]\w*)$")
 
 Clock = Callable[[], float]
@@ -66,6 +83,19 @@ def max_reports() -> int:
     except ValueError:
         return DEFAULT_MAX_REPORTS
     return value if value >= 1 else DEFAULT_MAX_REPORTS
+
+
+def norm_error_class(value: Any) -> str:
+    """Misma normalizacion que `telemetry.normalize_error_class`: ultimo segmento tras '.', minusculas, [a-z0-9_]."""
+    if isinstance(value, type):
+        value = value.__name__
+    return _NON_WORD_RE.sub("", str(value or "").lower().split(".")[-1].split(":")[0])[:ERROR_CLASS_MAX]
+
+
+def field_sig(tool: str, action: str, status: str, error_class: str) -> str:
+    """sha256(tool|action|status|error_class)[:12]. Pura; ningun texto de mensaje participa. Unica fuente del sig."""
+    key = "|".join((tool, str(action).strip().lower()[:32], str(status).upper(), error_class))
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:FIELD_SIG_LEN]
 
 
 def clean_text(value: Any) -> str:
@@ -92,6 +122,7 @@ def fold(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                     "occurrences": 1,
                     "tool": clean_text(e.get("tool")),
                     "action": clean_text(e.get("action")),
+                    "error_class": norm_error_class(e.get("error_class")),
                     "first_ts": ts,
                     "last_ts": ts,
                 }
@@ -103,6 +134,8 @@ def fold(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         elif kind == EV_OCCURRENCE:
             rec["occurrences"] += 1
             rec["last_ts"] = ts
+            if not rec["error_class"]:  # re-registro de un candidato previo a O2
+                rec["error_class"] = norm_error_class(e.get("error_class"))
         elif kind == EV_PROMOTED:
             rec["state"] = PROMOTED
             rec["test"] = clean_text(e.get("test"))
@@ -139,6 +172,8 @@ def record_report(
     observed: str,
     *,
     octal: int,
+    status: str = "",
+    error_class: str = "",
     base_dir: Path | str | None = None,
     clock: Clock = time.time,
 ) -> dict[str, Any]:
@@ -150,8 +185,13 @@ def record_report(
         return {"status": "ERROR", "error": "sig invalido (12 hex)."}
     known = _state(base_dir)
     now = clock()
+    eclass = norm_error_class(error_class)
+    if not (str(tool).strip() and str(action).strip() and str(status).strip() and eclass):
+        return {"status": "ERROR", "error": "report requires tool, action, status and error_class.", "sig": sig}
+    if field_sig(str(tool), str(action), str(status), eclass) != sig:  # O3: el sig se recomputa, no se confia
+        return {"status": "ERROR", "error": "sig does not match report components", "sig": sig}
     if sig in known:
-        res = ev.append_event(EV_OCCURRENCE, {"sig": sig}, base_dir=base_dir, clock=clock)
+        res = ev.append_event(EV_OCCURRENCE, {"sig": sig, "error_class": eclass}, base_dir=base_dir, clock=clock)
         if not res.get("appended"):
             return {"status": "ERROR", "error": "event log unavailable", "sig": sig}
         rec = known[sig]
@@ -167,6 +207,7 @@ def record_report(
         "input_summary": clean_text(input_summary),
         "expected": clean_text(expected),
         "observed": clean_text(observed),
+        "error_class": eclass,
     }
     res = ev.append_event(EV_CANDIDATE, data, base_dir=base_dir, clock=clock)
     if not res.get("appended"):
@@ -183,7 +224,8 @@ def _chain_tail(node: ast.AST) -> str:
     return node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else ""
 
 
-def _has_strict_fr_marker(fn: ast.AST, sig: str) -> bool:
+def _fr_marker(fn: ast.AST, sig: str) -> ast.Call | None:
+    """Decorador `xfail(strict=True, reason="FR-<sig> ...")` de `fn`, o None."""
     for dec in getattr(fn, "decorator_list", []):
         if not (isinstance(dec, ast.Call) and _chain_tail(dec.func) == "xfail"):
             continue
@@ -197,8 +239,95 @@ def _has_strict_fr_marker(fn: ast.AST, sig: str) -> bool:
                 and isinstance(k.value, ast.Constant)
                 and re.match(rf"\s*FR-{sig}(?![0-9a-f])", str(k.value.value))
             ):
+                return dec
+    return None
+
+
+def _has_strict_fr_marker(fn: ast.AST, sig: str) -> bool:
+    return _fr_marker(fn, sig) is not None
+
+
+def _marker_raises(marker: ast.Call) -> str | None:
+    """Clase unica de `raises=` (Name o Attribute), normalizada; None si falta o es tupla/expresion."""
+    for k in marker.keywords:
+        if k.arg == "raises" and isinstance(k.value, ast.Name | ast.Attribute):
+            return norm_error_class(_chain_tail(k.value))
+    return None
+
+
+def _raises_node(marker: ast.Call) -> ast.expr | None:
+    for k in marker.keywords:
+        if k.arg == "raises" and isinstance(k.value, ast.Name | ast.Attribute):
+            return k.value
+    return None
+
+
+_COMPOUND = (ast.If, ast.Try, ast.With, ast.For, ast.While)
+
+
+def _module_bindings(module: ast.Module) -> dict[str, set[str]]:
+    """Nombre -> tipos de binding a nivel de modulo (def/class/assign/import/from); entra en if/try/with, no en defs."""
+    out: dict[str, set[str]] = {}
+
+    def add(name: str, kind: str) -> None:
+        out.setdefault(name, set()).add(kind)
+
+    stack: list[ast.stmt] = list(module.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            add(node.name, "def")
+        elif isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                for n in ast.walk(t):
+                    if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                        add(n.id, "assign")
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                add(a.asname or a.name.split(".")[0], "import")
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                add(a.asname or a.name, "from")
+        elif isinstance(node, _COMPOUND):
+            for field in ("body", "orelse", "finalbody"):
+                stack.extend(getattr(node, field, []))
+            for h in getattr(node, "handlers", []):
+                stack.extend(h.body)
+    return out
+
+
+def _shadows_raises(module: ast.Module, node: ast.expr) -> bool:
+    """R1: el repro no puede rebindear el nombre de `raises=` ni usar como raiz algo que no sea builtins/modulo importado."""
+    bound = _module_bindings(module)
+    if isinstance(node, ast.Name):
+        return node.id in bound
+    root: ast.expr = node
+    while isinstance(root, ast.Attribute):
+        root = root.value
+    if not isinstance(root, ast.Name):
+        return True
+    kinds = bound.get(root.id, set())
+    if root.id == "builtins":
+        return bool(kinds - {"import"})
+    return not kinds or kinds != {"import"}
+
+
+def _imports_sibling(module: ast.Module, field_dir: Path) -> bool:
+    """O1: import relativo o de un modulo/paquete hermano bajo tests/field (repro multi-archivo = fuera de politica)."""
+    stems = {p.stem for p in field_dir.iterdir()} | {p.name for p in field_dir.iterdir()}
+    for node in ast.walk(module):
+        if isinstance(node, ast.ImportFrom):
+            if node.level > 0 or (node.module or "").split(".")[0] in stems:
                 return True
+        elif isinstance(node, ast.Import) and any(a.name.split(".")[0] in stems for a in node.names):
+            return True
     return False
+
+
+def _field_dir_clean(field_dir: Path) -> bool:
+    """O1: tests/field solo contiene archivos regulares `test_fr_<12hex>.py` (sin symlinks ni subdirectorios)."""
+    return all(_FIELD_FILE_RE.match(p.name) and not p.is_symlink() and p.is_file() for p in field_dir.iterdir())
 
 
 def _declares_pytest_plugins(module: ast.Module) -> bool:
@@ -216,7 +345,7 @@ def _declares_pytest_plugins(module: ast.Module) -> bool:
     return False
 
 
-def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, str]:
+def validate_repro(sig: str, repro_test: str, tree: Path | str, error_class: str | None = None) -> tuple[bool, str]:
     """Ruta bajo `tests/field/` con el MISMO sig, archivo regular dentro del arbol y marcador xfail estricto FR-<sig>."""
     m = _REPRO_RE.match(str(repro_test or "").strip())
     if m is None:
@@ -226,9 +355,12 @@ def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, s
     base = Path(tree).resolve()
     path = base / "tests" / "field" / f"{m.group(1)}.py"
     # F3: solo el archivo repro validado por AST puede ejecutarse; ningun conftest.py bajo tests/field (autoload).
+    field_dir = base / "tests" / "field"
     try:
-        if any(base.joinpath("tests", "field").rglob("conftest.py")):
+        if any(field_dir.rglob("conftest.py")):
             return False, "conftest.py is not allowed under tests/field"
+        if not _field_dir_clean(field_dir):  # O1: allowlist estricta
+            return False, "only test_fr_<sig>.py files are allowed under tests/field"
     except OSError:
         return False, "tests/field unreadable"
     try:
@@ -241,14 +373,29 @@ def validate_repro(sig: str, repro_test: str, tree: Path | str) -> tuple[bool, s
         return False, "repro file unreadable or does not parse"
     if _declares_pytest_plugins(module):
         return False, "pytest_plugins is not allowed in a repro file"
+    try:
+        if _imports_sibling(module, field_dir):
+            return False, "repro must be a single self-contained file (no sibling or relative imports)"
+    except OSError:
+        return False, "tests/field unreadable"
     name = m.group(4)
     for fn in ast.walk(module):
-        if (
-            isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)
-            and fn.name == name
-            and _has_strict_fr_marker(fn, sig)
-        ):
+        if not (isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and fn.name == name):
+            continue
+        marker = _fr_marker(fn, sig)
+        if marker is None:
+            continue
+        raises_node = _raises_node(marker)
+        if raises_node is not None and _shadows_raises(module, raises_node):
+            return False, "repro must not shadow the bound exception name"
+        if error_class is None:
             return True, "ok"
+        raised = _marker_raises(marker)
+        if raised is None:
+            return False, "xfail marker must declare raises=<ExceptionClass> bound to the reported error_class"
+        if raised != norm_error_class(error_class):
+            return False, "xfail raises= class does not match the candidate error_class"
+        return True, "ok"
     return False, f"test {name} lacks @pytest.mark.xfail(strict=True, reason='FR-{sig} ...')"
 
 
@@ -279,7 +426,10 @@ def promote_report(
         return {"status": "NOT_FOUND", "sig": sig, "error": "no candidate for this sig; record it first."}
     if rec["state"] == PROMOTED:
         return {"status": "PROMOTED", "sig": sig, "state": PROMOTED, "already": True}
-    ok, reason = validate_repro(sig, repro_test, tree)
+    if not rec.get("error_class"):
+        ev.append_event(EV_REJECTED, {"sig": sig, "reason": NO_ERROR_CLASS_REASON}, base_dir=base_dir, clock=clock)
+        return {"status": REJECTED, "sig": sig, "state": REJECTED, "reason": NO_ERROR_CLASS_REASON}
+    ok, reason = validate_repro(sig, repro_test, tree, rec["error_class"])
     if not ok:
         return {"status": "INVALID_REPRO", "sig": sig, "state": rec["state"], "reason": reason}
     nodeid = str(repro_test).strip()

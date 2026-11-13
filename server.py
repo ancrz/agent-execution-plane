@@ -5649,6 +5649,8 @@ def _autoevol_report(
             str(rep.get("expected", "")),
             str(rep.get("observed", "")),
             octal=octal,
+            status=str(rep.get("status", "")),
+            error_class=str(rep.get("error_class", "")),
         )
         if out.get("status") not in ("RECORDED", "DEDUPED"):
             return out
@@ -5801,7 +5803,7 @@ async def autoevol(
         5r-x/4r-- solo informan (sin escrituras). Idempotente, nunca commit/merge/push ni
         heal apply (`apply` se ignora). Por defecto solo PROPONE: abrir ciclos exige `open_cycles=True` o env
         AEP_RECONCILE_OPEN=1 (presupuesto propio AEP_RECONCILE_MAX_OPENS, defecto 1/24 h). `limit` acota propuestas. Eventos `reconcile.*` en el ledger con tier >= 6rw-.
-      - 'report' (ONT-43, campo): `sig` (de `evol_hint` en un error) + `report`={tool, input_summary, expected, observed} registra un
+      - 'report' (ONT-43, campo): `sig` (de `evol_hint` en un error) + `report`={tool, action, status, error_class, input_summary, expected, observed} (sig se recomputa) registra un
         CANDIDATO (tier >= 5r-x; dedupe por sig, tope AEP_FIELD_MAX_REPORTS 20/24 h; texto = dato inerte). Con
         `repro_test`="tests/field/test_fr_<sig>.py::nombre" (xfail strict, reason "FR-<sig> ...", tier >= 6rw-) corre SOLO ese
         test en sandbox: XFAIL real => PROMOVIDO (gap `field_discrepancy`); si pasa => REJECTED_NO_REPRO. Un reporte solo nunca

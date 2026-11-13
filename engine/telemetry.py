@@ -11,7 +11,6 @@ Topos: telemetry.py -> stdlib only (leaf module, zero internal imports, zero cyc
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
 import re
@@ -19,6 +18,8 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+from engine.threads_field import field_sig
 
 
 def _self_resources() -> tuple[int, int]:
@@ -118,7 +119,6 @@ _FIELD_NO_HINT_MODES = frozenset({"brief", "terse", "cached"})
 _ERROR_CLASS_KEYS = ("error_class", "error_type", "exception")
 _ERROR_CLASS_MAX = 40
 _NON_WORD_RE = re.compile(r"[^a-z0-9_]+")
-FIELD_SIG_LEN = 12
 
 
 def is_field_error_status(status: str) -> bool:
@@ -136,12 +136,6 @@ def normalize_error_class(payload: dict[str, Any]) -> str:
         raw = raw.__name__
     cls = _NON_WORD_RE.sub("", str(raw).lower().split(".")[-1].split(":")[0])
     return cls[:_ERROR_CLASS_MAX] or "unknown"
-
-
-def field_sig(tool: str, action: str, status: str, error_class: str) -> str:
-    """sha256(tool|action|status|error_class)[:12]. Pure; no message text participates."""
-    key = "|".join((tool, str(action).strip().lower()[:32], str(status).upper(), error_class))
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:FIELD_SIG_LEN]
 
 
 def _clamp_oversized_payload(payload: dict[str, Any], max_bytes: int = MAX_SAFE_JSON_BYTES) -> bool:
@@ -238,10 +232,17 @@ def attach_envelope(
         and is_field_error_status(status_val)
         and not (tracker.tool_name == "autoevol" and tracker.action == "report")
     ):
-        sig = field_sig(tracker.tool_name, tracker.action, status_val, normalize_error_class(payload))
+        eclass = normalize_error_class(payload)
+        sig = field_sig(tracker.tool_name, tracker.action, status_val, eclass)
+        status_tok = str(status_val).upper()
         payload["evol_hint"] = {
             "sig": sig,
-            "report": f"autoevol(action='report', sig='{sig}', report={{tool, expected, observed}})",
+            "status": status_tok,
+            "error_class": eclass,
+            "report": (
+                f"autoevol(action='report', sig='{sig}', report={{tool: '{tracker.tool_name}', "
+                f"action: '{tracker.action}', status: '{status_tok}', error_class: '{eclass}', expected, observed}})"
+            ),
         }
 
     # In detail mode (and default): preserve payload['envelope'] for backward compatibility.

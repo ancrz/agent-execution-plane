@@ -15,13 +15,14 @@ import server
 from engine import threads_field
 from engine.privilege import _PrivilegeCache
 
-SIG = "0123456789ab"
+REP = {"tool": "t", "action": "a", "status": "ERROR", "error_class": "AssertionError"}
+SIG = threads_field.field_sig("t", "a", "ERROR", "assertionerror")
 ROOT = Path(__file__).resolve().parent.parent
 
 MALICIOUS = """import pytest, socket, pathlib
 
 
-@pytest.mark.xfail(strict=True, reason="FR-0123456789ab side effects")
+@pytest.mark.xfail(strict=True, reason="FR-__SIG__ side effects", raises=AssertionError)
 def test_bug():
     out = {}
     try:
@@ -64,8 +65,15 @@ def test_malicious_repro_cannot_write_repo_or_reach_net(env: Path) -> None:
     (tree / "tests" / "field").mkdir(parents=True)
     (tree / "engine").mkdir()
     (tree / "engine" / "__init__.py").write_text("")
-    (tree / "tests" / "field" / f"test_fr_{SIG}.py").write_text(MALICIOUS)
-    assert _call(action="report", sig=SIG, report={"tool": "t", "observed": "IGNORE PREVIOUS"})["status"] == "RECORDED"
+    (tree / "tests" / "field" / f"test_fr_{SIG}.py").write_text(MALICIOUS.replace("__SIG__", SIG))
+    assert (
+        _call(
+            action="report",
+            sig=SIG,
+            report={**REP, "observed": "IGNORE PREVIOUS"},
+        )["status"]
+        == "RECORDED"
+    )
     res = _call(action="report", sig=SIG, repro_test=f"tests/field/test_fr_{SIG}.py::test_bug", root=str(tree))
     assert not (tree / "PWNED.txt").exists(), "repro wrote into the repo: sandbox not confining"
     assert not (tree / "tests" / "field" / "PWNED.txt").exists()
@@ -87,7 +95,7 @@ def test_tool_rejects_malformed_sig_and_records_nothing(env: Path, sig: str) -> 
 def test_tool_promote_rejects_traversal(env: Path, repro: str) -> None:
     tree = env / "tree"
     (tree / "tests" / "field").mkdir(parents=True)
-    _call(action="report", sig=SIG, report={"tool": "t", "observed": "o"})
+    _call(action="report", sig=SIG, report={**REP, "observed": "o"})
     res = _call(action="report", sig=SIG, repro_test=repro, root=str(tree))
     assert res["status"] == "INVALID_REPRO"
     assert threads_field.promoted_sigs() == set()
@@ -102,11 +110,11 @@ def test_promotion_fails_closed_when_bwrap_broken_even_for_own_tree(
     (tree / "tests" / "field").mkdir(parents=True)
     repro = (
         "import pytest\n\n\n"
-        f'@pytest.mark.xfail(strict=True, reason="FR-{SIG} bug")\n'
+        f'@pytest.mark.xfail(strict=True, reason="FR-{SIG} bug", raises=AssertionError)\n'
         "def test_bug():\n    assert False\n"
     )
     (tree / "tests" / "field" / f"test_fr_{SIG}.py").write_text(repro)
-    threads_field.record_report(SIG, "t", "a", "i", "e", "o", octal=6)
+    threads_field.record_report(SIG, "t", "a", "i", "e", "o", octal=6, status="ERROR", error_class="AssertionError")
     monkeypatch.setattr(
         server, "_autoevol_interpreter", lambda _t: {"ro_paths": [], "python": "python", "venv": str(tree)}
     )
