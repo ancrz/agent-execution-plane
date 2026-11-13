@@ -16,10 +16,25 @@ Determinismo (F11): todo conjunto se ordena antes de usarse; ningún hash incluy
 
 from __future__ import annotations
 
+import argparse
 import ast
+import asyncio
+import builtins
+import collections
+import concurrent.futures
+import contextvars
 import hashlib
+import io
+import logging
+import pathlib
+import queue
 import re
+import select
+import socket
+import sqlite3
+import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -343,6 +358,9 @@ class ExtractionInfo:
     errors: list[dict[str, str]] = field(default_factory=list)
     lazy_edges: int = 0
     planned_actions: list[str] = field(default_factory=list)
+    weak_edges: int = 0  # ONT-46: aristas creadas por nombre único sin tipo de receptor
+    external_skipped: int = 0  # ONT-46: resoluciones descartadas por receptor externo/builtin
+    type_index: Any = field(default=None, repr=False, compare=False)
 
 
 def _project_modules(code: dict[str, ParsedFile]) -> set[str]:
@@ -402,9 +420,11 @@ def extract_code(graph: ThreadGraph, src: Sources, info: ExtractionInfo) -> dict
         module_imports[mod] = imports
 
     fn_ids = _FnIndex(funcs)
+    types = build_type_index(src, funcs)
+    info.type_index = types
     for fn in funcs.values():
         ctx_imports = module_imports.get(fn.module, _Imports())
-        _add_function_edges(graph, fn, ctx_imports, fn_ids, class_names, project, tables)
+        _add_function_edges(graph, fn, ctx_imports, fn_ids, class_names, project, tables, types)
     return funcs
 
 
@@ -443,15 +463,20 @@ def _add_module_edges(
 
 def _expand(chain: list[str], fn: _FuncInfo, imports: _Imports, project: set[str]) -> list[str] | None:
     """Expande una cadena a su ruta absoluta usando los imports; None si es local o desconocida."""
+    return _expand_parts(chain, fn.module, fn.cls, imports)
+
+
+def _expand_parts(chain: list[str], module: str, cls: str, imports: _Imports) -> list[str]:
+    """Núcleo de `_expand` sin `_FuncInfo` (lo reutiliza el tipado de receptores, ONT-46)."""
     first = chain[0]
-    if first == "self" and fn.cls:
-        return [*fn.module.split("."), fn.cls, *chain[1:]]
+    if first == "self" and cls:
+        return [*module.split("."), cls, *chain[1:]]
     if first in imports.names:
         target = imports.names[first]
         if target[0] == "module":
             return [*target[1].split("."), *chain[1:]]
         return [*target[1].split("."), target[2], *chain[1:]] if target[1] else [target[2], *chain[1:]]
-    return [*fn.module.split("."), *chain]
+    return [*module.split("."), *chain]
 
 
 def _resolve_fn(
@@ -473,6 +498,668 @@ def _resolve_fn(
     return None
 
 
+# ---------------------------------------------------------------------------
+# ONT-46: tipado barato y determinista del receptor (`obj.metodo`)
+# ---------------------------------------------------------------------------
+
+EXT = "<external>"  # el valor es de un tipo externo al proyecto (builtin, stdlib o terceros)
+REF = "<ref>"  # el valor es un módulo, clase o función del proyecto como objeto (no una instancia)
+
+_BUILTIN_NAMES: frozenset[str] = frozenset(dir(builtins))
+# Anotaciones que no informan del tipo concreto.
+_OPAQUE_TYPES: frozenset[str] = frozenset({"Any", "object", "Self", "TypeVar", "NoReturn", "Never"})
+_UNWRAP_ANNOTATIONS: frozenset[str] = frozenset(
+    {"Optional", "ClassVar", "Final", "Annotated", "Required", "NotRequired"}
+)
+_GENERATOR_ANNOTATIONS: frozenset[str] = frozenset(
+    {"Iterator", "Generator", "AsyncIterator", "AsyncGenerator", "Iterable", "AsyncIterable"}
+)
+# Fixtures integradas de pytest: su valor es externo al proyecto.
+_PYTEST_EXTERNAL_FIXTURES: frozenset[str] = frozenset(
+    {"tmp_path", "tmp_path_factory", "monkeypatch", "capsys", "capfd", "caplog", "request", "recwarn", "pytestconfig"}
+)
+
+
+def _build_external_methods() -> frozenset[str]:
+    """Nombres públicos de métodos de tipos builtin y de clases stdlib usadas por el proyecto.
+
+    Un receptor de tipo desconocido cuyo método se llama así NO se resuelve por nombre único: casi seguro es
+    un objeto externo (`items.append`, `proc.terminate`, `conn.execute`). Se construye una vez por intérprete.
+    """
+    types: tuple[type, ...] = (
+        object, list, dict, set, frozenset, str, bytes, bytearray, tuple, int, float, bool, range, slice, type,
+        BaseException,
+        subprocess.Popen, threading.Thread, threading.Lock, threading.RLock, threading.Event, threading.Condition,
+        threading.Semaphore, pathlib.Path, sqlite3.Connection, sqlite3.Cursor, io.TextIOWrapper, io.BytesIO,
+        io.StringIO, socket.socket, logging.Logger, asyncio.AbstractEventLoop, asyncio.Task, asyncio.Future,
+        asyncio.Queue, asyncio.Event, asyncio.Lock, queue.Queue, collections.deque, collections.OrderedDict,
+        collections.Counter, collections.defaultdict, contextvars.ContextVar, concurrent.futures.Future,
+        concurrent.futures.ThreadPoolExecutor, argparse.ArgumentParser,
+    )  # fmt: skip
+    names: set[str] = set()
+    for t in types:
+        names.update(n for n in dir(t) if not n.startswith("_"))
+    names.update(n for n in dir(select) if not n.startswith("_"))
+    return frozenset(names)
+
+
+_EXTERNAL_METHODS: frozenset[str] = _build_external_methods()
+
+
+@dataclass(slots=True)
+class _Scope:
+    """Ámbito de tipado: módulo, clase, imports y los tipos de locales y globales (None = desconocido)."""
+
+    mod: str
+    cls: str
+    imports: _Imports
+    locals: dict[str, str | None]
+    globals: dict[str, str | None]
+
+
+@dataclass(slots=True)
+class _TypedCtx:
+    """Paquete de tipado que viaja con el extractor de tests."""
+
+    types: _TypeIndex
+    globals: dict[str, str | None]
+    fixtures: dict[str, str | None]
+
+
+def _imports_for(pf: ParsedFile, mod: str, is_pkg: bool, project: set[str]) -> _Imports:
+    """Mapa de imports de un módulo (idéntico al que usa `extract_code`: no perezosos y luego perezosos)."""
+    imports = _Imports()
+    if pf.tree is None:
+        return imports
+    collected = _collect_imports(pf.tree.body, mod, is_pkg, project)
+    for local, target, lazy in collected:
+        if not lazy:
+            imports.names[local] = target
+    lazy_names = {local: target for local, target, lazy in collected if lazy}
+    for local, target in lazy_names.items():
+        imports.names.setdefault(local, target)
+    return imports
+
+
+def _is_none_const(node: ast.AST | None) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def _store_names(target: ast.AST) -> list[str]:
+    return [n.id for n in ast.walk(target) if isinstance(n, ast.Name)]
+
+
+def _agree(types: list[str | None]) -> str | None:
+    """Tipo común a todas las asignaciones; None si hay conflicto, desconocido o ninguna."""
+    if not types:
+        return None
+    first = types[0]
+    return first if first is not None and all(t == first for t in types) else None
+
+
+def _is_property(fn: ast.AST) -> bool:
+    for dec in getattr(fn, "decorator_list", []):
+        chain = _chain(dec)
+        if chain and chain[-1] in ("property", "cached_property"):
+            return True
+    return False
+
+
+def _is_fixture(fn: ast.AST) -> bool:
+    for dec in getattr(fn, "decorator_list", []):
+        chain = _chain(dec.func if isinstance(dec, ast.Call) else dec)
+        if chain and chain[-1] == "fixture":
+            return True
+    return False
+
+
+class _TypeIndex:
+    """Inferencia barata de tipos de receptor sobre el AST (sin ejecutar código ni dependencias nuevas).
+
+    Alimenta `resolve`: `obj.metodo` se resuelve por el tipo de `obj` (constructor, anotación, atributo de
+    clase, global de módulo, fixture) y solo cae a la resolución por nombre único cuando el receptor es
+    DESCONOCIDO (arista `weak`). Receptores externos o builtin jamás producen aristas.
+    """
+
+    def __init__(self, src: Sources, funcs: dict[str, _FuncInfo]) -> None:
+        self.funcs = funcs
+        self.fn_ids = _FnIndex(funcs)
+        self.project = _project_modules(src.code)
+        self.class_names: dict[str, set[str]] = {}
+        self.imports: dict[str, _Imports] = {}
+        self.trees: dict[str, ast.Module] = {}
+        self.module_types: dict[str, dict[str, str | None]] = {}
+        self.class_attrs: dict[str, dict[str, str | None]] = {}
+        self.class_bases: dict[str, list[str]] = {}
+        self.external_skipped = 0
+        self.root = src.root
+        self._returns: dict[str, str | None] = {}
+        self._local_tops: dict[str, bool] = {}
+        for rel, pf in src.code.items():
+            if pf.tree is None:
+                continue
+            mod = module_name(rel)
+            self.trees[mod] = pf.tree
+            self.imports[mod] = _imports_for(pf, mod, rel.endswith("__init__.py"), self.project)
+            self.class_names[mod] = {s.name for s in pf.tree.body if isinstance(s, ast.ClassDef)}
+        for mod in sorted(self.trees):
+            for stmt in self.trees[mod].body:
+                if isinstance(stmt, ast.ClassDef):
+                    bases = [self.name_class(c, mod, self.imports[mod]) for b in stmt.bases if (c := _chain(b))]
+                    self.class_bases[f"{mod}.{stmt.name}"] = [b for b in bases if b and b not in (EXT, REF)]
+        for _ in range(3):
+            before = (self.module_types, self.class_attrs)
+            self.module_types = {m: self.module_globals(self.trees[m], m, self.imports[m]) for m in sorted(self.trees)}
+            self.class_attrs = {}
+            for mod in sorted(self.trees):
+                for stmt in self.trees[mod].body:
+                    if isinstance(stmt, ast.ClassDef):
+                        self.class_attrs[f"{mod}.{stmt.name}"] = self._scan_class(mod, stmt)
+            if before == (self.module_types, self.class_attrs):
+                break
+
+    # -- nombres, clases y anotaciones ------------------------------------------------------------
+
+    def lookup(self, expanded: list[str]) -> tuple[str, str] | None:
+        """('class', 'mod.Cls') o ('fn', 'fn:mod.q') para una ruta absoluta del proyecto."""
+        for k in range(len(expanded) - 1, 0, -1):
+            mod = ".".join(expanded[:k])
+            if mod not in self.project:
+                continue
+            qual = ".".join(expanded[k:])
+            if qual in self.class_names.get(mod, ()):
+                return ("class", f"{mod}.{qual}")
+            fid = f"fn:{mod}.{qual}"
+            return ("fn", fid) if fid in self.fn_ids else None
+        return None
+
+    def _is_local_code(self, top: str) -> bool:
+        """El paquete raíz vive en el árbol analizado (p. ej. `tests._evolve_support`): ni proyecto ni externo."""
+        if top not in self._local_tops:
+            self._local_tops[top] = (self.root / top).is_dir() or (self.root / f"{top}.py").is_file()
+        return self._local_tops[top]
+
+    def _defined_in(self, name: str, mod: str) -> bool:
+        return name in self.class_names.get(mod, ()) or f"fn:{mod}.{name}" in self.fn_ids
+
+    def name_class(self, chain: list[str], mod: str, imports: _Imports) -> str | None:
+        """Clase del proyecto (`mod.Cls`), EXT si el nombre es externo/builtin, None si no se sabe."""
+        expanded = _expand_parts(chain, mod, "", imports)
+        hit = self.lookup(expanded)
+        if hit:
+            return hit[1] if hit[0] == "class" else None
+        first = chain[0]
+        if first in imports.names:
+            has_project = any(".".join(expanded[:k]) in self.project for k in range(1, len(expanded) + 1))
+            return None if has_project or self._is_local_code(expanded[0]) else EXT
+        if len(chain) == 1 and first in _BUILTIN_NAMES and not self._defined_in(first, mod):
+            return EXT
+        return None
+
+    def ann_type(self, ann: ast.AST | None, mod: str, imports: _Imports, depth: int = 0) -> str | None:
+        """Tipo declarado por una anotación (`T`, `"T"`, `T | None`, `Optional[T]`, `Union[...]`)."""
+        if ann is None or depth > 4:
+            return None
+        if isinstance(ann, ast.Constant):
+            if isinstance(ann.value, str):
+                try:
+                    inner = ast.parse(ann.value.strip(), mode="eval").body
+                except SyntaxError, ValueError:
+                    return None
+                return self.ann_type(inner, mod, imports, depth + 1)
+            return None
+        if isinstance(ann, (ast.Name, ast.Attribute)):
+            chain = _chain(ann)
+            if not chain or chain[-1] in _OPAQUE_TYPES:
+                return None
+            return self.name_class(chain, mod, imports)
+        if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+            parts: list[ast.AST] = []
+            stack: list[ast.AST] = [ann]
+            while stack:
+                cur = stack.pop()
+                if isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.BitOr):
+                    stack.extend((cur.right, cur.left))
+                else:
+                    parts.append(cur)
+            return self._union(parts, mod, imports, depth)
+        if isinstance(ann, ast.Subscript):
+            head = _chain(ann.value)
+            name = head[-1] if head else ""
+            elts = list(ann.slice.elts) if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+            if name in _UNWRAP_ANNOTATIONS:
+                return self.ann_type(elts[0], mod, imports, depth + 1)
+            if name == "Union":
+                return self._union(elts, mod, imports, depth)
+            base = self.ann_type(ann.value, mod, imports, depth + 1)
+            return base if base == EXT or (base and base in self.class_bases) else None
+        return None
+
+    def _union(self, parts: list[ast.AST], mod: str, imports: _Imports, depth: int) -> str | None:
+        kept = [p for p in parts if not _is_none_const(p)]
+        return _agree([self.ann_type(p, mod, imports, depth + 1) for p in kept])
+
+    def fn_return(self, fid: str) -> str | None:
+        """Tipo de retorno anotado de una función del proyecto."""
+        if fid not in self._returns:
+            fn = self.funcs.get(fid)
+            ret = getattr(fn.tree, "returns", None) if fn else None
+            self._returns[fid] = self.ann_type(ret, fn.module, self.imports.get(fn.module, _Imports())) if fn else None
+        return self._returns[fid]
+
+    # -- herencia y atributos de clase ------------------------------------------------------------
+
+    def mro(self, key: str) -> list[str]:
+        out: list[str] = []
+
+        def visit(k: str) -> None:
+            if k in out:
+                return
+            out.append(k)
+            for b in self.class_bases.get(k, []):
+                visit(b)
+
+        visit(key)
+        return out
+
+    def find_method(self, cls_key: str, name: str) -> str | None:
+        for k in self.mro(cls_key):
+            fid = f"fn:{k}.{name}"
+            if fid in self.fn_ids:
+                return fid
+        return None
+
+    def attr_type(self, cls_key: str, attr: str) -> str | None:
+        for k in self.mro(cls_key):
+            attrs = self.class_attrs.get(k)
+            if attrs and attr in attrs:
+                return attrs[attr]
+        return None
+
+    # -- tipo de expresiones ----------------------------------------------------------------------
+
+    def value_type(self, chain: list[str], scope: _Scope) -> str | None:
+        """Tipo del valor `chain` (sin llamarlo): clase del proyecto, EXT, REF o None (desconocido)."""
+        root, rest = chain[0], chain[1:]
+        t: str | None
+        if root == "self" and scope.cls and root not in scope.locals:
+            t = f"{scope.mod}.{scope.cls}"
+        elif root in scope.locals:
+            t = scope.locals[root]
+        elif root in scope.globals:
+            t = scope.globals[root]
+        elif root in scope.imports.names:
+            expanded = _expand_parts(chain, scope.mod, scope.cls, scope.imports)
+            for k in range(len(expanded), 0, -1):
+                mod = ".".join(expanded[:k])
+                if mod in self.project:
+                    break
+            else:
+                return None if self._is_local_code(expanded[0]) else EXT
+            tail = expanded[k:]
+            if not tail:
+                return REF
+            known = self.module_types.get(mod, {})
+            if tail[0] not in known:
+                return REF
+            t, rest = known[tail[0]], tail[1:]
+        elif self._defined_in(root, scope.mod):
+            t = REF
+        elif root in _BUILTIN_NAMES:
+            t = EXT
+        else:
+            t = None
+        for attr in rest:
+            if t is None or t == REF:
+                return None
+            if t == EXT:
+                return EXT
+            t = self.attr_type(t, attr)
+        return t
+
+    def _method_result(self, receiver: str | None, name: str) -> str | None:
+        if receiver == EXT:
+            return EXT
+        if receiver is None or receiver == REF:
+            return None
+        fid = self.find_method(receiver, name)
+        return self.fn_return(fid) if fid else None
+
+    def call_type(self, call: ast.Call, scope: _Scope) -> str | None:
+        """Tipo del resultado de una llamada: constructor del proyecto, retorno anotado o EXT."""
+        func = call.func
+        chain = _chain(func)
+        if chain:
+            if chain[0] not in scope.locals:
+                hit = self.lookup(_expand_parts(chain, scope.mod, scope.cls, scope.imports))
+                if hit:
+                    return hit[1] if hit[0] == "class" else self.fn_return(hit[1])
+            if len(chain) == 1:
+                root = chain[0]
+                if root in scope.imports.names:
+                    return self.name_class(chain, scope.mod, scope.imports)
+                if root in _BUILTIN_NAMES and root not in scope.locals and not self._defined_in(root, scope.mod):
+                    return EXT
+                return None
+            return self._method_result(self.value_type(chain[:-1], scope), chain[-1])
+        if isinstance(func, ast.Attribute):
+            return self._method_result(self.expr_type(func.value, scope), func.attr)
+        return None
+
+    def expr_type(self, node: ast.AST | None, scope: _Scope) -> str | None:
+        """Tipo de una expresión; REF se degrada a desconocido (un objeto-clase no es una instancia)."""
+        t = self._expr_type(node, scope)
+        return None if t == REF else t
+
+    def _expr_type(self, node: ast.AST | None, scope: _Scope) -> str | None:
+        if isinstance(node, ast.Call):
+            return self.call_type(node, scope)
+        if isinstance(node, ast.Await):
+            return self._expr_type(node.value, scope)
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            chain = _chain(node)
+            return self.value_type(chain, scope) if chain else None
+        if isinstance(node, ast.Constant):
+            return None if node.value is None else EXT
+        if isinstance(
+            node,
+            (ast.List, ast.Dict, ast.Set, ast.Tuple, ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp),
+        ):
+            return EXT
+        if isinstance(node, (ast.JoinedStr, ast.Lambda)):
+            return EXT
+        if isinstance(node, ast.IfExp):
+            return self._pick([node.body, node.orelse], scope)
+        if isinstance(node, ast.BoolOp):
+            return self._pick(list(node.values), scope)
+        return None
+
+    def _pick(self, nodes: list[ast.AST], scope: _Scope) -> str | None:
+        kept = [n for n in nodes if not _is_none_const(n)]
+        return _agree([self.expr_type(n, scope) for n in kept])
+
+    # -- ámbitos: globales de módulo, atributos de clase y locales ---------------------------------
+
+    def module_globals(self, tree: ast.Module, mod: str, imports: _Imports) -> dict[str, str | None]:
+        """Tipo de los nombres asignados a nivel de módulo (`X = Ctor()`, `X: T = ...`)."""
+        scope = _Scope(mod, "", imports, {}, self.module_types.get(mod, {}))
+        cands: dict[str, list[str | None]] = {}
+
+        def add(name: str, t: str | None) -> None:
+            cands.setdefault(name, []).append(t)
+
+        def visit(stmts: list[ast.stmt]) -> None:
+            for st in stmts:
+                if isinstance(st, ast.Assign):
+                    if not _is_none_const(st.value):
+                        t = self.expr_type(st.value, scope)
+                        for tgt in st.targets:
+                            names = [tgt.id] if isinstance(tgt, ast.Name) else _store_names(tgt)
+                            for n in names:
+                                add(n, t if isinstance(tgt, ast.Name) else None)
+                elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                    t = self.ann_type(st.annotation, mod, imports) or self.expr_type(st.value, scope)
+                    add(st.target.id, t)
+                elif isinstance(st, ast.AugAssign) and isinstance(st.target, ast.Name):
+                    add(st.target.id, None)
+                elif isinstance(st, (ast.For, ast.AsyncFor)):
+                    for n in _store_names(st.target):
+                        add(n, None)
+                    visit(st.body)
+                    visit(st.orelse)
+                elif isinstance(st, ast.While):
+                    visit(st.body)
+                    visit(st.orelse)
+                elif isinstance(st, ast.If):
+                    visit(st.body)
+                    visit(st.orelse)
+                elif isinstance(st, (ast.With, ast.AsyncWith)):
+                    for item in st.items:
+                        if item.optional_vars is not None:
+                            for n in _store_names(item.optional_vars):
+                                add(n, None)
+                    visit(st.body)
+                elif isinstance(st, ast.Try):
+                    visit(st.body)
+                    visit(st.orelse)
+                    visit(st.finalbody)
+                    for h in st.handlers:
+                        visit(h.body)
+
+        visit(tree.body)
+        # `global X; X = Ctor()` dentro de funciones (singletons perezosos).
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            declared = {n for g in ast.walk(fn) if isinstance(g, ast.Global) for n in g.names}
+            if not declared:
+                continue
+            for a in ast.walk(fn):
+                if isinstance(a, ast.Assign) and not _is_none_const(a.value):
+                    for tgt in a.targets:
+                        if isinstance(tgt, ast.Name) and tgt.id in declared:
+                            add(tgt.id, self.expr_type(a.value, scope))
+        return {name: _agree(ts) for name, ts in sorted(cands.items())}
+
+    def _scan_class(self, mod: str, cls: ast.ClassDef) -> dict[str, str | None]:
+        imports = self.imports[mod]
+        globals_ = self.module_types.get(mod, {})
+        mscope = _Scope(mod, "", imports, {}, globals_)
+        cands: dict[str, list[str | None]] = {}
+
+        def add(name: str, t: str | None) -> None:
+            cands.setdefault(name, []).append(t)
+
+        def self_attr(t: ast.AST) -> str | None:
+            if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) and t.value.id == "self":
+                return t.attr
+            return None
+
+        for st in cls.body:
+            if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                add(st.target.id, self.ann_type(st.annotation, mod, imports) or self.expr_type(st.value, mscope))
+            elif isinstance(st, ast.Assign) and not _is_none_const(st.value):
+                t = self.expr_type(st.value, mscope)
+                for tgt in st.targets:
+                    if isinstance(tgt, ast.Name):
+                        add(tgt.id, t)
+            elif isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if _is_property(st):
+                    add(st.name, self.ann_type(st.returns, mod, imports))
+                env = self.local_env(st, mod, cls.name, imports, globals_)
+                scope = _Scope(mod, cls.name, imports, env, globals_)
+                for n in ast.walk(st):
+                    if isinstance(n, ast.Assign) and not _is_none_const(n.value):
+                        t = self.expr_type(n.value, scope)
+                        for tgt in n.targets:
+                            attr = self_attr(tgt)
+                            if attr:
+                                add(attr, t)
+                            elif isinstance(tgt, (ast.Tuple, ast.List)):
+                                for el in tgt.elts:
+                                    sub = self_attr(el)
+                                    if sub:
+                                        add(sub, None)
+                    elif isinstance(n, ast.AnnAssign):
+                        attr = self_attr(n.target)
+                        if attr:
+                            add(attr, self.ann_type(n.annotation, mod, imports) or self.expr_type(n.value, scope))
+        return {name: _agree(ts) for name, ts in sorted(cands.items())}
+
+    def local_env(
+        self,
+        fn: ast.AST,
+        mod: str,
+        cls: str,
+        imports: _Imports,
+        globals_: dict[str, str | None],
+        fixtures: dict[str, str | None] | None = None,
+    ) -> dict[str, str | None]:
+        """Tipo de los nombres locales de `fn` (params anotados, `x = Ctor()`, `with Ctor() as x`, fixtures).
+
+        Un nombre con asignaciones de tipos distintos o desconocidos queda en None (desconocido).
+        """
+        skip_first = bool(cls) and not any(
+            (_chain(d) or [""])[-1] == "staticmethod" for d in getattr(fn, "decorator_list", [])
+        )
+        names: set[str] = set()
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                names.add(n.id)
+            elif isinstance(n, ast.ExceptHandler) and n.name:
+                names.add(n.name)
+            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                a = n.args
+                every = [
+                    *a.posonlyargs,
+                    *a.args,
+                    *a.kwonlyargs,
+                    *([a.vararg] if a.vararg else []),
+                    *([a.kwarg] if a.kwarg else []),
+                ]
+                names.update(x.arg for x in every)
+        if skip_first:
+            args = getattr(fn, "args", None)
+            first = (args.posonlyargs + args.args) if args else []
+            if first:
+                names.discard(first[0].arg)
+        env: dict[str, str | None] = dict.fromkeys(names)
+        for _ in range(3):
+            scope = _Scope(mod, cls, imports, env, globals_)
+            cands: dict[str, list[str | None]] = {}
+
+            def add(name: str, t: str | None) -> None:
+                cands.setdefault(name, []).append(t)
+
+            for n in ast.walk(fn):
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                    a = n.args
+                    is_root = n is fn
+                    for i, x in enumerate([*a.posonlyargs, *a.args, *a.kwonlyargs]):
+                        if is_root and skip_first and i == 0:
+                            continue
+                        ann = getattr(x, "annotation", None)
+                        if ann is not None:
+                            add(x.arg, self.ann_type(ann, mod, imports))
+                        elif is_root and fixtures is not None and x.arg in fixtures:
+                            add(x.arg, fixtures[x.arg])
+                        else:
+                            add(x.arg, None)
+                    if a.vararg:
+                        add(a.vararg.arg, EXT)
+                    if a.kwarg:
+                        add(a.kwarg.arg, EXT)
+                elif isinstance(n, ast.Assign):
+                    if _is_none_const(n.value):
+                        continue
+                    t = self.expr_type(n.value, scope)
+                    for tgt in n.targets:
+                        if isinstance(tgt, ast.Name):
+                            add(tgt.id, t)
+                        else:
+                            for nm in _store_names(tgt) if isinstance(tgt, (ast.Tuple, ast.List)) else []:
+                                add(nm, None)
+                elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+                    add(n.target.id, self.ann_type(n.annotation, mod, imports) or self.expr_type(n.value, scope))
+                elif isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name):
+                    add(n.target.id, None)
+                elif isinstance(n, (ast.For, ast.AsyncFor)):
+                    for nm in _store_names(n.target):
+                        add(nm, None)
+                elif isinstance(n, ast.comprehension):
+                    for nm in _store_names(n.target):
+                        add(nm, None)
+                elif isinstance(n, (ast.With, ast.AsyncWith)):
+                    for item in n.items:
+                        var = item.optional_vars
+                        if isinstance(var, ast.Name):
+                            add(var.id, self._with_type(item.context_expr, scope))
+                        elif var is not None:
+                            for nm in _store_names(var):
+                                add(nm, None)
+                elif isinstance(n, ast.NamedExpr):
+                    add(n.target.id, None)
+                elif isinstance(n, ast.ExceptHandler) and n.name:
+                    add(n.name, None)
+            new = {name: _agree(cands.get(name, [])) for name in sorted(names)}
+            if new == env:
+                break
+            env = new
+        return env
+
+    def _with_type(self, ctx: ast.AST, scope: _Scope) -> str | None:
+        """`with Ctor(...) as x`: retorno anotado de `__enter__` si existe; si no, el propio tipo."""
+        t = self.expr_type(ctx, scope)
+        if t is None or t == EXT:
+            return t
+        enter = self.find_method(t, "__enter__")
+        return self.fn_return(enter) if enter else t
+
+    def fixture_types(
+        self, tree: ast.Module, mod: str, imports: _Imports, globals_: dict[str, str | None],
+        inherited: dict[str, str | None],
+    ) -> dict[str, str | None]:  # fmt: skip
+        """Tipo de las fixtures de pytest de un archivo: `-> T`, o `return/yield Ctor(...)` concordantes."""
+        defs: list[ast.AST] = [
+            n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_fixture(n)
+        ]
+        out: dict[str, str | None] = dict(inherited)
+        for _ in range(2):
+            for fn in sorted(defs, key=lambda d: (d.lineno, d.name)):  # type: ignore[attr-defined]
+                ann = fn.returns  # type: ignore[attr-defined]
+                if isinstance(ann, ast.Subscript) and (_chain(ann.value) or [""])[-1] in _GENERATOR_ANNOTATIONS:
+                    sl = ann.slice
+                    ann = sl.elts[0] if isinstance(sl, ast.Tuple) and sl.elts else sl
+                t = self.ann_type(ann, mod, imports)
+                if t is None:
+                    env = self.local_env(fn, mod, "", imports, globals_, out)
+                    scope = _Scope(mod, "", imports, env, globals_)
+                    vals: list[ast.AST | None] = []
+                    for n in ast.walk(fn):
+                        if isinstance(n, ast.Return) and n.value is not None:
+                            vals.append(n.value)
+                        elif isinstance(n, (ast.Yield,)) and n.value is not None:
+                            vals.append(n.value)
+                    t = _agree([self.expr_type(v, scope) for v in vals]) if vals else None
+                out[fn.name] = t  # type: ignore[attr-defined]
+        return out
+
+    # -- resolución de una cadena -----------------------------------------------------------------
+
+    def resolve(
+        self, chain: list[str], ctx: _FuncInfo, imports: _Imports, scope: _Scope, class_names: dict[str, set[str]]
+    ) -> tuple[str | None, bool]:
+        """(destino, weak) para una cadena `a.b.c`.
+
+        1. ruta absoluta por imports (precisa); 2. tipo del receptor (precisa); 3. receptor externo o clase del
+        proyecto sin ese método: sin arista; 4. receptor DESCONOCIDO y nombre no externo: nombre único (weak).
+        """
+        expanded = _expand(chain, ctx, imports, self.project)
+        target = _resolve_fn(expanded, self.fn_ids, class_names, self.project) if expanded else None
+        if target:
+            return target, False
+        if len(chain) < 2:
+            return None, False
+        receiver = self.value_type(chain[:-1], scope)
+        if receiver == EXT:
+            self.external_skipped += 1
+            return None, False
+        if receiver == REF:
+            return None, False
+        if receiver is not None:
+            return self.find_method(receiver, chain[-1]), False
+        if chain[-1] in _EXTERNAL_METHODS:
+            self.external_skipped += 1
+            return None, False
+        weak = self.fn_ids.weak(chain)
+        return (weak, True) if weak else (None, False)
+
+
+def build_type_index(src: Sources, funcs: dict[str, _FuncInfo]) -> _TypeIndex:
+    """Índice de tipos del proyecto (una vez por análisis; compartido por consumes y covers)."""
+    return _TypeIndex(src, funcs)
+
+
 def _add_function_edges(
     graph: ThreadGraph,
     fn: _FuncInfo,
@@ -481,7 +1168,10 @@ def _add_function_edges(
     class_names: dict[str, set[str]],
     project: set[str],
     tables: set[str],
+    types: _TypeIndex,
 ) -> None:
+    globals_ = types.module_types.get(fn.module, {})
+    scope = _Scope(fn.module, fn.cls, imports, types.local_env(fn.tree, fn.module, fn.cls, imports, globals_), globals_)
     for node in ast.walk(fn.tree):
         chain: list[str] | None = None
         if isinstance(node, ast.Attribute):
@@ -493,9 +1183,9 @@ def _add_function_edges(
         expanded = _expand(chain, fn, imports, project)
         if expanded is None:
             continue
-        target = _resolve_fn(expanded, fn_ids, class_names, project) or fn_ids.weak(chain)
+        target, weak = types.resolve(chain, fn, imports, scope, class_names)
         if target and target != fn.node_id:
-            graph.add_edge(fn.node_id, target, "consumes")
+            graph.add_edge(fn.node_id, target, "consumes", weak=weak)
     # SQL: escrituras y lecturas sobre tablas conocidas.
     writes: set[str] = set()
     reads: set[str] = set()
@@ -776,6 +1466,7 @@ def extract_capabilities(graph: ThreadGraph, src: Sources, tools: dict[str, dict
 @dataclass(slots=True)
 class _TestRefs:
     fns: set[str] = field(default_factory=set)
+    weak_fns: set[str] = field(default_factory=set)  # ONT-46: cobertura por nombre único sin tipo
     mods: set[str] = field(default_factory=set)
     tool_calls: list[tuple[str, dict[str, str]]] = field(default_factory=list)  # (tool, kwargs constantes)
     budgets: list[tuple[str, dict[str, str], str, int]] = field(default_factory=list)  # tool, kw, op, limit
@@ -828,19 +1519,23 @@ def _collect_test_refs(
     tool_names: set[str],
     helpers: dict[str, ast.AST],
     seen: set[str],
+    tc: _TypedCtx,
 ) -> _TestRefs:
     refs = _TestRefs()
     called: set[str] = set()
+    env = tc.types.local_env(node, ctx.module, "", imports, tc.globals, tc.fixtures)
+    scope = _Scope(ctx.module, "", imports, env, tc.globals)
     for n in ast.walk(node):
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in helpers and n.func.id not in seen:
             # Sitio de llamada a helper local: recursar por sitio y fusionar sus kwargs constantes (D-E4-1).
             hname = n.func.id
             called.add(hname)
             sub = _collect_test_refs(
-                helpers[hname], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen | {hname}
+                helpers[hname], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen | {hname}, tc
             )
             site = _kw_constants(n)
             refs.fns |= sub.fns
+            refs.weak_fns |= sub.weak_fns
             refs.mods |= sub.mods
             refs.tool_calls += [(t, {**site, **kws}) for t, kws in sub.tool_calls]
             refs.budgets += sub.budgets
@@ -854,17 +1549,18 @@ def _collect_test_refs(
             if len(chain) == 1 and chain[0] in helpers and chain[0] not in seen and chain[0] not in called:
                 seen.add(chain[0])
                 sub = _collect_test_refs(
-                    helpers[chain[0]], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen
+                    helpers[chain[0]], ctx, imports, fn_ids, class_names, project, tool_names, helpers, seen, tc
                 )
                 refs.fns |= sub.fns
+                refs.weak_fns |= sub.weak_fns
                 refs.mods |= sub.mods
                 refs.tool_calls += sub.tool_calls
                 refs.budgets += sub.budgets
             expanded = _expand(chain, ctx, imports, project)
             if expanded is not None:
-                target = _resolve_fn(expanded, fn_ids, class_names, project) or fn_ids.weak(chain)
+                target, weak = tc.types.resolve(chain, ctx, imports, scope, class_names)
                 if target:
-                    refs.fns.add(target)
+                    (refs.weak_fns if weak else refs.fns).add(target)
                 else:
                     for k in range(len(expanded), 0, -1):
                         if ".".join(expanded[:k]) in project:
@@ -881,6 +1577,11 @@ def _collect_test_refs(
                         refs.tool_calls.append((tname, _kw_constants(n)))
         if isinstance(n, ast.Dict):
             _collect_dict_tool(n, tool_names, refs)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.endswith(".py"):
+            # ONT-46: un test que lanza o toca un archivo del proyecto por ruta (`"aep_front.py"`) cubre su módulo.
+            lit = n.value.strip()
+            if lit.isascii() and " " not in lit and module_name(lit) in project:
+                refs.mods.add(module_name(lit))
     # Presupuestos: `assert tok < N` junto a una llamada a tool dentro del mismo test.
     for n in ast.walk(node):
         if isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id in ("tok", "tokens"):
@@ -913,11 +1614,17 @@ def _collect_dict_tool(d: ast.Dict, tool_names: set[str], refs: _TestRefs) -> No
 
 
 def extract_tests(
-    graph: ThreadGraph, src: Sources, funcs: dict[str, _FuncInfo], tools: dict[str, dict[str, Any]]
+    graph: ThreadGraph,
+    src: Sources,
+    funcs: dict[str, _FuncInfo],
+    tools: dict[str, dict[str, Any]],
+    types: _TypeIndex | None = None,
 ) -> None:
     """Nodos `test`, aristas `covers` (test -> tool/acción/función) y nodos `budget`."""
     project = _project_modules(src.code)
     fn_ids = _FnIndex(funcs)
+    types = types or build_type_index(src, funcs)
+    conftest_fixtures = _conftest_fixtures(src, types, project)
     class_names: dict[str, set[str]] = {}
     for f in funcs.values():
         if f.cls:
@@ -944,6 +1651,12 @@ def extract_tests(
                     if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub.name.startswith("test_"):
                         test_defs.append((f"{stmt.name}::{sub.name}", sub))
         ctx = _FuncInfo("", mod, "", "", pf.tree)
+        globals_ = types.module_globals(pf.tree, mod, imports)
+        fixtures = {
+            **dict.fromkeys(_PYTEST_EXTERNAL_FIXTURES, EXT),
+            **types.fixture_types(pf.tree, mod, imports, globals_, conftest_fixtures),
+        }
+        tc = _TypedCtx(types, globals_, fixtures)
         for qual, node in test_defs:
             tid = f"test:{rel}::{qual}"
             attrs: dict[str, Any] = {"file": rel, "name": qual}
@@ -954,9 +1667,9 @@ def extract_tests(
             if fref:
                 attrs["field_ref"] = fref
             graph.add_node(Node("test", tid, _dump_hash(node), attrs))
-            refs = _collect_test_refs(node, ctx, imports, fn_ids, class_names, project, tool_names, helpers, set())
-            for fid in sorted(refs.fns):
-                graph.add_edge(tid, fid, "covers")
+            refs = _collect_test_refs(node, ctx, imports, fn_ids, class_names, project, tool_names, helpers, set(), tc)
+            for fid in sorted(refs.fns | refs.weak_fns):
+                graph.add_edge(tid, fid, "covers", weak=fid not in refs.fns)
             for mname in sorted(refs.mods):
                 graph.add_edge(tid, f"module:{mname}", "covers")
             for tool, kws in refs.tool_calls:
@@ -977,6 +1690,19 @@ def extract_tests(
         graph.add_edge(bid, f"tool:{tool}", "asserts")
         if act_id:
             graph.add_edge(bid, act_id, "asserts")
+
+
+def _conftest_fixtures(src: Sources, types: _TypeIndex, project: set[str]) -> dict[str, str | None]:
+    """Tipos de las fixtures de `tests/conftest.py` (heredadas por todos los archivos de test)."""
+    pf = src.tests.get("tests/conftest.py")
+    if pf is None or pf.tree is None:
+        return {}
+    mod = module_name(pf.relpath)
+    imports = _Imports()
+    for local, target, _lazy in _collect_imports(pf.tree.body, mod, False, project):
+        imports.names.setdefault(local, target)
+    globals_ = types.module_globals(pf.tree, mod, imports)
+    return types.fixture_types(pf.tree, mod, imports, globals_, dict.fromkeys(_PYTEST_EXTERNAL_FIXTURES, EXT))
 
 
 def _call_action_ids(tool: str, kws: dict[str, str], tools: dict[str, dict[str, Any]]) -> list[str]:
@@ -1147,9 +1873,11 @@ def build_graph(src: Sources) -> tuple[ThreadGraph, ExtractionInfo]:
         for act in tools[tool]["actions"]:
             graph.add_edge(f"action:{tool}:{act}", f"fn:server.{tool}", "implemented_by")
     extract_capabilities(graph, src, tools)
-    extract_tests(graph, src, funcs, tools)
+    extract_tests(graph, src, funcs, tools, info.type_index)
     extract_claims(graph, src, tools)
     for rel, pf in src.tests.items():
         if pf.tree is None:
             info.errors.append({"file": rel, "error": pf.error})
+    info.weak_edges = sum(1 for e in graph.edges() if e.weak)
+    info.external_skipped = info.type_index.external_skipped if info.type_index is not None else 0
     return graph, info
