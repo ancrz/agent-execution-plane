@@ -586,7 +586,7 @@ def _is_none_const(node: ast.AST | None) -> bool:
 
 
 def _store_names(target: ast.AST) -> list[str]:
-    return [n.id for n in ast.walk(target) if isinstance(n, ast.Name)]
+    return [n.id for n in ast.walk(target) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
 
 
 def _agree(types: list[str | None]) -> str | None:

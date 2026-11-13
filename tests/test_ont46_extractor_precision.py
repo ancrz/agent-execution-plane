@@ -293,6 +293,33 @@ def test_o_spawn_resolves_one_local_alias_but_not_alias_of_alias(tmp_path: Path)
     assert two == []
 
 
+def test_p_module_attributes_reached_through_project_import_are_typed(tmp_path: Path) -> None:
+    g, _ = _build(
+        tmp_path,
+        {
+            "engine/__init__.py": "",
+            "engine/mgr.py": _MGR,
+            "engine/catalog.py": "class Catalog:\n    def register_artifact(self):\n        return 1\n",
+            "server.py": (
+                "from fastmcp import FastMCP\n"
+                "from engine.catalog import Catalog\n\n"
+                "mcp = FastMCP('x')\n"
+                "mcp._hook.options = 1\n"  # asignar a un atributo no vuelve desconocido a `mcp`
+                "catalog = Catalog()\n"
+            ),
+            "tests/test_srv.py": (
+                "import server\n\n"
+                "def test_ext():\n    server.mcp._tool_manager.list_tools()\n\n"
+                "def test_cat():\n    server.catalog.register_artifact()\n"
+            ),
+        },
+    )
+    ext = {e.dst for e in g.out_edges("test:tests/test_srv.py::test_ext", "covers")}
+    cat = {e.dst: e.weak for e in g.out_edges("test:tests/test_srv.py::test_cat", "covers")}
+    assert "fn:engine.mgr.Manager.list_tools" not in ext
+    assert cat["fn:engine.catalog.Catalog.register_artifact"] is False
+
+
 def test_j_weak_edge_never_forms_a_codependency_but_counts_for_coverage_and_impact(tmp_path: Path) -> None:
     g, _ = _build(
         tmp_path,
