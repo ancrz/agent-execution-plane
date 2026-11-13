@@ -269,6 +269,30 @@ def test_n_reading_or_quoting_a_project_file_does_not_cover_it(tmp_path: Path) -
     assert g.out_edges("test:tests/test_read.py::test_read", "covers") == []
 
 
+def test_o_spawn_resolves_one_local_alias_but_not_alias_of_alias(tmp_path: Path) -> None:
+    """Un nivel de alias local cuenta (`front = ROOT / "aep_front.py"`); alias de alias (`b = a`) es el límite."""
+    g, _ = _build(
+        tmp_path,
+        {
+            "aep_front.py": "def main():\n    return 1\n",
+            "server.py": "def tool():\n    return 1\n",
+            "tests/test_alias.py": (
+                "import subprocess, sys\n"
+                "from mcp import StdioServerParameters\n\n"
+                "def test_one_level():\n"
+                "    front = ROOT / 'aep_front.py'\n"
+                "    StdioServerParameters(command=sys.executable, args=[str(front)])\n\n"
+                "def test_two_levels():\n"
+                "    a = 'server.py'\n    b = a\n    subprocess.run([sys.executable, b])\n"
+            ),
+        },
+    )
+    one = {e.dst: e.weak for e in g.out_edges("test:tests/test_alias.py::test_one_level", "covers")}
+    two = g.out_edges("test:tests/test_alias.py::test_two_levels", "covers")
+    assert one == {"module:aep_front": True}
+    assert two == []
+
+
 def test_j_weak_edge_never_forms_a_codependency_but_counts_for_coverage_and_impact(tmp_path: Path) -> None:
     g, _ = _build(
         tmp_path,

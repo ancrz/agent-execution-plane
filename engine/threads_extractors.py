@@ -1542,6 +1542,12 @@ def _collect_test_refs(
     called: set[str] = set()
     env = tc.types.local_env(node, ctx.module, "", imports, tc.globals, tc.fixtures)
     scope = _Scope(ctx.module, "", imports, env, tc.globals)
+    local_assigns: dict[str, list[ast.AST]] = {}
+    for a in ast.walk(node):
+        if isinstance(a, ast.Assign) and len(a.targets) == 1 and isinstance(a.targets[0], ast.Name):
+            local_assigns.setdefault(a.targets[0].id, []).append(a.value)
+        elif isinstance(a, ast.AnnAssign) and isinstance(a.target, ast.Name) and a.value is not None:
+            local_assigns.setdefault(a.target.id, []).append(a.value)
     for n in ast.walk(node):
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in helpers and n.func.id not in seen:
             # Sitio de llamada a helper local: recursar por sitio y fusionar sus kwargs constantes (D-E4-1).
@@ -1599,12 +1605,19 @@ def _collect_test_refs(
         if isinstance(n, ast.Call) and _is_spawn_call(n):
             # ONT-46 F1 (cobertura por spawn): un literal que nombra un archivo del proyecto SOLO cuenta si está
             # en los argumentos de una llamada que lo lanza. Leerlo o citarlo no es ejercitarlo. Es cobertura
-            # dinámica a nivel de módulo: la arista se emite `weak`.
-            for lit_node in ast.walk(n):
-                if isinstance(lit_node, ast.Constant) and isinstance(lit_node.value, str):
-                    lit = lit_node.value.strip()
-                    if lit.endswith(".py") and lit.isascii() and " " not in lit and module_name(lit) in project:
-                        refs.spawn_mods.add(module_name(lit))
+            # dinámica a nivel de módulo: la arista se emite `weak`. Un único nivel de alias local: un `Name`
+            # del spawn asignado en este mismo cuerpo aporta los literales de su(s) valor(es); no se siguen
+            # alias de alias.
+            scan: list[ast.AST] = [n]
+            for name_node in ast.walk(n):
+                if isinstance(name_node, ast.Name):
+                    scan.extend(local_assigns.get(name_node.id, []))
+            for root in scan:
+                for lit_node in ast.walk(root):
+                    if isinstance(lit_node, ast.Constant) and isinstance(lit_node.value, str):
+                        lit = lit_node.value.strip()
+                        if lit.endswith(".py") and lit.isascii() and " " not in lit and module_name(lit) in project:
+                            refs.spawn_mods.add(module_name(lit))
     # Presupuestos: `assert tok < N` junto a una llamada a tool dentro del mismo test.
     for n in ast.walk(node):
         if isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id in ("tok", "tokens"):
