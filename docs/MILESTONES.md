@@ -403,4 +403,31 @@ flowchart LR
 | M6 | Trinquete `GAPS_BASELINE` = 1; suite 1121 passed; ruff limpio | Dokimos | ✅ VERIFIED |
 | M7 | Documentación: feature, SDD, STATE, COMPACT, rollup, MILESTONES, README | Graphos G2 | ✅ staged (este registro) |
 | M8 | Commit de la tranche | Hermon | ⛔ pendiente de autorización |
-| B1 | Backlog ONT-46: precisión del extractor de threads (resolución por nombre, imports sólo top-level) | Pragma | ⏳ candidato |
+| B1 | Backlog ONT-46: precisión del extractor de threads (resolución por nombre, imports sólo top-level) | Pragma | ✅ VERIFIED (ver sección 13) |
+
+## 13. Precisión del extractor de hilos ONT-46 (2026-11-13)
+
+Registro: `docs/pipeline/feature_20261113_ont46_extractor_precision.md` (anterior: `feature_20261113_080406_ont45_topos_residue.md`). SDD: `docs/sdd/sdd_ont46_extractor_precision.md`. Estado: VERIFIED en worktree `agent-ae5bdcba0132a8346`, HEAD `6aad7e0`, base `dev` `99f80bb`, publicado en `dev`.
+
+```mermaid
+flowchart LR
+    I13["Intent: precision del extractor de hilos (ONT-46)"] --> N1["N1: Edge.weak y tipado de receptor (6b05f7b, e3f504e, Pragma) ✅"]
+    N1 --> N2["N2: threads/2, weak fuera de SCC y en payload (5ce73e3, Pragma) ✅"]
+    N2 --> N3["N3: cobertura spawn restringida y alias local (34ef73b, 6fafcc9, Pragma) ✅"]
+    N3 --> C1["C1: Dokimos DEFECTIVE LOGIC_ERROR, extraccion 3.10 s > 2.0 s (Graphos G2) ✅"]
+    C1 --> C2["C2: perf y fix de atributos de modulo (4844d30, 6aad7e0, Pragma) ✅"]
+    C2 --> V["M: verified (Dokimos, 1147 passed; 1.50-1.72 s; gaps 1) ✅"]
+    V --> D["M: documentado (Graphos G2: README, STATE, COMPACT, MILESTONES, SDD) ✅"]
+    D --> H["M: commit (Hermon, ff a dev) ✅"]
+    V --> R["Residuo: 4 backlog items, ver seccion 6 del SDD ⛔"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Tipado de receptor, `_EXTERNAL_METHODS`, `Edge.weak`, `threads/2` | Pragma (ciclo 1) | ✅ |
+| M2 | Cobertura por spawn restringida y marcada débil (F1, F1b) | Pragma / orquestador | ✅ |
+| M3 | Dokimos ciclo 1: DEFECTIVE (LOGIC_ERROR), extracción en frío 3.10 s | Dokimos | ✅ registrado |
+| M4 | Ciclo 2: perf (`4844d30`) y fix de atributos de módulo (`6aad7e0`) | Pragma (ciclo 2) | ✅ |
+| M5 | Dokimos ciclo 2: 1147 passed, 0 failed, ruff limpio, gaps 1, co-dependencias 0 | Dokimos | ✅ VERIFIED |
+| M6 | Documentación (feature, SDD, README, STATE, COMPACT, MILESTONES) | Graphos G2 | ✅ |
+| M7 | Commit de la tanda y ff a `dev` | Hermon | ✅ |
