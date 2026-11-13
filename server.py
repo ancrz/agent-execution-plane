@@ -2344,7 +2344,7 @@ def _ensure_pueue_daemon() -> str | None:
 
 
 def _compact_pueue_payload(
-    raw_json_str: str, *, limit: int = 15, is_compact: bool = True
+    raw_json_str: str, *, limit: int = 15, is_compact: bool = True, cursor: int = 0
 ) -> tuple[dict[str, Any], bool]:
     """Sanitize and compact pueue status/log JSON, stripping multi-megabyte `envs` dicts."""
     masked = mask_pueue_output(raw_json_str)
@@ -2361,8 +2361,9 @@ def _compact_pueue_payload(
             total_tasks = len(all_tasks)
             sorted_keys = sorted(all_tasks.keys(), key=lambda k: int(k) if str(k).isdigit() else -1, reverse=True)
             eff_max = min(limit, 5) if (is_compact and limit == 15) else max(1, limit)
-            sliced_keys = sorted_keys[:eff_max]
-            truncated = total_tasks > len(sliced_keys)
+            start = max(0, int(cursor or 0))
+            sliced_keys = sorted_keys[start : start + eff_max]
+            truncated = total_tasks > start + len(sliced_keys)  # ONT-47 T7: truncated => next_cursor
             compact_tasks: dict[str, Any] = {}
             for k in sliced_keys:
                 t = all_tasks[k]
@@ -2388,13 +2389,16 @@ def _compact_pueue_payload(
                     compact_tasks[k] = t_clean
                 else:
                     compact_tasks[k] = t
-            return {
+            tasks_payload: dict[str, Any] = {
                 "status": "OK",
                 "total_tasks": total_tasks,
                 "count": len(compact_tasks),
                 "groups": data.get("groups", {}),
                 "tasks": compact_tasks,
-            }, truncated
+            }
+            if truncated:
+                tasks_payload["next_cursor"] = str(start + len(sliced_keys))
+            return tasks_payload, truncated
 
         # Case 2: pueue log --json <id> -> {"870": {"task": {...}, "output": "..."}}
         out_dict: dict[str, Any] = {"status": "OK"}
@@ -2425,6 +2429,7 @@ async def async_job_dispatch(
     limit: int = 15,
     verbosity: str = "summary",
     agent_id: str = "default",
+    cursor: int = 0,
 ) -> str:
     """
     [CAMINO B / PUEUE] Despacho e inspección unificada de tareas asíncronas en Pueue.
@@ -2432,6 +2437,7 @@ async def async_job_dispatch(
     - 'dispatch': Encola un comando de larga duración en segundo plano (requiere 'command').
     - 'inspect' / 'status': Consulta las últimas `limit` tareas de la cola (sin volcar `envs` masivos) o logs si se especifica 'task_id'.
     - 'log' / 'logs': Extrae el log aislado del 'task_id' especificado ('lines' por defecto 50).
+    - `cursor`: offset (tareas más recientes primero) para paginar 'status'/'inspect'; si hay más, `cursor` del sobre lo indica.
     Devuelve inmediatamente JSON tipado con fail-soft sin bloquear el loop del agente.
     """
 
@@ -2572,12 +2578,16 @@ async def async_job_dispatch(
                         verbosity=verbosity,
                     )
 
-                payload, trunc = _compact_pueue_payload(res.stdout, limit=eff_limit, is_compact=is_compact)
+                payload, trunc = _compact_pueue_payload(
+                    res.stdout, limit=eff_limit, is_compact=is_compact, cursor=cursor
+                )
+                next_cur = payload.pop("next_cursor", None)
                 return attach_envelope(
                     payload,
                     tracker,
                     verbosity=verbosity,
                     truncated=trunc,
+                    cursor=next_cur,
                     summary=f"Pueue {act} returned ({payload.get('count', 1)} tasks).",
                 )
 
@@ -4479,11 +4489,12 @@ async def kanban_board(
     limit: int = 5,
     verbosity: str = "summary",
     agent_id: str = "default",
+    cursor: int = 0,
 ) -> str:
     """
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
     action:
-      - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED). En modo `summary`, muestra hasta `limit` tareas recientes por lane.
+      - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED). En modo `summary`, muestra hasta `limit` tareas recientes por lane, desde el offset `cursor` por lane; si se trunca, `cursor` del sobre da el siguiente offset y `lane_totals` los totales por lane.
       - 'create' (o 'task_create', 'add'): crea una tarea atómica en BACKLOG (requiere `title`).
       - 'advance' (o 'move'): mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
       - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
@@ -4516,21 +4527,29 @@ async def kanban_board(
                 res = kanban.board(include_archived=include_archived)
                 res.setdefault("status", "OK")
                 truncated = False
+                eff_cursor = max(0, int(cursor or 0))
                 if is_compact and isinstance(res.get("lanes"), dict):
+                    lane_totals: dict[str, int] = {}
                     for lane_name, cards in list(res["lanes"].items()):
-                        if isinstance(cards, list) and len(cards) > eff_limit:
+                        if isinstance(cards, list):
+                            lane_totals[lane_name] = len(cards)
+                        if isinstance(cards, list) and (len(cards) > eff_limit or eff_cursor):
                             sorted_cards = sorted(
                                 cards,
                                 key=lambda c: int(c.get("task_id", 0)) if isinstance(c, dict) else 0,
                                 reverse=True,
                             )
-                            res["lanes"][lane_name] = sorted_cards[:eff_limit]
-                            truncated = True
+                            res["lanes"][lane_name] = sorted_cards[eff_cursor : eff_cursor + eff_limit]
+                            if len(cards) > eff_cursor + eff_limit:
+                                truncated = True
+                    if truncated:
+                        res["lane_totals"] = lane_totals
                 return attach_envelope(
                     res,
                     tracker,
                     verbosity=verbosity,
                     truncated=truncated,
+                    cursor=str(eff_cursor + eff_limit) if truncated else None,
                     summary=f"Kanban board loaded (counts={res.get('counts', {})}).",
                 )
             elif act in ("create", "task_create", "add"):
