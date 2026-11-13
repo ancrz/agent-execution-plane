@@ -5154,6 +5154,8 @@ async def default_primitives(
     args: list[str] | str | None = None,
     verbosity: str = "detail",
     agent_id: str = "default",
+    limit: int = 25,
+    cursor: int = 0,
 ) -> str:
     """
     [DEFAULT PRIMITIVES] Sondas de diagnóstico e introspección nativas del sistema ejecutadas directamente en RAM.
@@ -5167,6 +5169,9 @@ async def default_primitives(
       - 'list': lista todas las sondas por defecto con sus descripciones y parámetros.
       - 'info' | 'get': metadata y contrato de una sonda específica (requiere name).
       - 'run' | 'exec': ejecuta la sonda indicada bajo el tier chmod activo (fail-soft en 4r-- con PERMISSION_DENIED).
+    Paginación (solo 'socket-monitor' en modos compactos summary/brief/terse): `limit` (default 25) filas por página y
+    `cursor` (offset entero). El modo compacto pliega la tabla en `by_state`/`by_proto` + `listeners` (solo LISTEN, o
+    `sockets` del estado pedido en params.state); `verbosity='detail'` conserva la tabla completa.
     """
     tracker = RequestTelemetry("default_primitives", action)
     from engine.primitives import (
@@ -5284,6 +5289,12 @@ async def default_primitives(
         eff_tier_info = get_effective_chmod_tier()
         active_tier = eff_tier_info["tier"]
 
+        compact_run = (verbosity or "").strip().lower() in ("summary", "brief", "terse", "cached")
+        if compact_run and normalize_primitive_name(name) == "socket-monitor":
+            effective_params.setdefault("compact", True)
+            effective_params.setdefault("limit", limit)
+            effective_params.setdefault("cursor", cursor)
+
         result = execute_primitive(name, params=effective_params, tier=active_tier)
         status_val = result.get("status", "OK")
 
@@ -5303,12 +5314,21 @@ async def default_primitives(
                 summary=f"Primitive '{name}' execution failed: {result.get('error', 'unknown error')}",
             )
 
+        inner = result.get("result") if isinstance(result.get("result"), dict) else {}
+        page_truncated = bool(inner.get("truncated")) if compact_run else None
+        page_cursor = inner.get("next_cursor") if compact_run else None
         return attach_envelope(
             result,
             tracker,
             verbosity=verbosity,
             summary=f"Primitive '{name}' executed successfully in RAM (tier={active_tier}).",
-            next_action="Review primitive diagnostics or proceed with next workflow step.",
+            next_action=(
+                f"More rows available: repeat with cursor={page_cursor}."
+                if page_cursor
+                else "Review primitive diagnostics or proceed with next workflow step."
+            ),
+            truncated=True if page_truncated else None,
+            cursor=page_cursor,
         )
 
     else:

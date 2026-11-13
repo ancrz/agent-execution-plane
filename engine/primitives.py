@@ -100,16 +100,66 @@ def normalize_primitive_name(name: str) -> str:
     return name.strip().lower().replace("_", "-")
 
 
+SOCKET_MONITOR_DEFAULT_LIMIT = 25
+
+
+def _slim_socket(sock: dict[str, Any], *, with_state: bool) -> dict[str, Any]:
+    """Compact socket row: proto, local, uid and pid (when resolved); state/remote only for non-LISTEN views."""
+    row: dict[str, Any] = {"proto": sock.get("proto"), "local": sock.get("local"), "uid": sock.get("uid")}
+    if with_state:
+        row["state"] = sock.get("state")
+        row["remote"] = sock.get("remote")
+    if sock.get("pid") is not None:
+        row["pid"] = sock["pid"]
+    return row
+
+
 def _run_socket_monitor(params: dict[str, Any]) -> dict[str, Any]:
     state_filter = str(params.get("state") or "").strip().upper()
     sockets = parse_proc_net_sockets(protocol="all")
     if state_filter:
         sockets = [s for s in sockets if str(s.get("state", "")).upper() == state_filter]
+    if not params.get("compact"):
+        return {
+            "primitive": "socket-monitor",
+            "count": len(sockets),
+            "filter_state": state_filter or "ALL",
+            "sockets": sockets,
+        }
+
+    # ONT-47 T2: compact mode folds the table into counters and paginates the rows.
+    try:
+        limit = max(1, int(params.get("limit", SOCKET_MONITOR_DEFAULT_LIMIT)))
+    except TypeError, ValueError:
+        limit = SOCKET_MONITOR_DEFAULT_LIMIT
+    try:
+        offset = max(0, int(params.get("cursor", 0)))
+    except TypeError, ValueError:
+        offset = 0
+
+    by_state: dict[str, int] = {}
+    by_proto: dict[str, int] = {}
+    for sock in sockets:
+        st = str(sock.get("state", ""))
+        by_state[st] = by_state.get(st, 0) + 1
+        pr = str(sock.get("proto", ""))
+        by_proto[pr] = by_proto.get(pr, 0) + 1
+
+    rows_src = sockets if state_filter else [s for s in sockets if str(s.get("state", "")).upper() == "LISTEN"]
+    page = rows_src[offset : offset + limit]
+    rows = [_slim_socket(s, with_state=bool(state_filter)) for s in page]
+    next_offset = offset + limit
+    truncated = next_offset < len(rows_src)
     return {
         "primitive": "socket-monitor",
         "count": len(sockets),
         "filter_state": state_filter or "ALL",
-        "sockets": sockets,
+        "by_state": by_state,
+        "by_proto": by_proto,
+        ("sockets" if state_filter else "listeners"): rows,
+        "total_rows": len(rows_src),
+        "truncated": truncated,
+        "next_cursor": str(next_offset) if truncated else None,
     }
 
 
