@@ -109,12 +109,17 @@ class Node:
 
 @dataclass(frozen=True, slots=True)
 class Edge:
-    """Arista tipada. `lazy` marca imports dentro de funciones (calibración T0)."""
+    """Arista tipada. `lazy` marca imports dentro de funciones (calibración T0).
+
+    `weak` (ONT-46): resolución por nombre único sin tipo del receptor (`obj.metodo` con receptor
+    desconocido). Cuenta para cobertura y alcance (conservador) pero nunca para la clasificación SCC.
+    """
 
     src: str
     dst: str
     kind: str
     lazy: bool = False
+    weak: bool = False
 
 
 @dataclass(slots=True)
@@ -145,15 +150,28 @@ class ThreadGraph:
             raise ValueError(f"unknown node type: {node.type}")
         self.nodes[node.id] = node
 
-    def add_edge(self, src: str, dst: str, kind: str, *, lazy: bool = False) -> bool:
-        """Añade una arista si ambos extremos existen. Devuelve False si se descarta o ya existía."""
+    def add_edge(self, src: str, dst: str, kind: str, *, lazy: bool = False, weak: bool = False) -> bool:
+        """Añade una arista si ambos extremos existen. Devuelve False si se descarta o ya existía.
+
+        Una arista precisa sustituye a su gemela débil (misma src/dst/kind/lazy); una débil nunca desplaza a
+        una precisa ya presente.
+        """
         if kind not in EDGE_KINDS:
             raise ValueError(f"unknown edge kind: {kind}")
         if src not in self.nodes or dst not in self.nodes:
             return False
-        edge = Edge(src, dst, kind, lazy)
+        edge = Edge(src, dst, kind, lazy, weak)
         if edge in self._edges:
             return False
+        if weak:
+            if Edge(src, dst, kind, lazy, False) in self._edges:
+                return False
+        else:
+            twin = Edge(src, dst, kind, lazy, True)
+            if twin in self._edges:
+                self._edges.discard(twin)
+                self._out[src].remove(twin)
+                self._in[dst].remove(twin)
         self._edges.add(edge)
         self._out.setdefault(src, []).append(edge)
         self._in.setdefault(dst, []).append(edge)
@@ -161,7 +179,7 @@ class ThreadGraph:
 
     def edges(self, kinds: frozenset[str] | set[str] | None = None) -> list[Edge]:
         pool = self._edges if kinds is None else (e for e in self._edges if e.kind in kinds)
-        return sorted(pool, key=lambda e: (e.src, e.dst, e.kind, e.lazy))
+        return sorted(pool, key=lambda e: (e.src, e.dst, e.kind, e.lazy, e.weak))
 
     def out_edges(self, node_id: str, kind: str | None = None) -> list[Edge]:
         return [e for e in self._out.get(node_id, []) if kind is None or e.kind == kind]
@@ -213,5 +231,5 @@ def copy_graph(graph: ThreadGraph) -> ThreadGraph:
     for node in graph.nodes.values():
         clone.nodes[node.id] = node
     for edge in graph.edges():
-        clone.add_edge(edge.src, edge.dst, edge.kind, lazy=edge.lazy)
+        clone.add_edge(edge.src, edge.dst, edge.kind, lazy=edge.lazy, weak=edge.weak)
     return clone
