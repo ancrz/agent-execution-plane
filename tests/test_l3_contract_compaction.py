@@ -93,3 +93,29 @@ def test_project_fields_indexed_paths_preserve_lists() -> None:
     out = project_fields(data, ["items.1.a", "items.0.b", "items.1.b", "m.l.0.0.k"])
     assert out["items"] == [{"a": 3, "b": 4}, {"b": 2}]
     assert out["m"]["l"] == [[{"k": 1}]]
+
+
+def _fold_schema(identical: int) -> dict:
+    base = {"privilege_tier": "DIMINISHED", "required_fs": [], "deterministic": True}
+    dev = {**base, "privilege_tier": "FULL"}
+    names = [f"x{i}" for i in range(identical)][::-1]  # unsorted on purpose
+    pre = {n: dict(dev) for n in names}
+    pre.update({f"b{i}": dict(base) for i in range(6)})
+    pre["odd"] = {**base, "deterministic": False}
+    return {"d": {"actions": list(pre), "preconditions": pre}}
+
+
+def test_compact_control_plane_folds_three_identical_deviations() -> None:
+    domains, _ = server._compact_control_plane(_fold_schema(3))
+    assert domains["d"]["shared_exceptions"] == [{"actions": ["x0", "x1", "x2"], "privilege_tier": "FULL"}]
+    assert domains["d"]["exceptions"] == {"odd": {"deterministic": False}}
+
+
+def test_compact_control_plane_does_not_fold_two_identical_deviations() -> None:
+    domains, _ = server._compact_control_plane(_fold_schema(2))
+    assert "shared_exceptions" not in domains["d"]
+    assert domains["d"]["exceptions"] == {
+        "x0": {"privilege_tier": "FULL"},
+        "x1": {"privilege_tier": "FULL"},
+        "odd": {"deterministic": False},
+    }

@@ -133,8 +133,8 @@ def verify_database_integrity(
     db_path: Path | str | None = None,
     auto_seed_canary: bool = True,
     expected_schema_hash: str | None = None,
+    allow_missing_canary: bool = False,
 ) -> tuple[bool, str, dict[str, Any]]:
-    db_path = Path(db_path or DB_DEFAULT_PATH)
     """
     Verificación profunda anti-envenenamiento:
       1. Verificación de archivo y cabecera SQLite.
@@ -142,7 +142,11 @@ def verify_database_integrity(
       3. PRAGMA foreign_key_check.
       4. Auto-seed / verificación de canary.
       5. Verificación de fingerprint de esquema SHA-256 (si expected_schema_hash se provee).
+
+    Con `auto_seed_canary=False` la función es estrictamente de solo lectura; si además `allow_missing_canary=True`
+    un canary ausente no invalida la DB (se reporta en `details["canary"]`), útil para auditoría sin mutación.
     """
+    db_path = Path(db_path or DB_DEFAULT_PATH)
     if not db_path.exists():
         return False, "FILE_NOT_FOUND", {"path": str(db_path)}
     if db_path.stat().st_size == 0:
@@ -198,7 +202,7 @@ def verify_database_integrity(
                         rw.close()
                 except Exception as e:  # noqa: BLE001
                     logger.debug("Auto-seed canary failed: %s", e)  # noqa: BLE001
-            else:
+            elif not allow_missing_canary:
                 return False, "CANARY_MISSING", {"table": CANARY_TABLE}
         else:
             chk_conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
@@ -225,6 +229,7 @@ def verify_database_integrity(
                 "schema_hash": schema_hash,
                 "user_tables": user_table_count,
                 "size_bytes": db_path.stat().st_size,
+                "canary": "present" if canary_exists else "missing",
             },
         )
 
@@ -532,90 +537,97 @@ class BackupEngine:
 
             # 2. Creación en staging intermedio
             staging_file = self.backups_dir / "artifacts.db.bak.tmp"
-            if staging_file.exists():
-                staging_file.unlink(missing_ok=True)
-
-            src_conn = get_ro_connection(self.db_path, row_factory=False)
-            dst_conn = sqlite3.connect(str(staging_file))
             try:
-                src_conn.backup(dst_conn)
-            finally:
-                dst_conn.close()
-                src_conn.close()
+                for stale in (staging_file, Path(f"{staging_file}-wal"), Path(f"{staging_file}-shm")):
+                    stale.unlink(missing_ok=True)
 
-            # 3. Verificación de integridad previa a la promoción
-            staging_healthy, s_reason, s_details = verify_database_integrity(staging_file, auto_seed_canary=False)
-            if not staging_healthy:
-                staging_file.unlink(missing_ok=True)
-                return {
-                    "status": "INTEGRITY_CHECK_FAILED",
-                    "error": f"Verificación de integridad falló en el backup generado: {s_reason}",
-                    "details": s_details,
+                src_conn = get_ro_connection(self.db_path, row_factory=False)
+                dst_conn = sqlite3.connect(str(staging_file))
+                try:
+                    src_conn.backup(dst_conn)
+                finally:
+                    dst_conn.close()
+                    src_conn.close()
+
+                # 3. Verificación de integridad previa a la promoción
+                staging_healthy, s_reason, s_details = verify_database_integrity(staging_file, auto_seed_canary=False)
+                if not staging_healthy:
+                    staging_file.unlink(missing_ok=True)
+                    return {
+                        "status": "INTEGRITY_CHECK_FAILED",
+                        "error": f"Verificación de integridad falló en el backup generado: {s_reason}",
+                        "details": s_details,
+                    }
+
+                # 4. Cálculo de metadatos SHA-256 y tamaño
+                sha256_hash = compute_file_sha256(staging_file)
+                size_bytes = staging_file.stat().st_size
+
+                page_count = 0
+                try:
+                    check_conn = sqlite3.connect(f"file:{staging_file.resolve()}?mode=ro", uri=True)
+                    try:
+                        cur = check_conn.cursor()
+                        cur.execute("PRAGMA page_count")
+                        row = cur.fetchone()
+                        if row:
+                            page_count = int(row[0])
+                    finally:
+                        check_conn.close()
+                except (sqlite3.Error, OSError) as e:
+                    logger.debug("Failed getting page count: %s", e)
+
+                # 5. Promoción atómica a slot 1
+                target_slot1 = self.backups_dir / "artifacts.db.bak.1"
+                staging_file.rename(target_slot1)
+
+                # 6. Actualización del manifiesto con slots desplazados
+                manifest = self._load_manifest()
+                old_slots = manifest.get("slots", {})
+                new_slots: dict[str, Any] = {}
+
+                for k, slot_info in old_slots.items():
+                    try:
+                        slot_num = int(k)
+                        if slot_num < MAX_BACKUP_SLOTS:
+                            new_k = str(slot_num + 1)
+                            slot_info["filename"] = f"artifacts.db.bak.{new_k}"
+                            new_slots[new_k] = slot_info
+                    except ValueError:
+                        continue
+
+                iso_now = datetime.now(UTC).isoformat()
+                new_slots["1"] = {
+                    "filename": "artifacts.db.bak.1",
+                    "timestamp": iso_now,
+                    "sha256": sha256_hash,
+                    "size_bytes": size_bytes,
+                    "page_count": page_count,
+                    "integrity_verified": True,
                 }
 
-            # 4. Cálculo de metadatos SHA-256 y tamaño
-            sha256_hash = compute_file_sha256(staging_file)
-            size_bytes = staging_file.stat().st_size
+                manifest["version"] = 1
+                manifest["last_backup_timestamp"] = iso_now
+                manifest["active_slots"] = len(new_slots)
+                manifest["slots"] = new_slots
+                self._save_manifest(manifest)
 
-            page_count = 0
-            try:
-                check_conn = sqlite3.connect(f"file:{staging_file.resolve()}?mode=ro", uri=True)
-                try:
-                    cur = check_conn.cursor()
-                    cur.execute("PRAGMA page_count")
-                    row = cur.fetchone()
-                    if row:
-                        page_count = int(row[0])
-                finally:
-                    check_conn.close()
-            except (sqlite3.Error, OSError) as e:
-                logger.debug("Failed getting page count: %s", e)
-
-            # 5. Promoción atómica a slot 1
-            target_slot1 = self.backups_dir / "artifacts.db.bak.1"
-            staging_file.rename(target_slot1)
-
-            # 6. Actualización del manifiesto con slots desplazados
-            manifest = self._load_manifest()
-            old_slots = manifest.get("slots", {})
-            new_slots: dict[str, Any] = {}
-
-            for k, slot_info in old_slots.items():
-                try:
-                    slot_num = int(k)
-                    if slot_num < MAX_BACKUP_SLOTS:
-                        new_k = str(slot_num + 1)
-                        slot_info["filename"] = f"artifacts.db.bak.{new_k}"
-                        new_slots[new_k] = slot_info
-                except ValueError:
-                    continue
-
-            iso_now = datetime.now(UTC).isoformat()
-            new_slots["1"] = {
-                "filename": "artifacts.db.bak.1",
-                "timestamp": iso_now,
-                "sha256": sha256_hash,
-                "size_bytes": size_bytes,
-                "page_count": page_count,
-                "integrity_verified": True,
-            }
-
-            manifest["version"] = 1
-            manifest["last_backup_timestamp"] = iso_now
-            manifest["active_slots"] = len(new_slots)
-            manifest["slots"] = new_slots
-            self._save_manifest(manifest)
-
-            return {
-                "status": "SUCCESS",
-                "slot": 1,
-                "filename": "artifacts.db.bak.1",
-                "sha256": sha256_hash,
-                "size_bytes": size_bytes,
-                "page_count": page_count,
-                "timestamp": iso_now,
-                "active_slots": len(new_slots),
-            }
+                return {
+                    "status": "SUCCESS",
+                    "slot": 1,
+                    "filename": "artifacts.db.bak.1",
+                    "sha256": sha256_hash,
+                    "size_bytes": size_bytes,
+                    "page_count": page_count,
+                    "timestamp": iso_now,
+                    "active_slots": len(new_slots),
+                }
+            finally:
+                # Los sidecars WAL/SHM del staging los crean las conexiones de verificacion: no deben sobrevivir.
+                for suffix in ("-wal", "-shm"):
+                    Path(f"{staging_file}{suffix}").unlink(missing_ok=True)
+                if staging_file.exists():
+                    staging_file.unlink(missing_ok=True)
 
     def create_golden_snapshot(self) -> dict[str, Any]:
         """Crea un snapshot Golden inmutable de referencia verificando primero la integridad."""

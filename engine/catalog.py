@@ -630,14 +630,22 @@ class ArtifactCatalog:
                     vec = embedder.embed(text)
                     if vec is None:
                         continue
+                    # Per-row SAVEPOINT: a failed INSERT must not lose the previous vector (DELETE is undone).
+                    conn.execute("SAVEPOINT reindex_row")
                     try:
+                        # vec0 virtual tables reject INSERT OR REPLACE on an existing key: delete first (force=True).
+                        conn.execute("DELETE FROM vec_artifacts WHERE artifact_id = ?", (r["id"],))
                         conn.execute(
-                            "INSERT OR REPLACE INTO vec_artifacts (artifact_id, intent_embedding) VALUES (?, ?)",
+                            "INSERT INTO vec_artifacts (artifact_id, intent_embedding) VALUES (?, ?)",
                             (r["id"], sqlite_vec.serialize_float32(vec)),
                         )
-                        indexed += 1
                     except (sqlite3.Error, OSError) as e:
-                        logger.debug("Failed inserting vec_artifacts for %s: %s", r["id"], e)
+                        conn.execute("ROLLBACK TO SAVEPOINT reindex_row")
+                        conn.execute("RELEASE SAVEPOINT reindex_row")
+                        logger.warning("Failed re-indexing vec_artifacts for %s (previous vector kept): %s", r["id"], e)
+                        continue
+                    conn.execute("RELEASE SAVEPOINT reindex_row")
+                    indexed += 1
 
         return {
             "status": "OK",

@@ -503,6 +503,22 @@ CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
     },
 }
 
+# backup actions that mutate disk state (DB, backup pool, workspace): require chmod octal >= 6 (6rw-).
+# Read actions (status, verify_integrity, lkg_status, ...) stay open at every tier.
+BACKUP_MUTATING_ACTIONS: tuple[str, ...] = (
+    "backup",
+    "restore",
+    "auto_recover",
+    "verify_and_auto_recover",
+    "restore_micro_snapshot",
+    "golden",
+    "restore_golden",
+    "workspace_snapshot",
+    "workspace_restore",
+    "lkg_restore",
+)
+BACKUP_MUTATING_MIN_OCTAL = 6
+
 # Single Source of Truth for the Control Plane Schema (shared by scripts/aep-ctl and server.py)
 CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
     "service": {
@@ -672,6 +688,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
                 "required_fs": [],
                 "fail_soft_behavior": "IN_MEMORY_FALLBACK",
                 "deterministic": True,
+                **({"min_chmod_octal": BACKUP_MUTATING_MIN_OCTAL} if act in BACKUP_MUTATING_ACTIONS else {}),
             }
             for act in [
                 "backup",

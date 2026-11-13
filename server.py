@@ -63,6 +63,8 @@ from engine.kanban import KanbanBoard
 from engine.landlock import get_landlock_status
 from engine.playbook import PlaybookStore
 from engine.privilege import (
+    BACKUP_MUTATING_ACTIONS,
+    BACKUP_MUTATING_MIN_OCTAL,
     CHMOD_DEGRADATION_MATRIX,
     CONTROL_PLANE_SCHEMA,
     CapabilityGuard,
@@ -429,10 +431,38 @@ def _compact_control_plane(schema: dict[str, Any]) -> tuple[dict[str, Any], dict
             for act, p in (spec.get("preconditions") or {}).items()
             if any(defaults.get(k) != v for k, v in p.items())
         }
+        exceptions, folded = _fold_repeated_exceptions(exceptions)
         if exceptions:
             entry["exceptions"] = exceptions
+        if folded:
+            entry["shared_exceptions"] = folded
         out[dom] = entry
     return out, defaults
+
+
+_FOLD_MIN_ACTIONS = 3
+_CONTROL_PLANE_LEGEND = {
+    "shared_exceptions": "[{actions: [...], <deviating precondition keys>}] — identical deviations shared by >=3 actions, folded once"
+}
+
+
+def _fold_repeated_exceptions(
+    exceptions: dict[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """D-04 budget: identical per-action deviations shared by >= 3 actions are emitted once as
+    `shared_exceptions: [{actions: [...], <key>: <value>, ...}]` instead of being repeated per action."""
+    groups: dict[str, list[str]] = {}
+    for act, devs in exceptions.items():
+        groups.setdefault(json.dumps(devs, sort_keys=True), []).append(act)
+    folded: list[dict[str, Any]] = []
+    rest: dict[str, dict[str, Any]] = {}
+    for enc, acts in groups.items():
+        if len(acts) >= _FOLD_MIN_ACTIONS:
+            folded.append({"actions": sorted(acts), **json.loads(enc)})
+        else:
+            for act in acts:
+                rest[act] = exceptions[act]
+    return rest, folded
 
 
 def _compact_tools_schema(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3553,6 +3583,7 @@ async def aep_ctl(
                 schema_payload["domains"], schema_payload["precondition_defaults"] = _compact_control_plane(
                     CONTROL_PLANE_SCHEMA
                 )
+                schema_payload["legend"] = _CONTROL_PLANE_LEGEND
             if d in CONTROL_PLANE_SCHEMA:
                 schema_payload["domain"] = d
                 schema_payload["schema"] = CONTROL_PLANE_SCHEMA[d]
@@ -3687,10 +3718,38 @@ async def aep_ctl(
             elif a == "listeners":
                 socks = net_telemetry.parse_proc_net_sockets("tcp")
                 if socks:
-                    res_obj = {"status": "OK", "count": len(socks), "listeners": socks}
-                    return attach_envelope(res_obj, tracker, verbosity=verbosity)
+                    # Same shaping as the aep-ctl fallback path: honour summary/limit/cursor (token budget).
+                    cap = min(eff_limit, 25) if is_compact else eff_limit
+                    page = socks[eff_cursor : eff_cursor + cap]
+                    if is_compact:
+                        page = [{k: it.get(k) for k in ("proto", "local", "process", "pid")} for it in page]
+                    more = (eff_cursor + len(page)) < len(socks)
+                    res_obj = {"status": "OK", "count": len(page), "total_count": len(socks), "listeners": page}
+                    return attach_envelope(
+                        res_obj,
+                        tracker,
+                        verbosity=verbosity,
+                        truncated=more,
+                        cursor=str(eff_cursor + len(page)) if more else None,
+                    )
 
         elif d == "backup":
+            if a in BACKUP_MUTATING_ACTIONS and a != "lkg_restore":  # lkg_restore gates itself in lkg_ctl
+                tier_info = get_effective_chmod_tier()
+                if int(tier_info["octal"]) < BACKUP_MUTATING_MIN_OCTAL:
+                    return attach_envelope(
+                        {
+                            "status": "PERMISSION_DENIED",
+                            "error": f"backup.{a} requiere tier >= 6rw- (tier actual: {tier_info['tier']}).",
+                            "tier": tier_info["tier"],
+                            "chmod_tier": tier_info["tier"],
+                            "target": eff_name,
+                        },
+                        tracker,
+                        verbosity=verbosity,
+                        summary=f"backup.{a} blocked by read-only tier {tier_info['tier']}.",
+                        next_action="Use a read action (status, verify_integrity) or run under tier >= 6rw-.",
+                    )
             if a == "backup":
                 res_obj = create_backup()
             elif a == "restore":
@@ -3711,7 +3770,10 @@ async def aep_ctl(
                 res_obj = verify_and_auto_recover()
             elif a == "verify_integrity":
                 target_path = Path(eff_name.strip()) if eff_name and eff_name.strip() else None
-                ok, reason, details = verify_database_integrity(target_path)
+                # Solo lectura: sin auto-seed del canary (no muta la DB) y un canary ausente no invalida.
+                ok, reason, details = verify_database_integrity(
+                    target_path, auto_seed_canary=False, allow_missing_canary=True
+                )
                 res_obj = {
                     "status": "OK" if ok else "INTEGRITY_FAILED",
                     "valid": ok,
