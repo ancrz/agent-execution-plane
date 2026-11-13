@@ -126,12 +126,22 @@ def is_field_error_status(status: str) -> bool:
     return st in _FIELD_ERROR_STATUSES or st.endswith("_ERROR")
 
 
+# ONT-47 T6: exception-looking token at the start of a stderr line (e.g. "FileNotFoundError: [Errno 2] ...").
+_STDERR_EXC_RE = re.compile(r"^([A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning))\b", re.MULTILINE)
+
+
 def normalize_error_class(payload: dict[str, Any]) -> str:
-    """Stable class of a failure: explicit exception/class key, else the FIRST TOKEN of `error` (never the message)."""
+    """
+    Stable class of a failure (never the message). Priority: explicit exception/class key, else the FIRST TOKEN of
+    `error`, else the LAST exception-looking line of `stderr` (ONT-47 T6), else "unknown".
+    """
     raw: Any = next((payload[k] for k in _ERROR_CLASS_KEYS if payload.get(k)), None)
     if raw is None:
         text = str(payload.get("error") or "").strip()
         raw = text.split(None, 1)[0] if text else ""
+        if not raw and isinstance(payload.get("stderr"), str):
+            found = _STDERR_EXC_RE.findall(payload["stderr"])
+            raw = found[-1] if found else ""
     if isinstance(raw, type):
         raw = raw.__name__
     cls = _NON_WORD_RE.sub("", str(raw).lower().split(".")[-1].split(":")[0])
