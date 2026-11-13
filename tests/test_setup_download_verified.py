@@ -1,9 +1,12 @@
 """download_verified must tell a failed download apart from a checksum mismatch."""
 
 import hashlib
+import os
 import re
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from engine.privilege import check_binary_prerequisites
 
@@ -58,5 +61,12 @@ def test_valid_download_returns_zero(tmp_path) -> None:
     assert dest.read_bytes() == b"payload"
 
 
-def test_pinned_golangci_lint_is_go126_compatible_v2() -> None:
+def test_pinned_golangci_lint_is_go126_compatible_v2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert re.search(r'^GL_VERSION="2\.\d+\.\d+"$', SETUP, re.MULTILINE)
+    # The prerequisite detector must find a golangci-lint binary that setup.sh would install on PATH.
+    stub = tmp_path / "golangci-lint"
+    stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    os.chmod(stub, 0o700)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    detected = check_binary_prerequisites()["golangci-lint"]
+    assert detected == {"installed": True, "path": str(stub)}

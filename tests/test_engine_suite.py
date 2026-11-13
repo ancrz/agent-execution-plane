@@ -608,6 +608,7 @@ class TestControlPlaneExtensions:
         assert res.returncode == 0
         data = json.loads(res.stdout)
         assert data["status"] in ("SUPPORTED", "UNSUPPORTED")
+        assert data["status"] == get_landlock_status()["status"]
 
     def test_server_security_and_backup_ctl(self, tmp_path: Path):
         import server

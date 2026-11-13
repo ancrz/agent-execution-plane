@@ -24,6 +24,7 @@ from unittest.mock import patch
 import server
 from engine.privilege import (
     ALL_TIERS,
+    CHMOD_DEGRADATION_MATRIX,
     TIER_4R,
     TIER_5RX,
     TIER_6RW,
@@ -256,6 +257,7 @@ def test_gate6_control_plane_degradation() -> None:
     assert data_schema["status"] == "OK"
     assert "chmod_tier" in data_schema
     assert "degradation_matrix" in data_schema
+    assert data_schema["degradation_matrix"] == CHMOD_DEGRADATION_MATRIX["domains"]
 
     # 2. Service domain mutation degradation
     for tier, expected_status in [("4r--", "SIMULATED"), ("5r-x", "DEGRADED")]:

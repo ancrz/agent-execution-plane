@@ -51,3 +51,6 @@ def test_d12_changelog_has_028_entry_with_ont_milestones() -> None:
         "ONT-38",
     ):
         assert milestone in content, f"Milestone {milestone} missing from CHANGELOG.md"
+
+    # The entry's version is the server's single source of truth.
+    assert f"## [{server.SERVER_VERSION.removeprefix('v')}]" in content

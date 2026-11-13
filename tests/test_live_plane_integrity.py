@@ -315,6 +315,9 @@ def test_swap_fence_state_semantics() -> None:
 
 def test_fence_is_gitignored() -> None:
     assert ".aep_swap_fence" in (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    import aep_front
+
+    assert aep_front.SWAP_FENCE_NAME in (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
 
 def test_d21_fallback_fingerprint_matches_engine_implementation() -> None:
@@ -343,6 +346,11 @@ def test_d21_front_starts_when_engine_fingerprint_is_broken() -> None:
     )
     assert res.returncode == 0, res.stderr
     assert "OK" in res.stdout
+    # Parity of the fallback with the engine implementation, also checked in the parent process.
+    import aep_front
+    from engine.fingerprint import code_fingerprint
+
+    assert aep_front._fallback_code_fingerprint(PROJECT_ROOT) == code_fingerprint(PROJECT_ROOT)
 
 
 def test_d5_per_front_log_retention_and_dead_front_cleanup(tmp_path: Path) -> None:

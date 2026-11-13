@@ -19,6 +19,10 @@ from pathlib import Path
 
 import pytest
 
+import engine.catalog
+from engine.ipc_pool import GLOBAL_SESSION_POOL
+from engine.privilege import CONTROL_PLANE_SCHEMA
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CTL = PROJECT_ROOT / "scripts" / "aep-ctl"
 
@@ -41,6 +45,7 @@ def test_control_plane_schema_is_machine_discoverable() -> None:
     domains = schema["domains"]
     assert isinstance(domains, dict)
     assert {"service", "network", "storage", "package", "backup", "security", "audit", "ipc"} <= set(domains)
+    assert set(domains) == set(CONTROL_PLANE_SCHEMA)
 
 
 def test_invalid_control_action_returns_remediation() -> None:
@@ -48,6 +53,7 @@ def test_invalid_control_action_returns_remediation() -> None:
     result = _run_ctl("storage", "not-an-action")
     assert result["status"] == "ERROR"
     assert result["valid"] == ["usage", "mounts", "disks"]
+    assert result["valid"] == CONTROL_PLANE_SCHEMA["storage"]["actions"]
 
 
 @pytest.mark.skipif(
@@ -80,6 +86,18 @@ def test_clean_home_bootstraps_the_mcp_runtime(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "bootstrapped"
+    # The project's default DB location must resolve under the clean HOME it was bootstrapped with.
+    probe = subprocess.run(
+        [sys.executable, "-c", "import engine.catalog as c; print(c.DB_DEFAULT_PATH)"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert probe.returncode == 0, probe.stderr
+    clean_db = Path(probe.stdout.strip())
+    assert clean_db.relative_to(tmp_path / "home") == engine.catalog.DB_DEFAULT_PATH.relative_to(Path.home())
 
 
 def test_control_plane_schema_matches_advertised_mcp_domains() -> None:
@@ -492,6 +510,7 @@ def test_spec_om7_ipc_control_plane_actions() -> None:
     assert result["status"] == "OK"
     assert "ipc_socket" in result
     assert "session_pool" in result
+    assert set(result["session_pool"]) == set(GLOBAL_SESSION_POOL.status())
 
     metrics = _run_ctl("ipc", "metrics")
     assert metrics["status"] == "OK"

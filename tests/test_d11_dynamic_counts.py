@@ -19,6 +19,9 @@ def test_d11_negative_grep_server_py() -> None:
 
     matches = re.findall(r"15 herramientas|WF-1\.\.WF-9|15 tools, 0 domains", content)
     assert not matches, f"Found hardcoded internal strings in server.py: {matches}"
+    # The count that replaced the hardcoded string is derived from the live FastMCP tool manager.
+    live_count = len(server.mcp._tool_manager._tools)
+    assert f"{live_count} herramientas FastMCP" in (server.discover.__doc__ or "")
 
 
 def test_d11_derived_tool_count_in_docstring_and_description() -> None:

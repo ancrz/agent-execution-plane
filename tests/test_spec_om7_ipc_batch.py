@@ -30,6 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import server  # noqa: E402
 from engine.ipc_pool import (  # noqa: E402
+    GLOBAL_SESSION_POOL,
     GLOBAL_SOCKET_MUX,
     SessionPool,
     ensure_ipc_server_started,
@@ -305,6 +306,7 @@ class TestAepCtlIpcDomain:
         data = json.loads(res.stdout)
         assert data["status"] == "OK"
         assert "session_pool" in data
+        assert set(data["session_pool"]) >= set(GLOBAL_SESSION_POOL.status())
 
 
 # ==============================================================================

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+from pathlib import Path
 from typing import Any
 
 import server
@@ -134,3 +136,91 @@ def test_xfail_d05_aep_ctl_ipc_status_no_mux_pool() -> None:
     payload = json.loads(res)
     mux = payload.get("mux", {})
     assert "pool" not in mux, "Found duplicated 'pool' key inside 'mux' in summary response"
+
+
+# ==============================================================================
+# Read-only aep_ctl action budgets (ONT-45 N1)
+# Limits = tokens measured on the reference host x1.5, rounded up (all < 1500).
+# Paginated listings pass a small literal ``limit`` so the output is host-independent.
+# Host-sensitive, unpaginated actions (network.interfaces/inspect/arp, storage.disks)
+# are intentionally not budgeted here. Mutating actions are never budgeted.
+# ==============================================================================
+
+
+def _aep_ctl_tokens(**kwargs: Any) -> int:
+    res = asyncio.run(server.aep_ctl(verbosity="summary", **kwargs))
+    return _extract_tokens(json.loads(res))
+
+
+def test_budget_aep_ctl_backup_backup_status() -> None:
+    """aep_ctl(domain='backup', action='backup_status', verbosity='summary') <= 881 tokens."""
+    tok = _aep_ctl_tokens(domain="backup", action="backup_status")
+    assert tok <= 881, f"Expected <= 881 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_backup_quarantine_status() -> None:
+    """aep_ctl(domain='backup', action='quarantine_status', verbosity='summary') <= 126 tokens."""
+    tok = _aep_ctl_tokens(domain="backup", action="quarantine_status")
+    assert tok <= 126, f"Expected <= 126 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_backup_list_micro_snapshots() -> None:
+    """aep_ctl(domain='backup', action='list_micro_snapshots', verbosity='summary') <= 101 tokens."""
+    tok = _aep_ctl_tokens(domain="backup", action="list_micro_snapshots")
+    assert tok <= 101, f"Expected <= 101 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_backup_verify_integrity(tmp_path: Path) -> None:
+    """aep_ctl(domain='backup', action='verify_integrity', verbosity='summary') <= 165 tokens."""
+    db = tmp_path / "budget.db"
+    sqlite3.connect(db).close()
+    tok = _aep_ctl_tokens(domain="backup", action="verify_integrity", name=str(db))
+    assert tok <= 165, f"Expected <= 165 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_network_routes() -> None:
+    """aep_ctl(domain='network', action='routes', verbosity='summary') <= 348 tokens."""
+    tok = _aep_ctl_tokens(domain="network", action="routes", limit=5)
+    assert tok <= 348, f"Expected <= 348 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_package_installed() -> None:
+    """aep_ctl(domain='package', action='installed', verbosity='summary') <= 249 tokens."""
+    tok = _aep_ctl_tokens(domain="package", action="installed", limit=5)
+    assert tok <= 249, f"Expected <= 249 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_package_list() -> None:
+    """aep_ctl(domain='package', action='list', verbosity='summary') <= 248 tokens."""
+    tok = _aep_ctl_tokens(domain="package", action="list", limit=5)
+    assert tok <= 248, f"Expected <= 248 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_package_check() -> None:
+    """aep_ctl(domain='package', action='check', verbosity='summary') <= 96 tokens."""
+    tok = _aep_ctl_tokens(domain="package", action="check", name="bash", limit=5)
+    assert tok <= 96, f"Expected <= 96 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_package_info() -> None:
+    """aep_ctl(domain='package', action='info', verbosity='summary') <= 107 tokens."""
+    tok = _aep_ctl_tokens(domain="package", action="info", name="bash", limit=5)
+    assert tok <= 107, f"Expected <= 107 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_security_landlock_status() -> None:
+    """aep_ctl(domain='security', action='landlock_status', verbosity='summary') <= 138 tokens."""
+    tok = _aep_ctl_tokens(domain="security", action="landlock_status")
+    assert tok <= 138, f"Expected <= 138 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_service_list() -> None:
+    """aep_ctl(domain='service', action='list', verbosity='summary') <= 446 tokens."""
+    tok = _aep_ctl_tokens(domain="service", action="list", limit=5)
+    assert tok <= 446, f"Expected <= 446 tokens, got {tok}"
+
+
+def test_budget_aep_ctl_storage_mounts() -> None:
+    """aep_ctl(domain='storage', action='mounts', verbosity='summary') <= 324 tokens."""
+    tok = _aep_ctl_tokens(domain="storage", action="mounts", limit=5)
+    assert tok <= 324, f"Expected <= 324 tokens, got {tok}"

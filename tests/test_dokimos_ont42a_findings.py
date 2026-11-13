@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import aep_lkg
 from engine import harness_reconnect as hr
 from tests.test_ont42a_harness_reconnect import _mk_proc, _pts_nr
 
@@ -48,11 +49,14 @@ def test_l2_plan_reports_ancestry_even_when_route_is_noop(tmp_path: Path) -> Non
     assert plan["recommended_route"] == "noop" and plan["harness"] == "claude" and plan["tty"] == "/dev/pts/3"
 
 
-def test_l3_reaper_covers_lkg_tree_backends(tmp_path: Path) -> None:
+def test_l3_reaper_covers_lkg_tree_backends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.test_ont41_front import reap_backends_of
 
     repo = tmp_path / "repo"
     repo.mkdir()
+    # aep_lkg places trees under $AEP_DATA_HOME/lkg/<key>/tree: they fall inside the reaper prefix (repo.parent).
+    monkeypatch.setenv("AEP_DATA_HOME", str(tmp_path / "front_state" / "data"))
+    assert str(aep_lkg.tree_path("a" * 16)).startswith(str(repo.parent))
     lkg_tree = tmp_path / "front_state" / "data" / "lkg" / "abc" / "tree"
     lkg_tree.mkdir(parents=True)
     (lkg_tree / "aep_backend.py").write_text("import time\ntime.sleep(60)\n", encoding="utf-8")

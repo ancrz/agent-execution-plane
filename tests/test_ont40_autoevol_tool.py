@@ -88,7 +88,9 @@ def test_thread_and_gaps_actions() -> None:
     thread = json.loads(asyncio.run(server.autoevol(action="thread", node="tool:autoevol")))
     assert thread["status"] == "OK"
     gaps = json.loads(asyncio.run(server.autoevol(action="gaps", limit=3)))
-    assert len(gaps["gaps"]) == 3
+    # `limit` acota la pagina; el repo puede tener menos gaps que el limite (ONT-45 dejo el residuo en 1)
+    assert len(gaps["gaps"]) == min(3, gaps["gaps_open"])
+    assert gaps["gaps_open"] >= len(gaps["gaps"])
     projected = json.loads(asyncio.run(server.autoevol(action="gaps", select_fields=["gaps_open"])))
     assert "gaps_open" in projected
 

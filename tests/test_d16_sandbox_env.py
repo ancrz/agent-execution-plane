@@ -5,6 +5,7 @@ Tests for D-16: sandbox_run exports AEP_IN_SANDBOX=1 and skipif guard (ONT-38b-L
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 
 import server
@@ -25,3 +26,5 @@ def test_d16_skipif_marker_present() -> None:
     skip_marks = [m for m in marks if m.name == "skipif"]
     assert len(skip_marks) >= 1
     assert "AEP_IN_SANDBOX" in str(skip_marks[0].kwargs.get("reason", ""))
+    # The skip reason names the same variable that sandbox_run exports into the jail.
+    assert "AEP_IN_SANDBOX" in inspect.getsource(server.sandbox_run)
