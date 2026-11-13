@@ -3600,6 +3600,10 @@ async def aep_ctl(
             if d in CONTROL_PLANE_SCHEMA:
                 schema_payload["domain"] = d
                 schema_payload["schema"] = CONTROL_PLANE_SCHEMA[d]
+                if compact_schema:  # ONT-47 T8: a per-domain query does not dump the other domains
+                    schema_payload.pop("domains", None)
+                    schema_payload.pop("legend", None)
+                    schema_payload["degradation_matrix"] = CHMOD_DEGRADATION_MATRIX.get("domains", {}).get(d, {})
             return attach_envelope(
                 schema_payload,
                 tracker,
