@@ -4155,6 +4155,21 @@ async def check_crash_alerts(resolve_after_report: bool = False) -> str:
     return await diagnose_system_crashes(action="alerts", resolve_after_report=resolve_after_report)
 
 
+# ONT-47 T5: relevance bands over the vec_docs distance (lower is closer). Observed on the live corpus: a real
+# hit (socket-monitor for a socket question) lands at ~0.22; unrelated chunks (ss, apt, git bisect) at 0.30-0.32.
+DOCS_CONFIDENCE_HIGH_MAX_DISTANCE = 0.20
+DOCS_CONFIDENCE_MEDIUM_MAX_DISTANCE = 0.28
+DOCS_LOW_CONFIDENCE_NEXT_ACTION = "Refine the query with the command name (e.g. 'ss retransmissions') or ingest the man page with ingest_command=<cmd>."
+
+
+def _docs_confidence(best_distance: float) -> str:
+    if best_distance <= DOCS_CONFIDENCE_HIGH_MAX_DISTANCE:
+        return "HIGH"
+    if best_distance <= DOCS_CONFIDENCE_MEDIUM_MAX_DISTANCE:
+        return "MEDIUM"
+    return "LOW"
+
+
 @mcp.tool(structured_output=False)
 async def query_system_docs(
     query: str | None = None,
@@ -4170,6 +4185,10 @@ async def query_system_docs(
     Devuelve la sintaxis exacta de herramientas del sistema sin alucinar ni navegar la web.
     - `query` / `q`: consulta en lenguaje natural o comando del sistema.
     - `ingest_command`: ingiere la man-page de un comando extra on-demand antes de consultar.
+    Relevancia: `best_distance` (mínima distancia vectorial) y `confidence` HIGH (<= 0.20), MEDIUM (<= 0.28) o LOW
+    (> 0.28; entonces `match_status='NO_HIGH_CONFIDENCE_MATCH'`). Umbrales según lo observado: 0.22 es un acierto real
+    (socket-monitor para una pregunta de sockets); 0.30-0.32 es ruido (chunks de ss/apt/git bisect). No se filtran
+    resultados; la señal solo califica la consulta.
     """
 
     def _run() -> str:
@@ -4190,11 +4209,22 @@ async def query_system_docs(
             if ingest_command:
                 dv.ingest_command(ingest_command)
             res = dv.query(eff_query, limit)
+            low_next_action: str | None = None
+            distances = [
+                float(r["distance"]) for r in (res.get("results") or []) if isinstance(r.get("distance"), (int, float))
+            ]
+            if distances:
+                res["best_distance"] = min(distances)
+                res["confidence"] = _docs_confidence(res["best_distance"])
+                if res["confidence"] == "LOW":
+                    res["match_status"] = "NO_HIGH_CONFIDENCE_MATCH"
+                    low_next_action = DOCS_LOW_CONFIDENCE_NEXT_ACTION
             return attach_envelope(
                 res,
                 tracker,
                 verbosity=verbosity,
                 summary=f"Retrieved {len(res.get('results', []))} doc chunks for query '{eff_query[:40]}'.",
+                next_action=low_next_action,
             )
         except Exception as e:
             return attach_envelope({"status": "ERROR", "error": str(e)}, tracker, verbosity=verbosity)
