@@ -3393,6 +3393,82 @@ def _deduplicate_lines(lines: list[str]) -> list[str]:
     return result
 
 
+_SANDBOX_OUT_TTL_SEC = 3600.0
+_SANDBOX_OUT_MAX_FILES = 64
+_SANDBOX_OUT_PAGE_LINES = 200
+_SANDBOX_OUT_RE = re.compile(r"^sandbox_req_[0-9a-f]{10}\.out$")
+
+
+def _sandbox_out_dir() -> Path:
+    """ONT-60 T1: directorio de salidas completas de sandbox, dentro del pool volátil (0700)."""
+    from engine.ipc_pool import resolve_ipc_base_dir
+
+    d = resolve_ipc_base_dir() / "sandbox_out"
+    d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o700)
+    return d
+
+
+def _sandbox_out_reap(d: Path, now: float | None = None) -> None:
+    """Borra salidas vencidas (TTL) y acota el número de ficheros conservados."""
+    now = time.time() if now is None else now
+    files = sorted((f for f in d.glob("sandbox_*.out") if f.is_file()), key=lambda f: f.stat().st_mtime)
+    for f in files:
+        with contextlib.suppress(OSError):
+            if now - f.stat().st_mtime > _SANDBOX_OUT_TTL_SEC:
+                f.unlink()
+    files = [f for f in files if f.exists()]
+    for f in files[: max(0, len(files) - _SANDBOX_OUT_MAX_FILES)]:
+        with contextlib.suppress(OSError):
+            f.unlink()
+
+
+def _sandbox_out_persist(request_id: str, stdout: str, stderr: str) -> str | None:
+    """Guarda la salida completa (stdout + stderr) con permisos 0600; None si no se puede persistir."""
+    try:
+        d = _sandbox_out_dir()
+        _sandbox_out_reap(d)
+        full = stdout + (f"\n--- stderr ---\n{stderr}" if stderr else "")
+        path = d / f"sandbox_{request_id}.out"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(full)
+        return str(path)
+    except OSError as e:
+        logger.debug("sandbox output not persisted: %s", e)
+        return None
+
+
+def _sandbox_out_page(output_ref: str, cursor: Any, limit: int) -> dict[str, Any]:
+    """Pagina por líneas una salida guardada; solo rutas dentro del pool (si no, PARAM_ERROR)."""
+    try:
+        base = _sandbox_out_dir().resolve()
+        target = Path(output_ref).resolve()
+    except OSError as e:
+        return {"status": "PARAM_ERROR", "error": f"output_ref no accesible: {e}"}
+    if target.parent != base or not _SANDBOX_OUT_RE.match(target.name):
+        return {"status": "PARAM_ERROR", "error": "output_ref fuera del pool de salidas de sandbox."}
+    if not target.is_file():
+        return {"status": "PARAM_ERROR", "error": "output_ref expirado o inexistente (TTL); re-ejecuta el comando."}
+    try:
+        start = max(0, int(cursor or 0))
+    except TypeError, ValueError:
+        return {"status": "PARAM_ERROR", "error": "cursor debe ser un offset de línea entero."}
+    eff_limit = max(1, min(int(limit or _SANDBOX_OUT_PAGE_LINES), 2000))
+    lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    chunk = lines[start : start + eff_limit]
+    more = start + len(chunk) < len(lines)
+    return {
+        "status": "OK",
+        "output_ref": str(target),
+        "output": "\n".join(chunk),
+        "total_lines": len(lines),
+        "offset": start,
+        "truncated": more,
+        "cursor": str(start + len(chunk)) if more else None,
+    }
+
+
 @mcp.tool(structured_output=False)
 async def sandbox_run(
     command: str | list[str] | None = None,
@@ -3406,6 +3482,9 @@ async def sandbox_run(
     timeout: int = 60,
     verbosity: str = "detail",
     agent_id: str = "default",
+    output_ref: str | None = None,
+    cursor: int | str | None = None,
+    limit: int = _SANDBOX_OUT_PAGE_LINES,
 ) -> str:
     """
     [BUBBLEWRAP SANDBOX] Ejecuta comandos en un sandbox efímero con bwrap
@@ -3414,12 +3493,19 @@ async def sandbox_run(
     - Por defecto oculta el workspace del host y desactiva red (`share_net=False`).
     - `working_dir`: monta el directorio en modo solo-lectura (salvo que esté en `rw_paths`) y hace `--chdir`.
     - `ro_paths` / `rw_paths`: montajes explícitos validados contra `CapabilityGuard.is_path_blacklisted()`.
+    - Salida truncada en modo compacto: se guarda completa y la respuesta trae `output_ref` + `cursor`; para paginarla
+      llama `sandbox_run(output_ref=..., cursor=N, limit=...)` (sin `command`; no re-ejecuta).
     - env: variables de entorno explícitas inyectadas al sandbox vía --setenv. Preferir env={...} sobre prefijar comandos con shell 'env' (ej: env PYTHONPATH=...).
     """
 
     def _run() -> str:
         tracker = RequestTelemetry("sandbox_run", "exec")
         raw_cmd = command if command is not None else cmd
+        if not raw_cmd and output_ref:
+            page = _sandbox_out_page(output_ref, cursor, limit)
+            return attach_envelope(
+                page, tracker, verbosity=verbosity, truncated=page.get("truncated"), cursor=page.get("cursor")
+            )
         if not raw_cmd:
             return attach_envelope(
                 {
@@ -3704,11 +3790,23 @@ async def sandbox_run(
             err_str = res.stderr.strip()
             is_compact = (verbosity or "detail").strip().lower() in ("summary", "brief")
             truncated = False
+            saved_ref: str | None = None
+            not_persisted = False
+            full_out, full_err = out_str, err_str
+
+            def _keep_full() -> bool:
+                """True si la salida completa quedó guardada (o ya lo estaba); si no, no se debe truncar."""
+                nonlocal saved_ref, not_persisted
+                if saved_ref is None and not not_persisted:
+                    saved_ref = _sandbox_out_persist(tracker.request_id, full_out, full_err)
+                    not_persisted = saved_ref is None
+                return saved_ref is not None
+
             if is_compact:
-                if len(out_str) > 4000:
+                if len(out_str) > 4000 and _keep_full():
                     out_str = out_str[-4000:]
                     truncated = True
-                if len(err_str) > 4000:
+                if len(err_str) > 4000 and _keep_full():
                     err_str = err_str[-4000:]
                     truncated = True
             parsed_result = _parse_runner_output(res.stdout + "\n" + res.stderr, effective_cmd, parse)
@@ -3786,13 +3884,13 @@ async def sandbox_run(
                 # Capping de stdout en brief/terse cuando parse is None (GAP-RT-04 / Ergonomics)
                 if is_brief and parse is None:
                     lines = out_str.splitlines()
-                    if len(out_str) > 1000 or len(lines) > 20:
+                    if (len(out_str) > 1000 or len(lines) > 20) and _keep_full():
                         res_payload["stdout_tail"] = "\n".join(_deduplicate_lines(lines[-20:]))
                         res_payload["stdout_bytes"] = len(res.stdout)
                         res_payload["stdout"] = ""
                         truncated = True
                     err_lines = err_str.splitlines()
-                    if len(err_str) > 1000 or len(err_lines) > 20:
+                    if (len(err_str) > 1000 or len(err_lines) > 20) and _keep_full():
                         res_payload["stderr_tail"] = "\n".join(_deduplicate_lines(err_lines[-20:]))
                         res_payload["stderr_bytes"] = len(res.stderr)
                         res_payload["stderr"] = ""
@@ -3815,11 +3913,24 @@ async def sandbox_run(
                 )
                 eff_next_action = "Inspect stdout/stderr: a Traceback or PermissionError was found despite exit code 0."
 
+            env_cursor: str | None = None
+            env_severity: str | None = None
+            if truncated and saved_ref:
+                res_payload["output_ref"] = saved_ref
+                env_cursor = "0"
+                eff_next_action = eff_next_action or (
+                    f"Full output saved: sandbox_run(output_ref='{saved_ref}', cursor=0) pages it (no re-run)."
+                )
+            if not_persisted:
+                res_payload["limits"] = ["output not persisted"]
+                env_severity = "WARN"
             return attach_envelope(
                 res_payload,
                 tracker,
                 verbosity=verbosity,
+                severity=env_severity,
                 truncated=truncated,
+                cursor=env_cursor,
                 summary=eff_summary,
                 next_action=eff_next_action,
             )
