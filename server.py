@@ -4623,6 +4623,82 @@ _BPFTRACE_MODES = {
     "tcp_listeners": "kprobe:inet_csk_listen_start {{ @[comm] = count(); }} interval:s:{d} {{ exit(); }}",
 }
 
+# ONT-54 T3 (G46): with BTF available tcp_connect also records WHERE each process connects. `@c` keeps the historical
+# per-comm counts; `@d` is keyed [comm, daddr, dport] (dport byte-swapped from network order). Braces are doubled
+# because the script goes through str.format(d=...).
+_BTF_VMLINUX_PATH = Path("/sys/kernel/btf/vmlinux")
+_BPFTRACE_TCP_CONNECT_BTF = (
+    "kprobe:tcp_connect {{ $sk = (struct sock *)arg0; @c[comm] = count(); "
+    "$fam = $sk->__sk_common.skc_family; $dp = $sk->__sk_common.skc_dport; "
+    "$port = (($dp >> 8) & 0xff) | (($dp << 8) & 0xff00); "
+    "if ($fam == 2) {{ @d[comm, ntop(2, $sk->__sk_common.skc_daddr), $port] = count(); }} "
+    "if ($fam == 10) {{ @d[comm, ntop(10, $sk->__sk_common.skc_v6_daddr.in6_u.u6_addr8), $port] = count(); }} }} "
+    "interval:s:{d} {{ exit(); }}"
+)
+_BPFTRACE_TEXT_MAP_RE = re.compile(r"^@(\w*)\[(.*)\]:\s*(\d+)\s*$")
+
+
+def _flatten_bpftrace_keys(value: Any, prefix: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], int]]:
+    """Flatten a bpftrace JSON map body (flat `{"a, b": n}` or nested `{"a": {"b": n}}`) into (key parts, count)."""
+    out: list[tuple[tuple[str, ...], int]] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            out.extend(_flatten_bpftrace_keys(v, (*prefix, str(k))))
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        out.append((prefix, int(value)))
+    return out
+
+
+def _parse_bpftrace_output(stdout: str) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    """Parse bpftrace output (JSON `-f json` map records, or text `@d[comm, ip, port]: n` lines).
+
+    Map `@d` (3-part key comm/daddr/dport) feeds `destinations`; every other map keeps feeding per-key `counts`
+    exactly as before. Malformed lines are skipped.
+    """
+    counts: dict[str, int] = {}
+    dests: dict[tuple[str, str, int], int] = {}
+
+    def add_dest(parts: list[str], n: int) -> None:
+        # comm may itself contain commas: only the LAST two parts are daddr/dport.
+        if len(parts) < 3:
+            return
+        comm = ",".join(parts[:-2]).strip()
+        try:
+            port = int(parts[-1].strip())
+        except ValueError:
+            return
+        key = (comm, parts[-2].strip(), port)
+        dests[key] = dests.get(key, 0) + n
+
+    for line in stdout.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        m = _BPFTRACE_TEXT_MAP_RE.match(text)
+        if m:
+            name, key_txt, n = m.group(1), m.group(2), int(m.group(3))
+            if name == "d":
+                add_dest(key_txt.split(","), n)
+            else:
+                counts[key_txt] = n
+            continue
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "map" or not isinstance(obj.get("data"), dict):
+            continue
+        for name, body in obj["data"].items():
+            if str(name) == "@d":
+                for parts, n in _flatten_bpftrace_keys(body):
+                    add_dest([p for part in parts for p in part.split(",")] if len(parts) == 1 else list(parts), n)
+            elif isinstance(body, dict):
+                for k, v in body.items():
+                    counts[str(k)] = int(v) if isinstance(v, (int, float)) else 0
+    ordered = sorted(dests.items(), key=lambda kv: (-kv[1], kv[0]))
+    return counts, [{"comm": c, "daddr": a, "dport": p, "count": n} for (c, a, p), n in ordered]
+
+
 _BPFTRACE_MODE_ALIASES = {
     "syscalls": "syscall_count",
     "syscall": "syscall_count",
@@ -4658,6 +4734,7 @@ async def kernel_trace(
     'tcp_connect' ('tcp'), 'security_open_denials' ('denials'),
     'security_landlock_audit' ('landlock'), 'security_exec_monitor' ('exec'), 'network_sniff' ('sniff'/'network'), 'security_audit' ('audit'), 'tcp_listeners' ('listeners').
     Ordena resultados de mayor a menor actividad y trunca a `limit` en modo `summary`; `cursor` = offset sobre esa lista.
+    `tcp_connect` con BTF añade `destinations` [{comm, daddr, dport, count}] (mismo limit/cursor); sin BTF, `limits` lo indica.
     """
 
     def _run() -> str:
@@ -4709,7 +4786,8 @@ async def kernel_trace(
             )
         pmode = privilege_mode()
         clamped_dur = max(1, min(eff_dur, 30))
-        script = _BPFTRACE_MODES[eff_mode].format(d=clamped_dur)
+        has_btf = eff_mode == "tcp_connect" and _BTF_VMLINUX_PATH.exists()
+        script = (_BPFTRACE_TCP_CONNECT_BTF if has_btf else _BPFTRACE_MODES[eff_mode]).format(d=clamped_dur)
         try:
             res = subprocess.run(
                 prefix + ["bpftrace", "-f", "json", "-e", script],
@@ -4730,17 +4808,7 @@ async def kernel_trace(
                     tracker,
                     verbosity=verbosity,
                 )
-            counts: dict[str, int] = {}
-            for line in res.stdout.splitlines():
-                try:
-                    obj = json.loads(line)
-                    if obj.get("type") == "map":
-                        for _, m in obj.get("data", {}).items():
-                            if isinstance(m, dict):
-                                for k, v in m.items():
-                                    counts[str(k)] = int(v) if isinstance(v, (int, float)) else 0
-                except Exception as e:
-                    logger.debug("Failed parsing bpftrace line: %s", e)
+            counts, destinations = _parse_bpftrace_output(res.stdout)
 
             sorted_items = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
             total_procs = len(sorted_items)
@@ -4748,9 +4816,12 @@ async def kernel_trace(
             truncated = False
             eff_cur = max(0, int(cursor or 0))
             next_cur: str | None = None
-            if is_compact and (total_procs > eff_limit or eff_cur):
-                truncated = total_procs > eff_cur + eff_limit
+            total_dests = len(destinations)
+            if is_compact and (total_procs > eff_limit or total_dests > eff_limit or eff_cur):
+                # destinations share the cursor/limit window with counts (one cursor per call).
+                truncated = total_procs > eff_cur + eff_limit or total_dests > eff_cur + eff_limit
                 sorted_items = sorted_items[eff_cur : eff_cur + eff_limit]
+                destinations = destinations[eff_cur : eff_cur + eff_limit]
                 next_cur = str(eff_cur + eff_limit) if truncated else None
             ordered_counts = dict(sorted_items)
 
@@ -4764,6 +4835,12 @@ async def kernel_trace(
                 "total_events": total_events,
                 "counts": ordered_counts,
             }
+            if eff_mode == "tcp_connect":
+                if has_btf:
+                    trace_data["destinations"] = destinations
+                    trace_data["destinations_total"] = total_dests
+                else:
+                    trace_data["limits"] = ["no BTF: destinations unavailable"]
             if eff_mode == "network_sniff":
                 pcap_shm = Path("/dev/shm/pcap_stream")
                 if pcap_shm.exists():
