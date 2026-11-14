@@ -173,6 +173,51 @@ def module_name(relpath: str) -> str:
     return ".".join(parts)
 
 
+_WALK_MEMO_ATTR = "_aep_walk"  # non-field attributes (invisible to ast.dump / compile), like _DUMP_MEMO_ATTR
+_INDEX_MEMO_ATTR = "_aep_index"
+_AST = ast.AST
+
+
+def _bfs(root: ast.AST) -> list[ast.AST]:
+    """Same nodes and order as `list(ast.walk(root))` (breadth-first), without the generator overhead."""
+    out: list[ast.AST] = [root]
+    i = 0
+    while i < len(out):
+        node = out[i]
+        i += 1
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if isinstance(value, list):
+                out.extend(x for x in value if isinstance(x, _AST))
+            elif isinstance(value, _AST):
+                out.append(value)
+    return out
+
+
+def _walk(node: ast.AST) -> list[ast.AST]:
+    """`_bfs(node)` memoised on the node (ONT-53 T3): the walk of a function/module is computed once and shared."""
+    cached = node.__dict__.get(_WALK_MEMO_ATTR)
+    if cached is None:
+        cached = _bfs(node)
+        node.__dict__[_WALK_MEMO_ATTR] = cached
+    return cached
+
+
+def _type_index(node: ast.AST) -> dict[type, list[ast.AST]]:
+    """`{node type: nodes in walk order}` of the subtree, built once per node (ONT-53 T3)."""
+    cached = node.__dict__.get(_INDEX_MEMO_ATTR)
+    if cached is None:
+        cached = {}
+        for n in _walk(node):
+            bucket = cached.get(type(n))
+            if bucket is None:
+                cached[type(n)] = [n]
+            else:
+                bucket.append(n)
+        node.__dict__[_INDEX_MEMO_ATTR] = cached
+    return cached
+
+
 _DUMP_MEMO_ATTR = "_aep_dump"  # non-field attribute: invisible to ast.dump / ast.walk / compile
 _FIELD_PLANS: dict[type, tuple[tuple[str, bool], ...]] = {}
 
@@ -255,7 +300,7 @@ def _string_constants(fn: ast.AST) -> list[str]:
     """Constantes de texto (y fragmentos constantes de f-strings) sin el docstring."""
     skip = _docstring_node(fn)
     out: list[str] = []
-    for node in ast.walk(fn):
+    for node in _walk(fn):
         if node is skip:
             continue
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -633,7 +678,7 @@ def _is_none_const(node: ast.AST | None) -> bool:
 
 
 def _store_names(target: ast.AST) -> list[str]:
-    return [n.id for n in ast.walk(target) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
+    return [n.id for n in _bfs(target) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
 
 
 def _agree(types: list[str | None]) -> str | None:
@@ -1079,7 +1124,7 @@ class _TypeIndex:
         hit = self._facts.get(id(fn))
         if hit is not None and hit[0] is fn:
             return hit[1]
-        nodes = list(ast.walk(fn))
+        nodes = _walk(fn)
         relevant: list[ast.AST] = []
         names: set[str] = set()
         has_exec = False
@@ -1329,8 +1374,8 @@ def extract_state(graph: ThreadGraph, src: Sources) -> set[str]:
     for pf in src.code.values():
         if pf.tree is None:
             continue
-        for node in ast.walk(pf.tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and "CREATE" in node.value:
+        for node in _type_index(pf.tree).get(ast.Constant, ()):
+            if isinstance(node.value, str) and "CREATE" in node.value:
                 for m in _SQL_CREATE_RE.finditer(node.value):
                     name = m.group(1).lower()
                     if name not in tables:
@@ -1373,7 +1418,7 @@ def _planned_actions(src: Sources) -> list[str]:
 def _tool_actions(fn: ast.AST) -> set[str]:
     """Valores literales comparados con `action`/`act`/`mode` dentro de la tool, más el default de `action`."""
     found: set[str] = set()
-    for node in ast.walk(fn):
+    for node in _walk(fn):
         if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id in ACTION_VARS:
             for op, comp in zip(node.ops, node.comparators, strict=True):
                 if isinstance(op, (ast.Eq, ast.In)):
@@ -1407,7 +1452,7 @@ def _action_aliases(fn: ast.AST, actions: set[str], tables: dict[str, dict[str, 
         extremos son acciones de la tool.
     """
     out: dict[str, str] = {}
-    for node in ast.walk(fn):
+    for node in _walk(fn):
         if not isinstance(node, ast.If):
             continue
         parsed = _action_compare(node.test)
@@ -1416,7 +1461,7 @@ def _action_aliases(fn: ast.AST, actions: set[str], tables: dict[str, dict[str, 
         _, values = parsed
         inner: set[str] = set()
         for stmt in node.body:
-            for sub in ast.walk(stmt):
+            for sub in _bfs(stmt):
                 inner_parsed = _action_compare(sub) if isinstance(sub, ast.Compare) else None
                 if inner_parsed is not None:
                     inner.update(inner_parsed[1])
@@ -1424,7 +1469,7 @@ def _action_aliases(fn: ast.AST, actions: set[str], tables: dict[str, dict[str, 
         for alias in values[1:]:
             if alias != canonical and alias not in inner and alias in actions and canonical in actions:
                 out.setdefault(alias, canonical)
-    used = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+    used = {n.id for n in _walk(fn) if isinstance(n, ast.Name)}
     for name, table in sorted(tables.items()):
         if name not in used:
             continue
@@ -1630,7 +1675,7 @@ def _is_spawn_call(call: ast.Call, has_exec: bool) -> bool:
         return True
     if not has_exec:
         return False
-    return any(_chain(n) == ["sys", "executable"] for n in ast.walk(call) if isinstance(n, ast.Attribute))
+    return any(_chain(n) == ["sys", "executable"] for n in _bfs(call) if isinstance(n, ast.Attribute))
 
 
 def _kw_constants(call: ast.Call) -> dict[str, str]:
@@ -1726,11 +1771,11 @@ def _collect_test_refs(
             # del spawn asignado en este mismo cuerpo aporta los literales de su(s) valor(es); no se siguen
             # alias de alias.
             scan: list[ast.AST] = [n]
-            for name_node in ast.walk(n):
+            for name_node in _bfs(n):
                 if isinstance(name_node, ast.Name):
                     scan.extend(local_assigns.get(name_node.id, []))
             for root in scan:
-                for lit_node in ast.walk(root):
+                for lit_node in _bfs(root):
                     if isinstance(lit_node, ast.Constant) and isinstance(lit_node.value, str):
                         lit = lit_node.value.strip()
                         if lit.endswith(".py") and lit.isascii() and " " not in lit and module_name(lit) in project:
@@ -1914,17 +1959,16 @@ def _text_claims(text: str, file: str, base_line: int, source: str) -> list[_Raw
 def _server_version_literals(tree: ast.Module) -> list[tuple[str, int]]:
     """Literales `"server_version": "v0.2.8"` en dicts (versión declarada a mano, D-12)."""
     found: list[tuple[str, int]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            for k, v in zip(node.keys, node.values, strict=True):
-                if (
-                    isinstance(k, ast.Constant)
-                    and k.value == "server_version"
-                    and isinstance(v, ast.Constant)
-                    and isinstance(v.value, str)
-                    and re.search(r"\d+\.\d+\.\d+", v.value)
-                ):
-                    found.append((v.value, getattr(v, "lineno", 0)))
+    for node in _type_index(tree).get(ast.Dict, ()):
+        for k, v in zip(node.keys, node.values, strict=True):
+            if (
+                isinstance(k, ast.Constant)
+                and k.value == "server_version"
+                and isinstance(v, ast.Constant)
+                and isinstance(v.value, str)
+                and re.search(r"\d+\.\d+\.\d+", v.value)
+            ):
+                found.append((v.value, getattr(v, "lineno", 0)))
     return found
 
 
@@ -1952,8 +1996,8 @@ def extract_claims(graph: ThreadGraph, src: Sources, tools: dict[str, dict[str, 
     for rel, pf in src.code.items():
         if pf.tree is None or rel.startswith("engine/threads"):
             continue
-        for node in ast.walk(pf.tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) >= 12:
+        for node in _type_index(pf.tree).get(ast.Constant, ()):
+            if isinstance(node.value, str) and len(node.value) >= 12:
                 raw.extend(_text_claims(node.value, rel, getattr(node, "lineno", 0), "string"))
         for value, line in _server_version_literals(pf.tree):
             raw.append(
