@@ -26,6 +26,11 @@ from engine.db import get_ro_connection, get_rw_connection, transaction_immediat
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
 
 STATES = ["BACKLOG", "SYNTHESIZED", "LINTED", "CANARY", "PROMOTED", "REJECTED"]
+WORK_STATES = ["BACKLOG", "IN_PROGRESS", "BLOCKED", "DONE"]  # tarjetas de trabajo (kind='work'), sin ponderación
+KINDS = ("artifact", "work")
+# Siguiente estado natural (advance sin to_state). CANARY->PROMOTED NO está: la promoción conserva su compuerta.
+_NEXT_ARTIFACT = {"BACKLOG": "SYNTHESIZED", "SYNTHESIZED": "LINTED", "LINTED": "CANARY"}
+_NEXT_WORK = {"BACKLOG": "IN_PROGRESS", "BLOCKED": "IN_PROGRESS", "IN_PROGRESS": "DONE"}
 PROMOTION_THRESHOLD = ponder.TRUST_BAND  # umbral de promoción (compat)
 
 _KANBAN_DDL = """
@@ -36,6 +41,7 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     category TEXT,
     artifact_name TEXT,                 -- enlace opcional al artefacto ponderado
     state TEXT NOT NULL DEFAULT 'BACKLOG',
+    kind TEXT NOT NULL DEFAULT 'artifact',  -- 'artifact' (ciclo de vida ponderado) | 'work' (tarjeta de trabajo)
     lint_passed INTEGER NOT NULL DEFAULT 0,
     canary_passed INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
@@ -79,6 +85,8 @@ class KanbanBoard:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN description TEXT")
             if "refs" not in cols:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN refs TEXT")
+            if "kind" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'artifact'")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -134,16 +142,20 @@ class KanbanBoard:
         agent_id: str = "default",
         description: str = "",
         refs: list[str] | None = None,
+        kind: str = "artifact",
     ) -> dict[str, Any]:
+        kind = (kind or "artifact").strip().lower()
+        if kind not in KINDS:
+            return {"status": "PARAM_ERROR", "error": f"kind inválido: {kind}", "valid_kinds": list(KINDS)}
         refs_json = json.dumps([str(r) for r in refs], ensure_ascii=False) if refs else None
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 cur = conn.execute(
-                    "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id, description, refs) "
-                    "VALUES (?, ?, ?, ?, 'BACKLOG', ?, ?, ?)",
-                    (title, intent, category, artifact_name, agent_id, description or None, refs_json),
+                    "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id, description, refs, kind) "
+                    "VALUES (?, ?, ?, ?, 'BACKLOG', ?, ?, ?, ?)",
+                    (title, intent, category, artifact_name, agent_id, description or None, refs_json, kind),
                 )
-                return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG"}
+                return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG", "kind": kind}
 
     def upsert_build_task(
         self,
@@ -160,7 +172,7 @@ class KanbanBoard:
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 existing = conn.execute(
-                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 AND kind = 'artifact' "
                     "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY', 'PROMOTED') "
                     "ORDER BY id DESC LIMIT 1",
                     (artifact_name,),
@@ -220,19 +232,66 @@ class KanbanBoard:
     def advance(
         self,
         task_id: int,
-        to_state: str,
+        to_state: str = "",
         lint_passed: bool | None = None,
         canary_passed: bool | None = None,
         note: str | None = None,
     ) -> dict[str, Any]:
-        to_state = to_state.upper()
-        if to_state not in STATES:
-            return {"status": "ERROR", "error": f"estado inválido: {to_state}", "valid": STATES}
+        """Mueve una tarjeta. Sin `to_state` avanza al siguiente estado natural de su tipo (ONT-55).
+        Tarjetas `work`: sin ponderación. Tarjetas `artifact`: ponderación intacta."""
+        to_state = (to_state or "").strip().upper()
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 t = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
                 if not t:
                     return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                kind = t["kind"] or "artifact"
+                from_state = t["state"]
+                is_work = kind == "work"
+                valid = WORK_STATES if is_work else STATES
+                if not to_state:
+                    terminal = ("DONE",) if is_work else ("PROMOTED", "REJECTED")
+                    if from_state in terminal:
+                        return {
+                            "status": "NOOP",
+                            "task_id": task_id,
+                            "kind": kind,
+                            "state": from_state,
+                            "from_state": from_state,
+                            "message": f"La tarjeta ya está en estado terminal {from_state}.",
+                        }
+                    nxt = (_NEXT_WORK if is_work else _NEXT_ARTIFACT).get(from_state)
+                    if nxt is None:
+                        return {
+                            "status": "PARAM_ERROR",
+                            "task_id": task_id,
+                            "kind": kind,
+                            "state": from_state,
+                            "error": f"desde {from_state} no hay siguiente estado natural; la promoción pasa por la compuerta de confianza.",
+                            "next_action": f'kanban_board(action="promote", task_id={task_id})',
+                        }
+                    to_state = nxt
+                if to_state not in valid:
+                    return {
+                        "status": "PARAM_ERROR",
+                        "error": f"estado inválido: {to_state}",
+                        "kind": kind,
+                        "valid_states": valid,
+                        "valid": valid,
+                    }
+                if is_work:
+                    conn.execute(
+                        "UPDATE kanban_tasks SET state=?, attempts=attempts+1, note=COALESCE(?,note), "
+                        "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (to_state, note, task_id),
+                    )
+                    return {
+                        "status": "OK",
+                        "task_id": task_id,
+                        "kind": kind,
+                        "state": to_state,
+                        "from_state": from_state,
+                    }
                 lp = t["lint_passed"] if lint_passed is None else int(lint_passed)
                 cp = t["canary_passed"] if canary_passed is None else int(canary_passed)
                 stats = self._artifact_stats(conn, t["artifact_name"])
@@ -248,7 +307,9 @@ class KanbanBoard:
             return {
                 "status": "OK",
                 "task_id": task_id,
+                "kind": kind,
                 "state": to_state,
+                "from_state": from_state,
                 "promotion_score": p["effective"],
                 "verdict": p["verdict"],
                 "confidence": p["confidence"],
@@ -261,7 +322,7 @@ class KanbanBoard:
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 row = conn.execute(
-                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 "
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 AND kind = 'artifact' "
                     "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY') "
                     "ORDER BY id DESC LIMIT 1",
                     (artifact_name,),
@@ -292,6 +353,16 @@ class KanbanBoard:
                 "eligible_for_promotion": p["verdict"] == "TRUST",
             }
 
+    @staticmethod
+    def _work_card_error(task_id: int, action: str) -> dict[str, Any]:
+        return {
+            "status": "PARAM_ERROR",
+            "task_id": task_id,
+            "kind": "work",
+            "error": f"'{action}' solo aplica a tarjetas kind='artifact'; la tarea {task_id} es una tarjeta de trabajo.",
+            "next_action": f'kanban_board(action="advance", task_id={task_id})',
+        }
+
     def promote(self, task_id: int) -> dict[str, Any]:
         """Promueve el artefacto ligado como REUTILIZABLE si su ponderación lo amerita."""
         with self._conn_rw() as conn:
@@ -299,6 +370,8 @@ class KanbanBoard:
                 t = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
                 if not t:
                     return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                if (t["kind"] or "artifact") == "work":
+                    return self._work_card_error(task_id, "promote")
                 stats = self._artifact_stats(conn, t["artifact_name"])
                 p = self._ponder(
                     bool(t["lint_passed"]),
@@ -356,6 +429,8 @@ class KanbanBoard:
                     task_row = conn.execute("SELECT * FROM kanban_tasks WHERE id = ?", (task_id,)).fetchone()
                     if not task_row:
                         return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                    if (task_row["kind"] or "artifact") == "work":
+                        return self._work_card_error(task_id, "demote")
                     conn.execute(
                         "UPDATE kanban_tasks SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                         (target_state, task_id),
@@ -470,6 +545,7 @@ class KanbanBoard:
         (def. umbral TRUST) Y no está en `protect_states`. Las PROMOTED/CANARY nunca se tocan."""
         if task_id is not None:
             return self._archive_one(int(task_id), ignored_states=states)
+        explicit_states = bool(states)
         default_states = [s for s in STATES if s != "PROMOTED"] if title_like else ["LINTED", "REJECTED"]
         states = [s.upper() for s in (states or default_states)]
         thr = ponder.TRUST_BAND if max_score is None else float(max_score)
@@ -477,7 +553,7 @@ class KanbanBoard:
         states = [s for s in states if s not in protect]
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT id, title, state, artifact_name, promotion_score, attempts, canary_passed, "
+                "SELECT id, title, state, kind, artifact_name, promotion_score, attempts, canary_passed, "
                 "(JULIANDAY('now') - JULIANDAY(updated_at)) * 1440.0 AS age_minutes "
                 "FROM kanban_tasks WHERE archived=0 AND (? IS NULL OR title LIKE ?) ORDER BY id DESC",
                 (title_like, title_like),
@@ -493,6 +569,7 @@ class KanbanBoard:
                 }
                 for r in rows
                 if r["state"] in states
+                and not (r["kind"] == "work" and r["state"] == "DONE" and not explicit_states)
                 and r["state"] not in protect
                 and r["promotion_score"] < thr
                 and not (
@@ -581,17 +658,37 @@ class KanbanBoard:
             if include_archived:
                 rows = conn.execute(
                     "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
-                    "promotion_score, attempts, archived, description, refs FROM kanban_tasks ORDER BY updated_at DESC"
+                    "promotion_score, attempts, archived, description, refs, kind FROM kanban_tasks ORDER BY updated_at DESC"
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
-                    "promotion_score, attempts, archived, description, refs FROM kanban_tasks WHERE archived=0 "
+                    "promotion_score, attempts, archived, description, refs, kind FROM kanban_tasks WHERE archived=0 "
                     "ORDER BY updated_at DESC"
                 ).fetchall()
             archived_total = conn.execute("SELECT COUNT(*) AS n FROM kanban_tasks WHERE archived=1").fetchone()["n"]
         lanes: dict[str, list[dict[str, Any]]] = {s: [] for s in STATES}
+        work_lanes: dict[str, list[dict[str, Any]]] = {s: [] for s in WORK_STATES}
         for r in rows:
+            if (r["kind"] or "artifact") == "work":
+                wcard: dict[str, Any] = {
+                    "task_id": r["id"],
+                    "title": r["title"],
+                    "state": r["state"],
+                    "attempts": r["attempts"],
+                }
+                if r["archived"]:
+                    wcard["archived"] = True
+                if with_extras:
+                    if r["description"]:
+                        wcard["description"] = r["description"]
+                    if r["refs"]:
+                        try:
+                            wcard["refs"] = json.loads(r["refs"])
+                        except ValueError:
+                            wcard["refs"] = [r["refs"]]
+                work_lanes.setdefault(r["state"], []).append(wcard)
+                continue
             card: dict[str, Any] = {
                 "task_id": r["id"],
                 "title": r["title"],
@@ -611,10 +708,14 @@ class KanbanBoard:
                     except ValueError:
                         card["refs"] = [r["refs"]]
             lanes[r["state"]].append(card)
-        return {
+        out: dict[str, Any] = {
             "status": "OK",
             "threshold": PROMOTION_THRESHOLD,
             "counts": {s: len(lanes[s]) for s in STATES},
             "archived_total": archived_total,
             "lanes": lanes,
         }
+        if any(work_lanes.values()):  # ONT-55: solo si hay tarjetas de trabajo (el contrato artifact no cambia)
+            out["work_counts"] = {s: len(v) for s, v in work_lanes.items()}
+            out["work_lanes"] = work_lanes
+        return out
