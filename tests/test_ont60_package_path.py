@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import server
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,3 +62,10 @@ def test_package_check_dpkg_source() -> None:
 
 def test_ctl_script_is_the_one_the_server_spawns() -> None:
     assert Path(server.AEP_CTL) == CTL
+
+
+@pytest.mark.parametrize("bad", ["../etc/passwd", "go;id", "-W", "a b", "$(id)"])
+def test_package_check_rejects_invalid_names(bad: str, tmp_path: Path) -> None:
+    assert Path(server.AEP_CTL) == CTL
+    out = _check(bad, f"{tmp_path}:/usr/bin:/bin")
+    assert out["status"] == "PARAM_ERROR"

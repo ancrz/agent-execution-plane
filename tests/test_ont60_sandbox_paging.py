@@ -87,3 +87,11 @@ def test_reaper_drops_expired_and_caps_count(tmp_path: Path) -> None:
         (d / f"sandbox_req_{i:010x}.out").write_text("x")
     server._sandbox_out_reap(d)
     assert len(list(d.glob("sandbox_*.out"))) == server._SANDBOX_OUT_MAX_FILES
+
+
+def test_persist_cap_is_exactly_the_maximum() -> None:
+    assert server._SANDBOX_OUT_MAX_FILES > 0
+    for i in range(server._SANDBOX_OUT_MAX_FILES + 10):
+        assert server._sandbox_out_persist(f"req_{i:010x}", "x", "")
+    d = server._sandbox_out_dir()
+    assert len(list(d.glob("sandbox_*.out"))) == server._SANDBOX_OUT_MAX_FILES

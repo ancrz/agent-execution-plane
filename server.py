@@ -3426,17 +3426,57 @@ _SANDBOX_TOOL_LINK_DIRS: tuple[str, ...] = ("/usr/local/bin",)
 _SANDBOX_BASE_ROOTS: tuple[str, ...] = ("/usr", "/bin", "/lib", "/lib64")
 
 
-def _toolchain_auto_mounts(scan_dirs: list[Path], mounted: list[str]) -> list[str]:
-    """Raíces de instalación a montar (ro) para symlinks cuyo destino real queda fuera de los montajes actuales.
+_SANDBOX_NEVER_ROOTS: tuple[str, ...] = (
+    "/",
+    "/etc",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run",
+    "/home",
+    "/root",
+    "/var",
+    "/tmp",
+    "/usr",
+)
 
-    `<root>/bin/<x>` -> `<root>`; en otro caso el directorio del destino. Se omiten rutas en la blacklist,
-    destinos ya cubiertos por un montaje y raíces que contendrían montajes existentes. Deduplicado y ordenado.
+
+def _sandbox_vetoed_paths() -> list[str]:
+    """Rutas vetadas: blacklist del guard + ~/.ssh + ~/.gnupg + directorio de datos de AEP."""
+    home = Path.home()
+    vetoed = [*CapabilityGuard.PATH_BLACKLIST, str(home / ".ssh"), str(home / ".gnupg")]
+    data_home = os.environ.get("AEP_DATA_HOME")
+    vetoed.append(str(Path(data_home) if data_home else home / ".local" / "share" / "agent-os"))
+    vetoed.append(str(home / ".local" / "share" / "agent-os"))
+    return vetoed
+
+
+def _auto_mount_root_reject_reason(root: Path) -> str | None:
+    """Motivo por el que `root` no puede montarse: raíz exacta prohibida, $HOME, o igual/ancestra de una ruta vetada."""
+    root_s = str(root)
+    if root_s in _SANDBOX_NEVER_ROOTS or root_s == str(Path.home()):
+        return "root is never mountable"
+    prefix = root_s.rstrip("/") + "/"
+    for v in _sandbox_vetoed_paths():
+        if v == root_s or v.startswith(prefix):
+            return f"equals or contains vetoed path {v}"
+    if CapabilityGuard.is_path_blacklisted(root_s):
+        return "path is blacklisted"
+    return None
+
+
+def _toolchain_auto_mounts(scan_dirs: list[Path], mounted: list[str]) -> tuple[list[str], list[dict[str, str]]]:
+    """(raíces a montar ro, omitidas) para symlinks cuyo destino real queda fuera de los montajes actuales.
+
+    `<root>/bin/<x>` -> `<root>`; si esa raíz está vetada (igual o ancestra de una ruta vetada, $HOME, /etc...) se
+    prueba el directorio del binario; si tampoco, se omite y se registra `{target, reason}`.
     """
 
     def covered(path: str) -> bool:
         return any(path == m or path.startswith(m.rstrip("/") + "/") for m in (*_SANDBOX_BASE_ROOTS, *mounted))
 
     roots: list[str] = []
+    skipped: list[dict[str, str]] = []
     for d in scan_dirs:
         try:
             entries = sorted(d.iterdir())
@@ -3452,16 +3492,30 @@ def _toolchain_auto_mounts(scan_dirs: list[Path], mounted: list[str]) -> list[st
             real_s = str(real)
             if covered(real_s):
                 continue
-            root = real.parent.parent if real.parent.name == "bin" else real.parent
-            root_s = str(root)
-            if root_s in ("/", "") or root_s in roots or covered(root_s):
+            candidates = [real.parent.parent, real.parent] if real.parent.name == "bin" else [real.parent]
+            chosen: Path | None = None
+            reason = ""
+            for cand in candidates:
+                cand_s = str(cand)
+                if covered(cand_s):
+                    chosen = None
+                    reason = "already covered"
+                    break
+                if any(m.startswith(cand_s.rstrip("/") + "/") for m in mounted):
+                    reason = "would shadow an existing mount"
+                    continue
+                reject = _auto_mount_root_reject_reason(cand)
+                if reject is None:
+                    chosen = cand
+                    break
+                reason = reject
+            if chosen is None:
+                if reason != "already covered":
+                    skipped.append({"target": real_s, "reason": reason})
                 continue
-            if any(m.startswith(root_s.rstrip("/") + "/") for m in mounted):
-                continue
-            if CapabilityGuard.is_path_blacklisted(root_s):
-                continue
-            roots.append(root_s)
-    return roots
+            if str(chosen) not in roots:
+                roots.append(str(chosen))
+    return roots, skipped
 
 
 _SANDBOX_OUT_TTL_SEC = 3600.0
@@ -3498,12 +3552,12 @@ def _sandbox_out_persist(request_id: str, stdout: str, stderr: str) -> str | Non
     """Guarda la salida completa (stdout + stderr) con permisos 0600; None si no se puede persistir."""
     try:
         d = _sandbox_out_dir()
-        _sandbox_out_reap(d)
         full = stdout + (f"\n--- stderr ---\n{stderr}" if stderr else "")
         path = d / f"sandbox_{request_id}.out"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(full)
+        _sandbox_out_reap(d)  # tras escribir: el tope de ficheros queda exacto
         return str(path)
     except OSError as e:
         logger.debug("sandbox output not persisted: %s", e)
@@ -3709,7 +3763,7 @@ async def sandbox_run(
         user_mounts = [str(Path(q).expanduser().resolve()) for q in (*eff_ro, *eff_rw)]
         if any(local_bin == Path(m) or local_bin.is_relative_to(m) for m in user_mounts):
             scan_dirs.append(local_bin)
-        auto_mounts = _toolchain_auto_mounts(scan_dirs, user_mounts)
+        auto_mounts, auto_mounts_skipped = _toolchain_auto_mounts(scan_dirs, user_mounts)
         for am in auto_mounts:
             bwrap_cmd.extend(["--ro-bind-try", am, am])
 
@@ -3953,6 +4007,7 @@ async def sandbox_run(
                     "ro_mounts": mounted_ro,
                     "rw_mounts": mounted_rw,
                     **({"auto_mounts": auto_mounts} if auto_mounts else {}),
+                    **({"auto_mounts_skipped": auto_mounts_skipped} if auto_mounts_skipped else {}),
                     "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
                     "stderr": (
                         ""

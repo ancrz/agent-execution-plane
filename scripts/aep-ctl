@@ -297,6 +297,9 @@ def domain_storage(action: str) -> Any:
     fail(f"Acción de storage desconocida: {action}", valid=SCHEMA["storage"]["actions"])
 
 
+_PKG_NAME_RE = re.compile(r"^[A-Za-z0-9._+][A-Za-z0-9._+-]*$")
+
+
 def _path_probe(name: str) -> dict[str, Any] | None:
     """ONT-60 T3: respaldo por PATH para binarios instalados fuera de dpkg."""
     found = shutil.which(name)
@@ -324,6 +327,8 @@ def _path_probe(name: str) -> dict[str, Any] | None:
 def domain_package(action: str, name: str | None) -> Any:
     if not _need("dpkg-query"):
         if action == "check" and name:
+            if not _PKG_NAME_RE.fullmatch(name):
+                fail("Nombre de paquete inválido (permitido: [A-Za-z0-9._+-]).", status="PARAM_ERROR")
             probe = _path_probe(name)
             if probe:
                 return {"status": "OK", "package": name, **probe}
@@ -339,6 +344,8 @@ def domain_package(action: str, name: str | None) -> Any:
     if not name:
         fail("Falta <name> del paquete.", usage=f"aep-ctl package {action} <name> --json")
     if action == "check":
+        if not _PKG_NAME_RE.fullmatch(name):
+            fail("Nombre de paquete inválido (permitido: [A-Za-z0-9._+-]).", status="PARAM_ERROR")
         r = _run(["dpkg-query", "-W", "-f=${Status}", name])
         installed = r.returncode == 0 and "install ok installed" in r.stdout
         if installed:
