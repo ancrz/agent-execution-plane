@@ -615,3 +615,31 @@ flowchart LR
 | M7 | G40 coste de estado estable (sin objetivo fijado; 1,3 s solo en frío) | Pragma (futura tanda) | backlog |
 
 Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): ciclo 1 reclasificado como LOGIC_ERROR por regla 12; G40 aceptado como cierre parcial; `ORT_DISABLE_TELEMETRY` se fija con `setdefault` antes del import y respeta un valor explícito; la llamada `disable_telemetry_events()` de ONT-52 se conserva.
+
+## 21. Ronda 7 de gaps ONT-54: alertas de crash agrupadas, destinos TCP, acentos, visual y playbook (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont54_round7.md` (anterior: `feature_20261114_ont53_ort_synonyms_walk.md`). Estado: VERIFIED tras un ciclo de corrección por PLAN_GAP propio; publicado en dev. Base `dev` `74e6aaf`, HEAD del worktree `a7f7aea`.
+
+```mermaid
+flowchart LR
+    I21["Intent: ronda 7 de gaps (ONT-54)"] --> N1["N1: plan inline Short T1-T5 (G43 a G47) ✅"]
+    N1 --> N2["N2: commits Pragma a482909..80a59a8 ✅"]
+    N2 --> V1["M: verified ciclo 1 (1331 passed) ✅"]
+    V1 --> P1["M: PLAN_GAP propio sobre copia de la DB real ⛔ corregido"]
+    P1 --> V2["M: verified ciclo 2 a7f7aea (1333 passed) ✅"]
+    V2 --> D21["M: documentado (Graphos G2) ✅"]
+    D21 --> H21["M: commit docs(ONT-54) (Hermon, pendiente)"]
+    V2 --> G21["G43 a G47 cerrados; G40 cierre parcial"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G43 agrupación de alertas con `cursor` (`a482909`); T2 G44 acentos (`a8c55f9`); T3 G46 `destinations` (`71c2887`); T4 G45 visual (`a855351`); T5 G47 playbook (`80a59a8`) | Pragma | ✅ |
+| M2 | Ciclo 1 Dokimos VERIFIED (1331 passed) | Dokimos | ✅ |
+| M3 | PLAN_GAP propio: la clave de agrupación incluía `source` y partía Antigravity en 2 grupos | Orquestador | ✅ corregido |
+| M4 | Ciclo 2: clave `(executable, file)`, `file_present` para cualquier archivo conocido (`a7f7aea`); 1333 passed, ruff 296; copia de la DB: 7 filas en 3 grupos | Pragma / Dokimos | ✅ VERIFIED |
+| M5 | Documentación: feature, README (badge 1333, párrafo, tabla de tools), STATE, COMPACT, rollup (fila ONT-54) y esta sección | Graphos G2 | ✅ |
+| M6 | Commit `docs(ONT-54)` y ff a `dev` (solo bajo autorización) | Hermon | pendiente |
+| M7 | Backlog ONT-46 (defaults `Callable`, `_EXTERNAL_METHODS`) | Pragma (tanda futura) | backlog |
+
+Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): re-plan inline tras el PLAN_GAP propio (Short); clave de agrupación `(executable, file)` cuando hay `file`; `destinations` sin BTF se reporta como `limits` en lugar de inventar datos.

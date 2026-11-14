@@ -24,8 +24,9 @@ Este rollup consolida ONT-43 a ONT-52 según la sección anterior de este mismo 
 | ONT-51 | `discover` por afinidad (G33), supervisión sin aristas `weak`, hitos (G34) | `a15125c`..`4bf0fea` | VERIFIED, publicado en dev | 1271 (0 fallos) | G33, G34 cerrados |
 | ONT-52 | ronda 6: G36–G39, routing de open ports, `_fast_dump` (T6 parcial) | `19494cc`..`cc10757` | VERIFIED tras LOGIC_ERROR cosmético (`eb63fc5`), publicado en dev | 1288 (+17) | G36–G39 cerrados; G40, G41, G42 abiertos |
 | ONT-53 | G42 ORT por entorno (cerrado), G41 sinónimos EN+ES (cerrado), G40 recorrido AST único (cierre parcial) | `1630453`..`1a2d6d4` | VERIFIED tras reclasificar ciclo 1 como LOGIC_ERROR; publicado en dev | 1304 (0 fallos; ruff 290) | G41, G42 cerrados; G40 parcial (1,46–1,49 s estable; 1,3 s solo en frío) |
+| ONT-54 | ronda 7: G43 alertas de crash agrupadas por archivo con paginación `cursor`, G44 `error_class` sin acentos, G45 etiqueta de `visual_inspect` y sha256 completo, G46 `destinations` de tcp_connect con BTF, G47 `next_action` de `playbook_run(create)` | `a482909`..`a7f7aea` | VERIFIED tras PLAN_GAP propio (ciclo 2 sobre copia de la DB real); publicado en dev | 1333 (0 fallos; ruff 296) | G43–G47 cerrados; G40 sigue parcial |
 
-Gaps abiertos al cierre de ONT-53: G40 (cierre parcial, coste de estado estable). Backlog ONT-46 sin gap formal: defaults `Callable` en `_TypeIndex.resolve`; `_EXTERNAL_METHODS` por versión de Python.
+Cierre de ONT-54: G43 a G47 cerrados sin gap nuevo; G40 sigue en cierre parcial. Gaps abiertos al cierre de ONT-53: G40 (cierre parcial, coste de estado estable). Backlog ONT-46 sin gap formal: defaults `Callable` en `_TypeIndex.resolve`; `_EXTERNAL_METHODS` por versión de Python.
 
 Invariantes que se consolidan en ONT-53:
 1. Ningún recorrido ni caché se guarda en objetos del grafo (`node.__dict__`); el caché de extracción tiene ámbito de análisis y se descarta al salir de `build_graph`. No se usa `gc.collect` como parche.

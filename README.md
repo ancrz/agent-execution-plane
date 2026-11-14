@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1304_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1333_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -338,8 +338,8 @@ The plane exposes 17 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `diagnose_system_crashes` | `FULL` / `DIMINISHED` | `diagnose_system_crashes(action: str = "diagnose", limit: int = 5, resolve_after_report: bool = False) -> str` | Unified crash forensics: `action="diagnose"` inspects coredumps, journalctl errors, and Apport `/var/crash` files; `action="alerts"` (alias `"check"`) polls proactive crash alerts from `crash_events` without disruption. | `{"status": "OK"|"DEGRADED", "scope": "system"|"user", ...}` / `{"status": "OK", "new_crashes_synced": int, "alerts": [...]}` | Isolated execution (`stdin=DEVNULL`, `close_fds=True`, `timeout=15`). Degrades to `DEGRADED` if systemd utilities are absent. |
-| `kernel_trace` | `FULL` | `kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str` | Non-invasive kernel tracing via `bpftrace` (`syscall_count`, `file_opens`, `tcp_connect`, `security_open_denials`, `security_landlock_audit`, `security_exec_monitor`, and under Milestone ONT-31: `network_sniff` [kprobe:netif_receive_skb], `security_audit` [tracepoint:capget], `tcp_listeners` [kprobe:inet_csk_listen_start]). Bounded duration (1–30s). | `{"status": "OK", "capability_tier": "FULL", "mode": str, "duration_sec": int, "counts": {...}}` | Requires `CAP_BPF` / `sudo -n`. When called in `DIMINISHED`, returns `status: "DEGRADED"` with prerequisite instructions. |
+| `diagnose_system_crashes` | `FULL` / `DIMINISHED` | `diagnose_system_crashes(action: str = "diagnose", limit: int = 5, resolve_after_report: bool = False, cursor: int = 0) -> str` | Unified crash forensics: `action="diagnose"` inspects coredumps, journalctl errors, and Apport `/var/crash` files; `action="alerts"` (alias `"check"`) polls proactive crash alerts from `crash_events` without disruption; las alertas pendientes se agrupan por archivo (`pending_groups`, `file_present`) y se paginan con `limit`/`cursor`. | `{"status": "OK"|"DEGRADED", "scope": "system"|"user", ...}` / `{"status": "OK", "new_crashes_synced": int, "alerts": [...]}` | Isolated execution (`stdin=DEVNULL`, `close_fds=True`, `timeout=15`). Degrades to `DEGRADED` if systemd utilities are absent. |
+| `kernel_trace` | `FULL` | `kernel_trace(mode: str = "syscall_count", duration_sec: int = 3) -> str` | Non-invasive kernel tracing via `bpftrace` (`syscall_count`, `file_opens`, `tcp_connect`, `security_open_denials`, `security_landlock_audit`, `security_exec_monitor`, and under Milestone ONT-31: `network_sniff` [kprobe:netif_receive_skb], `security_audit` [tracepoint:capget], `tcp_listeners` [kprobe:inet_csk_listen_start]). Bounded duration (1–30s). `tcp_connect` con BTF añade `destinations` [{comm, daddr, dport, count}] (mismo limit/cursor); sin BTF, `limits` lo indica. | `{"status": "OK", "capability_tier": "FULL", "mode": str, "duration_sec": int, "counts": {...}}` | Requires `CAP_BPF` / `sudo -n`. When called in `DIMINISHED`, returns `status: "DEGRADED"` with prerequisite instructions. |
 
 #### Domain 5: System Management & Omarchy Primitives (4 Tools)
 
@@ -1101,6 +1101,8 @@ flowchart LR
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
+
+**ONT-54 ronda 7 de gaps (VERIFIED tras un ciclo de corrección por PLAN_GAP propio; 1333 passed, ruff limpio):** `diagnose_system_crashes(action="alerts")` agrupa las alertas pendientes por archivo de crash, con `pending_groups`, `occurrences`, `first_seen`/`last_seen` y `file_present`, y pagina con `limit`/`cursor` (G43; las 7 filas de la base real se leen como 3 grupos); `normalize_error_class` pliega acentos ("parámetro" pasa a "parametro", G44); `kernel_trace(mode="tcp_connect")` con BTF reporta `destinations` por comm, IP y puerto (G46); `visual_inspect` usa el último segmento de la URL como etiqueta cuando el título está vacío y devuelve el sha256 completo (G45); `playbook_run(create)` propone un `next_action` de ejecución concreto y el compacto omite `token_savings_estimate` cuando el ahorro es 0 (G47). Gaps abiertos de la ronda: ninguno; G40 sigue en cierre parcial.
 
 **ONT-53 telemetría de onnxruntime, sinónimos EN+ES y extracción con recorrido AST único (VERIFIED tras un ciclo de corrección de rendimiento; publicado en dev; 1304 passed, gaps 1):** el embedder fija `ORT_DISABLE_TELEMETRY=1` antes de importar onnxruntime sin pisar un valor explícito, de modo que el proceso ya no abre `onnxruntime.db` (G42); `discover` usa una única tabla de sinónimos de acciones en `engine.privilege` para EN y ES, así que "puertos abiertos escucha" enruta a `listeners` (G41); la extracción de hilos reutiliza un índice de nodos por análisis: en estado estable tarda 1,46–1,49 s frente a 1,67–1,69 s, y solo la primera ejecución de un proceso baja de 1,3 s (G40, cierre parcial).
 
