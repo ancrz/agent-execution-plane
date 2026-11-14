@@ -194,6 +194,20 @@ def domain_network(action: str, name: str | None = None, ports_arg: str | None =
         arps = net_telemetry.parse_proc_net_arp()
         return {"status": "OK", "count": len(arps), "arp": arps}
 
+    if action == "neighbors":  # ONT-50 T1: `network neighbors [iface] [sweep|nosweep,probe,timeout=<ms>]`
+        import asyncio
+
+        nargs = net_telemetry.parse_neighbor_args(name, ports_arg)
+        return asyncio.run(
+            net_telemetry.discover_neighbors(
+                nargs["iface"],
+                sweep=nargs["sweep"],
+                probe=nargs["probe"],
+                timeout_ms=nargs["timeout_ms"],
+                tier_octal=int(get_effective_chmod_tier()["octal"]),
+            )
+        )
+
     if action == "listeners":
         socks = net_telemetry.parse_proc_net_sockets("tcp", resolve_pids=True)
         if socks:

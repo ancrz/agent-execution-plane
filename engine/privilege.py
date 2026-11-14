@@ -324,7 +324,7 @@ _CAP_KEYWORDS = {
     "semantic_memory": "memory search recall catalog query reindex prune index vector embeddings reuse find store sqlite vec memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
     "async_dispatch": "async background queue long job pueue dispatch inspect status log test suite ruff pytest ci lint verify cola asincrono tarea larga despachar inspeccionar estado segundo plano",
     "process_introspection": "process inspect fd descriptor proc pid introspection open files socket pipes leak rss memory telemetry resource footprint proceso descriptor introspeccion archivos abiertos fugas",
-    "system_inspect": "network storage packages inspect read system status listeners mounts disks schema aep_ctl control plane contract red almacenamiento paquetes inspeccionar sistema estado esquema",
+    "system_inspect": "network storage packages inspect read system status listeners mounts disks neighbors hosts lan vecinos schema aep_ctl control plane contract red almacenamiento paquetes inspeccionar sistema estado esquema",
     "service_control": "service control start stop restart systemd daemon unit servicio controlar arrancar detener reiniciar",
     "crash_forensics": "crash core dump forensic coredump diagnose fault alerts router ticket new proactive journalctl systemd errors crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
     "kernel_observability": "kernel trace ebpf bpf syscall observe probe openat execve landlock denials trazar sondear llamadas sistema",
@@ -454,10 +454,10 @@ CHMOD_DEGRADATION_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             TIER_4R: "Read-only unit status (status: DEGRADED)",
         },
         "network": {
-            TIER_7RWX: "Raw packet sniff, netfilter drop, probe",
-            TIER_6RW: "Port probe, /proc/net sockets, ARP",
-            TIER_5RX: "Port probe, /proc/net sockets, ARP",
-            TIER_4R: "Cached socket table inspection",
+            TIER_7RWX: "Raw packet sniff, netfilter drop, probe, neighbors (ARP sweep + passive)",
+            TIER_6RW: "Port probe, /proc/net sockets, ARP, neighbors (ARP sweep + passive)",
+            TIER_5RX: "Port probe, /proc/net sockets, ARP, neighbors (passive ARP only)",
+            TIER_4R: "Cached socket table inspection, neighbors (passive ARP only)",
         },
         "storage": {
             TIER_7RWX: "Mount table control, device inspection, df",
@@ -561,7 +561,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
         },
     },
     "network": {
-        "actions": ["inspect", "routes", "listeners", "probe", "interfaces", "arp"],
+        "actions": ["inspect", "routes", "listeners", "probe", "interfaces", "arp", "neighbors"],
         "arg": '[target] [ports]  (MCP: target=<host>, args="22,80"; name is an alias of target)',
         "description": "Inspect network interfaces, routing tables, active TCP/UDP listening sockets, local ARP tables, or probe TCP ports.",
         "preconditions": {
@@ -600,6 +600,12 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
                 "required_fs": ["/proc/net/arp"],
                 "fail_soft_behavior": "IN_MEMORY_FALLBACK",
                 "deterministic": True,
+            },
+            "neighbors": {
+                "privilege_tier": "DIMINISHED",
+                "required_fs": ["/proc/net/arp", "/proc/net/route"],
+                "fail_soft_behavior": "DEGRADED",
+                "deterministic": False,
             },
         },
     },
@@ -913,10 +919,11 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
         ],
     },
     "system_inspect": {
-        "when_to_use": "Query control-plane schema, network listeners, routes, storage mounts, or installed packages as compact typed JSON.",
+        "when_to_use": "Query control-plane schema, network listeners, routes, LAN hosts and neighbors (devices on my LAN, ARP), storage mounts, or installed packages as compact typed JSON.",
         "canonical_calls": [
             'aep_ctl(action="schema")',
             'aep_ctl(domain="network", action="listeners", verbosity="summary", limit=20)',
+            'aep_ctl(domain="network", action="neighbors", verbosity="summary")',
             'aep_ctl(domain="storage", action="mounts", verbosity="summary")',
             'aep_ctl(domain="package", action="check", name="semgrep")',
         ],

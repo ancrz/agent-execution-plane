@@ -3951,6 +3951,34 @@ async def aep_ctl(
                 arps = net_telemetry.parse_proc_net_arp()
                 res_obj = {"status": "OK", "count": len(arps), "arp": arps}
                 return attach_envelope(res_obj, tracker, verbosity=verbosity)
+            elif a == "neighbors":  # ONT-50 T1 (G21): LAN neighbor discovery, host read-only
+                nargs = net_telemetry.parse_neighbor_args(
+                    name, target, args if isinstance(args, (list, str)) else None
+                )
+                found = asyncio.run(
+                    net_telemetry.discover_neighbors(
+                        nargs["iface"],
+                        sweep=nargs["sweep"],
+                        probe=nargs["probe"],
+                        timeout_ms=nargs["timeout_ms"],
+                        tier_octal=int(get_effective_chmod_tier()["octal"]),
+                    )
+                )
+                all_rows = found.get("neighbors", [])
+                cap = min(eff_limit, 25) if is_compact else eff_limit
+                page = all_rows[eff_cursor : eff_cursor + cap]
+                more = (eff_cursor + len(page)) < len(all_rows)
+                found["neighbors"] = page
+                found["total_count"] = len(all_rows)
+                if is_compact:
+                    found = net_telemetry.compact_neighbors_result(found)
+                return attach_envelope(
+                    found,
+                    tracker,
+                    verbosity=verbosity,
+                    truncated=more,
+                    cursor=str(eff_cursor + len(page)) if more else None,
+                )
             elif a == "listeners":
                 socks = net_telemetry.parse_proc_net_sockets("tcp", resolve_pids=True)
                 if socks:
