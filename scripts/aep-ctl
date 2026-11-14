@@ -102,6 +102,16 @@ def domain_service(action: str, name: str | None) -> Any:
         props = dict(
             line.split("=", 1) for line in r.stdout.splitlines() if "=" in line
         )
+        if props.get("LoadState") == "not-found":
+            # ONT-48/G13: una unidad inexistente no es un servicio sano.
+            return {
+                "status": "NOT_FOUND",
+                "severity": "WARN",
+                "service": name,
+                "capability_tier": _tier(),
+                "properties": props,
+                "next_action": f'aep_ctl(domain="package", action="check", name="{name}")',
+            }
         return {"status": "OK", "service": name, "capability_tier": _tier(), "properties": props}
 
     # Mutaciones (start/stop/restart): nivel FULL -> systemctl de sistema vía escalada;
