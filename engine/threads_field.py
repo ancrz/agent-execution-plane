@@ -41,6 +41,7 @@ import hashlib
 import os
 import re
 import time
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,8 @@ def norm_error_class(value: Any) -> str:
     """Misma normalizacion que `telemetry.normalize_error_class`: ultimo segmento tras '.', minusculas, [a-z0-9_]."""
     if isinstance(value, type):
         value = value.__name__
-    return _NON_WORD_RE.sub("", str(value or "").lower().split(".")[-1].split(":")[0])[:ERROR_CLASS_MAX]
+    folded = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")  # ONT-54
+    return _NON_WORD_RE.sub("", folded.lower().split(".")[-1].split(":")[0])[:ERROR_CLASS_MAX]
 
 
 def field_sig(tool: str, action: str, status: str, error_class: str) -> str:

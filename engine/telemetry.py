@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
@@ -150,7 +151,8 @@ def normalize_error_class(payload: dict[str, Any]) -> str:
             raw = found[-1] if found else ""
     if isinstance(raw, type):
         raw = raw.__name__
-    cls = _NON_WORD_RE.sub("", str(raw).lower().split(".")[-1].split(":")[0])
+    folded = unicodedata.normalize("NFKD", str(raw)).encode("ascii", "ignore").decode("ascii")  # parámetro -> parametro
+    cls = _NON_WORD_RE.sub("", folded.lower().split(".")[-1].split(":")[0])
     return cls[:_ERROR_CLASS_MAX] or "unknown"
 
 
