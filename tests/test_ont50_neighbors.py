@@ -268,3 +268,33 @@ def test_nosweep_and_low_tier_report_no_method(lan):
     assert asyncio.run(nt.discover_neighbors(None, sweep=False))["sweep_method"] == "none"
     assert asyncio.run(nt.discover_neighbors(None, sweep=True, tier_octal=4))["sweep_method"] == "none"
     assert _FakeTcp.attempts == [] and _FakeSock.sent == []
+
+
+def test_egress_blocked_suspected_when_arp_unchanged(monkeypatch, lan):
+    one = [_arp("192.168.1.1", "aa:bb:cc:00:00:01")]
+    monkeypatch.setattr(nt, "parse_proc_net_arp", lambda: one)  # same before and after the sweep
+    res = asyncio.run(nt.discover_neighbors(None, sweep=True, timeout_ms=50, tier_octal=7))
+    assert res["swept_hosts"] == 254 and res["count"] == 1
+    assert res["egress_blocked_suspected"] is True
+    assert nt.NEIGHBOR_EGRESS_HINT in res["limits"]
+    assert nt.compact_neighbors_result(res)["egress_blocked_suspected"] is True
+
+
+def test_egress_flag_false_when_arp_grows(monkeypatch, lan):
+    calls = {"n": 0}
+    one = [_arp("192.168.1.1", "aa:bb:cc:00:00:01")]
+    grown = one + [_arp("192.168.1.77", "00:00:00:00:00:00", flags="0x0")]  # even an INCOMPLETE row proves egress
+
+    def fake_arp():
+        calls["n"] += 1
+        return one if calls["n"] == 1 else grown
+
+    monkeypatch.setattr(nt, "parse_proc_net_arp", fake_arp)
+    res = asyncio.run(nt.discover_neighbors(None, sweep=True, timeout_ms=50, tier_octal=7))
+    assert res["count"] == 1 and "egress_blocked_suspected" not in res
+    assert nt.NEIGHBOR_EGRESS_HINT not in res["limits"]
+
+
+def test_egress_flag_absent_without_sweep_or_with_many_neighbors(lan):
+    assert "egress_blocked_suspected" not in asyncio.run(nt.discover_neighbors(None, sweep=False))
+    assert "egress_blocked_suspected" not in asyncio.run(nt.discover_neighbors(None, sweep=True, tier_octal=7))

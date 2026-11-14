@@ -470,6 +470,10 @@ _NEIGHBOR_IGNORED_IFACE_PREFIXES = ("lo", "utun", "tun", "wg", "docker", "br-", 
 _NEIGHBOR_ZERO_MAC = "00:00:00:00:00:00"
 _RTF_UP = 0x1
 _RTF_GATEWAY = 0x2
+NEIGHBOR_EGRESS_MIN_SWEPT = 16
+NEIGHBOR_EGRESS_HINT = (
+    "No ARP activity after sweep: a VPN kill-switch or firewall likely blocks LAN egress; passive results only"
+)
 NEIGHBOR_LIMITS = [
     "no multicast listen/send (mDNS 5353, WS-Discovery 3702, SSDP 1900 out of scope)",
     "no OUI vendor table: `oui` is the first 3 MAC bytes",
@@ -670,6 +674,10 @@ async def discover_neighbors(
     """
     ONT-50 T1: composite LAN neighbor discovery. Passive ARP read, plus an optional unprivileged UDP/9 sweep of the
     directly-connected prefixes (tier >= 6rw-). Returns the full ordered list; callers paginate.
+
+    `egress_blocked_suspected` is set when a sweep of >= 16 hosts leaves no new ARP row and <= 1 neighbor. Example
+    cause: a VPN kill-switch such as the nft table `inet windscribe`, whose OUTPUT policy drops LAN-bound packets
+    before neighbor resolution (SYN gets EINPROGRESS, UDP gets EPERM, but ARP never starts).
     """
     t0 = time.perf_counter()
     routes = parse_proc_net_route()
@@ -694,6 +702,7 @@ async def discover_neighbors(
         do_sweep = False
         sweep_reason = "no eligible prefix"
 
+    arp_ips_before = {str(r.get("ip")) for r in parse_proc_net_arp()}
     swept_hosts = 0
     sweep_method = "none"
     sweep_errors: dict[str, int] = {"tcp_syn": 0, "udp": 0}
@@ -729,6 +738,11 @@ async def discover_neighbors(
 
     neighbors.sort(key=_ip_key)
 
+    # A sweep that touched >= 16 hosts normally leaves new ARP rows (complete or INCOMPLETE). None, and <= 1 neighbor,
+    # means the probes never left the host.
+    new_arp_ips = {str(r.get("ip")) for r in arp_rows} - arp_ips_before
+    egress_blocked = do_sweep and swept_hosts >= NEIGHBOR_EGRESS_MIN_SWEPT and len(neighbors) <= 1 and not new_arp_ips
+
     probe_skipped = 0
     if probe and neighbors:
         targets = neighbors[:NEIGHBOR_PROBE_MAX]
@@ -751,7 +765,8 @@ async def discover_neighbors(
         "neighbors": neighbors,
         "count": len(neighbors),
         "duration_ms": round((time.perf_counter() - t0) * 1000.0, 1),
-        "limits": list(NEIGHBOR_LIMITS),
+        **({"egress_blocked_suspected": True} if egress_blocked else {}),
+        "limits": [*NEIGHBOR_LIMITS, *([NEIGHBOR_EGRESS_HINT] if egress_blocked else [])],
         "skipped_prefixes": skipped,
         "arp_raw_count": len(arp_rows),
         "sweep_errors": sweep_errors,
