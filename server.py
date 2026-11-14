@@ -210,6 +210,49 @@ AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# ONT-51 (G33): synonyms per canonical-call `action`, used only to rank a winning capability's canonical calls
+# against the use_case. Kept small on purpose: extend it only for actions that appear in `_CAP_TACTICAL`.
+_ACTION_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "neighbors": ("hosts", "lan", "neighbor", "devices", "arp", "subnet", "discovery"),
+    "listeners": ("ports", "listening", "sockets", "open"),
+    "probe": ("port", "scan", "reachable"),
+    "routes": ("route", "gateway"),
+    "interfaces": ("nic", "interface"),
+    "mounts": ("mount", "filesystem", "disk"),
+    "usage": ("disk", "space", "free"),
+    "check": ("installed", "package"),
+    "status": ("service", "running"),
+}
+_CALL_NAMED_ARG_RE = re.compile(r'\b(?:action|domain)="([^"]+)"')
+
+
+def _overlap_tokens(text: str) -> set[str]:
+    """Lowercase word tokens (>= 3 chars) with a trailing plural 's' stripped."""
+    return {
+        t[:-1] if t.endswith("s") and len(t) > 3 else t for t in re.findall(r"[a-z0-9]+", text.lower()) if len(t) >= 3
+    }
+
+
+def _pick_canonical_call(use_case: str, calls: list[str]) -> str | None:
+    """Best canonical call for `use_case` by token overlap with the call (tool/domain/action + action synonyms).
+
+    A tie at the top or a zero score falls back to `calls[0]` (backwards compatible).
+    """
+    if not calls:
+        return None
+    want = _overlap_tokens(use_case)
+    scores: list[int] = []
+    for call in calls:
+        head = call.split("(", 1)[0]
+        named = _CALL_NAMED_ARG_RE.findall(call)
+        extra = [syn for n in named for syn in _ACTION_SYNONYMS.get(n, ())]
+        scores.append(len(want & _overlap_tokens(" ".join([head.replace("_", " "), *named, *extra]))))
+    best = max(scores)
+    if best == 0 or scores.count(best) > 1:
+        return calls[0]
+    return calls[scores.index(best)]
+
+
 def _lkg_git_head() -> str:
     """Under LKG the tree has no VCS: use `git_head` from the snapshot manifest (sibling of `tree/`)."""
     try:
@@ -1074,7 +1117,7 @@ async def discover(
                     "use_case": eff_use_case,
                     "match_status": "MATCHED" if high_conf else "NO_HIGH_CONFIDENCE_MATCH",
                     "confidence": "HIGH" if high_conf else "LOW",
-                    "recommended_next_call": rec_calls[0]
+                    "recommended_next_call": _pick_canonical_call(eff_use_case, rec_calls)
                     if (high_conf and rec_calls)
                     else 'discover(action="playbook")',
                     "suggested_capability": [

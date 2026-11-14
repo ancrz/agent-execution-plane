@@ -298,3 +298,39 @@ def test_egress_flag_false_when_arp_grows(monkeypatch, lan):
 def test_egress_flag_absent_without_sweep_or_with_many_neighbors(lan):
     assert "egress_blocked_suspected" not in asyncio.run(nt.discover_neighbors(None, sweep=False))
     assert "egress_blocked_suspected" not in asyncio.run(nt.discover_neighbors(None, sweep=True, tier_octal=7))
+
+
+def _recommended(use_case: str) -> dict:
+    import server
+
+    return json.loads(asyncio.run(server.discover(use_case=use_case)))
+
+
+def test_discover_recommends_neighbors_call_for_lan_hosts():
+    out = _recommended("find which hosts are on my LAN")
+    assert out["confidence"] == "HIGH"
+    assert "neighbors" in out["recommended_next_call"]
+    # suggested_capability keeps the canonical order
+    assert out["suggested_capability"][0]["canonical_calls"][0] == 'aep_ctl(action="schema")'
+
+
+def test_pick_canonical_call_open_ports_selects_listeners():
+    # Capability ranking for "list open ports" is the matcher's concern (LOW confidence today), so the
+    # call selection is asserted against the real system_inspect canonical calls.
+    import server
+    from engine.privilege import _CAP_TACTICAL
+
+    calls = _CAP_TACTICAL["system_inspect"]["canonical_calls"]
+    assert "listeners" in server._pick_canonical_call("list open ports", calls)
+    assert "mounts" in server._pick_canonical_call("show disk mounts", calls)
+
+
+def test_pick_canonical_call_zero_overlap_and_ties_fall_back_to_first():
+    import server
+
+    calls = ['aep_ctl(action="schema")', 'aep_ctl(domain="network", action="neighbors")']
+    assert server._pick_canonical_call("zzz qqq", calls) == calls[0]
+    assert server._pick_canonical_call("hosts on my lan", calls) == calls[1]
+    tied = ['aep_ctl(domain="network", action="neighbors")', 'aep_ctl(domain="network", action="listeners")']
+    assert server._pick_canonical_call("network", tied) == tied[0]
+    assert server._pick_canonical_call("anything", []) is None
