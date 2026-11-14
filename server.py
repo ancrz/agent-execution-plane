@@ -867,7 +867,10 @@ async def discover(
                 ),
             }
             payload.update(caps_meta)
-            if v_mode not in ("terse", "cached", "summary", "brief"):  # ONT-59 T4: detail only (token budget)
+            if v_mode in ("summary", "brief"):  # ONT-61 T3/G65: compact go block (<= 20 tok); detail keeps the full one
+                go = go_toolchain.go_info()
+                payload["go"] = {"version": go["version"], "supported": go["supported"]}
+            elif v_mode not in ("terse", "cached"):  # ONT-59 T4: full block in detail only (token budget)
                 payload["go"] = go_toolchain.go_info()
             if commit_drift:  # D-25: emitted only when true (token budget)
                 payload["commit_drift"] = True

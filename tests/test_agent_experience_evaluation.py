@@ -326,7 +326,8 @@ def test_deep_omission_battery_v3_polymorphic_dag_and_aliases() -> None:
     cap_sum_raw = asyncio.run(server.discover(action="capabilities", verbosity="summary"))
     cap_det_raw = asyncio.run(server.discover(action="capabilities", verbosity="detail"))
     assert len(cap_sum_raw.encode("utf-8")) < len(cap_det_raw.encode("utf-8"))
-    assert len(cap_sum_raw.encode("utf-8")) < 6000
+    # ONT-61 T3/G65: budget 6000 -> 6100 B. The compact `go` block adds 64 B (~16 tok); summary was 5965 B before it.
+    assert len(cap_sum_raw.encode("utf-8")) < 6100
     rec = json.loads(
         asyncio.run(server.discover(action="recommend", intent="inspect open file descriptors of process"))
     )
