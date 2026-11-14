@@ -32,7 +32,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import NotificationOptions
 
 from engine import catalog as _catalog_mod
-from engine import headless_display, matcher
+from engine import go_toolchain, headless_display, matcher
 from engine import kanban as _kanban_mod
 from engine import lkg_ctl as _lkg_ctl
 from engine.backup import (
@@ -866,6 +866,8 @@ async def discover(
                 ),
             }
             payload.update(caps_meta)
+            if v_mode not in ("terse", "cached", "summary", "brief"):  # ONT-59 T4: detail only (token budget)
+                payload["go"] = go_toolchain.go_info()
             if commit_drift:  # D-25: emitted only when true (token budget)
                 payload["commit_drift"] = True
                 # ONT-47 T1: disambiguate commit_drift vs stale (bool kept for compatibility).
@@ -1504,7 +1506,7 @@ async def artifact_lint_and_build(
 
                     # 1. Validación estática con go vet
                     vet_res = subprocess.run(
-                        ["go", "vet", str(src_file)],
+                        [go_toolchain.go_bin() or "go", "vet", str(src_file)],
                         capture_output=True,
                         text=True,
                         check=False,
@@ -1629,7 +1631,7 @@ async def artifact_lint_and_build(
 
                     # 1. Validación estática con go vet
                     vet_res = subprocess.run(
-                        ["go", "vet", str(src_file)],
+                        [go_toolchain.go_bin() or "go", "vet", str(src_file)],
                         capture_output=True,
                         text=True,
                         check=False,
@@ -1668,7 +1670,14 @@ async def artifact_lint_and_build(
                     env = os.environ.copy()
                     env["CGO_ENABLED"] = "0"
                     build_res = subprocess.run(
-                        ["go", "build", "-ldflags=-s -w", "-o", str(slot_bin_file), str(src_file)],
+                        [
+                            go_toolchain.go_bin() or "go",
+                            "build",
+                            "-ldflags=-s -w",
+                            "-o",
+                            str(slot_bin_file),
+                            str(src_file),
+                        ],
                         capture_output=True,
                         text=True,
                         env=env,
@@ -1720,26 +1729,33 @@ async def artifact_lint_and_build(
                     except Exception as e:  # noqa: BLE001
                         logger.debug("Kanban task advance failed for %s: %s", art_name, e)
 
-                    return attach_envelope(
-                        {
-                            "status": "SUCCESS",
-                            "artifact_id": artifact_id,
-                            "name": art_name,
-                            "source_template": art_src_tpl or None,
-                            "binary_path": str(bin_file),
-                            "binary_size_bytes": len(binary_bytes),
-                            "compile_time_ms": compile_latency_ms,
-                            "lint_warnings": lint_warnings,
-                            "kanban_task_id": kanban_task_id,
-                            "ipc_slot": {
-                                "slot_id": slot["slot_id"],
-                                "agent_id": eff_agent,
-                                "scratch_dir": str(slot["scratch_dir"]),
-                            },
+                    go_ver = go_toolchain.go_version()
+                    outdated = not go_toolchain.supported(go_ver)
+                    out_payload: dict[str, Any] = {
+                        "status": "SUCCESS",
+                        "artifact_id": artifact_id,
+                        "name": art_name,
+                        "source_template": art_src_tpl or None,
+                        "binary_path": str(bin_file),
+                        "binary_size_bytes": len(binary_bytes),
+                        "compile_time_ms": compile_latency_ms,
+                        "lint_warnings": lint_warnings,
+                        "kanban_task_id": kanban_task_id,
+                        "toolchain": go_ver,
+                        "ipc_slot": {
+                            "slot_id": slot["slot_id"],
+                            "agent_id": eff_agent,
+                            "scratch_dir": str(slot["scratch_dir"]),
                         },
-                        tracker,
-                        verbosity=verbosity,
-                    )
+                    }
+                    if outdated:  # ONT-59 T4: el build continúa, pero la toolchain está fuera de soporte
+                        out_payload["toolchain_outdated"] = True
+                        out_payload["severity"] = "WARN"
+                        out_payload["summary"] = (
+                            f"Build OK, pero {go_ver or 'go desconocido'} está fuera de soporte "
+                            f"(mínimo {go_toolchain.GO_SUPPORTED_MIN}); ejecuta scripts/setup.sh --update."
+                        )
+                    return attach_envelope(out_payload, tracker, verbosity=verbosity)
                 finally:
                     shutil.rmtree(build_dir, ignore_errors=True)
                     GLOBAL_SESSION_POOL.release("pico-jenkins", eff_agent, clear_state=False)
