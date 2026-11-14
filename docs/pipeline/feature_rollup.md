@@ -8,7 +8,7 @@
 
 ---
 
-## Rollup de cadena: ONT-43 a ONT-48 (2026-11-13)
+## Rollup de cadena: ONT-43 a ONT-49 (2026-11-14)
 
 Cadena: `feature_20261113_004026_mcp_coverage_reinforcement.md` → `080406_ont45_topos_residue` → `ont46_extractor_precision` → `ont47_dogfood_frictions` → `ont48_dogfood_gaps` (quinto documento, dispara este rollup).
 
@@ -19,6 +19,7 @@ Cadena: `feature_20261113_004026_mcp_coverage_reinforcement.md` → `080406_ont4
 | ONT-46 | precisión del extractor de hilos, aristas `weak` | VERIFIED, publicado en dev | 1147 |
 | ONT-47 | nueve fricciones de dogfooding (contratos compactos y aditivos) | VERIFIED, publicado en dev | 1174 (1 fallo de carga conocido) |
 | ONT-48 | trece gaps de la ronda 2 (G10–G26) | VERIFIED, publicado en dev | 1230 (0 fallos) |
+| ONT-49 | cuatro fricciones de la ronda 3 (G27–G30): `history_drop` de pueue, kanban, README | VERIFIED | 1235 (0 fallos) |
 
 Invariantes que se consolidan: `truncated ⇒ cursor` en el sobre; los modos `detail` no cambian de forma salvo indicación explícita; comandos outward-facing sólo con tier 7rwx y `confirm=True`; ninguna generación de grafo de árbol ajeno o sin commit se persiste; los tests no escriben en la base real.
 
