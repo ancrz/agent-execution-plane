@@ -40,17 +40,19 @@ resolve_py() {
 validate() {
     local py; py="$(resolve_py)"
     log "Validando con $py"
-    local err_compile err_import
+    local err_compile err_import smoke_data
     err_compile="$(mktemp -t aep_sync_compile.XXXXXX)"
     err_import="$(mktemp -t aep_sync_import.XXXXXX)"
+    # ONT-61/G67: the smoke import runs against a throwaway data dir, never the real DB (its constructors migrate).
+    smoke_data="$(mktemp -d -t aep_sync_data.XXXXXX)"
     # RETURN traps are global in bash: clear it inside itself, or it re-fires (with the locals gone,
     # tripping `set -u`) on the return of every later function.
-    trap 'rm -f "$err_compile" "$err_import"; trap - RETURN' RETURN
+    trap 'rm -rf "$err_compile" "$err_import" "$smoke_data"; trap - RETURN' RETURN
     if ! "$py" -m py_compile "$PROJECT_ROOT/server.py" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" "$PROJECT_ROOT"/engine/*.py 2>"$err_compile"; then
         err "py_compile falló:"; cat "$err_compile"; return 1
     fi
     # Smoke de import: construye el server completo (registra las tools). Falla => no se enchufa.
-    if ! PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp'); assert len(server.mcp._tool_manager._tools) == 17, f'Expected 17 tools, got {len(server.mcp._tool_manager._tools)}'" 2>"$err_import"; then
+    if ! AEP_DATA_HOME="$smoke_data" PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp'); assert len(server.mcp._tool_manager._tools) == 17, f'Expected 17 tools, got {len(server.mcp._tool_manager._tools)}'" 2>"$err_import"; then
         err "import de server falló:"; cat "$err_import"; return 1
     fi
     chmod +x "$LAUNCHER" "$SCRIPT_DIR/aep-ctl" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" 2>/dev/null || true
@@ -80,8 +82,10 @@ register() {
             # Hot-reload en vivo para sesiones activas de Antigravity (language_server Connect-RPC):
             # descubre el PID/CSRF token del language_server y dispara RefreshMcpServers para
             # regenerar ~/.gemini/antigravity/mcp/agent-execution-plane/*.json sin reiniciar sesión.
-            local agy_status
-            agy_status="$(python3 - "$PROJECT_ROOT" <<'PY' 2>/dev/null || echo "STATUS:error"
+            local agy_status agy_data
+            # ONT-61/G67: the `import server` below must never migrate the real DB: throwaway AEP_DATA_HOME.
+            agy_data="$(mktemp -d -t aep_sync_data.XXXXXX)"
+            agy_status="$(AEP_DATA_HOME="$agy_data" python3 - "$PROJECT_ROOT" <<'PY' 2>/dev/null || echo "STATUS:error"
 import re, subprocess, sys
 from pathlib import Path
 project_root = sys.argv[1] if len(sys.argv) > 1 else "."
@@ -127,6 +131,7 @@ else:
     print("STATUS:no_language_server")
 PY
 )"
+            rm -rf "$agy_data"
             if echo "$agy_status" | grep -q "STATUS:reload_ok"; then
                 ok "Antigravity (agy) re-registrado + hot-reload OK (RefreshMcpServers HTTP 200)"
             elif echo "$agy_status" | grep -q "STATUS:reload_failed"; then

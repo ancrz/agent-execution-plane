@@ -46,6 +46,28 @@ def test_default_without_env_is_unchanged_production_path(tmp_path: Path) -> Non
     assert expected.is_file()
 
 
+def test_aep_sync_check_never_creates_the_db_under_home(tmp_path: Path) -> None:
+    """The pre-commit smoke (`aep-sync.sh --check`) imports server: it must use a throwaway AEP_DATA_HOME."""
+    home = tmp_path / "home"
+    shim = home / ".local" / "share" / "agent-os" / "venv" / "bin" / "python"
+    shim.parent.mkdir(parents=True)
+    shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    shim.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != paths.DATA_HOME_ENV}
+    env |= {"HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"}
+    res = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "aep-sync.sh"), "--check"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "Validación superada" in res.stdout
+    assert not list((home / ".local" / "share" / "agent-os").glob("*.db")), "aep-sync --check created a DB under HOME"
+
+
 def test_pytest_session_is_pinned_away_from_the_real_db() -> None:
     """Sentinel: after collection every default DB path lives under the session AEP_DATA_HOME, never the real one."""
     import engine.backup
