@@ -464,6 +464,47 @@ class ArtifactCatalog:
                 ).fetchall()
             return [{**dict(r), "artifact_type": "synthesized"} for r in rows]
 
+    UNSCORED_REASON = (
+        "unscored: promotion_score is written only by kanban promote/reevaluate; this artifact has history "
+        "but was never gated, so 0.0 means 'not scored', not 'untrustworthy'"
+    )
+    BUILTIN_MIN_RELEVANCE = 0.05  # primitives are few and tag-rich: below this the lexical match is noise
+
+    @classmethod
+    def _annotate_score(cls, row: dict[str, Any]) -> dict[str, Any]:
+        """ONT-52 G39: explain a 0.0 promotion_score on an artifact that already has execution history."""
+        if float(row.get("promotion_score") or 0.0) == 0.0 and int(row.get("execution_count") or 0) > 0:
+            row["score_reason"] = cls.UNSCORED_REASON
+        return row
+
+    @classmethod
+    def builtin_matches(cls, query: str | None, limit: int = 3) -> list[dict[str, Any]]:
+        """ONT-52 G39: `default_primitives` matching `query` (shared engine.matcher), as `builtin` catalog entries."""
+        if not query or not query.strip():
+            return []
+        from engine import matcher
+        from engine.primitives import list_primitives
+
+        docs = [
+            {
+                "name": p["name"],
+                "category": p.get("category"),
+                "tags": list(p.get("tags", [])),
+                "description": p.get("description", ""),
+            }
+            for p in list_primitives()
+        ]
+        ranked = matcher.rank(query, docs, limit=max(1, limit), threshold=cls.BUILTIN_MIN_RELEVANCE)
+        return [
+            {
+                "name": d["name"],
+                "category": d["category"],
+                "builtin": True,
+                "call": f'default_primitives(action="run", name="{d["name"]}")',
+            }
+            for d in ranked
+        ]
+
     def browse(self, category: str | None = None, query: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
         """Descubrimiento del catálogo para el agente: 'qué soluciones tengo disponibles'.
         - Con `query`: top-K semántico (embeddings auto-indexados) ordenado por cercanía.
@@ -499,7 +540,7 @@ class ArtifactCatalog:
                             continue
                         d["semantic_distance"] = round(float(d.pop("_d")), 4)
                         d["artifact_type"] = "synthesized"
-                        out.append(d)
+                        out.append(self._annotate_score(d))
                     return out
 
         # Ruta relacional: ranking por confianza (reusable, score, éxito, uso).
@@ -521,7 +562,7 @@ class ArtifactCatalog:
                     "ORDER BY reusable DESC, promotion_score DESC, success_rate DESC, execution_count DESC LIMIT ?",
                     (lim,),
                 ).fetchall()
-        return [{**dict(r), "artifact_type": "synthesized"} for r in rows]
+        return [self._annotate_score({**dict(r), "artifact_type": "synthesized"}) for r in rows]
 
     @staticmethod
     def is_builtin_primitive(name: str) -> bool:

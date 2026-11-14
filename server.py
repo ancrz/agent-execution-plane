@@ -1229,6 +1229,7 @@ async def artifact_catalog(
         try:
             if act in ("browse", "list"):
                 items = catalog.browse(category=category, query=query or intent, limit=limit)
+                builtin_items = [] if category else catalog.builtin_matches(query or intent)  # ONT-52 G39
                 if is_compact:
                     items = [
                         {
@@ -1242,6 +1243,7 @@ async def artifact_catalog(
                         }
                         for it in items
                     ]
+                items = [*items, *builtin_items]
                 return attach_envelope(
                     {
                         "status": "OK",

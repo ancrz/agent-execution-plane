@@ -161,3 +161,39 @@ def test_unreadable_fd_label_is_unified():
     for rel in ("server.py", "engine/primitives.py"):
         src = (root / rel).read_text()
         assert "<unreadable>" not in src and "[closed/unreachable]" not in src
+
+
+# ---------------------------------------------------------------- T4 (G39): builtin primitives in browse + score_reason
+
+
+def test_browse_appends_builtin_primitives_after_artifacts(tmp_path, monkeypatch):
+    cat = ArtifactCatalog(db_path=tmp_path / "b.db")
+    monkeypatch.setattr(server, "catalog", cat)
+    monkeypatch.setenv("AEP_FORCE_TIER", "4r--")
+    _PrivilegeCache.reset()
+    try:
+        res = _ctl_tool(action="browse", query="disk usage")
+    finally:
+        _PrivilegeCache.reset()
+    builtin = [a for a in res["artifacts"] if a.get("builtin")]
+    assert builtin and builtin[0]["name"] == "disk-usage"
+    assert builtin[0]["call"] == 'default_primitives(action="run", name="disk-usage")'
+    assert res["artifacts"][-1] is builtin[-1] or res["artifacts"][-1] == builtin[-1]  # appended at the end
+
+
+def test_builtin_matches_empty_and_noise():
+    assert ArtifactCatalog.builtin_matches("") == []
+    assert ArtifactCatalog.builtin_matches("zzz") == []
+
+
+def test_score_reason_for_unscored_artifact_with_history(tmp_path):
+    cat = ArtifactCatalog(db_path=tmp_path / "s.db")
+    row = {"name": "x", "promotion_score": 0.0, "execution_count": 708}
+    assert "unscored" in cat._annotate_score(row)["score_reason"]
+    assert "score_reason" not in cat._annotate_score({"promotion_score": 0.9, "execution_count": 5})
+    assert "score_reason" not in cat._annotate_score({"promotion_score": 0.0, "execution_count": 0})
+
+
+def _ctl_tool(**kw: Any) -> dict[str, Any]:
+    kw.setdefault("verbosity", "summary")
+    return json.loads(asyncio.run(server.artifact_catalog(**kw)))
