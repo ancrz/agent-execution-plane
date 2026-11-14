@@ -45,6 +45,7 @@ DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
 # Umbral de distancia coseno calibrado empíricamente para bge-small-en-v1.5:
 # paráfrasis del mismo intent ~0.28-0.30; intents distintos >= 0.36. 0.32 deja margen.
 DEFAULT_SEMANTIC_THRESHOLD = 0.32
+STATS_HISTORY_MAX = 5  # ONT-60/G62: generaciones archivadas conservadas por artefacto
 
 
 class ArtifactCatalog:
@@ -136,6 +137,9 @@ class ArtifactCatalog:
                 conn.execute("ALTER TABLE artifacts ADD COLUMN toolchain TEXT")
             if "previous_stats" not in cols:
                 conn.execute("ALTER TABLE artifacts ADD COLUMN previous_stats TEXT")
+            if "stats_history" not in cols:
+                # ONT-60/G62: últimas generaciones archivadas (JSON lista); previous_stats = la última, por compatibilidad
+                conn.execute("ALTER TABLE artifacts ADD COLUMN stats_history TEXT")
             if "metrics_floor" not in cols:
                 # execution_metrics.id más alto que ya NO cuenta para esta generación (record_execution no resucita stats viejas)
                 conn.execute("ALTER TABLE artifacts ADD COLUMN metrics_floor INTEGER NOT NULL DEFAULT 0")
@@ -282,12 +286,13 @@ class ArtifactCatalog:
         with self._get_rw_conn() as conn:
             with transaction_immediate(conn):
                 old = conn.execute(
-                    "SELECT binary_hash, source_hash, toolchain, success_rate, execution_count, updated_at "
+                    "SELECT binary_hash, source_hash, toolchain, success_rate, execution_count, updated_at, stats_history, previous_stats "
                     "FROM artifacts WHERE name = ?",
                     (name,),
                 ).fetchone()
                 changed = False
                 previous_json: str | None = None
+                history_json: str | None = None
                 if old is not None:
                     changed = bool(
                         (
@@ -299,15 +304,24 @@ class ArtifactCatalog:
                         or (toolchain is not None and old["toolchain"] is not None and old["toolchain"] != toolchain)
                     )
                     if changed:
-                        previous_json = json.dumps(
-                            {
-                                "source_hash": old["source_hash"],
-                                "toolchain": old["toolchain"],
-                                "success_rate": old["success_rate"],
-                                "execution_count": old["execution_count"],
-                                "updated_at": old["updated_at"],
-                            }
-                        )
+                        previous_entry = {
+                            "source_hash": old["source_hash"],
+                            "toolchain": old["toolchain"],
+                            "success_rate": old["success_rate"],
+                            "execution_count": old["execution_count"],
+                            "updated_at": old["updated_at"],
+                        }
+                        previous_json = json.dumps(previous_entry)
+                        try:
+                            history = json.loads(old["stats_history"] or "[]")
+                        except ValueError:
+                            history = []
+                        if not isinstance(history, list):
+                            history = []
+                        if not history and old["previous_stats"]:
+                            with contextlib.suppress(ValueError):
+                                history = [json.loads(old["previous_stats"])]  # fila previa a la migración
+                        history_json = json.dumps([*history, previous_entry][-STATS_HISTORY_MAX:])
                 floor = 0
                 if changed:
                     row_floor = conn.execute("SELECT COALESCE(MAX(id), 0) AS m FROM execution_metrics").fetchone()
@@ -335,6 +349,7 @@ class ArtifactCatalog:
                         toolchain = COALESCE(excluded.toolchain, artifacts.toolchain),
                         version = artifacts.version + 1,
                         previous_stats = CASE WHEN :changed THEN :previous ELSE artifacts.previous_stats END,
+                        stats_history = CASE WHEN :changed THEN :history ELSE artifacts.stats_history END,
                         success_rate = CASE WHEN :changed THEN 1.0 ELSE artifacts.success_rate END,
                         execution_count = CASE WHEN :changed THEN 0 ELSE artifacts.execution_count END,
                         avg_latency_ms = CASE WHEN :changed THEN 0.0 ELSE artifacts.avg_latency_ms END,
@@ -358,6 +373,7 @@ class ArtifactCatalog:
                         "toolchain": toolchain,
                         "changed": 1 if changed else 0,
                         "previous": previous_json,
+                        "history": history_json,
                         "floor": floor,
                     },
                 ).fetchone()
