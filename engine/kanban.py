@@ -509,19 +509,28 @@ class KanbanBoard:
                         "UPDATE kanban_tasks SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE id = ?",
                         [(i,) for i in ids],
                     )
-        return {
-            "status": "ARCHIVED" if apply else "DRY_RUN",
-            "applied": apply,
+        if apply:
+            status = "ARCHIVED" if candidates else "NOOP"
+        else:
+            status = "DRY_RUN"
+        out: dict[str, Any] = {
+            "status": status,
+            "applied": bool(apply and candidates),
             "threshold": thr,
             "states_scanned": states,
             "protected_states": sorted(protect),
             **({"title_like": title_like} if title_like else {}),
             "candidate_count": len(candidates),
             "candidates": candidates,
-            "hint": None
-            if apply
-            else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_board(action='unarchive', task_id=...)).",
         }
+        if apply:
+            out["archived"] = len(candidates)
+        else:
+            out["hint"] = (
+                "Revisa candidatos; repite con apply=True para despejar "
+                "(reversible vía kanban_board(action='unarchive', task_id=...))."
+            )
+        return out
 
     def _archive_one(self, task_id: int, ignored_states: list[str] | None = None) -> dict[str, Any]:
         """Archiva una tarjeta concreta (cualquier lane salvo PROMOTED). Reversible con unarchive."""
