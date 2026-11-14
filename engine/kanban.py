@@ -68,6 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id);
 """
 
 
+_REVERT_HINT_MAX_IDS = 50  # ONT-57/G54: above this the reclassify hint stops listing ids
+
+
 class KanbanBoard:
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DB_DEFAULT_PATH
@@ -656,25 +659,39 @@ class KanbanBoard:
         title_like: str | None = None,
         include_archived: bool = False,
         apply: bool = False,
+        task_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         """ONT-56/G50: cambia el `kind` de tarjetas existentes (artifact <-> work) con el mapa de estados del plan.
 
-        Con `task_id` aplica directo (sin dry-run); con `title_like` (LIKE parametrizado) devuelve DRY_RUN salvo
+        Con `task_id` o `task_ids` (ONT-57/G54, lista explícita) aplica directo (sin dry-run); con `title_like` (LIKE parametrizado) devuelve DRY_RUN salvo
         `apply=True`. Tarjetas con `artifact_name` no se pasan a work (son artefactos reales) -> `skipped`.
         No toca archived/description/refs/attempts."""
         kind = (kind or "").strip().lower()
         if kind not in ("work", "artifact"):
             return {"status": "PARAM_ERROR", "error": f"kind inválido: {kind!r}", "valid": ["work", "artifact"]}
-        if task_id is None and not title_like:
-            return {"status": "PARAM_ERROR", "error": "reclassify requiere 'task_id' o 'title_like'."}
-        direct = task_id is not None
+        id_list: list[int] = []
+        if task_ids:
+            try:
+                id_list = [int(i) for i in task_ids]
+            except TypeError, ValueError:
+                return {"status": "PARAM_ERROR", "error": "task_ids debe ser una lista de enteros."}
+        if task_id is None and not id_list and not title_like:
+            return {"status": "PARAM_ERROR", "error": "reclassify requiere 'task_id', 'task_ids' o 'title_like'."}
+        direct = task_id is not None or bool(id_list)
         do_apply = apply or direct
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 if direct:
-                    rows = conn.execute("SELECT * FROM kanban_tasks WHERE id=?", (int(task_id),)).fetchall()
+                    want = [int(task_id)] if task_id is not None else []
+                    want += [i for i in id_list if i not in want]
+                    marks = ",".join("?" for _ in want)
+                    sql = f"SELECT * FROM kanban_tasks WHERE id IN ({marks}) ORDER BY id"  # noqa: S608 - placeholders only
+                    rows = conn.execute(sql, want).fetchall()
                     if not rows:
-                        return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                        return {
+                            "status": "ERROR",
+                            "error": f"task {task_id if task_id is not None else id_list} no existe",
+                        }
                 else:
                     rows = conn.execute(
                         "SELECT * FROM kanban_tasks WHERE title LIKE ? AND (archived=0 OR ?) ORDER BY id",
@@ -732,8 +749,18 @@ class KanbanBoard:
         if do_apply:
             out["reclassified"] = len(candidates)
             if candidates:
-                ids = f"task_id={candidates[0]['task_id']}" if direct else f"title_like={title_like!r}"
-                out["hint"] = f"Reversible: kanban_board(action='reclassify', {ids}, kind='{back}', apply=True)."
+                done_ids = [c["task_id"] for c in candidates]
+                out["reclassified_ids"] = done_ids
+                if len(done_ids) <= _REVERT_HINT_MAX_IDS:
+                    out["hint"] = (
+                        f"Reversible: kanban_board(action='reclassify', task_ids={done_ids}, kind='{back}', apply=True)."
+                    )
+                else:
+                    out["hint"] = (
+                        f"Reversible: {len(done_ids)} cards reclassified (ids in 'reclassified_ids'); revert by "
+                        f"task_ids in batches of {_REVERT_HINT_MAX_IDS}, or by title_like with care (it also "
+                        f"matches native '{back}' cards)."
+                    )
         else:
             out["hint"] = "Revisa candidatos; repite con apply=True para reclasificar."
         return out

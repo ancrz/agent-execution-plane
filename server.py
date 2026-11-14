@@ -4895,6 +4895,7 @@ async def kanban_board(
     agent_id: str = "default",
     cursor: int = 0,
     kind: str = "",
+    task_ids: list[int] | None = None,
 ) -> str:
     """
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
@@ -4907,7 +4908,7 @@ async def kanban_board(
       - 'reevaluate': re-pondera artefactos reusables y degrada solo los que tienen fallo demostrado.
       - 'archive': con `task_id` archiva esa tarjeta (cualquier lane salvo PROMOTED -> PROTECTED); sin él, barrido de tareas estancadas (apply=False -> DRY_RUN) filtrable por `states`/`title_like` (LIKE SQL, ej. '%Alias Task%').
       - 'unarchive': reactiva una tarea archivada (requiere `task_id`).
-      - 'reclassify': cambia el `kind` (destino, requerido: 'work'|'artifact') de tarjetas existentes. `task_id` aplica directo; `title_like` (LIKE) da DRY_RUN con `candidates` paginados (`limit`/`cursor`) salvo `apply=True`; `include_archived` incluye archivadas. Tarjetas con artefacto no pasan a work (`skipped`). artifact->work: BACKLOG=BACKLOG, SYNTHESIZED/LINTED/CANARY=IN_PROGRESS, PROMOTED=DONE, REJECTED=BLOCKED; work->artifact: todo a BACKLOG (score 0). Reversible.
+      - 'reclassify': cambia el `kind` (destino, requerido: 'work'|'artifact') de tarjetas existentes. `task_id`/`task_ids` (lista explícita; el hint de reversión la usa) aplican directo y devuelven `reclassified_ids`; `title_like` (LIKE) da DRY_RUN con `candidates` paginados (`limit`/`cursor`) salvo `apply=True`; `include_archived` incluye archivadas. Tarjetas con artefacto no pasan a work (`skipped`). artifact->work: BACKLOG=BACKLOG, SYNTHESIZED/LINTED/CANARY=IN_PROGRESS, PROMOTED=DONE, REJECTED=BLOCKED; work->artifact: todo a BACKLOG (score 0). Reversible.
     """
 
     def _run() -> str:
@@ -5074,6 +5075,7 @@ async def kanban_board(
                     title_like=title_like,
                     include_archived=include_archived,
                     apply=apply,
+                    task_ids=task_ids,
                 )
                 trunc_rc, cur_rc = _page_output_lists(res_rc, eff_limit, max(0, int(cursor or 0)))
                 return attach_envelope(res_rc, tracker, verbosity=verbosity, truncated=trunc_rc, cursor=cur_rc)
