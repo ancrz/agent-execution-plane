@@ -92,3 +92,19 @@ Registro: `docs/pipeline/feature_20261113_ont48_dogfood_gaps.md`. Base `dev` `c2
 | G27 | cola pueue vaciada sin rastro en AEP | — | **abierto**, nuevo |
 
 Pendientes: T12/G18, G21 (decisión del usuario) y G27. Medidas de la ronda: `discover(playbook)` summary ≈ 2900 → 820 tok; `audit.usage` 553 → 457 tok; sandbox con `rw_paths` y `/dev/null` escribible; `git push origin main` sin encolar (CONFIRM_REQUIRED).
+
+## ONT-49: ronda 3
+
+Registro: `docs/pipeline/feature_20261114_ont49_dogfood_round3.md`. Base `dev` `66b84d9`, 4 commits `d0b436e`..`44b8d8d` (Pragma). Dokimos: **VERIFIED**, 1235 passed / 0 failed (baseline 1230), ruff limpio (276 archivos), budgets sin cambios, GAPS_BASELINE 1.
+
+| Gap | Tarea | Commit | Estado |
+|-----|-------|--------|--------|
+| G27 | T4 `history_drop` en `async_job_dispatch(status)` y evento `jobs.history_drop`; fixture om06 con siembra propia | `f5b8212` | cerrado en detección (no impide la caída) |
+| G28 | T1 `archive` sin candidatos: `NOOP`, `applied: false`, `archived: 0`, sin `hint: null` | `d0b436e` | cerrado |
+| G29 | T2 `kanban_board(terse)` pliega por `limit` (175 tok con 45 tarjetas) | `d1d6ad6` | cerrado |
+| G30 | T3 `db_scope` real/custom y `db_path` en `kanban_board` y `artifact_catalog` | `d1d6ad6` | cerrado |
+| — | T5 README: fila `async_job_dispatch` alineada con la firma | `44b8d8d` | cerrado |
+| G18 | proyección duplicada en `playbook_run(batch)` | — | **omitida** por contrato de tests |
+| G21 | `network.neighbors` | — | **no aprobado**: decisión de diseño del usuario |
+
+Pendientes: G18 (decisión de contrato) y G21 (decisión del usuario). Medidas de la ronda: terse `limit=1` con 45 tarjetas, 175 tok (tope 400); `archive` sin candidatos responde `NOOP`; `db_scope` visible en detail; `history_drop` con `WARN` y evento de auditoría al caer más de un 50 % desde 10 o más tareas.

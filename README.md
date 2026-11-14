@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1230_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1235_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1098,6 +1098,19 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-49 gaps de dogfooding ronda 3 (VERIFIED, publicado en dev; 1235 passed, 0 failed, gaps 1):** cuatro commits de Pragma (`d0b436e`..`44b8d8d`). `archive` sin candidatos responde `NOOP` sin `hint: null`; `kanban_board(terse)` pliega las tarjetas por `limit` (175 tok con 45 tarjetas y `limit=1`); `kanban_board` y `artifact_catalog` exponen `db_scope` (`real` o `custom`) y `db_path` en detail; `async_job_dispatch(status)` avisa con `history_drop` y `WARN` y registra `jobs.history_drop` en la auditoría cuando la cola cae más de un 50 % desde 10 tareas o más. G27 queda cerrado en detección, no en prevención. Omitidos o abiertos: G18 (proyección duplicada en `playbook_run(batch)`, decisión de contrato) y G21 `network.neighbors` (decisión de diseño pendiente). Detalle: `docs/pipeline/feature_20261114_ont49_dogfood_round3.md` y `docs/sdd/sdd_ont49_dogfood_round3.md`.
+
+```mermaid
+flowchart LR
+    I["Intent: gaps de dogfooding ronda 3 (ONT-49)"] --> M1["M1: ronda dogfood sobre el plano vivo (G27-G30, orquestador) ✅"]
+    M1 --> M2["M2: implemented (Pragma, 4 commits d0b436e..44b8d8d) ✅"]
+    M2 --> M3["M3: verified (Dokimos, 1235 passed, 0 failed) ✅"]
+    M3 --> M4["M4: documented (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, reporte) ✅"]
+    M4 --> M5["M5: committed (Hermon, pendiente)"]
+    M3 --> B1["G18 playbook_run(batch) proyección duplicada (contrato) ⛔"]
+    M3 --> B2["G21 network.neighbors no aprobado ⛔"]
 ```
 
 **ONT-48 gaps de dogfooding ronda 2 (VERIFIED, publicado en dev; 1230 passed, 0 failed, gaps 1):** trece gaps de la segunda ronda de uso real cerrados en contratos aditivos y compactos (13 commits `aab6d4e`..`8f68910`): el sandbox con `rw_paths` ya no monta `/` en `ro_mounts` y `/dev/null` es escribible; un exit 0 con `Traceback` o `PermissionError` devuelve `EXEC_SUSPECT`; los comandos outward-facing (`git push`, `docker push`, `gh pr merge`, `npm publish`, etc.) devuelven `CONFIRM_REQUIRED` sin encolar salvo tier 7rwx y `confirm=True`, y las etiquetas vacías se autogeneran con `label_generated`; `persist_generation` no persiste árboles ajenos, commits desconocidos ni caídas de nodos (`persisted`, `reason`, `root_path`); `archive(task_id)` y `title_like`; `create` con `description` y `refs`; `NOT_FOUND`/`WARN` para unidades inexistentes; `autoevol(report)` nunca responde OK vacío; cursores en `execute_in_ram` y `kernel_trace`; `discover(playbook)` compacto (820 tok); `audit.usage` con `fields_unavailable`; `ts_iso` en crashes; mapa de servicios ampliado; catálogo en inglés. Omitidos o abiertos: T12/G18 (proyección duplicada, omitida por contrato de tests), G21 `network.neighbors` (decisión de diseño pendiente) y G27 (cola pueue vaciada sin rastro). Detalle: `docs/sdd/sdd_ont48_dogfood_gaps.md`.

@@ -483,3 +483,28 @@ flowchart LR
 | M5 | Commit de la tanda y ff a `dev` | Hermon | publicado en dev |
 
 Residuo fuera de ONT-48: T12/G18 (omitida por contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario) y G27 (cola pueue vaciada sin rastro, abierto).
+
+## 16. Gaps de dogfooding ronda 3 ONT-49 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont49_dogfood_round3.md` (anterior: `feature_20261113_ont48_dogfood_gaps.md`). SDD: `docs/sdd/sdd_ont49_dogfood_round3.md`. Estado: VERIFIED en worktree `agent-a9c338f8824ab1a32`, HEAD `44b8d8d`, base `dev` `66b84d9`; publicado en dev.
+
+```mermaid
+flowchart LR
+    I16["Intent: gaps de dogfooding ronda 3 (ONT-49)"] --> N1["N1: ronda dogfood sobre el plano vivo, G27-G30 (orquestador) ✅"]
+    N1 --> N2["N2: T1-T5 en 4 commits d0b436e..44b8d8d (Pragma) ✅"]
+    N2 --> V16["M: verified (Dokimos, 1235 passed, 0 failed; gaps 1) ✅"]
+    V16 --> D16["M: documentado (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, reporte) ✅"]
+    D16 --> H16["M: commit (Hermon, pendiente)"]
+    N1 --> R16["Residuo: G18 playbook_run(batch) proyección duplicada (contrato) ⛔"]
+    V16 --> R16b["Residuo: G21 network.neighbors no aprobado ⛔"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Ronda dogfood sobre el plano vivo: G27–G30 | Orquestador (tools AEP) | ✅ |
+| M2 | Fixes T1 (G28), T2 y T3 (G29, G30), T4 (G27 `history_drop` y fixture om06), T5 (README) | Pragma | ✅ |
+| M3 | Dokimos VERIFIED: 1235 passed, 0 fallos, ruff limpio (276), gaps 1, budgets sin subir | Dokimos | ✅ VERIFIED |
+| M4 | Documentación: feature, SDD, reporte (sección ONT-49), README (badge 1235 y grafo), STATE, COMPACT, MILESTONES | Graphos G2 | ✅ |
+| M5 | Commit de la tanda y ff a `dev` | Hermon | pendiente |
+
+Residuo fuera de ONT-49: G18 (decisión de contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario). G27 queda cerrado en detección: `history_drop` no impide la caída de la cola.
