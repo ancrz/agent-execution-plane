@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import Any
 
 from engine.db import get_ro_connection, get_rw_connection
+from engine.paths import data_home
 
 logger = logging.getLogger("aep.backup")
 
-DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
-BACKUPS_DEFAULT_DIR = Path.home() / ".local" / "share" / "agent-os" / "backups"
+DB_DEFAULT_PATH = data_home() / "artifacts.db"
+BACKUPS_DEFAULT_DIR = data_home() / "backups"
 MAX_BACKUP_SLOTS = 5
 MANIFEST_FILENAME = "backups_manifest.json"
 LOCK_FILENAME = ".lock"
@@ -1012,7 +1013,7 @@ def create_workspace_snapshot(path: Path | str, name: str | None = None) -> dict
     try:
         snap_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
-        snap_dir = Path.home() / ".local" / "share" / "agent-os" / "snapshots"
+        snap_dir = data_home() / "snapshots"
         snap_dir.mkdir(parents=True, exist_ok=True)
 
     archive_path = snap_dir / f"{eff_name}.tar.gz"
@@ -1071,7 +1072,7 @@ def restore_workspace_snapshot(path: Path | str, name: str | None = None) -> dic
     snap_dir = Path("/dev/shm/aep_pool/snapshots")
     archive_path = snap_dir / f"{eff_name}.tar.gz"
     if not archive_path.exists():
-        fallback_dir = Path.home() / ".local" / "share" / "agent-os" / "snapshots"
+        fallback_dir = data_home() / "snapshots"
         archive_path = fallback_dir / f"{eff_name}.tar.gz"
 
     is_git = (p / ".git").is_dir()

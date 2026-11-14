@@ -27,6 +27,7 @@ def _call(**kw: object) -> dict:
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """HOME temporal: nunca se toca la BD ni el ledger reales."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("AEP_DATA_HOME", raising=False)  # ONT-61: these tests assert the HOME-derived default
     yield tmp_path
     _PrivilegeCache.reset()
 

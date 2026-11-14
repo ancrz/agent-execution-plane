@@ -30,6 +30,7 @@ from engine.db import (
     transaction_immediate,
 )
 from engine.embedder import EMBEDDING_DIM, get_instance
+from engine.paths import data_home
 
 logger = logging.getLogger("aep.catalog")
 
@@ -40,7 +41,7 @@ except (ImportError, OSError) as e:  # pragma: no cover
     logger.debug("sqlite_vec import failed: %s", e)
     sqlite_vec = None
 
-DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
+DB_DEFAULT_PATH = data_home() / "artifacts.db"
 
 # Umbral de distancia coseno calibrado empíricamente para bge-small-en-v1.5:
 # paráfrasis del mismo intent ~0.28-0.30; intents distintos >= 0.36. 0.32 deja margen.
@@ -659,7 +660,7 @@ class ArtifactCatalog:
         (protect) nunca se podan: son contexto semilla. `apply=False` -> dry-run para juzgar
         contra el ponderador antes de destruir; `apply=True` -> borra (artefacto + vector + binario)."""
         protect = set(protect or set())
-        bin_dir = Path.home() / ".local" / "share" / "agent-os" / "bin"
+        bin_dir = data_home() / "bin"
         with self._get_ro_conn() as conn:
             rows = conn.execute(
                 "SELECT id, name, success_rate, execution_count, promotion_score FROM artifacts WHERE reusable = 0"

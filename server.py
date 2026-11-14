@@ -65,6 +65,7 @@ from engine.ipc_pool import (
 )
 from engine.kanban import KanbanBoard
 from engine.landlock import get_landlock_status
+from engine.paths import data_home
 from engine.playbook import PlaybookStore
 from engine.privilege import (
     ACTION_SYNONYMS,
@@ -206,7 +207,7 @@ def _get_docs_vectorizer() -> Any:
 
 # Rutas base
 PROJECT_DIR = Path(__file__).resolve().parent  # class C: code being executed
-TEMP_BIN_DIR = Path.home() / ".local" / "share" / "agent-os" / "bin"
+TEMP_BIN_DIR = data_home() / "bin"
 AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 

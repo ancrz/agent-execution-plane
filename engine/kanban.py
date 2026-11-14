@@ -22,8 +22,9 @@ from typing import Any
 
 from engine import ponder  # motor de ponderación multidimensional COMPARTIDO (artefactos + playbooks)
 from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
+from engine.paths import data_home
 
-DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
+DB_DEFAULT_PATH = data_home() / "artifacts.db"
 
 STATES = ["BACKLOG", "SYNTHESIZED", "LINTED", "CANARY", "PROMOTED", "REJECTED"]
 _ARTIFACT_TO_WORK = {

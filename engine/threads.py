@@ -41,6 +41,7 @@ from engine import threads_extractors as ex
 from engine import threads_spec_cache
 from engine.db import get_db_connection, get_ro_connection, transaction_immediate
 from engine.fingerprint import code_fingerprint
+from engine.paths import data_home
 from engine.privilege import get_effective_chmod_tier
 from engine.security import _AUDIT_LOCK, record_audit_event, sanitize_dict
 from engine.threads_model import (
@@ -990,8 +991,8 @@ THREADS_GEN_DDL = """CREATE TABLE IF NOT EXISTS threads_gen (
 
 
 def default_db_path() -> Path:
-    """Ruta de la BD de AEP, resuelta al llamar (respeta HOME en tests)."""
-    return Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
+    """Ruta de la BD de AEP, resuelta al llamar (respeta AEP_DATA_HOME y, sin él, HOME)."""
+    return data_home() / "artifacts.db"
 
 
 def _snapshot(analysis: Analysis) -> bytes:

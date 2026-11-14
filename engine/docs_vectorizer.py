@@ -18,6 +18,7 @@ from typing import Any
 
 from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
 from engine.embedder import EMBEDDING_DIM, get_instance
+from engine.paths import data_home
 
 logger = logging.getLogger("aep.docs_vectorizer")
 
@@ -26,7 +27,7 @@ try:
 except ImportError, OSError:
     sqlite_vec = None
 
-DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "system_docs.db"
+DB_DEFAULT_PATH = data_home() / "system_docs.db"
 
 # Lista curada (Fase 1). Ingesta ~30s. Ampliable on-demand vía ingest_command().
 CURATED_COMMANDS = [

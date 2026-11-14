@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from engine.paths import data_home
+
 # Política de Go: solo se parchean las dos últimas versiones mayores. Hoy (2026-11-14) son 1.27 y 1.26.
 # Actualizar este valor (y GO_SUPPORTED_MIN en scripts/setup.sh) cuando salga Go 1.28.
 GO_SUPPORTED_MIN = "1.26"
@@ -25,9 +27,7 @@ _CACHE: dict[str, Any] = {}
 
 
 def toolchain_env_path() -> Path:
-    base = os.environ.get("AEP_DATA_HOME")
-    root = Path(base) if base else Path.home() / ".local" / "share" / "agent-os"
-    return root / "toolchain.env"
+    return data_home() / "toolchain.env"
 
 
 def read_toolchain_env() -> dict[str, str]:

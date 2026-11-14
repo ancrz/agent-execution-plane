@@ -20,11 +20,12 @@ from typing import Any
 
 from engine import ponder  # motor de ponderación COMPARTIDO (misma vara que los artefactos)
 from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
+from engine.paths import data_home
 from engine.topos_guard import ToposGuard, ToposVerdict
 
 logger = logging.getLogger("aep.playbook")
 
-DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
+DB_DEFAULT_PATH = data_home() / "artifacts.db"
 
 _PLAYBOOK_DDL = """
 CREATE TABLE IF NOT EXISTS playbooks (

@@ -27,11 +27,12 @@ from typing import Any
 
 from engine import threads_events as _ev
 from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
+from engine.paths import data_home
 from engine.privilege import capability_tier, privilege_prefix
 
 logger = logging.getLogger("aep.crash_router")
 
-DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
+DB_DEFAULT_PATH = data_home() / "artifacts.db"
 
 _CRASH_DDL = """
 CREATE TABLE IF NOT EXISTS crash_events (

@@ -3,9 +3,27 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
+
+_STATE: dict[str, Path] = {}
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """ONT-61/G67: pin the whole data tree to a session temp dir BEFORE any test module imports `server`.
+
+    `server.py` builds `ArtifactCatalog()`/`KanbanBoard()` at import time and their constructors run `_migrate`; without
+    this, collecting the suite would migrate the user's real ~/.local/share/agent-os/artifacts.db."""
+    _STATE["data_home"] = Path(tempfile.mkdtemp(prefix="aep_pytest_data_"))
+    os.environ["AEP_DATA_HOME"] = str(_STATE["data_home"])
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    if "data_home" in _STATE:
+        shutil.rmtree(_STATE.pop("data_home"), ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

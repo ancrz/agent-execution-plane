@@ -71,7 +71,8 @@ def test_sandbox_hides_the_host_workspace() -> None:
 
 def test_clean_home_bootstraps_the_mcp_runtime(tmp_path: Path) -> None:
     """A newly installed AEP runtime must import without pre-existing state."""
-    env = os.environ | {
+    # ONT-61: conftest pins AEP_DATA_HOME for the suite; this test is about the HOME-derived default, so drop it.
+    env = {k: v for k, v in os.environ.items() if k != "AEP_DATA_HOME"} | {
         "HOME": str(tmp_path / "home"),
         "XDG_DATA_HOME": str(tmp_path / "data"),
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -97,7 +98,8 @@ def test_clean_home_bootstraps_the_mcp_runtime(tmp_path: Path) -> None:
     )
     assert probe.returncode == 0, probe.stderr
     clean_db = Path(probe.stdout.strip())
-    assert clean_db.relative_to(tmp_path / "home") == engine.catalog.DB_DEFAULT_PATH.relative_to(Path.home())
+    assert clean_db == tmp_path / "home" / ".local" / "share" / "agent-os" / "artifacts.db"
+    assert clean_db.name == engine.catalog.DB_DEFAULT_PATH.name
 
 
 def test_control_plane_schema_matches_advertised_mcp_domains() -> None:
