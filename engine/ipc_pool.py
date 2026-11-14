@@ -531,7 +531,7 @@ def resolve_step_refs(
 # -----------------------------------------------------------------------------
 
 
-def project_fields(data: Any, select_fields: list[str] | None) -> Any:
+def project_fields(data: Any, select_fields: list[str] | None, *, single_projection: bool = False) -> Any:
     """
     Server-side dot-path field projection (e.g. ['status', 'pid', 'output.total_sockets']).
     Constructs a lightweight dictionary containing ONLY requested fields in RAM
@@ -539,6 +539,8 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
     Supports smart fallback resolution for return_only="last" and return_only="all".
     Paths that resolve nowhere are listed under `unresolved_fields` (the full payload is never returned
     as a fallback); numeric segments over lists keep the result a list (D-03b).
+    ONT-50 T2: with `single_projection=True` (compact verbosity) a value resolved through the `output` smart fallback
+    is emitted ONCE at the top level; the `output.<path>` mirror is not written. Default keeps both (detail).
     """
     if not select_fields or not isinstance(data, dict):
         return data
@@ -565,7 +567,8 @@ def project_fields(data: Any, select_fields: list[str] | None) -> Any:
                 out_val = _get_dot_path(output_obj["telemetry"], clean_path)
             if out_val is not None:
                 _set_dot_path(projected, clean_path, out_val)
-                _set_dot_path(projected, f"output.{clean_path}", out_val)
+                if not single_projection:
+                    _set_dot_path(projected, f"output.{clean_path}", out_val)
                 continue
 
         # Smart Fallback 2: return_only="all" where "results" is a list of steps

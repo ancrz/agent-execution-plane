@@ -5198,7 +5198,11 @@ async def playbook_run(
                 full_json = json.dumps(base_res)
                 full_bytes = len(full_json.encode("utf-8"))
 
-                projected_res = project_fields(base_res, select_fields)
+                projected_res = project_fields(
+                    base_res,
+                    select_fields,
+                    single_projection=(verbosity or "summary").strip().lower() in ("summary", "brief", "terse"),
+                )
                 if "status" not in projected_res:
                     projected_res["status"] = base_res.get("status", "OK")
                 if "playbook" not in projected_res:
@@ -5440,7 +5444,11 @@ async def playbook_run(
                 full_json = json.dumps(base_res)
                 full_bytes = len(full_json.encode("utf-8"))
 
-                projected_res = project_fields(base_res, select_fields)
+                projected_res = project_fields(
+                    base_res,
+                    select_fields,
+                    single_projection=(verbosity or "summary").strip().lower() in ("summary", "brief", "terse"),
+                )
                 if "status" not in projected_res:
                     projected_res["status"] = base_res.get("status", "OK")
                 if failed_steps and "failed_steps" not in projected_res:

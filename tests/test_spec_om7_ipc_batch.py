@@ -341,9 +341,9 @@ class TestSpecOm7OmissionGapsAndMultiAgent:
                 )
             )
             assert res_last["status"] == "OK"
-            assert "output" in res_last
-            assert isinstance(res_last["output"]["pid"], int) and res_last["output"]["pid"] > 0
-            assert res_last.get("pid") == res_last["output"]["pid"]
+            # ONT-50 T2: compact verbosity projects ONCE at the top level (no `output` mirror)
+            assert "output" not in res_last
+            assert isinstance(res_last["pid"], int) and res_last["pid"] > 0
             assert "token_savings_estimate" in res_last
             assert res_last["token_savings_estimate"]["savings_pct"] >= 50.0
 
@@ -611,9 +611,9 @@ class TestPicoTriadMultiAgentConcurrency:
                 assert data["status"] == "OK", f"Playbook run failed for {agent}: {data}"
                 assert "ipc_slot" in data
                 assert data["ipc_slot"]["agent_id"] == agent
-                assert "output" in data
+                assert "output" not in data  # ONT-50 T2: single top-level projection in compact mode
                 assert "token_savings_estimate" in data
-                assert "counts" in data["output"] or "lanes" in data["output"] or "status" in data
+                assert "counts" in data or "lanes" in data or "status" in data
 
         asyncio.run(_run())
 
@@ -1171,7 +1171,7 @@ class TestOmissionGapsRemediation:
             )
             r = json.loads(res_raw)
             assert r["status"] == "OK"
-            assert r["output"]["verdict"] == "APPROVED"
+            assert r["verdict"] == "APPROVED"  # ONT-50 T2: projected once at the top level
 
             # Validar que el SessionPool de RAM retiene cached_manifest
             stored = server.GLOBAL_SESSION_POOL.cache_get(session_id=sid, key="cached_manifest")
