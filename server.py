@@ -2394,7 +2394,7 @@ def _ensure_pueue_daemon() -> str | None:
 
 
 def _compact_pueue_payload(
-    raw_json_str: str, *, limit: int = 15, is_compact: bool = True, cursor: int = 0
+    raw_json_str: str, *, limit: int = 15, is_compact: bool = True, cursor: int = 0, terse: bool = False
 ) -> tuple[dict[str, Any], bool]:
     """Sanitize and compact pueue status/log JSON, stripping multi-megabyte `envs` dicts."""
     masked = mask_pueue_output(raw_json_str)
@@ -2432,7 +2432,7 @@ def _compact_pueue_payload(
                         t_clean = {
                             "id": t_clean.get("id"),
                             "label": t_clean.get("label"),
-                            "command": (t_clean.get("command") or "")[:100],
+                            "command": (t_clean.get("command") or "")[: 80 if terse else 100],
                             "group": t_clean.get("group"),
                             "status": status_repr,
                         }
@@ -2446,6 +2446,12 @@ def _compact_pueue_payload(
                 "groups": data.get("groups", {}),
                 "tasks": compact_tasks,
             }
+            if terse:  # ONT-50 T4: groups only when some group is not Running (the usual all-Running map is noise)
+                groups = data.get("groups")
+                if not isinstance(groups, dict) or all(
+                    isinstance(g, dict) and g.get("status") == "Running" for g in groups.values()
+                ):
+                    tasks_payload.pop("groups", None)
             if truncated:
                 tasks_payload["next_cursor"] = str(start + len(sliced_keys))
             return tasks_payload, truncated
@@ -2725,8 +2731,13 @@ async def async_job_dispatch(
                         verbosity=verbosity,
                     )
 
+                is_terse = (verbosity or "").strip().lower() == "terse"
                 payload, trunc = _compact_pueue_payload(
-                    res.stdout, limit=eff_limit, is_compact=is_compact, cursor=cursor
+                    res.stdout,
+                    limit=eff_limit,
+                    is_compact=is_compact or is_terse,
+                    cursor=cursor,
+                    terse=is_terse,
                 )
                 next_cur = payload.pop("next_cursor", None)
                 drop = _detect_history_drop(agent_id, payload.get("total_tasks"))
@@ -3952,9 +3963,7 @@ async def aep_ctl(
                 res_obj = {"status": "OK", "count": len(arps), "arp": arps}
                 return attach_envelope(res_obj, tracker, verbosity=verbosity)
             elif a == "neighbors":  # ONT-50 T1 (G21): LAN neighbor discovery, host read-only
-                nargs = net_telemetry.parse_neighbor_args(
-                    name, target, args if isinstance(args, (list, str)) else None
-                )
+                nargs = net_telemetry.parse_neighbor_args(name, target, args if isinstance(args, (list, str)) else None)
                 found = asyncio.run(
                     net_telemetry.discover_neighbors(
                         nargs["iface"],
