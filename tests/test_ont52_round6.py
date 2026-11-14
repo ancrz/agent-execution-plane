@@ -111,3 +111,38 @@ def test_neighbors_egress_next_action_points_to_firewall_status(ctl_env, monkeyp
     monkeypatch.setattr(nt, "discover_neighbors", fake_discover)
     res = _ctl(domain="network", action="neighbors")
     assert ("firewall_status" in res["next_action"]) is expected
+
+
+# ---------------------------------------------------------------- T2 (G37): embedder sin telemetría onnxruntime
+
+
+def test_embedder_disables_onnxruntime_telemetry_before_loading_model(monkeypatch):
+    import sys
+    import types
+
+    from engine import embedder
+
+    order: list[str] = []
+    fake_ort = types.ModuleType("onnxruntime")
+    fake_ort.disable_telemetry_events = lambda: order.append("telemetry_off")
+    fake_fe = types.ModuleType("fastembed")
+
+    class _FakeModel:
+        def __init__(self, model_name: str) -> None:
+            order.append("model")
+
+    fake_fe.TextEmbedding = _FakeModel
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+    monkeypatch.setitem(sys.modules, "fastembed", fake_fe)
+    emb = embedder.LocalEmbedder()
+    assert emb.is_available and order == ["telemetry_off", "model"]
+
+
+def test_embedder_survives_missing_telemetry_api(monkeypatch):
+    import sys
+    import types
+
+    from engine import embedder
+
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))  # sin disable_telemetry_events
+    assert embedder._disable_ort_telemetry() is False

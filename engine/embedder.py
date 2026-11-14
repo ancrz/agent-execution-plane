@@ -30,6 +30,21 @@ class _EmbedderHolder:
 _instance_lock = threading.Lock()
 
 
+def _disable_ort_telemetry() -> bool:
+    """Desactiva la telemetría de onnxruntime (ONT-52 G37) con la API pública `disable_telemetry_events()`.
+
+    Verificado en onnxruntime 1.31.1: `help(onnxruntime.disable_telemetry_events)` -> "Disables platform-specific
+    telemetry collection". Fail-soft: si la API no existe o falla, el embedder sigue funcionando.
+    """
+    try:
+        import onnxruntime
+
+        onnxruntime.disable_telemetry_events()
+        return True
+    except (ImportError, AttributeError, RuntimeError):
+        return False
+
+
 class LocalEmbedder:
     """Envoltura fail-soft y thread-safe sobre fastembed.TextEmbedding."""
 
@@ -40,6 +55,8 @@ class LocalEmbedder:
         try:
             # Import perezoso: fastembed es pesado y puede no estar instalado.
             from fastembed import TextEmbedding
+
+            _disable_ort_telemetry()
 
             self._model = TextEmbedding(model_name=MODEL_NAME)
             self._available = True
