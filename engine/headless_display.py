@@ -104,7 +104,7 @@ def visual_inspect(
             "title": title,
             "viewport": {"width": viewport_width, "height": viewport_height},
             "screenshot_bytes": len(data),
-            "screenshot_sha256": sha256_hex[:16],
+            "screenshot_sha256": sha256_hex,  # ONT-54: full 64-hex digest
             "screenshot_path": str(shot_path),
             "text_excerpt": text_excerpt,
             "latency_ms": round((time.time() - start) * 1000, 2),

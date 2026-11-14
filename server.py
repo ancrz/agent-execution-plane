@@ -4553,6 +4553,14 @@ async def query_system_docs(
     return await anyio.to_thread.run_sync(_run)
 
 
+def _visual_label(title: Any, url: str) -> str:
+    """ONT-54 T4: page title, else the last path segment of the URL (never an empty `Rendered ''`)."""
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    path = str(url).split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    return path.rsplit("/", 1)[-1] or str(url)
+
+
 @mcp.tool(structured_output=False)
 async def visual_inspect(
     url: str,
@@ -4592,7 +4600,7 @@ async def visual_inspect(
                 res,
                 tracker,
                 verbosity=verbosity,
-                summary=f"Rendered '{res.get('title', url)}' ({res.get('screenshot_bytes', 0)} bytes in /dev/shm).",
+                summary=f"Rendered '{_visual_label(res.get('title'), url)}' ({res.get('screenshot_bytes', 0)} bytes in /dev/shm).",
             )
         except concurrent.futures.TimeoutError:
             return attach_envelope(
