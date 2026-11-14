@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1271_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1288_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -370,6 +370,7 @@ Source of truth: `aep_ctl(action="schema", verbosity="detail")`. Tiers are the m
 | `aep_ctl(domain="backup", action="restore_micro_snapshot")` | Restore a RAM micro-snapshot. | mutating | 6rw- | `PERMISSION_DENIED` with `tier` and `chmod_tier` below 6rw- |
 | `aep_ctl(domain="backup", action="verify_and_auto_recover")` | Verify integrity, then recover if it fails. | mutating | 6rw- | `PERMISSION_DENIED` with `tier` and `chmod_tier` below 6rw- |
 | `aep_ctl(domain="backup", action="verify_integrity")` | Run a SQLite integrity check on `name`. | read | 4r-- | none (read-only) |
+| `aep_ctl(domain="security", action="firewall_status")` | Report ufw and nftables status. Runs with `sudo -n` when the tier allows it. Without privilege it returns `status: DEGRADED`, `active: null` and `reason` (never `active: false`). `nft_tables` lists `{family, name, chains}` when nft is readable. ONT-52 G36. | read | 4r-- (sudo only if the tier allows it) | none; without privilege: `DEGRADED` envelope |
 | `aep_ctl(domain="network", action="arp")` | Read the local ARP table. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="network", action="inspect")` | Summarize interfaces from `/proc/net/dev`. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="network", action="interfaces")` | List network interfaces and counters. | read | 4r-- | none (read-only) |
@@ -1100,6 +1101,8 @@ flowchart LR
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
+
+**ONT-52 ronda 6 de gaps: firewall veraz, embedder, etiquetas, catálogo, routing y margen de extracción (VERIFIED tras un ciclo de corrección de forma; publicado en dev; 1288 passed, gaps 1):** `aep_ctl(domain="security", action="firewall_status")` consulta ufw y nftables con `sudo -n` cuando el tier lo permite; sin privilegio devuelve `DEGRADED` con `active: null` y `reason` en lugar de `active: false`, y lista `nft_tables` (G36); el embedder desactiva la telemetría de onnxruntime antes de cargar el modelo (G37; la escritura de `onnxruntime.db` queda como G42. Causa medida por el orquestador: requiere `ORT_DISABLE_TELEMETRY=1` en el entorno antes de importar onnxruntime (planificado en ONT-53 T1).); la etiqueta de FD ilegible es `[unreadable]` (G38); `artifact_catalog(action="browse")` incluye los builtins de `default_primitives` con `score_reason` (G39); "list open ports" enruta a `listeners`; la extracción usa `_fast_dump`, equivalente a `ast.dump` (mediana 1,73 s frente al objetivo de 1,3 s, pendiente como G40). Detalle: `docs/pipeline/feature_20261114_ont52_round6.md`.
 
 **ONT-51 discover por afinidad, supervisión sin aristas débiles y docs históricos (VERIFIED, publicado en dev; 1271 passed, gaps 1):** `discover` recomienda la canonical call con mayor solapamiento con el `use_case` (p. ej. `find which hosts are on my LAN` → `network neighbors`, G33); `file_units` de supervisión ya no fusiona archivos por aristas `weak` (backlog ONT-46); los hitos ya publicados dejan de figurar como pendientes (G34). Detalle: `docs/pipeline/feature_20261114_ont51_discover_supervise.md`.
 

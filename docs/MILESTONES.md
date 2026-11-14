@@ -557,6 +557,34 @@ flowchart LR
 | M2 | Dokimos VERIFIED: 1271 passed (+5), ruff 284, budgets sin diff, GAPS_BASELINE 1, R idéntico | Dokimos | ✅ VERIFIED |
 | M3 | Documentación: feature, README (badge 1271), STATE, COMPACT, rollup, MILESTONES §18 | Graphos G2 | ✅ |
 | M4 | Commit de la tanda y ff a `dev` | Hermon | publicado en dev |
-| M5 | ONT-52: G36 a G39, routing "list open ports", perfil y test de extracción en frío | Pragma (siguiente tanda) | planificado |
+| M5 | ONT-52: ronda 6 (ver §19) | Pragma | ✅ VERIFIED tras ciclo 1 (LOGIC_ERROR cosmético) |
 
 Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): puntuación de afinidad por solapamiento con tabla de sinónimos; empate o cero conserva `canonical_calls[0]`; `file_units` sin aristas `weak`, dependientes con `weak` conservados. Aclarado por el orquestador: la aserción mide solo la primera extracción (< 2.0 s); los 3,5 s de fase call incluyen la segunda extracción de estabilidad de R. El margen se aborda en ONT-52 T6 (ast.dump ~21 % del tiempo).
+
+## 19. Ronda 6 de gaps ONT-52: firewall veraz, embedder, etiquetas, catálogo, routing y margen de extracción (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont52_round6.md` (anterior: `feature_20261114_ont51_discover_supervise.md`). Estado: VERIFIED tras un ciclo de corrección de forma; publicado en dev. Base `dev` `4bf0fea`, HEAD del worktree `eb63fc5`.
+
+```mermaid
+flowchart LR
+    I19["Intent: ronda 6 de gaps (ONT-52)"] --> N1["N1: plan inline Short T1-T6 (G36-G39, routing, extracción) ✅"]
+    N1 --> N2["N2: 7 commits Pragma 19494cc..eb63fc5 ✅"]
+    N2 --> V1["M: verified ciclo 1, DEFECTIVE LOGIC_ERROR (ruff format, 1288 passed) ✅"]
+    V1 --> V2["M: verified ciclo 2, VERIFIED (AST idéntico, ruff limpio, 56 passed dirigidos) ✅"]
+    V2 --> D19["M: documentado (Graphos G2) ✅"]
+    D19 --> H19["M: commit (Hermon, publicado en dev)"]
+    V2 --> P19["Pendientes: G40 (1,73 s frente a 1,3 s), G41 (schema en open ports), G42 (onnxruntime.db)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G36 `firewall_status` (`19494cc`), T2 G37 onnxruntime (`bcfba03`), T3 G38 `[unreadable]` (`a46ae1c`), T4 G39 builtins y `score_reason` (`7110566`), T5 routing open ports (`aae76de`), T6 parcial `_fast_dump` (`e879e5f`) | Pragma | ✅ |
+| M2 | Dokimos ciclo 1: DEFECTIVE LOGIC_ERROR cosmético (`ruff format` en 4 archivos); suite 1288 passed (+17) | Dokimos | ✅ registrado |
+| M3 | Pragma formato sin cambio de AST (`eb63fc5`); Dokimos ciclo 2: VERIFIED (ruff limpio 286, 56 passed dirigidos) | Pragma / Dokimos | ✅ VERIFIED |
+| M4 | Documentación: feature, README (badge 1288, párrafo, nota de `firewall_status`), STATE, COMPACT, rollup (fila), MILESTONES §19 | Graphos G2 | ✅ |
+| M5 | Commit de la tanda `(ONT-52)` y ff a `dev` (solo bajo autorización) | Hermon | publicado en dev |
+| M6 | G40: margen de extracción en frío (unificar `ast.walk`, objetivo 1,3 s) | Pragma (siguiente tanda) | planificado |
+| M7 | G41: `discover` de "puertos abiertos escucha" debe apuntar a `listeners` | Pragma (siguiente tanda) | planificado |
+| M8 | G42: onnxruntime sigue escribiendo `onnxruntime.db` pese a `disable_telemetry_events()`. Causa medida por el orquestador: requiere `ORT_DISABLE_TELEMETRY=1` en el entorno antes de importar onnxruntime (planificado en ONT-53 T1). | Pragma (siguiente tanda) | planificado |
+
+Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): T7 descartada (el test de extracción mide correctamente la primera extracción); `firewall_status` devuelve `DEGRADED` y `active: null` sin privilegio, nunca `false`; el hash de nodos cambia de implementación con semántica equivalente (igual `root_hash`), sin bump de `GRAPH_SCHEMA_VERSION` (supuesto a confirmar por Hermon en el diff).

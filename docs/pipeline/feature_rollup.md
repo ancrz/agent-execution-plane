@@ -8,7 +8,7 @@
 
 ---
 
-## Rollup de cadena: ONT-43 a ONT-50 (2026-11-14)
+## Rollup de cadena: ONT-43 a ONT-52 (2026-11-14)
 
 Cadena: `feature_20261113_004026_mcp_coverage_reinforcement.md` → `080406_ont45_topos_residue` → `ont46_extractor_precision` → `ont47_dogfood_frictions` → `ont48_dogfood_gaps` (quinto documento, dispara este rollup).
 
@@ -22,12 +22,13 @@ Cadena: `feature_20261113_004026_mcp_coverage_reinforcement.md` → `080406_ont4
 | ONT-49 | cuatro fricciones de la ronda 3 (G27–G30): `history_drop` de pueue, kanban, README | VERIFIED | 1235 (0 fallos) |
 | ONT-50 | descubrimiento LAN (`network.neighbors`, G21), proyección única en compactos (G18), NOOP/SKIPPED/DRY_RUN como INFO (G31) y pueue terse (G32) | VERIFIED, publicado en dev | 1266 (flake de carga conocido, pasa aislado) |
 | ONT-51 | `discover` recomienda la canonical call por afinidad (G33), `file_units` sin aristas `weak` (backlog ONT-46), hitos publicados fuera de pendiente (G34); extracción en frío: Aclarado por el orquestador: la aserción mide solo la primera extracción (< 2.0 s); los 3,5 s de fase call incluyen la segunda extracción de estabilidad de R. El margen se aborda en ONT-52 T6 (ast.dump ~21 % del tiempo) (margen en ONT-52 T6) | VERIFIED, publicado en dev | 1271 (0 fallos) |
+| ONT-52 | ronda 6 de gaps: `firewall_status` veraz (G36), telemetría de onnxruntime (G37, residuo G42), etiqueta `[unreadable]` (G38), builtins en `browse` y `score_reason` (G39), routing de "list open ports" (G41 abierto para la frase en español), `_fast_dump` (T6 parcial, G40 abierto) | VERIFIED tras LOGIC_ERROR cosmético (ruff format, `eb63fc5`); publicado en dev | 1288 (+17; flake de carga conocido) |
 
 Invariantes que se consolidan: `truncated ⇒ cursor` en el sobre; los modos `detail` no cambian de forma salvo indicación explícita; comandos outward-facing sólo con tier 7rwx y `confirm=True`; ninguna generación de grafo de árbol ajeno o sin commit se persiste; los tests no escriben en la base real.
 
 Pendientes que cruzan documentos: T12/G18 (proyección duplicada, omitida por contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario), G27 (cola pueue vaciada sin rastro), y el margen de extracción en frío de ONT-46 (1.5–1.7 s frente a un tope de 2.0 s).
 
-Documento activo en la cadena: [`feature_20261114_ont50_neighbors_projection.md`](feature_20261114_ont50_neighbors_projection.md) (séptimo de la cadena; el siguiente rollup corresponde al décimo).
+Documento activo en la cadena: [`feature_20261114_ont52_round6.md`](feature_20261114_ont52_round6.md) (noveno de la cadena; el siguiente rollup corresponde al décimo, así que aquí solo consta la fila).
 
 ---
 
