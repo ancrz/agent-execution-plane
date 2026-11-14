@@ -503,13 +503,15 @@ class TestPicoTriadMultiAgentConcurrency:
                 assert bin_path.read_bytes()[:4] == b"\x7fELF"
 
             # Verify Kanban tasks immediately after 4 concurrent builds:
-            # exactly 1 active task for concurrent_mem_stat with attempts == 4
+            # exactly 1 active task for concurrent_mem_stat. ONT-59/K1: the 4 builds share (source_hash, toolchain),
+            # so the first creates the card (attempts == 1) and the other 3 are content-addressed cache hits.
             with server.kanban._conn_ro() as conn:
                 tasks = conn.execute(
                     "SELECT * FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat' AND archived = 0"
                 ).fetchall()
                 assert len(tasks) == 1
-                assert tasks[0]["attempts"] == 4
+                assert tasks[0]["attempts"] == 1
+                assert tasks[0]["generation"] == 1
                 assert tasks[0]["state"] == "LINTED"
 
             # Execute in RAM concurrently across agents
@@ -522,13 +524,13 @@ class TestPicoTriadMultiAgentConcurrency:
                 assert ex_data["status"] == "SUCCESS", f"Execution failed for {agent}: {ex_data}"
                 assert ex_data.get("exit_code") == 0
 
-            # Canary execution updates kanban task: attempts == 8, canary_passed == 1
+            # Canary execution updates kanban task: attempts == 1 (build) + 4 (canary runs) == 5, canary_passed == 1
             with server.kanban._conn_ro() as conn:
                 tasks_after = conn.execute(
                     "SELECT * FROM kanban_tasks WHERE artifact_name = 'concurrent_mem_stat' AND archived = 0"
                 ).fetchall()
                 assert len(tasks_after) == 1
-                assert tasks_after[0]["attempts"] == 8
+                assert tasks_after[0]["attempts"] == 5
                 assert tasks_after[0]["canary_passed"] == 1
 
         asyncio.run(_run())
@@ -545,6 +547,8 @@ class TestPicoTriadMultiAgentConcurrency:
             try:
                 res = k.upsert_build_task(
                     artifact_name="shared_go_probe",
+                    source_hash="c" * 64,
+                    toolchain="go1.27.4",
                     intent="concurrency test",
                     category="test",
                     lint_passed=True,
@@ -573,7 +577,9 @@ class TestPicoTriadMultiAgentConcurrency:
         with k._conn_ro() as conn:
             rows = conn.execute("SELECT * FROM kanban_tasks WHERE artifact_name = 'shared_go_probe'").fetchall()
             assert len(rows) == 1
-            assert rows[0]["attempts"] == 8
+            # ONT-59/K1: same (source_hash, toolchain) -> one creation + 7 cache hits (attempts is not inflated).
+            assert rows[0]["attempts"] == 1
+            assert sum(1 for r in results if r["cached"]) == 7
             assert rows[0]["id"] == list(task_ids)[0]
 
     def test_pico_ansible_saved_playbook_multi_agent_isolation_and_piping(self, isolated_server_state):

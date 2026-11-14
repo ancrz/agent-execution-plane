@@ -1673,6 +1673,7 @@ async def artifact_lint_and_build(
                         [
                             go_toolchain.go_bin() or "go",
                             "build",
+                            "-trimpath",
                             "-ldflags=-s -w",
                             "-o",
                             str(slot_bin_file),
@@ -1705,6 +1706,8 @@ async def artifact_lint_and_build(
                         tmp_bin.chmod(0o755)
                     os.replace(tmp_bin, bin_file)
 
+                    go_ver = go_toolchain.go_version()
+                    source_hash = hashlib.sha256(effective_src.encode("utf-8")).hexdigest()
                     artifact_id = catalog.register_artifact(
                         name=art_name,
                         intent=art_intent,
@@ -1713,12 +1716,17 @@ async def artifact_lint_and_build(
                         go_source=effective_src,
                         binary_blob=binary_bytes,
                         source_template=art_src_tpl,
+                        source_hash=source_hash,
+                        toolchain=go_ver,
                     )
 
                     kanban_task_id = None
+                    kt_res: dict[str, Any] = {}
                     try:
                         kt_res = kanban.upsert_build_task(
                             artifact_name=art_name,
+                            source_hash=source_hash,
+                            toolchain=go_ver,
                             intent=art_intent,
                             category=art_cat,
                             lint_passed=True,
@@ -1729,7 +1737,6 @@ async def artifact_lint_and_build(
                     except Exception as e:  # noqa: BLE001
                         logger.debug("Kanban task advance failed for %s: %s", art_name, e)
 
-                    go_ver = go_toolchain.go_version()
                     outdated = not go_toolchain.supported(go_ver)
                     out_payload: dict[str, Any] = {
                         "status": "SUCCESS",
@@ -1742,12 +1749,20 @@ async def artifact_lint_and_build(
                         "lint_warnings": lint_warnings,
                         "kanban_task_id": kanban_task_id,
                         "toolchain": go_ver,
+                        "source_hash": source_hash
+                        if (verbosity or "detail").strip().lower() not in ("summary", "brief", "terse", "cached")
+                        else source_hash[:12],
+                        "generation": kt_res.get("generation"),
+                        "cached": bool(kt_res.get("cached", False)),
                         "ipc_slot": {
                             "slot_id": slot["slot_id"],
                             "agent_id": eff_agent,
                             "scratch_dir": str(slot["scratch_dir"]),
                         },
                     }
+                    if kt_res.get("demoted_from"):  # ONT-59 T1: la fuente/toolchain cambió -> la promoción no se hereda
+                        out_payload["demoted_from"] = kt_res["demoted_from"]
+                        out_payload["reason"] = kt_res.get("reason")
                     if outdated:  # ONT-59 T4: el build continúa, pero la toolchain está fuera de soporte
                         out_payload["toolchain_outdated"] = True
                         out_payload["severity"] = "WARN"

@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     prev_kind TEXT,                     -- ONT-58/G55: (kind, state, score) previos a la última reclasificación
     prev_state TEXT,
     prev_score REAL,
+    source_hash TEXT,                   -- ONT-59/K1: sha256 del go_source canónico al que pertenece la evidencia
+    toolchain TEXT,                     -- ONT-59/K1: `go env GOVERSION` con el que se construyó
+    generation INTEGER NOT NULL DEFAULT 0,  -- ONT-59/K1: +1 cada vez que cambia (source_hash, toolchain)
     lint_passed INTEGER NOT NULL DEFAULT 0,
     canary_passed INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
@@ -107,6 +110,12 @@ class KanbanBoard:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN prev_state TEXT")
             if "prev_score" not in cols:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN prev_score REAL")
+            if "source_hash" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN source_hash TEXT")
+            if "toolchain" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN toolchain TEXT")
+            if "generation" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN generation INTEGER NOT NULL DEFAULT 0")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -180,14 +189,21 @@ class KanbanBoard:
     def upsert_build_task(
         self,
         artifact_name: str,
+        source_hash: str,
+        toolchain: str | None = None,
         intent: str = "",
         category: str = "",
         lint_passed: bool = True,
         note: str | None = None,
         agent_id: str = "default",
     ) -> dict[str, Any]:
-        """Atomic upsert of a build task for an artifact under transaction_immediate.
-        Prevents TOCTOU duplicate task creation during concurrent Go artifact builds.
+        """Upsert atómico (transaction_immediate) de la tarjeta de build, direccionado por contenido (ONT-59/K1).
+
+        Como la build cache de Go, la evidencia pertenece a unas entradas concretas: (source_hash, toolchain).
+          - Mismas entradas que la tarjeta  -> acierto de caché: estado, canary y score intactos, `attempts` sin cambio.
+          - Entradas distintas              -> NUEVA GENERACIÓN: generation+1, LINTED, canary_passed=0 y score recalculado
+            SIN heredar (stats nuevas del catálogo); si venía de CANARY/PROMOTED se informa `demoted_from` y `reason`.
+        Una tarjeta legada (source_hash NULL) cuenta como entradas distintas: no se puede probar que el código sea el mismo.
         """
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
@@ -199,27 +215,78 @@ class KanbanBoard:
                 ).fetchone()
 
                 if existing:
-                    target_st = existing["state"] if existing["state"] in ("CANARY", "PROMOTED") else "LINTED"
-                    lp = 1 if lint_passed else existing["lint_passed"]
-                    cp = existing["canary_passed"]
+                    same_source = existing["source_hash"] == source_hash
+                    same_toolchain = existing["toolchain"] == toolchain
+                    if same_source and same_toolchain:
+                        lp = 1 if lint_passed else existing["lint_passed"]
+                        stats = self._artifact_stats(conn, artifact_name)
+                        p = self._ponder(
+                            bool(lp),
+                            bool(existing["canary_passed"]),
+                            stats["success_rate"],
+                            stats["execution_count"],
+                            stats["days_since"],
+                        )
+                        # Acierto de caché: solo se refresca quién/qué lo pidió; el estado y la evidencia no se tocan.
+                        conn.execute(
+                            "UPDATE kanban_tasks SET lint_passed=?, promotion_score=?, agent_id=COALESCE(?, agent_id), "
+                            "note=COALESCE(?, note), updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (
+                                lp,
+                                p["effective"],
+                                agent_id,
+                                note,
+                                existing["id"],
+                            ),
+                        )
+                        return {
+                            "status": "OK",
+                            "task_id": existing["id"],
+                            "state": existing["state"],
+                            "promotion_score": p["effective"],
+                            "verdict": p["verdict"],
+                            "reused_existing": True,
+                            "cached": True,
+                            "generation": existing["generation"],
+                            "attempts": existing["attempts"],
+                        }
+                    reason = "source_changed" if not same_source else "toolchain_changed"
                     stats = self._artifact_stats(conn, artifact_name)
                     p = self._ponder(
-                        bool(lp), bool(cp), stats["success_rate"], stats["execution_count"], stats["days_since"]
+                        bool(lint_passed), False, stats["success_rate"], stats["execution_count"], stats["days_since"]
                     )
+                    generation = (existing["generation"] or 0) + 1
                     conn.execute(
-                        "UPDATE kanban_tasks SET state=?, lint_passed=?, canary_passed=?, promotion_score=?, "
-                        "attempts=attempts+1, agent_id=COALESCE(?, agent_id), note=COALESCE(?, note), "
-                        "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                        (target_st, lp, cp, p["effective"], agent_id, note, existing["id"]),
+                        "UPDATE kanban_tasks SET state='LINTED', lint_passed=?, canary_passed=0, promotion_score=?, "
+                        "attempts=attempts+1, generation=?, source_hash=?, toolchain=?, "
+                        "agent_id=COALESCE(?, agent_id), note=COALESCE(?, note), updated_at=CURRENT_TIMESTAMP "
+                        "WHERE id=?",
+                        (
+                            1 if lint_passed else 0,
+                            p["effective"],
+                            generation,
+                            source_hash,
+                            toolchain,
+                            agent_id,
+                            note,
+                            existing["id"],
+                        ),
                     )
-                    return {
+                    res: dict[str, Any] = {
                         "status": "OK",
                         "task_id": existing["id"],
-                        "state": target_st,
+                        "state": "LINTED",
                         "promotion_score": p["effective"],
                         "verdict": p["verdict"],
                         "reused_existing": True,
+                        "cached": False,
+                        "generation": generation,
+                        "attempts": existing["attempts"] + 1,
                     }
+                    if existing["state"] in ("CANARY", "PROMOTED"):
+                        res["demoted_from"] = existing["state"]
+                        res["reason"] = reason
+                    return res
 
                 stats = self._artifact_stats(conn, artifact_name)
                 p = self._ponder(
@@ -227,8 +294,8 @@ class KanbanBoard:
                 )
                 cur = conn.execute(
                     "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, lint_passed, "
-                    "canary_passed, attempts, promotion_score, agent_id, note) "
-                    "VALUES (?, ?, ?, ?, 'LINTED', ?, 0, 1, ?, ?, ?)",
+                    "canary_passed, attempts, promotion_score, agent_id, note, source_hash, toolchain, generation) "
+                    "VALUES (?, ?, ?, ?, 'LINTED', ?, 0, 1, ?, ?, ?, ?, ?, 1)",
                     (
                         f"build:{artifact_name}",
                         intent,
@@ -238,6 +305,8 @@ class KanbanBoard:
                         p["effective"],
                         agent_id,
                         note,
+                        source_hash,
+                        toolchain,
                     ),
                 )
                 return {
@@ -247,6 +316,9 @@ class KanbanBoard:
                     "promotion_score": p["effective"],
                     "verdict": p["verdict"],
                     "reused_existing": False,
+                    "cached": False,
+                    "generation": 1,
+                    "attempts": 1,
                 }
 
     def advance(

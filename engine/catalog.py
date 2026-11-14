@@ -14,6 +14,7 @@ Relación Topos: catalog.py -> embedder.py es dependencia unidireccional (A -> B
 
 import contextlib
 import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -128,6 +129,16 @@ class ArtifactCatalog:
                 conn.execute("ALTER TABLE artifacts ADD COLUMN promotion_score REAL NOT NULL DEFAULT 0.0")
             if "source_template" not in cols:
                 conn.execute("ALTER TABLE artifacts ADD COLUMN source_template TEXT NOT NULL DEFAULT ''")
+            # ONT-59/K1: la evidencia (success_rate/execution_count) pertenece a un (source_hash, toolchain) concreto.
+            if "source_hash" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN source_hash TEXT")
+            if "toolchain" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN toolchain TEXT")
+            if "previous_stats" not in cols:
+                conn.execute("ALTER TABLE artifacts ADD COLUMN previous_stats TEXT")
+            if "metrics_floor" not in cols:
+                # execution_metrics.id más alto que ya NO cuenta para esta generación (record_execution no resucita stats viejas)
+                conn.execute("ALTER TABLE artifacts ADD COLUMN metrics_floor INTEGER NOT NULL DEFAULT 0")
         mcols = {r["name"] for r in conn.execute("PRAGMA table_info(execution_metrics)")}
         if mcols:
             if "agent_id" not in mcols:
@@ -255,23 +266,62 @@ class ArtifactCatalog:
         binary_blob: bytes | None = None,
         intent_description: str = "",
         source_template: str = "",
+        source_hash: str | None = None,
+        toolchain: str | None = None,
     ) -> str:
+        """Registra/actualiza un artefacto. ONT-59/K1: si cambia el código (binary_hash/source_hash) o la toolchain,
+        las stats anteriores se archivan en `previous_stats` y empiezan de cero (evidencia por contenido, no por nombre);
+        si no cambia nada, success_rate/execution_count/updated_at no se tocan."""
         new_id = str(uuid.uuid4())
         intent_hash = self.compute_intent_hash(intent, category)
         binary_hash = hashlib.sha256(binary_blob).hexdigest() if binary_blob else None
+        eff_source_hash = source_hash or hashlib.sha256(go_source.encode("utf-8")).hexdigest()
         description = intent_description.strip() or intent.strip()
         precomputed_vec = self._precompute_embedding(description)
 
         with self._get_rw_conn() as conn:
             with transaction_immediate(conn):
+                old = conn.execute(
+                    "SELECT binary_hash, source_hash, toolchain, success_rate, execution_count, updated_at "
+                    "FROM artifacts WHERE name = ?",
+                    (name,),
+                ).fetchone()
+                changed = False
+                previous_json: str | None = None
+                if old is not None:
+                    changed = bool(
+                        (
+                            binary_hash is not None
+                            and old["binary_hash"] is not None
+                            and binary_hash != old["binary_hash"]
+                        )
+                        or (old["source_hash"] is not None and old["source_hash"] != eff_source_hash)
+                        or (toolchain is not None and old["toolchain"] is not None and old["toolchain"] != toolchain)
+                    )
+                    if changed:
+                        previous_json = json.dumps(
+                            {
+                                "source_hash": old["source_hash"],
+                                "toolchain": old["toolchain"],
+                                "success_rate": old["success_rate"],
+                                "execution_count": old["execution_count"],
+                                "updated_at": old["updated_at"],
+                            }
+                        )
+                floor = 0
+                if changed:
+                    row_floor = conn.execute("SELECT COALESCE(MAX(id), 0) AS m FROM execution_metrics").fetchone()
+                    floor = int(row_floor["m"])
                 # RETURNING id (SQLite >= 3.35) devuelve el id REAL de la fila, tanto en
                 # INSERT nuevo como en ON CONFLICT -> evita el UUID fantasma (fix Ontos CF-1).
                 row = conn.execute(
                     """
                     INSERT INTO artifacts (
                         id, name, intent_hash, category, cue_contract, go_source,
-                        binary_blob, binary_hash, intent_description, source_template
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        binary_blob, binary_hash, intent_description, source_template,
+                        source_hash, toolchain
+                    ) VALUES (:id, :name, :intent_hash, :category, :cue_contract, :go_source,
+                        :binary_blob, :binary_hash, :description, :source_template, :source_hash, :toolchain)
                     ON CONFLICT(name) DO UPDATE SET
                         intent_hash = excluded.intent_hash,
                         category = excluded.category,
@@ -281,22 +331,35 @@ class ArtifactCatalog:
                         binary_hash = COALESCE(excluded.binary_hash, artifacts.binary_hash),
                         intent_description = excluded.intent_description,
                         source_template = CASE WHEN excluded.source_template != '' THEN excluded.source_template ELSE artifacts.source_template END,
+                        source_hash = excluded.source_hash,
+                        toolchain = COALESCE(excluded.toolchain, artifacts.toolchain),
                         version = artifacts.version + 1,
-                        updated_at = CURRENT_TIMESTAMP
+                        previous_stats = CASE WHEN :changed THEN :previous ELSE artifacts.previous_stats END,
+                        success_rate = CASE WHEN :changed THEN 1.0 ELSE artifacts.success_rate END,
+                        execution_count = CASE WHEN :changed THEN 0 ELSE artifacts.execution_count END,
+                        avg_latency_ms = CASE WHEN :changed THEN 0.0 ELSE artifacts.avg_latency_ms END,
+                        promotion_score = CASE WHEN :changed THEN 0.0 ELSE artifacts.promotion_score END,
+                        metrics_floor = CASE WHEN :changed THEN :floor ELSE artifacts.metrics_floor END,
+                        updated_at = CASE WHEN :changed THEN CURRENT_TIMESTAMP ELSE artifacts.updated_at END
                     RETURNING id
                     """,
-                    (
-                        new_id,
-                        name,
-                        intent_hash,
-                        category,
-                        cue_contract,
-                        go_source,
-                        binary_blob,
-                        binary_hash,
-                        description,
-                        source_template,
-                    ),
+                    {
+                        "id": new_id,
+                        "name": name,
+                        "intent_hash": intent_hash,
+                        "category": category,
+                        "cue_contract": cue_contract,
+                        "go_source": go_source,
+                        "binary_blob": binary_blob,
+                        "binary_hash": binary_hash,
+                        "description": description,
+                        "source_template": source_template,
+                        "source_hash": eff_source_hash,
+                        "toolchain": toolchain,
+                        "changed": 1 if changed else 0,
+                        "previous": previous_json,
+                        "floor": floor,
+                    },
                 ).fetchone()
                 real_id = row["id"] if row else new_id
 
@@ -378,8 +441,9 @@ class ArtifactCatalog:
                         AVG(CASE WHEN exit_code = 0 THEN 1.0 ELSE 0.0 END) as success_rate,
                         AVG(latency_ms) as avg_latency
                     FROM execution_metrics WHERE artifact_id = ?
+                      AND id > COALESCE((SELECT metrics_floor FROM artifacts WHERE id = ?), 0)
                     """,
-                    (artifact_id,),
+                    (artifact_id, artifact_id),
                 ).fetchone()
 
                 if stats and stats["total"]:
