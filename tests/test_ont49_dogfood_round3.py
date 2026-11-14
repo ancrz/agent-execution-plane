@@ -67,3 +67,41 @@ def test_g30_db_scope_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(server, "catalog", ArtifactCatalog(db_path=tmp_path / "cat.db"))
     det = json.loads(asyncio.run(server.artifact_catalog(action="browse", verbosity="detail")))
     assert det["db_scope"] == "custom" and det["db_path"].endswith("cat.db")
+
+
+def _fake_pueue(total: int):
+    tasks = {
+        str(i): {"id": i, "label": f"l{i}", "command": "true", "group": "default", "status": {"Done": {}}}
+        for i in range(total)
+    }
+
+    class _Res:
+        returncode = 0
+        stdout = json.dumps({"tasks": tasks, "groups": {}})
+        stderr = ""
+
+    return lambda *a, **k: _Res()
+
+
+def test_g27_history_drop_warn_and_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from engine.catalog import ArtifactCatalog
+
+    monkeypatch.setattr(server, "catalog", ArtifactCatalog(db_path=tmp_path / "cat.db"))
+    monkeypatch.setattr(server, "_ensure_pueue_daemon", lambda: "pueue")
+    monkeypatch.setattr(server, "_PUEUE_LAST_TOTAL", {})
+    audited: list[dict] = []
+    monkeypatch.setattr(server, "record_audit_event", lambda conn, **kw: audited.append(kw))
+
+    def _status(total: int) -> dict:
+        monkeypatch.setattr(server.subprocess, "run", _fake_pueue(total))
+        return json.loads(asyncio.run(server.async_job_dispatch(action="status", agent_id="g27", verbosity="summary")))
+
+    first = _status(40)
+    assert "history_drop" not in first and not audited
+    steady = _status(30)  # -25 %: below threshold
+    assert "history_drop" not in steady
+    dropped = _status(5)
+    assert dropped["history_drop"] == {"from": 30, "to": 5} and dropped["severity"] == "WARN"
+    assert [a["action"] for a in audited] == ["jobs.history_drop"]
+    small = _status(0)  # previous total 5 < 10: no alarm
+    assert "history_drop" not in small

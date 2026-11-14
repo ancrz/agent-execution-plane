@@ -899,6 +899,18 @@ class TestOmissionGapsRemediation:
         asyncio.run(_run())
 
     def test_gap_om06_async_job_dispatch_compact_status_pagination(self):
+        # ONT-49/G27: seed our own tasks instead of depending on host pueue history (never `pueue clean`).
+        import subprocess
+
+        pueue_bin = server._ensure_pueue_daemon()
+        if not pueue_bin:
+            pytest.skip("pueue daemon unavailable")
+        st = json.loads(
+            subprocess.run([pueue_bin, "status", "--json"], capture_output=True, text=True, check=False).stdout
+        )
+        for i in range(max(0, 6 - len(st.get("tasks", {})))):
+            subprocess.run([pueue_bin, "add", "-l", f"seed-om06-{i}", "--", "true"], capture_output=True, check=True)
+
         async def _run():
             r = json.loads(await server.async_job_dispatch(action="status", verbosity="summary"))
             assert r["status"] == "OK"

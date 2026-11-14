@@ -31,7 +31,9 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import NotificationOptions
 
+from engine import catalog as _catalog_mod
 from engine import headless_display, matcher
+from engine import kanban as _kanban_mod
 from engine import lkg_ctl as _lkg_ctl
 from engine.backup import (
     clear_micro_snapshots,
@@ -49,8 +51,6 @@ from engine.backup import (
     verify_and_auto_recover,
     verify_database_integrity,
 )
-from engine import catalog as _catalog_mod
-from engine import kanban as _kanban_mod
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.harness_reconnect import RECONNECT_POINTER
@@ -182,6 +182,8 @@ def _db_scope_fields(obj: Any, default_path: Any, *, compact: bool) -> dict[str,
     if is_custom:
         out["db_path"] = str(cur)
     return out
+
+
 playbook_store = PlaybookStore()
 template_registry = TemplateRegistry()
 
@@ -2465,6 +2467,24 @@ def _compact_pueue_payload(
     return {"status": "OK", "data": data}, False
 
 
+# ONT-49/G27: last `total_tasks` seen by `async_job_dispatch(status)` per agent/session (RAM only), to flag silent
+# history loss (e.g. `pueue clean` by another actor). Drop > 50 % from a previous total >= 10 raises WARN.
+_PUEUE_LAST_TOTAL: dict[str, int] = {}
+PUEUE_DROP_MIN_PREV = 10
+PUEUE_DROP_RATIO = 0.5
+
+
+def _detect_history_drop(session: str, total: Any) -> dict[str, int] | None:
+    """Record `total` for `session`; return {"from", "to"} when it fell by more than PUEUE_DROP_RATIO."""
+    if not isinstance(total, int):
+        return None
+    prev = _PUEUE_LAST_TOTAL.get(session)
+    _PUEUE_LAST_TOTAL[session] = total
+    if prev is not None and prev >= PUEUE_DROP_MIN_PREV and total < prev * (1 - PUEUE_DROP_RATIO):
+        return {"from": prev, "to": total}
+    return None
+
+
 # ONT-48/G25: comandos "outward-facing" (publican/empujan fuera del host). `async_job_dispatch(dispatch)` los exige con
 # confirm=True Y tier 7rwx; en caso contrario no se ejecuta nada. Cada entrada: (nombre estable, regex sobre el comando).
 OUTWARD_COMMANDS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -2709,6 +2729,24 @@ async def async_job_dispatch(
                     res.stdout, limit=eff_limit, is_compact=is_compact, cursor=cursor
                 )
                 next_cur = payload.pop("next_cursor", None)
+                drop = _detect_history_drop(agent_id, payload.get("total_tasks"))
+                if drop:
+                    payload["history_drop"] = drop
+                    payload["severity"] = "WARN"
+                    try:
+                        with catalog._get_rw_conn() as conn:
+                            record_audit_event(
+                                conn,
+                                agent_id=agent_id,
+                                tool_name="async_job_dispatch",
+                                action="jobs.history_drop",
+                                capability_tier=capability_tier(),
+                                status="WARN",
+                                details=drop,
+                                target="pueue",
+                            )
+                    except Exception as log_err:
+                        logger.debug("Failed recording history_drop audit event: %s", log_err)
                 return attach_envelope(
                     payload,
                     tracker,
