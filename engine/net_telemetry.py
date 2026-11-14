@@ -455,6 +455,257 @@ def parse_proc_net_arp() -> list[dict[str, Any]]:
     return arp_entries
 
 
+# ---------------------------------------------------------------------------
+# ONT-50 T1 — LAN neighbor discovery (host read-only; no privileges, no raw sockets)
+# ---------------------------------------------------------------------------
+NEIGHBOR_SWEEP_MIN_OCTAL = 6
+NEIGHBOR_MAX_PREFIX_HOSTS = 1024  # /22 or narrower
+NEIGHBOR_PROBE_MAX = 16
+NEIGHBOR_SWEEP_BATCH = 256
+NEIGHBOR_DISCARD_PORT = 9
+NEIGHBOR_DEFAULT_TIMEOUT_MS = 800
+_NEIGHBOR_IGNORED_IFACE_PREFIXES = ("lo", "utun", "tun", "wg", "docker", "br-", "veth")
+_NEIGHBOR_ZERO_MAC = "00:00:00:00:00:00"
+_RTF_UP = 0x1
+_RTF_GATEWAY = 0x2
+NEIGHBOR_LIMITS = [
+    "no multicast listen/send (mDNS 5353, WS-Discovery 3702, SSDP 1900 out of scope)",
+    "no OUI vendor table: `oui` is the first 3 MAC bytes",
+    "hosts that never answer ARP (or sit behind a filtering switch) are not listed",
+]
+
+
+def parse_neighbor_args(*tokens: Any) -> dict[str, Any]:
+    """
+    Tolerant parser for `name`/`target`/`args` of aep_ctl network neighbors. Each token may itself be a comma list.
+    Flags: sweep | nosweep | probe | timeout=<ms>. Any other token is the interface name (first wins).
+    """
+    iface: str | None = None
+    sweep = True
+    probe = False
+    timeout_ms = NEIGHBOR_DEFAULT_TIMEOUT_MS
+    flat: list[str] = []
+    for tok in tokens:
+        if tok is None:
+            continue
+        items = tok if isinstance(tok, (list, tuple)) else [tok]
+        for item in items:
+            flat.extend(p.strip() for p in str(item).split(",") if p.strip())
+    for part in flat:
+        low = part.lower()
+        if low == "sweep":
+            sweep = True
+        elif low == "nosweep":
+            sweep = False
+        elif low == "probe":
+            probe = True
+        elif low.startswith("timeout="):
+            try:
+                timeout_ms = max(50, min(10000, int(low.split("=", 1)[1])))
+            except ValueError:
+                pass
+        elif iface is None:
+            iface = part
+    return {"iface": iface, "sweep": sweep, "probe": probe, "timeout_ms": timeout_ms}
+
+
+def parse_proc_net_route() -> list[dict[str, Any]]:
+    """Parse /proc/net/route into rows {iface, destination, gateway, flags, mask}. Empty on any read failure."""
+    path = Path("/proc/net/route")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        logger.debug("Failed reading /proc/net/route: %s", e)
+        return []
+    rows: list[dict[str, Any]] = []
+    for ln in lines[1:]:
+        parts = ln.split()
+        if len(parts) < 8:
+            continue
+        try:
+            rows.append(
+                {
+                    "iface": parts[0],
+                    "destination": _decode_hex_ipv4(parts[1]),
+                    "gateway": _decode_hex_ipv4(parts[2]),
+                    "flags": int(parts[3], 16),
+                    "mask": _decode_hex_ipv4(parts[7]),
+                }
+            )
+        except ValueError:
+            continue
+    return rows
+
+
+def _link_prefixes(routes: list[dict[str, Any]], iface: str | None) -> list[dict[str, Any]]:
+    """Directly-connected (scope link) IPv4 prefixes: UP, no gateway, non-default."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for r in routes:
+        name = str(r.get("iface") or "")
+        flags = int(r.get("flags") or 0)
+        if not (flags & _RTF_UP) or (flags & _RTF_GATEWAY):
+            continue
+        if r.get("destination") in (None, "0.0.0.0"):  # noqa: S104 - default route, not a bind
+            continue
+        if iface:
+            if name != iface:
+                continue
+        elif name.startswith(_NEIGHBOR_IGNORED_IFACE_PREFIXES):
+            continue
+        try:
+            net = ipaddress.ip_network(f"{r['destination']}/{r['mask']}", strict=False)
+        except ValueError:
+            continue
+        if net.is_link_local:  # 169.254/16 route noise
+            continue
+        key = (name, str(net))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"iface": name, "network": net})
+    return out
+
+
+def _new_udp_socket() -> socket.socket:
+    return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
+async def _udp_sweep(networks: list[Any], timeout_ms: int) -> tuple[int, int]:
+    """Fire-and-forget UDP datagrams to the discard port so the kernel resolves ARP. Returns (sent, errors)."""
+    sent = 0
+    errors = 0
+    sock = _new_udp_socket()
+    try:
+        sock.setblocking(False)
+        batch = 0
+        for net in networks:
+            for host in net.hosts():
+                try:
+                    sock.sendto(b"\x00", (str(host), NEIGHBOR_DISCARD_PORT))
+                    sent += 1
+                except OSError:
+                    errors += 1
+                batch += 1
+                if batch >= NEIGHBOR_SWEEP_BATCH:
+                    batch = 0
+                    await asyncio.sleep(0)
+        await asyncio.sleep(timeout_ms / 1000.0)  # let the kernel populate the ARP cache
+    finally:
+        sock.close()
+    return sent, errors
+
+
+async def discover_neighbors(
+    iface: str | None = None,
+    *,
+    sweep: bool = True,
+    probe: bool = False,
+    timeout_ms: int = NEIGHBOR_DEFAULT_TIMEOUT_MS,
+    tier_octal: int = 7,
+) -> dict[str, Any]:
+    """
+    ONT-50 T1: composite LAN neighbor discovery. Passive ARP read, plus an optional unprivileged UDP/9 sweep of the
+    directly-connected prefixes (tier >= 6rw-). Returns the full ordered list; callers paginate.
+    """
+    t0 = time.perf_counter()
+    routes = parse_proc_net_route()
+    candidates = _link_prefixes(routes, iface)
+    prefixes: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for cand in candidates:
+        net = cand["network"]
+        if net.num_addresses > NEIGHBOR_MAX_PREFIX_HOSTS + 2:
+            skipped.append({"iface": cand["iface"], "prefix": str(net), "reason": "wider than /22 (> 1024 hosts)"})
+        else:
+            prefixes.append(cand)
+
+    sweep_reason: str | None = None
+    do_sweep = bool(sweep)
+    if do_sweep and tier_octal < NEIGHBOR_SWEEP_MIN_OCTAL:
+        do_sweep = False
+        sweep_reason = "tier < 6rw-"
+    elif not sweep:
+        sweep_reason = "nosweep"
+    elif not prefixes:
+        do_sweep = False
+        sweep_reason = "no eligible prefix"
+
+    swept_hosts = 0
+    sweep_errors = 0
+    if do_sweep:
+        swept_hosts, sweep_errors = await _udp_sweep([c["network"] for c in prefixes], timeout_ms)
+
+    arp_rows = parse_proc_net_arp()
+    wanted = {c["iface"] for c in prefixes} if prefixes else None
+    neighbors: list[dict[str, Any]] = []
+    for row in arp_rows:
+        mac = str(row.get("mac") or "").lower()
+        try:
+            flags = int(str(row.get("flags") or "0x0"), 16)
+        except ValueError:
+            flags = 0
+        if flags == 0 or not mac or mac == _NEIGHBOR_ZERO_MAC:
+            continue
+        dev = str(row.get("device") or "")
+        if iface and dev != iface:
+            continue
+        if not iface and dev.startswith(_NEIGHBOR_IGNORED_IFACE_PREFIXES):
+            continue
+        if wanted is not None and dev not in wanted:
+            continue
+        neighbors.append({"ip": row.get("ip"), "mac": mac, "iface": dev, "oui": mac[:8].upper(), "source": "arp"})
+
+    def _ip_key(item: dict[str, Any]) -> tuple[int, str]:
+        try:
+            return (int(ipaddress.ip_address(str(item["ip"]))), "")
+        except ValueError:
+            return (0, str(item.get("ip")))
+
+    neighbors.sort(key=_ip_key)
+
+    probe_skipped = 0
+    if probe and neighbors:
+        targets = neighbors[:NEIGHBOR_PROBE_MAX]
+        probe_skipped = len(neighbors) - len(targets)
+        results = await asyncio.gather(*(probe_tcp_ports(str(n["ip"])) for n in targets))
+        for n, res in zip(targets, results, strict=True):
+            n["probe"] = {
+                "open_ports": [{"port": p.get("port"), "service": p.get("service")} for p in res.get("open_ports", [])],
+                "scan_duration_ms": res.get("scan_duration_ms"),
+            }
+
+    return {
+        "status": "OK",
+        "ifaces": sorted({c["iface"] for c in prefixes}),
+        "prefixes": [str(c["network"]) for c in prefixes],
+        "swept_hosts": swept_hosts,
+        "sweep": do_sweep,
+        **({"reason": sweep_reason} if sweep_reason else {}),
+        "neighbors": neighbors,
+        "count": len(neighbors),
+        "duration_ms": round((time.perf_counter() - t0) * 1000.0, 1),
+        "limits": list(NEIGHBOR_LIMITS),
+        "skipped_prefixes": skipped,
+        "arp_raw_count": len(arp_rows),
+        "sweep_errors": sweep_errors,
+        "probe_skipped": probe_skipped,
+    }
+
+
+def compact_neighbors_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Compact view: neighbors keep ip/mac/iface only; detail-only keys are dropped (skipped_prefixes kept if any)."""
+    out = {
+        k: v
+        for k, v in result.items()
+        if k not in ("skipped_prefixes", "arp_raw_count", "sweep_errors", "probe_skipped")
+    }
+    out["neighbors"] = [{k: n.get(k) for k in ("ip", "mac", "iface") if k in n} for n in result.get("neighbors", [])]
+    if result.get("skipped_prefixes"):
+        out["skipped_prefixes"] = result["skipped_prefixes"]
+    return out
+
+
 def unpack_packet_headers(raw_bytes: bytes) -> dict[str, Any]:
     """
     Dissect packet byte headers entirely in memory using standard struct.unpack with big-endian network byte order.
