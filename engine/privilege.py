@@ -16,6 +16,7 @@ alto AMPLÍA la apertura (self-scope -> system-scope), no es un requisito para o
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -561,7 +562,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
     },
     "network": {
         "actions": ["inspect", "routes", "listeners", "probe", "interfaces", "arp"],
-        "arg": "[target] [ports]",
+        "arg": '[target] [ports]  (MCP: target=<host>, args="22,80"; name is an alias of target)',
         "description": "Inspect network interfaces, routing tables, active TCP/UDP listening sockets, local ARP tables, or probe TCP ports.",
         "preconditions": {
             "inspect": {
@@ -1162,7 +1163,7 @@ def tactical_playbook() -> dict[str, Any]:
                 "id": "WF-10",
                 "name": "Native Network Telemetry & Port Observability (aep_ctl network probe -> /proc/net/tcp socket inspection)",
                 "steps": [
-                    '1. aep_ctl(domain="network", action="probe", name="127.0.0.1", args="22,80,443") -> Pure in-RAM TCP port probe via asyncio/socket.',
+                    '1. aep_ctl(domain="network", action="probe", target="127.0.0.1", args="22,80,443") -> Pure in-RAM TCP port probe via asyncio/socket.',
                     '2. aep_ctl(domain="network", action="listeners", verbosity="summary") -> Direct in-memory /proc/net/tcp socket table inspection.',
                     '3. aep_ctl(domain="network", action="interfaces", verbosity="summary") -> Kernel /proc/net/dev traffic metrics.',
                 ],
@@ -1194,12 +1195,34 @@ def tactical_playbook() -> dict[str, Any]:
             "sandbox_linter_fix": 'sandbox_run(command="ruff check --fix .", working_dir="/path/to/repo", rw_paths=["/path/to/repo"], share_net=False, parse="auto", verbosity="summary")',
             "untrusted_adversarial_probe": 'sandbox_run(command="python3 probe.py", working_dir="/path/to/repo", rw_paths=["/path/to/scratch"], share_net=False, verbosity="summary")',
             "composite_verification": 'sandbox_run(command="ruff check . && pytest -q", working_dir="/path/to/repo", parse="auto", verbosity="brief")',
-            "network_telemetry_probe": 'aep_ctl(domain="network", action="probe", name="127.0.0.1", args="22,80,443", verbosity="summary")',
+            "network_telemetry_probe": 'aep_ctl(domain="network", action="probe", target="127.0.0.1", args="22,80,443", verbosity="summary")',
             "incident_protocol_audit": 'aep_ctl(domain="security", action="nftables_inspect", verbosity="summary")',
             "default_primitives_run": 'default_primitives(action="run", name="disk-usage", verbosity="summary")',
             "default_primitives_list": 'default_primitives(action="list", verbosity="summary")',
         },
         "prerequisites_summary": {k: v["installed"] for k, v in prereqs.items()},
+    }
+
+
+def _short_title(text: str, max_len: int | None = None) -> str:
+    """Primer segmento antes de ':' o ' (' sin numeración inicial; opcionalmente acotado en frontera de palabra."""
+    t = re.sub(r"^\d+\.\s*", "", str(text).split(":", 1)[0]).split(" (")[0].strip()
+    if max_len and len(t) > max_len:
+        t = t[:max_len].rsplit(" ", 1)[0]
+    return t
+
+
+def compact_playbook(pb: dict[str, Any]) -> dict[str, Any]:
+    """Vista compacta del playbook (summary/brief, ONT-48/G10, <= 900 tokens): títulos de reglas, recetas
+    {id, name}, quick_reference completo y solo los prerequisitos ausentes. El cuerpo vive en `detail`."""
+    return {
+        "status": pb.get("status", "OK"),
+        "rules_of_engagement": [_short_title(r) for r in pb.get("rules_of_engagement", [])],
+        "workflow_recipes": [
+            {"id": r.get("id"), "name": _short_title(r.get("name", ""), 32)} for r in pb.get("workflow_recipes", [])
+        ],
+        "quick_reference": pb.get("quick_reference", {}),
+        "prerequisites_summary": {k: False for k, ok in pb.get("prerequisites_summary", {}).items() if not ok},
     }
 
 

@@ -72,6 +72,7 @@ from engine.privilege import (
     PermissionDenied,
     capability_manifest,
     capability_tier,
+    compact_playbook,
     get_effective_chmod_tier,
     privilege_mode,
     privilege_prefix,
@@ -988,6 +989,9 @@ async def discover(
                     "token_savings_pct": 95.0,
                     "hint": f"Playbook táctico ya cargado en RAM slot. Use recetas {first_wf}..{last_wf} o force_refresh=True.",
                 }
+            elif v_mode in ("summary", "brief"):
+                payload = compact_playbook(pb)
+                payload["cache_status"] = cache_status
             else:
                 payload = dict(pb)
                 payload["cache_status"] = cache_status

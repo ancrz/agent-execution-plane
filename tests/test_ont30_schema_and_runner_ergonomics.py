@@ -254,7 +254,7 @@ All checks passed!
 
 def test_gate8_playbook_tactical_recipes_discoverability() -> None:
     """discover(action='playbook') returns WF-7, WF-8, WF-9, quick_reference and RoE."""
-    raw = asyncio.run(server.discover(action="playbook", verbosity="summary", force_refresh=True))
+    raw = asyncio.run(server.discover(action="playbook", verbosity="detail", force_refresh=True))
     d = json.loads(raw)
     recipes = d.get("workflow_recipes", [])
     recipe_ids = {r["id"]: r for r in recipes}
