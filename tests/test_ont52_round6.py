@@ -208,3 +208,32 @@ def test_discover_open_ports_routes_to_listeners(use_case):
     assert res["confidence"] == "HIGH"
     assert res["suggested_capability"][0]["capability"] == "system_inspect"
     assert 'action="listeners"' in res["recommended_next_call"]
+
+
+# ---------------------------------------------------------------- T6: memoised dump is byte-identical to ast.dump
+
+
+def test_fast_dump_matches_ast_dump_on_repo_sources():
+    import ast
+
+    from engine import threads_extractors as te
+
+    root = Path(server.__file__).resolve().parent
+    files = sorted((root / "engine").glob("*.py")) + [root / "server.py"]
+    for f in files:
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        assert te._fast_dump(tree) == ast.dump(tree), f.name
+        for sub in ast.walk(tree):  # memoised subtrees must agree too
+            if isinstance(sub, ast.FunctionDef | ast.ClassDef):
+                assert te._fast_dump(sub) == ast.dump(sub)
+                break
+
+
+def test_fast_dump_handles_empty_lists_none_and_constants():
+    import ast
+
+    from engine import threads_extractors as te
+
+    for src in ("x = 1", "def f(): pass", "class A: 'doc'", "a = [] ; b = (1, 'x', None, b'y', 2.5, ...)"):
+        tree = ast.parse(src)
+        assert te._fast_dump(tree) == ast.dump(tree)

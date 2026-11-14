@@ -173,8 +173,54 @@ def module_name(relpath: str) -> str:
     return ".".join(parts)
 
 
+_DUMP_MEMO_ATTR = "_aep_dump"  # non-field attribute: invisible to ast.dump / ast.walk / compile
+_FIELD_PLANS: dict[type, tuple[tuple[str, bool], ...]] = {}
+
+
+def _field_plan(cls: type) -> tuple[tuple[str, bool], ...]:
+    """Per class: (field, omit_when_empty_list) pairs, mirroring `ast.dump(show_empty=False)`."""
+    plan = _FIELD_PLANS.get(cls)
+    if plan is None:
+        types = getattr(cls, "_field_types", {})
+        plan = tuple(
+            (name, getattr(types.get(name, object), "__origin__", None) is list) for name in cls._fields  # type: ignore[attr-defined]
+        )
+        _FIELD_PLANS[cls] = plan
+    return plan
+
+
+def _fast_dump(node: Any) -> str:
+    """Byte-identical to `ast.dump(node)` (default args) but memoised per node (ONT-52 T6).
+
+    `ast.dump` re-serialises every nested subtree for each enclosing node (module, class, function); the
+    per-node memo makes the whole extraction linear. Equivalence is asserted in tests against `ast.dump`.
+    """
+    if isinstance(node, ast.AST):
+        cached = node.__dict__.get(_DUMP_MEMO_ATTR)
+        if cached is not None:
+            return cached
+        cls = type(node)
+        args: list[str] = []
+        for name, list_typed in _field_plan(cls):
+            try:
+                value = getattr(node, name)
+            except AttributeError:
+                continue
+            if value is None and getattr(cls, name, ...) is None:
+                continue
+            if list_typed and value == []:
+                continue
+            args.append(f"{name}={_fast_dump(value)}")
+        out = f"{cls.__name__}({', '.join(args)})"
+        node.__dict__[_DUMP_MEMO_ATTR] = out
+        return out
+    if isinstance(node, list):
+        return "[" + ", ".join(_fast_dump(x) for x in node) + "]" if node else "[]"
+    return repr(node)
+
+
 def _dump_hash(node: ast.AST) -> str:
-    return sha(ast.dump(node))
+    return sha(_fast_dump(node))
 
 
 def _chain(node: ast.AST) -> list[str] | None:
