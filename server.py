@@ -1589,6 +1589,26 @@ async def artifact_lint_and_build(
                 art_name = eff_name
                 art_intent = eff_intent
                 art_cat = eff_cat
+
+                def _record_build_failure(
+                    name_: str, cls: str, src_hash: str | None, intent_: str, cat_: str, agent_: str
+                ) -> int | None:
+                    """ONT-59/K2: el fallo es un dato de la tarjeta (fail-soft: nunca enmascara el error original)."""
+                    try:
+                        r = kanban.record_build_failure(
+                            name_,
+                            cls,
+                            source_hash=src_hash,
+                            toolchain=go_toolchain.go_version(),
+                            intent=intent_,
+                            category=cat_,
+                            agent_id=agent_ or "default",
+                        )
+                        return r.get("task_id")
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug("Kanban failure record failed for %s: %s", name_, e)
+                        return None
+
                 effective_src = (go_source or "").strip()
 
                 # 1-Step Template-to-Binary Compilation Shortcut
@@ -1602,6 +1622,9 @@ async def artifact_lint_and_build(
                                 {
                                     "status": "HYDRATE_ERROR",
                                     "error": f"Error al auto-hidratar la plantilla '{art_src_tpl}': {str(he)}",
+                                    "kanban_task_id": _record_build_failure(
+                                        art_name, "hydrate", None, art_intent, art_cat, agent_id
+                                    ),
                                 },
                                 tracker,
                             )
@@ -1627,6 +1650,7 @@ async def artifact_lint_and_build(
                 try:
                     src_file = build_dir / f"{art_name}.go"
                     src_file.write_text(effective_src, encoding="utf-8")
+                    fail_hash = hashlib.sha256(effective_src.encode("utf-8")).hexdigest()
                     slot_bin_file = build_dir / art_name
 
                     # 1. Validación estática con go vet
@@ -1642,6 +1666,9 @@ async def artifact_lint_and_build(
                                 "status": "LINT_ERROR",
                                 "error": vet_res.stderr.strip(),
                                 "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
+                                "kanban_task_id": _record_build_failure(
+                                    art_name, "vet", fail_hash, art_intent, art_cat, eff_agent
+                                ),
                             },
                             tracker,
                         )
@@ -1692,6 +1719,9 @@ async def artifact_lint_and_build(
                             {
                                 "status": "BUILD_ERROR",
                                 "error": build_res.stderr.strip(),
+                                "kanban_task_id": _record_build_failure(
+                                    art_name, "build", fail_hash, art_intent, art_cat, eff_agent
+                                ),
                             },
                             tracker,
                         )

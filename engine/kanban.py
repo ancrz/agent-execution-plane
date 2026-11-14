@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     source_hash TEXT,                   -- ONT-59/K1: sha256 del go_source canónico al que pertenece la evidencia
     toolchain TEXT,                     -- ONT-59/K1: `go env GOVERSION` con el que se construyó
     generation INTEGER NOT NULL DEFAULT 0,  -- ONT-59/K1: +1 cada vez que cambia (source_hash, toolchain)
+    last_error_class TEXT,              -- ONT-59/K2: 'fmt'|'vet'|'build'|'hydrate' del último fallo (error como valor)
+    failures INTEGER NOT NULL DEFAULT 0,    -- ONT-59/K2: fallos consecutivos desde el último build exitoso
     lint_passed INTEGER NOT NULL DEFAULT 0,
     canary_passed INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
@@ -74,6 +76,9 @@ CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id);
 """
 
 
+FAILURE_PENALTY_STEP = 0.1  # ONT-59/K2
+FAILURE_PENALTY_CAP = 5
+ERROR_CLASSES = ("fmt", "vet", "build", "hydrate")
 _REVERT_HINT_MAX_IDS = 50  # ONT-57/G54: above this the reclassify hint stops listing ids
 
 
@@ -116,6 +121,10 @@ class KanbanBoard:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN toolchain TEXT")
             if "generation" not in cols:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN generation INTEGER NOT NULL DEFAULT 0")
+            if "last_error_class" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN last_error_class TEXT")
+            if "failures" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN failures INTEGER NOT NULL DEFAULT 0")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -129,13 +138,21 @@ class KanbanBoard:
     # ------------------------------------------------------------------ ponderación (motor compartido)
     @staticmethod
     def _ponder(
-        lint_passed: bool, canary_passed: bool, success_rate: float, execution_count: int, days_since_update: float
+        lint_passed: bool,
+        canary_passed: bool,
+        success_rate: float,
+        execution_count: int,
+        days_since_update: float,
+        failures: int = 0,
     ) -> dict[str, Any]:
         """Dimensiones ESPECÍFICAS de artefacto -> motor compartido ponder.finalize().
         reliability/experience solo con señal real (canary o ejecución); si no, se omiten
         (bajan confianza). Veto de fiabilidad: éxito<0.70 con historial impide TRUST."""
         dims: dict[str, float] = {}
         dims["quality"] = 0.5 * (1.0 if lint_passed else 0.0) + 0.5 * (1.0 if canary_passed else 0.0)
+        # ONT-59/K2: los fallos de build recientes (errores como valores) restan calidad de forma ACOTADA:
+        # quality *= 1 - 0.1*min(failures, FAILURE_CAP)  (máx. -50%); el umbral TRUST no cambia.
+        dims["quality"] *= 1.0 - FAILURE_PENALTY_STEP * min(max(failures, 0), FAILURE_PENALTY_CAP)
         if execution_count > 0 or canary_passed:
             dims["reliability"] = max(0.0, min(1.0, success_rate))
             dims["experience"] = max(ponder.log_norm(execution_count, 10), 0.5 if canary_passed else 0.0)
@@ -230,7 +247,7 @@ class KanbanBoard:
                         # Acierto de caché: solo se refresca quién/qué lo pidió; el estado y la evidencia no se tocan.
                         conn.execute(
                             "UPDATE kanban_tasks SET lint_passed=?, promotion_score=?, agent_id=COALESCE(?, agent_id), "
-                            "note=COALESCE(?, note), updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            "note=COALESCE(?, note), failures=0, last_error_class=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                             (
                                 lp,
                                 p["effective"],
@@ -258,7 +275,7 @@ class KanbanBoard:
                     generation = (existing["generation"] or 0) + 1
                     conn.execute(
                         "UPDATE kanban_tasks SET state='LINTED', lint_passed=?, canary_passed=0, promotion_score=?, "
-                        "attempts=attempts+1, generation=?, source_hash=?, toolchain=?, "
+                        "attempts=attempts+1, generation=?, source_hash=?, toolchain=?, failures=0, last_error_class=NULL, "
                         "agent_id=COALESCE(?, agent_id), note=COALESCE(?, note), updated_at=CURRENT_TIMESTAMP "
                         "WHERE id=?",
                         (
@@ -319,6 +336,90 @@ class KanbanBoard:
                     "cached": False,
                     "generation": 1,
                     "attempts": 1,
+                }
+
+    def record_build_failure(
+        self,
+        artifact_name: str,
+        error_class: str,
+        source_hash: str | None = None,
+        toolchain: str | None = None,
+        intent: str = "",
+        category: str = "",
+        agent_id: str = "default",
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """ONT-59/K2: un fallo de build es un DATO de la tarjeta (los errores son valores, como en Go).
+
+        attempts+1, failures+1 y last_error_class. `lint_passed=0` solo si el fallo es de la MISMA source_hash que la
+        tarjeta tenía validada y la tarjeta no está publicada: una tarjeta PROMOTED/CANARY NO se degrada (el binario
+        publicado sigue siendo el bueno: la publicación es atómica) pero el fallo queda registrado. Sin tarjeta, se
+        crea una en BACKLOG."""
+        if error_class not in ERROR_CLASSES:
+            return {
+                "status": "PARAM_ERROR",
+                "error": f"error_class inválida: {error_class}",
+                "valid": list(ERROR_CLASSES),
+            }
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                card = conn.execute(
+                    "SELECT * FROM kanban_tasks WHERE artifact_name = ? AND archived = 0 AND kind = 'artifact' "
+                    "AND state IN ('BACKLOG', 'SYNTHESIZED', 'LINTED', 'CANARY', 'PROMOTED') "
+                    "ORDER BY id DESC LIMIT 1",
+                    (artifact_name,),
+                ).fetchone()
+                if card is None:
+                    cur = conn.execute(
+                        "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, lint_passed, "
+                        "canary_passed, attempts, promotion_score, agent_id, note, source_hash, toolchain, "
+                        "failures, last_error_class) VALUES (?, ?, ?, ?, 'BACKLOG', 0, 0, 1, 0.0, ?, ?, ?, ?, 1, ?)",
+                        (
+                            f"build:{artifact_name}",
+                            intent,
+                            category,
+                            artifact_name,
+                            agent_id,
+                            note,
+                            source_hash,
+                            toolchain,
+                            error_class,
+                        ),
+                    )
+                    return {
+                        "status": "OK",
+                        "task_id": cur.lastrowid,
+                        "state": "BACKLOG",
+                        "failures": 1,
+                        "last_error_class": error_class,
+                        "created": True,
+                    }
+                published = card["state"] in ("CANARY", "PROMOTED")
+                same = source_hash is not None and card["source_hash"] == source_hash
+                lp = card["lint_passed"] if (published or not same) else 0
+                failures = (card["failures"] or 0) + 1
+                stats = self._artifact_stats(conn, artifact_name)
+                p = self._ponder(
+                    bool(lp),
+                    bool(card["canary_passed"]),
+                    stats["success_rate"],
+                    stats["execution_count"],
+                    stats["days_since"],
+                    failures,
+                )
+                conn.execute(
+                    "UPDATE kanban_tasks SET attempts=attempts+1, failures=?, last_error_class=?, lint_passed=?, "
+                    "promotion_score=?, note=COALESCE(?, note), updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (failures, error_class, lp, p["effective"], note, card["id"]),
+                )
+                return {
+                    "status": "OK",
+                    "task_id": card["id"],
+                    "state": card["state"],
+                    "failures": failures,
+                    "last_error_class": error_class,
+                    "promotion_score": p["effective"],
+                    "created": False,
                 }
 
     def advance(
@@ -389,7 +490,12 @@ class KanbanBoard:
                 cp = t["canary_passed"] if canary_passed is None else int(canary_passed)
                 stats = self._artifact_stats(conn, t["artifact_name"])
                 p = self._ponder(
-                    bool(lp), bool(cp), stats["success_rate"], stats["execution_count"], stats["days_since"]
+                    bool(lp),
+                    bool(cp),
+                    stats["success_rate"],
+                    stats["execution_count"],
+                    stats["days_since"],
+                    t["failures"] or 0,
                 )
                 conn.execute(
                     "UPDATE kanban_tasks SET state=?, lint_passed=?, canary_passed=?, "
@@ -430,7 +536,12 @@ class KanbanBoard:
                 )
                 stats = self._artifact_stats(conn, artifact_name)
                 p = self._ponder(
-                    bool(lp), bool(cp), stats["success_rate"], stats["execution_count"], stats["days_since"]
+                    bool(lp),
+                    bool(cp),
+                    stats["success_rate"],
+                    stats["execution_count"],
+                    stats["days_since"],
+                    row["failures"] or 0,
                 )
                 conn.execute(
                     "UPDATE kanban_tasks SET state = ?, canary_passed = ?, "
@@ -472,6 +583,7 @@ class KanbanBoard:
                     stats["success_rate"],
                     stats["execution_count"],
                     stats["days_since"],
+                    t["failures"] or 0,
                 )
                 score = p["effective"]
                 if p["verdict"] != "TRUST":
