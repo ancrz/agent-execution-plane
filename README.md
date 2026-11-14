@@ -5,13 +5,13 @@
 **System Control Plane & High-Resilience Execution Suite for AI Agents on Ubuntu/Linux**
 
 [![Python 3.14+](https://img.shields.io/badge/Python-3.14%2B_Production_LTS-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Go 1.22+](https://img.shields.io/badge/Go-1.22%2B_Static_ELF-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B_Static_ELF_probado_1.27.4-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Shell POSIX](https://img.shields.io/badge/Shell-POSIX_Bash_%2F_Zsh_%2F_Dash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![SQLite 3 WAL](https://img.shields.io/badge/SQLite_3-WAL_%2B_mmap_%2B_vec-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1386_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1396_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -407,7 +407,7 @@ Under Milestone ONT-34, AEP establishes a clean architectural boundary between *
 | :--- | :--- | :--- |
 | **Operational Role** | Immediate, low-latency diagnostic introspection | Autonomous code synthesis and ELF compilation |
 | **Target Probes** | `socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard` | Bespoke CUE-contracted Go tools & distributed agents |
-| **Implementation** | Pure in-memory Python stdlib & Linux `/proc` filesystem | Go 1.22+ compiler (`go vet`, `golangci-lint`) + static ELF |
+| **Implementation** | Pure in-memory Python stdlib & Linux `/proc` filesystem | Go 1.26+ compiler (probado con 1.27.4; `go vet`, `golangci-lint`) + static ELF |
 | **Execution Mechanics** | Direct in-process execution via `engine/primitives.py` | Volatile RAM execution via Linux `memfd_create` |
 | **Prerequisites** | None (zero external toolchain dependencies) | Go toolchain + CUE engine + `/mnt/apps` / host Go |
 | **Scaffolding Posture** | Runtime primary for standard diagnostics | Scaffolding preserved intact in `templates/` (R-4) |
@@ -1102,14 +1102,25 @@ flowchart LR
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
 
+**ONT-58 pendientes de ONT-57 cerrados (VERIFIED tras dos ciclos; 1396 passed, 0 failed, ruff limpio):** el reverso de `kanban_board(action="reclassify")` es exacto gracias a `prev_kind`, `prev_state` y `prev_score`; el dry-run marca `restores_previous: true` (G55). El test de coste de extracción mide en subproceso limpio con el mismo umbral de 2.0 s y guarda de pared de 6.0 s (G56). Se eliminan los hints de DRY_RUN que repetían `next_action` (G57). `_TypeIndex.resolve` sigue defaults `Callable` de proyecto (backlog ONT-46 cerrado, +8 aristas exactas). Detalle: `docs/pipeline/feature_20261114_ont58_pending.md`.
+
+```mermaid
+flowchart LR
+    I["Intent: pendientes de ONT-57 (ONT-58)"] --> M1["M1: reverso exacto y hints (G55, G57) ✅"]
+    M1 --> M2["M2: coste de extracción en subproceso limpio (G56) ✅"]
+    M2 --> M3["M3: defaults Callable en _TypeIndex.resolve (backlog ONT-46) ✅"]
+    M3 --> M4["M4: verified (Dokimos, 1396 passed, ciclo 2) ✅"]
+    M4 --> M5["M5: publicado en dev (Hermon)"]
+```
+
 **ONT-57 severidad explícita, hints de dry-run y reclassify por ids (VERIFIED; 1386 passed + 1 flake de carga G56, ruff limpio):** todo estado emitido lleva `severity` explícita: `INFO` = la llamada logró su propósito, `WARN` = resultado parcial o que pide atención o decisión, `ERROR` = no lo logró. Un test escanea los literales de estado de `server.py`, `engine/*.py` y `scripts/aep-ctl` y falla si alguno no está clasificado (G53). El DRY_RUN con candidatos sugiere revisar y repetir con `apply=True` (G52). `kanban_board(action="reclassify")` acepta `task_ids` y devuelve `reclassified_ids`; el hint de reverso usa ids y no `title_like` (G54). Abiertos: G55 (el reverso work→artifact→work no restaura el estado original) y G56 (flake de carga de `test_cold_extraction`, tercer episodio). Detalle: `docs/pipeline/feature_20261114_ont57_severity_table.md`.
 
 ```mermaid
 flowchart LR
     I["Intent: severidad explícita y reclassify por ids (ONT-57)"] --> M1["M1: tabla de severidad y escáner de ternarios (G53) ✅"]
     M1 --> M2["M2: DRY_RUN con candidatos y reverso por ids (G52, G54) ✅"]
-    M2 --> M3["M3: verified con flake de carga (G56 abierto) ✅"]
-    M3 --> M4["M4: reverso que restaure estado (G55 abierto)"]
+    M2 --> M3["M3: verified con flake de carga (G56 cerrado en ONT-58) ✅"]
+    M3 --> M4["M4: reverso que restaure estado (G55 cerrado en ONT-58) ✅"]
 ```
 
 **ONT-56 reclasificación de tarjetas legadas, NOOP con guía propia y lista externa congelada (VERIFIED; 1359 passed, ruff limpio):** `kanban_board(action="reclassify", task_id=N | title_like="...", kind="work"\|"artifact")` cambia el tipo de tarjetas existentes; el dry-run es el modo por defecto y las tarjetas con `artifact_name` se omiten (G50). El `advance` terminal responde `NOOP` con su propio `next_action`, y `attach_envelope` respeta el `next_action` del payload (G51). `_EXTERNAL_METHODS` se congela como literal versionado en `engine/threads_external_methods.py` (`SNAPSHOT_PY_VERSION` 3.14.7); el grafo de hilos sale idéntico a la base en esa versión (backlog ONT-46).

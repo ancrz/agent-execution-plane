@@ -3,8 +3,39 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261114_ont56_reclassify_snapshot.md`](feature_20261114_ont56_reclassify_snapshot.md)
+- **Current Active Document**: [`feature_20261114_ont58_pending.md`](feature_20261114_ont58_pending.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
+
+---
+
+## Rollup de cadena: ONT-54 a ONT-58 (2026-11-14)
+
+Cadena: `feature_20261114_ont53_ort_synonyms_walk.md` (último documento del rollup anterior) → `ont54_round7` (primero) → `ont55_kanban_work` → `ont56_reclassify_snapshot` → `ont57_severity_table` → `ont58_pending` (**quinto**, dispara este rollup).
+
+Este rollup consolida ONT-54 a ONT-58. La sección anterior (ONT-43 a ONT-53) se conserva sin cambios.
+
+| Documento | Intent | Commits (rango) | Veredicto | Suite | Gaps al cierre |
+|-----------|--------|-----------------|-----------|-------|----------------|
+| ONT-54 | ronda 7: G43 alertas de crash agrupadas por archivo con paginación `cursor`, G44 `error_class` sin acentos, G45 etiqueta de `visual_inspect` y sha256 completo, G46 `destinations` de tcp_connect con BTF, G47 `next_action` de `playbook_run(create)` | `a482909`..`a7f7aea` | VERIFIED tras PLAN_GAP propio (ciclo 2 sobre copia de la DB real); publicado en dev | 1333 (0 fallos; ruff 296) | G43–G47 cerrados; G40 sigue parcial |
+| ONT-55 | tarjetas de trabajo `kind=work` con estados BACKLOG/IN_PROGRESS/BLOCKED/DONE (G49), `advance` sin `to_state` y `PARAM_ERROR` con `valid_states` (G48) | `f6827ae`..`2077426` | VERIFIED en un ciclo; publicado en dev | 1345 (0 fallos; ruff 298) | G48, G49 cerrados |
+| ONT-56 | reclasificación `kanban_board(reclassify)` por `task_id` o `title_like` (G50), `next_action` propio y NOOP terminal (G51), `_EXTERNAL_METHODS` congelado (backlog ONT-46) | `f083a92`..`42dbb72` | VERIFIED en un ciclo; publicado en dev | 1359 (0 fallos; ruff 303) | G50, G51 cerrados; backlog ONT-46 `_EXTERNAL_METHODS` resuelto |
+| ONT-57 | severidad explícita por estado (G53), DRY_RUN con candidatos (G52), `reclassify` por `task_ids` y hint de reverso por ids (G54) | `13238bc`..`53958b8` | VERIFIED, publicado en dev | 1386 passed + 1 flake de carga (G56); ruff 307 | G52–G54 cerrados; G55 y G56 abiertos |
+| ONT-58 | reverso exacto de reclassify con `prev_*` (G55), coste de extracción medido en subproceso limpio (G56), hints de DRY_RUN fuera (G57), defaults `Callable` en `_TypeIndex.resolve` (backlog ONT-46) | `83ed071`..`9942c70` | VERIFIED tras LOGIC_ERROR en T2 (ciclo 1); publicado en dev | 1396 (0 fallos; ruff 311) | G55, G56, G57 y backlog ONT-46 cerrados; K1–K3 (ONT-59) y G58–G60 (ONT-60) abiertos |
+
+Cierre de ONT-58: G55, G56 y G57 cerrados; backlog ONT-46 vacío. G56 se cierra con la causa raíz medida: coste del proceso de la suite, no contención del planificador. Entorno: host Go 1.22.5 → 1.27.4 (`/mnt/apps/tools/go`).
+
+Invariantes que se consolidan en ONT-54 a ONT-58:
+1. Las columnas de migración son aditivas, idempotentes y con sentencias `ALTER` literales (ONT-55, ONT-58).
+2. Cada estado emitido tiene severidad explícita (`INFO`, `WARN` o `ERROR`); un test impide estados sin clasificar (ONT-57).
+3. Un reverso de reclasificación restaura el estado previo exacto cuando la tarjeta lo conserva (`prev_*`, ONT-58); sin `prev_*`, aplica el mapa.
+4. Las mediciones de coste de extracción se hacen en subproceso limpio con umbral fijo; la guarda de pared solo detecta cuelgues (ONT-58).
+5. Modo Short por defecto; el usuario autoriza commit y push.
+
+Pendientes que cruzan documentos: K1–K3 (ONT-59, kanban con filosofía Go; toolchain soportado planificado en ONT-59: T4 toolchain soportado, T5 canal stable de Go en setup.sh) y G58–G60 (ONT-60, sandbox y chequeo de paquetes). G40 (coste de estado estable) sigue parcial desde ONT-53.
+
+Documento activo en la cadena: [`feature_20261114_ont58_pending.md`](feature_20261114_ont58_pending.md) (quinto de la cadena desde el rollup anterior; este rollup lo consolida).
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont58_pending.md` (0 de 5 al cierre de este documento).
 
 ---
 

@@ -696,7 +696,7 @@ Decisiones del orquestador: `reclassify` con dry-run por defecto; work→artifac
 
 ## 24. Severidad explícita por estado, hints de dry-run y reclassify por ids ONT-57 (2026-11-14)
 
-Registro: `docs/pipeline/feature_20261114_ont57_severity_table.md` (anterior: `feature_20261114_ont56_reclassify_snapshot.md`). Estado: VERIFIED en un ciclo; pendiente de commit (Hermon). Base `dev` `3ff0c6f`, HEAD `53958b8`.
+Registro: `docs/pipeline/feature_20261114_ont57_severity_table.md` (anterior: `feature_20261114_ont56_reclassify_snapshot.md`). Estado: VERIFIED en un ciclo; publicado en dev (Hermon). Base `dev` `3ff0c6f`, HEAD `53958b8`.
 
 ```mermaid
 flowchart LR
@@ -718,3 +718,32 @@ flowchart LR
 | M6 | Commit `docs(ONT-57)` y ff a `dev` | Hermon | publicado en dev |
 
 Decisiones del orquestador: INFO/WARN/ERROR por tabla explícita con semántica fijada; UNPROVEN y BROKEN a WARN; `is_field_error_status` y la lista blanca de ONT-43 intactos. Abiertos: G55 (reverso work→artifact no restaura estado) y G56 (flake de carga, tercer episodio).
+
+## 25. Pendientes de ONT-57 cerrados: reverso exacto, coste de extracción por CPU, hints y defaults Callable ONT-58 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont58_pending.md` (anterior: `feature_20261114_ont57_severity_table.md`). Estado: VERIFIED tras dos ciclos Pragma→Dokimos (ciclo 1 LOGIC_ERROR en T2; ciclo 2 VERIFIED); publicado en dev (Hermon). Base `dev` `7d1d882`, HEAD `9942c70`.
+
+```mermaid
+flowchart LR
+    I25["Intent: pendientes de ONT-57 (G55, G56, G57, backlog ONT-46)"] --> N1["N1: plan inline Short T1-T4 (G55, G56, G57, ONT-46) ✅"]
+    N1 --> N2["N2: commits 83ed071, 8874ff4, b80a8f4, 66941d9, e8b7487 ✅"]
+    N2 --> C1_25["M: ciclo 1 Dokimos LOGIC_ERROR en T2 (medición en proceso de suite) ✅"]
+    C1_25 --> N3["N3: ciclo 2 9942c70, medición en subproceso limpio ✅"]
+    N3 --> V25["M: verified ciclo 2 (1396 passed, 0 failed, ruff 311) ✅"]
+    V25 --> D25["M: documentado (Graphos G2) ✅"]
+    D25 --> H25["M: commit docs(ONT-58) (Hermon, publicado en dev)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T3 G57 hints de DRY_RUN duplicados fuera (`83ed071`) | Pragma | ✅ |
+| M2 | T1 G55 reverso exacto de reclassify con `prev_*` (`8874ff4`) | Pragma | ✅ |
+| M3 | T2 G56 primer intento, CPU en el mismo proceso (`b80a8f4`) | Pragma | ✅ (superado) |
+| M4 | T4 backlog ONT-46 defaults `Callable` en `_TypeIndex.resolve` (+8 aristas exactas, `66941d9`) | Pragma | ✅ |
+| M5 | Refactor `ALTER` literales en `_migrate` a petición del orquestador por Semgrep (`e8b7487`) | Pragma, Orquestador | ✅ |
+| M6 | Ciclo 1 Dokimos: DEFECTIVE LOGIC_ERROR solo en T2 | Dokimos | ✅ (registrado) |
+| M7 | T2 ciclo 2: medición en subproceso limpio, mínimo de 3 < 2.0 s (`9942c70`) | Pragma | ✅ |
+| M8 | Ciclo 2 Dokimos VERIFIED (1396 passed, 0 failed, ruff 311) y documentación | Dokimos, Graphos G2 | ✅ |
+| M9 | Commit `docs(ONT-58)` y ff a `dev` | Hermon | publicado en dev |
+
+Decisiones del orquestador: reverso exacto sin cambiar el mapa para tarjetas legadas; el umbral de coste de ONT-40 (2.0 s) no sube; el test de coste mide en subproceso limpio. Entorno: host Go 1.22.5 → 1.27.4 (`/mnt/apps/tools/go`, rollback `/mnt/apps/tools/go1.22.5`), 8 plantillas Go con `go vet` correcto. Abiertos: K1–K3 para ONT-59 (kanban con filosofía Go) y G58–G60 para ONT-60. G55, G56, G57 y el backlog ONT-46 quedan cerrados.

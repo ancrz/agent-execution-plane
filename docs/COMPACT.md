@@ -1,8 +1,9 @@
-# Context Compaction Guidance: AEP (ONT-57 VERIFIED; publicado en dev)
-Preserve: pipeline mode Short (control de costos); ONT-57 VERIFIED en un ciclo sobre base `dev` `3ff0c6f`, 4 commits Pragma `13238bc`..`53958b8` en worktree `agent-ad62494bd780c4685`; docs de G2 publicados en dev junto al código.
-ONT-57 numbers: Dokimos 1386 passed + 1 failed (`test_cold_extraction`, flake de carga, G56), ruff 307 limpio; T3 ida y vuelta por task_ids sobre copia de la DB real, 503/504/505 intactas.
-Open defects with routing: G55 (reverso work→artifact→work no restaura estado; decisión de diseño, no bloqueante). G56 (flake de carga, tercer episodio; candidato medir CPU time con justificación escrita, sin acción sin ella). Backlog ONT-46: solo `_TypeIndex.resolve` Callable → Pragma en tanda futura.
-Decisions taken by user/orchestrator: Short; severidad INFO/WARN/ERROR por tabla explícita (UNPROVEN y BROKEN a WARN); DRY_RUN con candidatos sugiere apply; reclassify por task_ids; ajuste del orquestador antes de Dokimos (escáner de ramas de ternario).
-Next actions: (1) ONT-57 publicado en dev (Hermon, ff autorizado por el usuario); (2) decidir G55 (reverso con estado original) si se pide; (3) aplicar reclassify sobre la base real solo con decisión del usuario.
-Drop: pytest output, diffs intermedios, logs de subagentes, planes superseded (plan_ont56 ejecutado), detalle de commits ya integrado en el registro.
-Recovery: tras un crash, leer docs/pipeline/feature_20261114_ont57_severity_table.md y este archivo; luego git status y git log --oneline 3ff0c6f..HEAD.
+# Context Compaction Guidance: AEP (ONT-58 VERIFIED tras dos ciclos; publicado en dev)
+Preserve: pipeline mode Short (control de costos); ONT-58 VERIFIED en el ciclo 2 sobre base `dev` `7d1d882`, commits `83ed071`, `8874ff4`, `b80a8f4`, `66941d9`, `e8b7487`, `9942c70` en worktree `agent-a20d98d9e238787ed`.
+ONT-58 numbers: Dokimos ciclo 2 1396 passed, 0 failed (191 s), ruff 311 limpio; ciclo 1 LOGIC_ERROR solo en T2 (medición de CPU dentro de la suite, causa de coste del proceso); T4 +8 aristas exactas, gaps 1.
+Open items with routing: K1 invalidación por hash, K2 errores como valores, K3 curación mecánica → ONT-59 (kanban con filosofía Go, Archon/Pragma); toolchain soportado planificado en ONT-59 (T4 toolchain soportado; T5 canal stable de Go en setup.sh). G58 sandbox truncado sin cursor, G59 sandbox sin toolchains enlazados fuera de montajes, G60 chequeo de paquetes solo dpkg → ONT-60.
+Closed: G55, G56 (causa raíz de coste en el proceso de la suite), G57 y backlog ONT-46 (`_TypeIndex.resolve` Callable).
+Decisions taken by user/orchestrator: Short; reverso exacto con prev_*; medición en subproceso limpio, umbral 2.0 s sin subir; host Go 1.22.5 → 1.27.4 (`/mnt/apps/tools/go`, rollback `/mnt/apps/tools/go1.22.5`); setup.sh: planificado en ONT-59 (T4 toolchain soportado; T5 canal stable de Go en setup.sh).
+Next actions: (1) commit `docs(ONT-58)` publicado en dev (ff); (2) arrancar ONT-59 (T4 toolchain soportado; T5 canal stable de Go en setup.sh); (3) ONT-60 cuando el usuario lo pida.
+Drop: pytest output, diffs intermedios, logs de subagentes, planes superseded (plan_ont58 ejecutado), detalle de commits ya integrado en el registro.
+Recovery: tras un crash, leer docs/pipeline/feature_20261114_ont58_pending.md y este archivo; luego git status y git log --oneline 7d1d882..HEAD.
