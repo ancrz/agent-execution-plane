@@ -1373,6 +1373,7 @@ async def artifact_lint_and_build(
     limit: int = 5,
     verbosity: str = "detail",
     agent_id: str = "default",
+    autofix: bool = False,
 ) -> str:
     """
     [PICO-JENKINS / QUALITY GATE & ARTIFACT SYNTHESIS]
@@ -1383,6 +1384,9 @@ async def artifact_lint_and_build(
         (o source_template), hidrata la plantilla automáticamente antes de compilar.
       - 'lint' (o 'vet'): Ejecuta análisis estático puro (go vet + golangci-lint) sobre 'go_source'
         o la plantilla hidratada sin compilar ni alterar el catálogo (GAP-OM-01).
+        ONT-59: curación mecánica previa al juicio (gofmt siempre; `go fix -diff` informado y aplicado solo con
+        `autofix=True`, que además ejecuta `golangci-lint run --fix`), build en modo módulo con GOTOOLCHAIN=local
+        y evidencia por contenido (`source_hash`, `toolchain`, `generation`, `cached`).
       - 'catalog': Tabla descriptiva de plantillas base disponibles con capacidades, tags y redundancias.
       - 'select': Rankea plantillas por relevancia a 'intent' mediante scoring multi-señal (BM25F + jaccard + fuzzy).
       - 'hydrate': Instancia una plantilla Go con 'params', generando el código fuente final.
@@ -1648,24 +1652,62 @@ async def artifact_lint_and_build(
                     build_dir = Path(tempfile.mkdtemp(prefix=f"build_{art_name}_"))
 
                 try:
-                    src_file = build_dir / f"{art_name}.go"
-                    src_file.write_text(effective_src, encoding="utf-8")
+                    go_cmd = go_toolchain.go_bin() or "go"
+                    go_ver = go_toolchain.go_version()
+                    go_env = go_toolchain.build_env()  # GOTOOLCHAIN=local, GOFLAGS=-mod=mod, CGO_ENABLED=0
                     fail_hash = hashlib.sha256(effective_src.encode("utf-8")).hexdigest()
+                    src_file = build_dir / "main.go"
                     slot_bin_file = build_dir / art_name
+                    go_toolchain.write_go_mod(build_dir, art_name, go_ver)
 
-                    # 1. Validación estática con go vet
+                    # ONT-59 T3: curación mecánica ANTES del juicio, en el orden de la toolchain de Go.
+                    # 1) gofmt: forma canónica no negociable (el formato no es semántica -> no cambia el source_hash).
+                    fmt_ok, canonical_src, fmt_err = go_toolchain.gofmt_source(effective_src)
+                    if not fmt_ok:
+                        return attach_envelope(
+                            {
+                                "status": "LINT_ERROR",
+                                "error": fmt_err,
+                                "error_class": "fmt",
+                                "recommendation": "Error de sintaxis: gofmt no pudo parsear el código Go.",
+                                "kanban_task_id": _record_build_failure(
+                                    art_name, "fmt", fail_hash, art_intent, art_cat, eff_agent
+                                ),
+                            },
+                            tracker,
+                        )
+                    healing: dict[str, Any] = {"gofmt_applied": canonical_src.strip() != effective_src.strip()}
+                    src_file.write_text(canonical_src, encoding="utf-8")
+                    # 2) go fix (modernizers): siempre se informa; solo se APLICA con autofix=True.
+                    fix = go_toolchain.go_fix(build_dir, apply=bool(autofix))
+                    healing["fix_lines"] = fix["lines"]
+                    healing["fix_applied"] = bool(fix["applied"])
+                    if fix["applied"]:
+                        fixed_ok, fixed_src, _ = go_toolchain.gofmt_source(src_file.read_text(encoding="utf-8"))
+                        canonical_src = fixed_src if fixed_ok else canonical_src
+                        src_file.write_text(canonical_src, encoding="utf-8")
+                    if fix["lines"] and not fix["applied"]:
+                        healing["fix_diff"] = fix["diff"][:2000]
+                    effective_src = canonical_src  # el go_source registrado en el catálogo es el curado
+
+                    # 3) go vet ./... : la compuerta dura (como antes).
                     vet_res = subprocess.run(
-                        [go_toolchain.go_bin() or "go", "vet", str(src_file)],
+                        [go_cmd, "vet", "./..."],
                         capture_output=True,
                         text=True,
+                        env=go_env,
+                        cwd=str(build_dir),
                         check=False,
                     )
+                    fail_hash = hashlib.sha256(effective_src.encode("utf-8")).hexdigest()
                     if vet_res.returncode != 0:
                         return attach_envelope(
                             {
                                 "status": "LINT_ERROR",
                                 "error": vet_res.stderr.strip(),
+                                "error_class": "vet",
                                 "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
+                                "healing": healing,
                                 "kanban_task_id": _record_build_failure(
                                     art_name, "vet", fail_hash, art_intent, art_cat, eff_agent
                                 ),
@@ -1673,17 +1715,26 @@ async def artifact_lint_and_build(
                             tracker,
                         )
 
-                    # 1.5. golangci-lint ADVISORY (no bloqueante). go vet sigue siendo el gate duro.
+                    # 4) golangci-lint: ADVISORY; con autofix=True se ejecuta con --fix y se reporta.
                     lint_warnings: list[str] = []
                     try:
+                        gcl_cmd = ["golangci-lint", "run"] + (["--fix"] if autofix else []) + ["./..."]
                         gcl = subprocess.run(
-                            ["golangci-lint", "run", str(src_file)],
+                            gcl_cmd,
                             capture_output=True,
                             text=True,
                             cwd=str(build_dir),
+                            env=go_env,
                             timeout=30,
                             check=False,
                         )
+                        if autofix:
+                            healing["golangci_fix"] = True
+                            fixed_ok, fixed_src, _ = go_toolchain.gofmt_source(src_file.read_text(encoding="utf-8"))
+                            if fixed_ok and fixed_src != effective_src:
+                                effective_src = fixed_src
+                                src_file.write_text(effective_src, encoding="utf-8")
+                                healing["golangci_changed"] = True
                         if gcl.returncode != 0:
                             out = (gcl.stdout or gcl.stderr or "").strip()
                             if out:
@@ -1692,33 +1743,26 @@ async def artifact_lint_and_build(
                         logger.debug("golangci-lint advisory run failed or unavailable: %s", e)
                         lint_warnings = []
 
-                    # 2. Compilación estática pura (CGO_ENABLED=0) dentro del build_dir aislado
+                    # 5) Compilación estática reproducible (-trimpath, CGO_ENABLED=0) en el build_dir aislado.
                     start_time = time.time()
-                    env = os.environ.copy()
-                    env["CGO_ENABLED"] = "0"
                     build_res = subprocess.run(
-                        [
-                            go_toolchain.go_bin() or "go",
-                            "build",
-                            "-trimpath",
-                            "-ldflags=-s -w",
-                            "-o",
-                            str(slot_bin_file),
-                            str(src_file),
-                        ],
+                        [go_cmd, "build", "-trimpath", "-ldflags=-s -w", "-o", str(slot_bin_file), "."],
                         capture_output=True,
                         text=True,
-                        env=env,
+                        env=go_env,
                         cwd=str(build_dir),
                         check=False,
                     )
                     compile_latency_ms = round((time.time() - start_time) * 1000, 2)
 
+                    fail_hash = hashlib.sha256(effective_src.encode("utf-8")).hexdigest()
                     if build_res.returncode != 0:
                         return attach_envelope(
                             {
                                 "status": "BUILD_ERROR",
                                 "error": build_res.stderr.strip(),
+                                "error_class": "build",
+                                "healing": healing,
                                 "kanban_task_id": _record_build_failure(
                                     art_name, "build", fail_hash, art_intent, art_cat, eff_agent
                                 ),
@@ -1736,7 +1780,6 @@ async def artifact_lint_and_build(
                         tmp_bin.chmod(0o755)
                     os.replace(tmp_bin, bin_file)
 
-                    go_ver = go_toolchain.go_version()
                     source_hash = hashlib.sha256(effective_src.encode("utf-8")).hexdigest()
                     artifact_id = catalog.register_artifact(
                         name=art_name,
@@ -1784,6 +1827,9 @@ async def artifact_lint_and_build(
                         else source_hash[:12],
                         "generation": kt_res.get("generation"),
                         "cached": bool(kt_res.get("cached", False)),
+                        "healing": {k: v for k, v in healing.items() if k != "fix_diff"}
+                        if (verbosity or "detail").strip().lower() in ("summary", "brief", "terse", "cached")
+                        else healing,
                         "ipc_slot": {
                             "slot_id": slot["slot_id"],
                             "agent_id": eff_agent,

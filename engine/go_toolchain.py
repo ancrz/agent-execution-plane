@@ -120,3 +120,76 @@ def go_info() -> dict[str, Any]:
 
 def reset_cache() -> None:
     _CACHE.clear()
+
+
+# --------------------------------------------------------------------------- ONT-59 T3: curación mecánica en modo módulo
+def build_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Entorno reproducible: sin descargas implícitas de toolchain (GOTOOLCHAIN=local), módulo editable, sin CGO."""
+    env = dict(os.environ if base is None else base)
+    env.update({"CGO_ENABLED": "0", "GOFLAGS": "-mod=mod", "GOTOOLCHAIN": "local"})
+    return env
+
+
+def write_go_mod(build_dir: Path, art_name: str, version: str | None) -> Path:
+    """go.mod mínimo: `module aep.local/<nombre>` + `go <major.minor del toolchain en uso>`."""
+    mod = re.sub(r"[^A-Za-z0-9._-]", "_", art_name) or "artifact"
+    mm = major_minor(version) or GO_SUPPORTED_MIN
+    path = build_dir / "go.mod"
+    path.write_text(f"module aep.local/{mod}\n\ngo {mm}\n", encoding="utf-8")
+    return path
+
+
+def gofmt_source(src: str) -> tuple[bool, str, str]:
+    """Forma canónica (gofmt). Devuelve (ok, fuente_canónica, error). Sin gofmt -> (True, src, '') (no se puede curar)."""
+    gofmt = gofmt_path()
+    if not gofmt:
+        return True, src, ""
+    try:
+        r = subprocess.run([gofmt], input=src, capture_output=True, text=True, timeout=30, check=False)
+    except OSError, subprocess.SubprocessError:
+        return True, src, ""
+    if r.returncode != 0:
+        return False, src, r.stderr.strip()
+    return True, r.stdout, ""
+
+
+def go_fix(build_dir: Path, *, apply: bool) -> dict[str, Any]:
+    """`go fix -diff ./...` (modernizers, Go >= 1.26). Con apply=True ejecuta `go fix ./...`.
+    Devuelve {available, lines, diff, applied}; `lines` cuenta las líneas +/- del diff (sin cabeceras)."""
+    go = go_bin()
+    out: dict[str, Any] = {"available": False, "lines": 0, "diff": "", "applied": False}
+    if not go:
+        return out
+    env = build_env()
+    try:
+        d = subprocess.run(
+            [go, "fix", "-diff", "./..."],
+            cwd=str(build_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except OSError, subprocess.SubprocessError:
+        return out
+    if d.returncode != 0 and not d.stdout:
+        return out  # `go fix -diff` no soportado (Go < 1.26) o fallo: informativo, nunca bloqueante
+    out["available"] = True
+    out["diff"] = d.stdout
+    out["lines"] = sum(1 for ln in d.stdout.splitlines() if ln[:1] in ("+", "-") and not ln.startswith(("+++", "---")))
+    if apply and out["lines"]:
+        try:
+            a = subprocess.run(
+                [go, "fix", "./..."],
+                cwd=str(build_dir),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            out["applied"] = a.returncode == 0
+        except OSError, subprocess.SubprocessError:
+            out["applied"] = False
+    return out
