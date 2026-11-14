@@ -330,21 +330,9 @@ def domain_security(action: str, name: str | None) -> Any:
     if action in ("landlock_status", "status"):
         return get_landlock_status()
     if action == "firewall_status":
-        if _need("ufw"):
-            r = _run(["ufw", "status"])
-            return {
-                "status": "OK",
-                "backend": "ufw",
-                "active": "active" in r.stdout.lower(),
-                "stdout": r.stdout.strip()[:300],
-            }
-        if _need("nft"):
-            return {
-                "status": "OK",
-                "backend": "nftables",
-                "active": True,
-            }
-        return {"status": "OK", "backend": "none", "active": False, "message": "Neither ufw nor nftables utility found"}
+        from engine import net_telemetry as _nt
+
+        return _nt.firewall_status(_sudo_prefix())
     if action == "nftables_inspect":
         if not _need("nft"):
             return {"status": "DEGRADED", "message": "nft binary not found"}

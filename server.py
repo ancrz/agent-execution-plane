@@ -3914,27 +3914,9 @@ async def aep_ctl(
                     if "status" not in res_obj:
                         res_obj["status"] = "OK" if res_obj.get("valid") else "INTEGRITY_FAILED"
             elif a == "firewall_status":
-                if shutil.which("ufw"):
-                    r = subprocess.run(["ufw", "status"], capture_output=True, text=True, check=False)
-                    res_obj = {
-                        "status": "OK",
-                        "backend": "ufw",
-                        "active": "active" in r.stdout.lower(),
-                        "stdout": r.stdout.strip()[:300],
-                    }
-                elif shutil.which("nft"):
-                    res_obj = {
-                        "status": "OK",
-                        "backend": "nftables",
-                        "active": True,
-                    }
-                else:
-                    res_obj = {
-                        "status": "OK",
-                        "backend": "none",
-                        "active": False,
-                        "message": "Neither ufw nor nftables utility found",
-                    }
+                from engine import net_telemetry as _nt
+
+                res_obj = _nt.firewall_status(privilege_prefix())  # ONT-52 G36: veraz, con sudo -n si el tier lo permite
             elif a == "nftables_inspect":
                 if not shutil.which("nft"):
                     res_obj = {"status": "DEGRADED", "message": "nft binary not found"}
@@ -4022,12 +4004,18 @@ async def aep_ctl(
                 more = (eff_cursor + len(page)) < len(all_rows)
                 found["neighbors"] = page
                 found["total_count"] = len(all_rows)
+                egress_next = (
+                    'aep_ctl(domain="security", action="firewall_status")'  # ONT-52 G36
+                    if found.get("egress_blocked_suspected")
+                    else None
+                )
                 if is_compact:
                     found = net_telemetry.compact_neighbors_result(found)
                 return attach_envelope(
                     found,
                     tracker,
                     verbosity=verbosity,
+                    next_action=egress_next,
                     truncated=more,
                     cursor=str(eff_cursor + len(page)) if more else None,
                 )

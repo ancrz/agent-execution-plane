@@ -1079,3 +1079,90 @@ def enforce_netfilter_mitigation(
             "message": str(e),
             "deterministic": True,
         }
+
+
+def _nft_tables_summary(ruleset_json: str) -> list[dict[str, Any]]:
+    """Resume `nft -j list ruleset` en `[{family, name, chains, rules}]` (ONT-52 G36)."""
+    import json
+
+    try:
+        items = json.loads(ruleset_json).get("nftables", [])
+    except (ValueError, AttributeError):
+        return []
+    tables: dict[tuple[str, str], dict[str, Any]] = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        for kind in ("table", "chain", "rule"):
+            obj = it.get(kind)
+            if not isinstance(obj, dict) or "family" not in obj:
+                continue
+            tname = obj.get("name") if kind == "table" else obj.get("table")
+            if tname is None:
+                continue
+            row = tables.setdefault(
+                (str(obj["family"]), str(tname)),
+                {"family": str(obj["family"]), "name": str(tname), "chains": 0, "rules": 0},
+            )
+            if kind == "chain":
+                row["chains"] += 1
+            elif kind == "rule":
+                row["rules"] += 1
+    return sorted(tables.values(), key=lambda t: (t["family"], t["name"]))
+
+
+def firewall_status(prefix: list[str] | None) -> dict[str, Any]:
+    """Estado veraz del firewall (ONT-52 G36).
+
+    `prefix`: `[]` root, `['sudo','-n']` escalable, `None` sin privilegio (DIMINISHED). Sin privilegio ufw/nft no
+    pueden leerse: el resultado es DEGRADED con `active: None` en vez de un falso `active: false`.
+    `active` = ufw activo OR alguna tabla nft con reglas.
+    """
+    has_ufw = bool(shutil.which("ufw"))
+    has_nft = bool(shutil.which("nft"))
+    if not has_ufw and not has_nft:
+        return {
+            "status": "OK",
+            "backend": "none",
+            "active": False,
+            "message": "Neither ufw nor nftables utility found",
+        }
+    result: dict[str, Any] = {"status": "OK", "backend": "ufw" if has_ufw else "nftables"}
+    ufw_active: bool | None = None
+    nft_active: bool | None = None
+    reasons: list[str] = []
+
+    if has_ufw:
+        r = subprocess.run([*(prefix or []), "ufw", "status"], capture_output=True, text=True, check=False)
+        out = r.stdout.strip()
+        low = out.lower()
+        result["stdout"] = out[:300]
+        if "status: active" in low:
+            ufw_active = True
+        elif "status: inactive" in low:
+            ufw_active = False
+        else:
+            reasons.append("ufw status unreadable without privilege (need root or passwordless sudo)")
+    if has_nft:
+        if prefix is None:
+            reasons.append("nft ruleset unreadable without privilege")
+        else:
+            r = subprocess.run([*prefix, "nft", "-j", "list", "ruleset"], capture_output=True, text=True, check=False)
+            if r.returncode == 0:
+                tables = _nft_tables_summary(r.stdout)
+                result["nft_tables"] = tables
+                nft_active = any(t["rules"] > 0 for t in tables)
+            else:
+                reasons.append("nft ruleset unreadable: " + r.stderr.strip()[:120])
+
+    unknown = (has_ufw and ufw_active is None) or (has_nft and nft_active is None)
+    if ufw_active or nft_active:
+        result["active"] = True
+    elif unknown:
+        result["active"] = None
+        result["status"] = "DEGRADED"
+    else:
+        result["active"] = False
+    if reasons:
+        result["reason"] = "; ".join(reasons)
+    return result
