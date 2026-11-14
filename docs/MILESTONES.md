@@ -456,3 +456,30 @@ flowchart LR
 | M5 | Commit de la tanda y ff a `dev`; repetir las 8 llamadas en el plano vivo | Hermon | pendiente: commit en este track |
 
 Residuo fuera de ONT-47: backlog ONT-48 (G10–G23) y decisión de diseño `network.neighbors` (G21), pendiente del usuario.
+
+
+## 15. Gaps de dogfooding ronda 2 ONT-48 (2026-11-13)
+
+Registro: `docs/pipeline/feature_20261113_ont48_dogfood_gaps.md` (anterior: `feature_20261113_ont47_dogfood_frictions.md`). SDD: `docs/sdd/sdd_ont48_dogfood_gaps.md`. Estado: VERIFIED en worktree `agent-a0cf12c1becaa70e5`, HEAD `8f68910`, base `dev` `c2f5152`; publicado en dev.
+
+```mermaid
+flowchart LR
+    I15["Intent: gaps de dogfooding ronda 2 (ONT-48)"] --> N1["N1: ronda dogfood sobre el plano vivo, G10-G26 (orquestador) ✅"]
+    N1 --> N2["N2: T1-T11, T13, T14 en 13 commits aab6d4e..8f68910 (Pragma) ✅"]
+    N2 --> V15["M: verified (Dokimos, 1230 passed, 0 failed; gaps 1) ✅"]
+    V15 --> D15["M: documentado (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, rollup) ✅"]
+    D15 --> H15["M: commit (Hermon, publicado en dev)"]
+    N1 --> R15["Residuo: T12/G18 omitida (contrato de tests) ⛔"]
+    V15 --> R15b["Residuo: G21 network.neighbors no aprobado ⛔"]
+    V15 --> R15c["Residuo: G27 cola pueue sin rastro (abierto) ⛔"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Ronda dogfood sobre el plano vivo: gaps G10–G26 con llamadas reales | Orquestador (tools AEP) | ✅ |
+| M2 | Fixes T1–T11, T13, T14 (13 commits `aab6d4e`..`8f68910`); G17 ya cerrado en ONT-47 | Pragma | ✅ |
+| M3 | Dokimos VERIFIED: 1230 passed, 0 fallos, ruff limpio, gaps 1, budgets sin subir | Dokimos | ✅ VERIFIED |
+| M4 | Documentación: feature, SDD, reporte (sección ONT-48), README (badge 1230 y grafo), STATE, COMPACT, rollup | Graphos G2 | ✅ |
+| M5 | Commit de la tanda y ff a `dev` | Hermon | publicado en dev |
+
+Residuo fuera de ONT-48: T12/G18 (omitida por contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario) y G27 (cola pueue vaciada sin rastro, abierto).

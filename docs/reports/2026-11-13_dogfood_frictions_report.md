@@ -65,3 +65,30 @@ Aciertos a conservar: `autoevol(thread)` (578 tok, consumidores + tests impactad
 2. Graphos G2 → Hermon: ff-merge bajo `.aep_swap_fence`, push ff `dev` (7rwx, VERIFIED+G2).
 3. Repetir las 8 llamadas de la ronda 1 contra el plano vivo y anotar tokens antes/después.
 4. Si el usuario aprueba `network.neighbors`, planificar ONT-48 con G10–G23.
+
+## ONT-48: cierre de G10–G26
+
+Registro: `docs/pipeline/feature_20261113_ont48_dogfood_gaps.md`. Base `dev` `c2f5152`, 13 commits `aab6d4e`..`8f68910` (Pragma). Dokimos: **VERIFIED**, 1230 passed / 0 failed (baseline 1174), ruff limpio, budgets sin cambios, GAPS_BASELINE 1.
+
+| Gap | Tarea | Commit | Estado |
+|-----|-------|--------|--------|
+| G10 | T9 `discover(playbook)` compacto (820 tok) | `fc59cf6` | cerrado |
+| G11 | T8 cursor en `execute_in_ram` y `kernel_trace`; promote en `next_action` | `cfae6c5` | cerrado |
+| G12 | T10 `audit.usage` con `fields_unavailable` (553 → 457 tok) | `71fbaf9` | cerrado |
+| G13 | T6 `service.status` NOT_FOUND / WARN | `05b9511` | cerrado |
+| G14 | T11 `ts_iso` en crashes | `d6860cc` | cerrado |
+| G15 | T7 `autoevol(report)` sin OK vacío | `7311d90` | cerrado |
+| G16 | T3 `persist_generation` (foreign_root, unknown_commit, node_count_drop) | `437307e` | cerrado |
+| G17 | misma raíz que F9 (ONT-47) | — | cerrado en ONT-47 |
+| G18 | T12 proyección duplicada en `playbook_run(batch)` | — | **omitida** por contrato de tests |
+| G19 | T13 mapa de servicios TCP | `ed4967c` | cerrado |
+| G20 | T14 catálogo en inglés | `8f68910` | cerrado |
+| G21 | `network.neighbors` | — | **no aprobado**: decisión de diseño del usuario |
+| G22 | T4 `archive(task_id)` y `title_like` | `5d3fa78` | cerrado |
+| G23 | T5 `create` con `description` y `refs` | `c1e7a25` | cerrado |
+| G24 | T1 sandbox: `rw_paths` sin `/` en ro, `/dev` propio, `EXEC_SUSPECT` | `aab6d4e` | cerrado |
+| G25 | T2 comandos outward-facing con `confirm` y `label_generated` | `5f01529` | cerrado |
+| G26 | T3 `persist_generation` con árbol ajeno (mismo fix que G16) | `437307e` | cerrado |
+| G27 | cola pueue vaciada sin rastro en AEP | — | **abierto**, nuevo |
+
+Pendientes: T12/G18, G21 (decisión del usuario) y G27. Medidas de la ronda: `discover(playbook)` summary ≈ 2900 → 820 tok; `audit.usage` 553 → 457 tok; sandbox con `rw_paths` y `/dev/null` escribible; `git push origin main` sin encolar (CONFIRM_REQUIRED).

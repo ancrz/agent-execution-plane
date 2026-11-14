@@ -8,6 +8,26 @@
 
 ---
 
+## Rollup de cadena: ONT-43 a ONT-48 (2026-11-13)
+
+Cadena: `feature_20261113_004026_mcp_coverage_reinforcement.md` → `080406_ont45_topos_residue` → `ont46_extractor_precision` → `ont47_dogfood_frictions` → `ont48_dogfood_gaps` (quinto documento, dispara este rollup).
+
+| Documento | Intent | Veredicto | Tests |
+|-----------|--------|-----------|-------|
+| 004026 | cobertura MCP (ONT-44) y trinquete de gaps | VERIFIED | 1147 |
+| 080406 | residuo Topos (ONT-45), grafo de hilos por criticidad | VERIFIED | 1147 |
+| ONT-46 | precisión del extractor de hilos, aristas `weak` | VERIFIED, publicado en dev | 1147 |
+| ONT-47 | nueve fricciones de dogfooding (contratos compactos y aditivos) | VERIFIED, publicado en dev | 1174 (1 fallo de carga conocido) |
+| ONT-48 | trece gaps de la ronda 2 (G10–G26) | VERIFIED, publicado en dev | 1230 (0 fallos) |
+
+Invariantes que se consolidan: `truncated ⇒ cursor` en el sobre; los modos `detail` no cambian de forma salvo indicación explícita; comandos outward-facing sólo con tier 7rwx y `confirm=True`; ninguna generación de grafo de árbol ajeno o sin commit se persiste; los tests no escriben en la base real.
+
+Pendientes que cruzan documentos: T12/G18 (proyección duplicada, omitida por contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario), G27 (cola pueue vaciada sin rastro), y el margen de extracción en frío de ONT-46 (1.5–1.7 s frente a un tope de 2.0 s).
+
+Documento activo en la cadena: `feature_20261113_ont48_dogfood_gaps.md`.
+
+---
+
 ## 1. Executive Summary
 
 This rollup breaks recursive token overload across historical pipeline artifacts by consolidating architectural decisions, invariants, and milestone achievements from the pipeline documents into a single dense summary.
@@ -209,7 +229,6 @@ Este rollup estaba vencido. Cubre la cadena posterior a `feature_20261030_110500
 **Decisiones acumuladas:** modo Short por defecto; AEP recarga sólo su propia sesión; push retenido hasta autorización.
 
 **Documento activo:** [`feature_20261107_011128_agy_audit.md`](feature_20261107_011128_agy_audit.md)
-
 
 ## Rollup 5: E2 a E4 y sala limpia (Graphos G2, 2026-11-07)
 
