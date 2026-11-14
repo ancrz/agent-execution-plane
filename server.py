@@ -67,6 +67,7 @@ from engine.kanban import KanbanBoard
 from engine.landlock import get_landlock_status
 from engine.playbook import PlaybookStore
 from engine.privilege import (
+    ACTION_SYNONYMS,
     BACKUP_MUTATING_ACTIONS,
     BACKUP_MUTATING_MIN_OCTAL,
     CHMOD_DEGRADATION_MATRIX,
@@ -210,19 +211,7 @@ AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ONT-51 (G33): synonyms per canonical-call `action`, used only to rank a winning capability's canonical calls
-# against the use_case. Kept small on purpose: extend it only for actions that appear in `_CAP_TACTICAL`.
-_ACTION_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "neighbors": ("hosts", "lan", "neighbor", "devices", "arp", "subnet", "discovery"),
-    "listeners": ("ports", "listening", "sockets", "open", "puertos", "escucha", "abiertos"),
-    "probe": ("port", "scan", "reachable"),
-    "routes": ("route", "gateway"),
-    "interfaces": ("nic", "interface"),
-    "mounts": ("mount", "filesystem", "disk"),
-    "usage": ("disk", "space", "free"),
-    "check": ("installed", "package"),
-    "status": ("service", "running"),
-}
+# ONT-51 (G33) / ONT-53 (G41): the action-synonym table lives in engine.privilege.ACTION_SYNONYMS (single source).
 _CALL_NAMED_ARG_RE = re.compile(r'\b(?:action|domain)="([^"]+)"')
 
 
@@ -245,7 +234,7 @@ def _pick_canonical_call(use_case: str, calls: list[str]) -> str | None:
     for call in calls:
         head = call.split("(", 1)[0]
         named = _CALL_NAMED_ARG_RE.findall(call)
-        extra = [syn for n in named for syn in _ACTION_SYNONYMS.get(n, ())]
+        extra = [syn for n in named for syn in ACTION_SYNONYMS.get(n, ())]
         scores.append(len(want & _overlap_tokens(" ".join([head.replace("_", " "), *named, *extra]))))
     best = max(scores)
     if best == 0 or scores.count(best) > 1:

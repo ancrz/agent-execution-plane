@@ -56,6 +56,7 @@ def test_embedder_sets_variable_when_absent(monkeypatch):
 def test_embedder_leaves_no_onnxruntime_db_fd():
     env = {k: v for k, v in os.environ.items() if k != "ORT_DISABLE_TELEMETRY"}
     env["HF_HUB_OFFLINE"] = "1"
+    assert embedder.MODEL_NAME  # arista covers: el subproceso carga embedder.LocalEmbedder
     res = subprocess.run(
         [sys.executable, "-I", "-c", _PROBE],
         check=False,

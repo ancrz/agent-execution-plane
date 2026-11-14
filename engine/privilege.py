@@ -312,6 +312,32 @@ _CAPABILITIES = {
 
 _PERM_TABLE = {7: "rwx", 6: "rw-", 5: "r-x", 4: "r--", 3: "-wx", 2: "-w-", 1: "--x", 0: "---"}
 
+# ONT-53 (G41): UNICA tabla de sinonimos EN+ES por `action` de las canonical_calls de `system_inspect`.
+# La consumen (a) `_CAP_KEYWORDS["system_inspect"]` (ranking de capacidad en `discover`) y (b) `server._pick_canonical_call`
+# (eleccion de la llamada dentro de la capacidad ganadora). Ampliar SOLO aqui; no duplicar en server.py.
+ACTION_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "neighbors": (
+        "hosts",
+        "lan",
+        "neighbor",
+        "devices",
+        "arp",
+        "subnet",
+        "discovery",
+        "vecinos",
+        "dispositivos",
+        "red",
+    ),
+    "listeners": ("ports", "listening", "sockets", "open", "puertos", "escucha", "abiertos"),
+    "probe": ("port", "scan", "reachable", "puerto", "escanear", "alcanzable"),
+    "routes": ("route", "gateway", "ruta", "rutas", "puerta"),
+    "interfaces": ("nic", "interface", "interfaz", "interfaces"),
+    "mounts": ("mount", "filesystem", "disk", "montaje", "montajes", "disco"),
+    "usage": ("disk", "space", "free", "uso", "espacio", "libre"),
+    "check": ("installed", "package", "instalado", "paquete"),
+    "status": ("service", "running", "servicio", "ejecutando"),
+}
+
 # Keywords BILINGÜES (EN/ES) por capacidad: anclas léxicas language-aligned para el enrutador
 # `discover`. Las descriptions están en español y los names/tools en inglés, así que una query EN
 # ("run binary", "memory", "trace kernel") tenía poco con qué casar. Esto cierra la colisión ES/EN:
@@ -337,6 +363,12 @@ _CAP_KEYWORDS = {
     "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando",
     "default_primitives": "default primitives system diagnostic probes socket monitor fd rescuer disk usage mem stat landlock guard ram in-memory sondas diagnostico primitivas por defecto memoria",
 }
+
+# Las keywords de system_inspect incluyen los sinonimos de accion (sin duplicar tokens ya presentes).
+_base_si = _CAP_KEYWORDS["system_inspect"].split()
+_CAP_KEYWORDS["system_inspect"] = " ".join(
+    [*_base_si, *dict.fromkeys(t for syns in ACTION_SYNONYMS.values() for t in syns if t not in _base_si)]
+)
 
 # ---------------------------------------------------------------------------
 # Matriz de Degradación Elegante Chmod de 4 Niveles (ONT-33)
