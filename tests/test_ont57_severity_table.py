@@ -18,6 +18,35 @@ _PATTERNS = [
 ]
 
 
+_LITERAL_RE = re.compile(r"""["']([A-Z][A-Z0-9_]+)["']""")
+
+
+def _expr_end(rhs: str) -> str:
+    """Cut `rhs` at the first top-level `,` / `}` / `)` outside quotes (so sibling dict values are not scanned)."""
+    quote = ""
+    for i, ch in enumerate(rhs):
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "\"'":
+            quote = ch
+        elif ch in ",})":
+            return rhs[:i]
+    return rhs
+
+
+def scan_text(text: str) -> set[str]:
+    """Every status literal on the right side of a matching line (ternaries: all branches, comments excluded)."""
+    found: set[str] = set()
+    for line in text.splitlines():
+        for pat in _PATTERNS:
+            m = pat.search(line)
+            if m:
+                rhs = line[m.start(1) - 1 :]
+                rhs = _expr_end(re.split(r"\s#", rhs, maxsplit=1)[0])  # drop trailing comment, stop at sibling key
+                found.update(_LITERAL_RE.findall(rhs))
+    return found
+
+
 def _emitted_statuses() -> set[str]:
     files = [
         ROOT / "server.py",
@@ -26,10 +55,19 @@ def _emitted_statuses() -> set[str]:
     ]
     found: set[str] = set()
     for f in files:
-        text = f.read_text(encoding="utf-8")
-        for pat in _PATTERNS:
-            found.update(pat.findall(text))
+        found |= scan_text(f.read_text(encoding="utf-8"))
     return found
+
+
+def test_scanner_collects_every_ternary_literal():
+    src = (
+        'status = "AAA" if x else "BBB" if y else "CCC"  # "IGN"\n'
+        '    return {"status": "DDD" if z else "EEE", "k": 1}\n'
+    )
+    assert scan_text(src) >= {"AAA", "BBB", "CCC", "DDD", "EEE"}
+    assert "IGN" not in scan_text(src)
+    assert "SIB" not in scan_text('x = {"status": "OK", "state": "SIB"}')
+    assert is_classified_status("BROKEN") and infer_severity("BROKEN") == "WARN"
 
 
 def test_scan_finds_statuses():

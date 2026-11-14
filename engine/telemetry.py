@@ -96,12 +96,13 @@ _WARN_STATUSES = frozenset(
         "CAPPED", "CONFIRM_REQUIRED", "EXEC_SUSPECT", "LOCKED", "NO_GENERATIONS", "NO_LKG", "NO_MANPAGE",
         "NOT_CONFIGURED", "NOT_FOUND",  # bare NOT_FOUND: lookup miss (ONT-48); prefixed *_NOT_FOUND is ERROR
         "POISON_DETECTED", "PROTECTED", "QUARANTINED", "SANDBOX_UNAVAILABLE", "SNAPSHOT_REQUIRED", "UNAVAILABLE",
+        "BROKEN",  # diagnosis that fulfilled its purpose (pair of CLEAN), not a failed call
         "UNPROVEN",  # template/artifact verdict without execution evidence yet
     }
 )  # fmt: skip
 _ERROR_STATUSES = frozenset(
     {
-        "ERROR", "FAILED", "EXEC_FAILED", "TIMEOUT", "BROKEN", "LKG_INVALID", "AUTO_RECOVER_FAILED",
+        "ERROR", "FAIL", "FAILED", "EXEC_FAILED", "TIMEOUT", "LKG_INVALID", "AUTO_RECOVER_FAILED",
         # denials: the requested operation was refused, so the purpose was not achieved
         "PERMISSION_DENIED", "TIER_DENIED", "NOT_ALLOWED", "QUOTA_EXCEEDED", "REJECT", "REJECTED",
         "REJECTED_NOT_FIELD_ERROR",
