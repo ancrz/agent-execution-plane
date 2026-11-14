@@ -875,9 +875,11 @@ class KanbanBoard:
                 if direct:
                     want = [int(task_id)] if task_id is not None else []
                     want += [i for i in id_list if i not in want]
-                    marks = ",".join("?" for _ in want)
-                    sql = f"SELECT * FROM kanban_tasks WHERE id IN ({marks}) ORDER BY id"  # noqa: S608 - placeholders only
-                    rows = conn.execute(sql, want).fetchall()
+                    # ONT-61/G66: one JSON parameter instead of N placeholders (no SQLite variable limit, no f-string SQL).
+                    rows = conn.execute(
+                        "SELECT * FROM kanban_tasks WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id",
+                        (json.dumps(want),),
+                    ).fetchall()
                     if not rows:
                         return {
                             "status": "ERROR",
