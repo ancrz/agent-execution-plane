@@ -297,8 +297,36 @@ def domain_storage(action: str) -> Any:
     fail(f"Acción de storage desconocida: {action}", valid=SCHEMA["storage"]["actions"])
 
 
+def _path_probe(name: str) -> dict[str, Any] | None:
+    """ONT-60 T3: respaldo por PATH para binarios instalados fuera de dpkg."""
+    found = shutil.which(name)
+    if not found:
+        return None
+    version = None
+    for flag in ("--version", "version"):
+        try:
+            r = subprocess.run([found, flag], capture_output=True, text=True, timeout=3, check=False)  # noqa: S603
+        except (OSError, subprocess.SubprocessError):
+            continue
+        lines = (r.stdout or r.stderr or "").strip().splitlines()
+        if r.returncode == 0 and lines:
+            version = lines[0].strip()
+            break
+    return {
+        "installed": True,
+        "source": "path",
+        "path": found,
+        "realpath": os.path.realpath(found),
+        "version": version,
+    }
+
+
 def domain_package(action: str, name: str | None) -> Any:
     if not _need("dpkg-query"):
+        if action == "check" and name:
+            probe = _path_probe(name)
+            if probe:
+                return {"status": "OK", "package": name, **probe}
         return {"status": "DEGRADED", "message": "dpkg-query no disponible (¿no es Debian/Ubuntu?)."}
     if action in ("installed", "list"):
         r = _run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Status}\n"])
@@ -313,7 +341,12 @@ def domain_package(action: str, name: str | None) -> Any:
     if action == "check":
         r = _run(["dpkg-query", "-W", "-f=${Status}", name])
         installed = r.returncode == 0 and "install ok installed" in r.stdout
-        return {"status": "OK", "package": name, "installed": installed}
+        if installed:
+            return {"status": "OK", "package": name, "installed": True, "source": "dpkg"}
+        probe = _path_probe(name)
+        if probe:
+            return {"status": "OK", "package": name, **probe}
+        return {"status": "OK", "package": name, "installed": False}
     if action == "info":
         r = _run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Architecture}\t${Installed-Size}", name])
         if r.returncode != 0:
