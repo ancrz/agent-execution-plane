@@ -5132,6 +5132,25 @@ _PLAYBOOK_FAIL = {
 }
 
 
+def _playbook_run_hint(name: str, contract: list[dict[str, Any]] | None) -> str:
+    """ONT-54 T5: concrete next_action after `create`, with a placeholder per required contract param."""
+    required = [
+        str(c["name"])
+        for c in (contract or [])
+        if isinstance(c, dict) and c.get("name") and "default" not in c and c.get("required", True)
+    ]
+    vars_part = f", vars={json.dumps({n: f'<{n}>' for n in required})}" if required else ""
+    return f'playbook_run(action="run", name={json.dumps(name)}{vars_part})'
+
+
+def _drop_zero_savings(res: dict[str, Any], verbosity: str) -> None:
+    """ONT-54 T5: `token_savings_estimate` with saved_bytes == 0 is noise in compact modes (detail keeps it)."""
+    if (verbosity or "summary").strip().lower() in ("summary", "brief", "terse", "cached"):
+        est = res.get("token_savings_estimate")
+        if isinstance(est, dict) and not est.get("saved_bytes"):
+            res.pop("token_savings_estimate", None)
+
+
 @mcp.tool(structured_output=False)
 async def playbook_run(
     action: str = "run",
@@ -5382,6 +5401,7 @@ async def playbook_run(
                 }
                 final_res = base_res
 
+            _drop_zero_savings(final_res, verbosity)
             return attach_envelope(
                 final_res,
                 tracker,
@@ -5404,10 +5424,16 @@ async def playbook_run(
                     tracker,
                     verbosity=verbosity,
                 )
+            created = playbook_store.create(name.strip(), effective_desc, steps, params_contract)
             return attach_envelope(
-                playbook_store.create(name.strip(), effective_desc, steps, params_contract),
+                created,
                 tracker,
                 verbosity=verbosity,
+                next_action=(
+                    _playbook_run_hint(name.strip(), params_contract)
+                    if str(created.get("status", "")).upper() == "OK"
+                    else None
+                ),
             )
 
         elif act == "list":
@@ -5626,6 +5652,7 @@ async def playbook_run(
                 }
                 final_res = base_res
 
+            _drop_zero_savings(final_res, verbosity)
             return attach_envelope(
                 final_res,
                 tracker,
