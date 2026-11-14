@@ -56,11 +56,15 @@ def _file_of(node_id: str, graphs: tuple[ThreadGraph, ...]) -> str:
     return ""
 
 
-def _union_edges(graphs: tuple[ThreadGraph, ...], *, include_lazy: bool = True) -> list[tuple[str, str, str]]:
+def _union_edges(
+    graphs: tuple[ThreadGraph, ...], *, include_lazy: bool = True, include_weak: bool = True
+) -> list[tuple[str, str, str]]:
+    """Union of hash-bearing edges across graphs. `include_weak=False` drops edges resolved by unique name only
+    (untyped receiver, ONT-46); a precise twin of the same (src, dst, kind) is a different, non-weak edge and stays."""
     seen: set[tuple[str, str, str]] = set()
     for g in graphs:
         for e in g.edges(HASH_EDGE_KINDS):
-            if include_lazy or not e.lazy:
+            if (include_lazy or not e.lazy) and (include_weak or not e.weak):
                 seen.add((e.src, e.dst, e.kind))
     return sorted(seen)
 
@@ -74,15 +78,16 @@ def _changed(node_id: str, repo: ThreadGraph, lkg: ThreadGraph) -> bool:
 
 
 def file_units(repo: ThreadGraph, lkg: ThreadGraph) -> list[list[str]]:
-    """File-level SCCs over STRICT (import-time) edges, dependencies first (sinks first, as `tarjan_scc` emits).
+    """File-level SCCs over STRICT (import-time) PRECISE edges, dependencies first (sinks first, as `tarjan_scc` emits).
 
-    Lazy-import cycles do not couple files at load time, so they do not fuse units; lazy edges still count as
-    dependencies when collecting dependents.
+    Lazy-import cycles do not couple files at load time, and a weak edge (unique-name guess with an untyped
+    receiver, ONT-46) may not be a real dependency, so neither fuses units (same rule as `classify_sccs`).
+    Both still count as dependencies when collecting dependents (`_union_edges` default), the conservative side.
     """
     graphs = (repo, lkg)
     files: set[str] = set()
     adj: dict[str, set[str]] = {}
-    for src, dst, _kind in _union_edges(graphs, include_lazy=False):
+    for src, dst, _kind in _union_edges(graphs, include_lazy=False, include_weak=False):
         fs, fd = _file_of(src, graphs), _file_of(dst, graphs)
         files.update(f for f in (fs, fd) if f)
         if fs and fd and fs != fd:

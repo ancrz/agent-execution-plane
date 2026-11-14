@@ -319,3 +319,38 @@ def test_full_restore_is_not_partial_and_skips_nothing() -> None:
     assert res["partial_unit"] is False and res["skipped"] == []
     empty = _plan([], {})
     assert empty["skipped"] == [] and empty["partial_unit"] is False
+
+
+# --------------------------------------------------------------------------- weak edges (ONT-51)
+
+
+def _weak_cycle_graph(*, weak_back: bool) -> ThreadGraph:
+    g = ThreadGraph()
+    for mod in ("wa", "wb"):
+        g.add_node(Node("module", f"module:{mod}", f"m-{mod}", {"path": f"{mod}.py"}))
+        g.add_node(Node("function", f"fn:{mod}.fn", f"h-{mod}", {"module": mod}))
+    g.add_edge("fn:wa.fn", "fn:wb.fn", "consumes")
+    g.add_edge("fn:wb.fn", "fn:wa.fn", "consumes", weak=weak_back)
+    return g
+
+
+def test_weak_back_edge_does_not_fuse_files_into_one_unit() -> None:
+    weak = _weak_cycle_graph(weak_back=True)
+    assert sorted(threads_supervise.file_units(weak, weak)) == [["wa.py"], ["wb.py"]]
+    strict = _weak_cycle_graph(weak_back=False)
+    assert threads_supervise.file_units(strict, strict) == [["wa.py", "wb.py"]]
+
+
+def test_weak_only_consumer_still_listed_as_dependent() -> None:
+    lkg = ThreadGraph()
+    repo = ThreadGraph()
+    for g, h in ((lkg, "old"), (repo, "new")):
+        for mod in ("wa", "wb"):
+            g.add_node(Node("module", f"module:{mod}", f"m-{mod}", {"path": f"{mod}.py"}))
+        g.add_node(Node("function", "fn:wa.fn", "h-wa", {"module": "wa"}))
+        g.add_node(Node("function", "fn:wb.fn", h, {"module": "wb"}))
+        g.add_edge("fn:wa.fn", "fn:wb.fn", "consumes", weak=True)
+    edges = threads_supervise._union_edges((repo, lkg))
+    assert ("fn:wa.fn", "fn:wb.fn", "consumes") in edges
+    assert threads_supervise._union_edges((repo, lkg), include_weak=False) == []
+    assert threads_supervise._changed_consumers({"wb.py"}, repo, lkg, edges) == {"wa.py"}
