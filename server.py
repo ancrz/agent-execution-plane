@@ -1508,11 +1508,36 @@ async def artifact_lint_and_build(
                     src_file = lint_dir / "main.go"
                     src_file.write_text(effective_src, encoding="utf-8")
 
-                    # 1. Validación estática con go vet
+                    # 1. ONT-60 T4: mismo pipeline que el build (ONT-59 T3) pero solo informativo: sin aplicar,
+                    #    sin compilar y sin tocar el kanban. Modo módulo + GOTOOLCHAIN=local.
+                    go_ver = go_toolchain.go_version()
+                    go_env = go_toolchain.build_env()
+                    go_toolchain.write_go_mod(lint_dir, "lint", go_ver)
+                    fmt_ok, canonical_src, fmt_err = go_toolchain.gofmt_source(effective_src)
+                    if not fmt_ok:
+                        return attach_envelope(
+                            {
+                                "status": "LINT_ERROR",
+                                "lint_passed": False,
+                                "vet_passed": False,
+                                "error": fmt_err,
+                                "error_class": "fmt",
+                                "recommendation": "Error de sintaxis: gofmt no pudo parsear el código Go.",
+                            },
+                            tracker,
+                            verbosity=verbosity,
+                        )
+                    fix = go_toolchain.go_fix(lint_dir, apply=False)
+                    healing: dict[str, Any] = {
+                        "gofmt_needed": canonical_src.strip() != effective_src.strip(),
+                        "fix_lines": fix["lines"],
+                    }
                     vet_res = subprocess.run(
-                        [go_toolchain.go_bin() or "go", "vet", str(src_file)],
+                        [go_toolchain.go_bin() or "go", "vet", "./..."],
                         capture_output=True,
                         text=True,
+                        env=go_env,
+                        cwd=str(lint_dir),
                         check=False,
                     )
                     if vet_res.returncode != 0:
@@ -1522,7 +1547,9 @@ async def artifact_lint_and_build(
                                 "lint_passed": False,
                                 "vet_passed": False,
                                 "error": vet_res.stderr.strip(),
+                                "error_class": "vet",
                                 "recommendation": "Corrija los tipos y llamadas en el código Go antes de compilar.",
+                                "healing": healing,
                             },
                             tracker,
                             verbosity=verbosity,
@@ -1553,6 +1580,7 @@ async def artifact_lint_and_build(
                             "lint_passed": True,
                             "vet_passed": True,
                             "lint_warnings": lint_warnings,
+                            "healing": healing,
                             "summary": "Análisis estático completado con éxito (0 errores de go vet).",
                             "source_lines": len(effective_src.splitlines()),
                         },
