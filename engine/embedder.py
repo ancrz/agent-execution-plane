@@ -41,7 +41,7 @@ def _disable_ort_telemetry() -> bool:
 
         onnxruntime.disable_telemetry_events()
         return True
-    except (ImportError, AttributeError, RuntimeError):
+    except ImportError, AttributeError, RuntimeError:
         return False
 
 

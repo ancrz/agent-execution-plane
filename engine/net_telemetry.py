@@ -1087,7 +1087,7 @@ def _nft_tables_summary(ruleset_json: str) -> list[dict[str, Any]]:
 
     try:
         items = json.loads(ruleset_json).get("nftables", [])
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return []
     tables: dict[tuple[str, str], dict[str, Any]] = {}
     for it in items:

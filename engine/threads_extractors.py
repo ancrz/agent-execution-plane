@@ -183,7 +183,8 @@ def _field_plan(cls: type) -> tuple[tuple[str, bool], ...]:
     if plan is None:
         types = getattr(cls, "_field_types", {})
         plan = tuple(
-            (name, getattr(types.get(name, object), "__origin__", None) is list) for name in cls._fields  # type: ignore[attr-defined]
+            (name, getattr(types.get(name, object), "__origin__", None) is list)
+            for name in cls._fields  # type: ignore[attr-defined]
         )
         _FIELD_PLANS[cls] = plan
     return plan

@@ -3918,7 +3918,9 @@ async def aep_ctl(
             elif a == "firewall_status":
                 from engine import net_telemetry as _nt
 
-                res_obj = _nt.firewall_status(privilege_prefix())  # ONT-52 G36: veraz, con sudo -n si el tier lo permite
+                res_obj = _nt.firewall_status(
+                    privilege_prefix()
+                )  # ONT-52 G36: veraz, con sudo -n si el tier lo permite
             elif a == "nftables_inspect":
                 if not shutil.which("nft"):
                     res_obj = {"status": "DEGRADED", "message": "nft binary not found"}
