@@ -1,8 +1,8 @@
-# Context Compaction Guidance: AEP (ONT-55 VERIFIED; publicado en dev)
-Preserve: pipeline mode Short (default, control de costos); ONT-55 VERIFIED en un ciclo, worktree `agent-a4ab16a81ffef35b5`, HEAD `2077426`, base dev `4fe0283`; 2 commits Pragma `f6827ae` (G49 kind artifact|work, WORK_STATES, migración idempotente) y `2077426` (G48 advance sin to_state, kind en la tool, PARAM_ERROR con valid_states).
-ONT-55 numbers: Dokimos 1345 passed (192 s), ruff 298 limpio; migración sobre copia de la DB real (148 MB, 317 filas) idéntica en tablero, todas artifact, idempotente; 8 procesos concurrentes sin duplicate column; GAPS_BASELINE 1.
-Open defects with routing: ninguno bloqueante. Backlog ONT-46: `_TypeIndex.resolve` sin defaults `Callable`; `_EXTERNAL_METHODS` por py_version → Pragma en tanda futura. Fuera de alcance: ARP crudo (AF_PACKET), tabla OUI, mDNS/SSDP.
-Decisions taken by the user / orchestrator: Short; default kind="artifact" por compatibilidad, tarjetas de trabajo con kind="work"; estado inválido pasa de ERROR a PARAM_ERROR (cambio de contrato).
-Next actions: (1) ONT-55 publicado en dev por Hermon (commit `docs(ONT-55)` con los documentos de este G2, ff autorizado por el usuario); (2) revisado el trailer de coautoría de los commits Pragma antes de publicar; (3) backlog ONT-46 si se pide.
-Drop: pytest output, diffs intermedios, logs de subagentes, mediciones de scratchpad, planes superseded (plan_ont54 ejecutado), detalle de T1-T2 ya integrado en el registro.
-Recovery: tras un crash, leer docs/pipeline/feature_20261114_ont55_kanban_work.md y este archivo; luego git status y git log --oneline 4fe0283..HEAD en el worktree.
+# Context Compaction Guidance: AEP (ONT-56 VERIFIED; publicado en dev)
+Preserve: pipeline mode Short (default, control de costos); ONT-56 VERIFIED en un ciclo, publicado en dev por ff desde base `4fc7dc7`; 3 commits Pragma `f083a92` (G50 reclassify, dry-run por defecto), `ba327c5` (G51 next_action propio y NOOP terminal), `42dbb72` (backlog ONT-46, `_EXTERNAL_METHODS` literal 3.14.7).
+ONT-56 numbers: Dokimos 1359 passed (187 s), ruff 303 limpio; reclassify sobre copia de la DB real: 17 candidatos, 17 reclasificadas, 2.a vez NOOP; grafo de hilos idéntico a 4fc7dc7 (7928 aristas, 1 gap).
+Open defects with routing: ninguno bloqueante. Flake de carga `test_cold_extraction` (ONT-53 y ONT-56): vigilar, sin acción. Backlog ONT-46: solo `_TypeIndex.resolve` sin defaults Callable → Pragma en tanda futura.
+Decisions taken by the user / orchestrator: Short; reclassify con dry-run por defecto; work→artifact a BACKLOG con score 0; snapshot de lista externa con SNAPSHOT_PY_VERSION 3.14.7, solo en detail del grafo.
+Next actions: (1) decidir si se aplica reclassify sobre la base real (revertir con task_id, no title_like); (2) backlog ONT-46 `_TypeIndex.resolve` si se pide.
+Drop: pytest output, diffs intermedios, logs de subagentes, mediciones de scratchpad, planes superseded (plan_ont55 ejecutado), detalle de T1-T3 ya integrado en el registro.
+Recovery: tras un crash, leer docs/pipeline/feature_20261114_ont56_reclassify_snapshot.md y este archivo; luego git status y git log --oneline 4fc7dc7..HEAD en el repo principal (`dev`).

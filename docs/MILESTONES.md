@@ -668,3 +668,28 @@ flowchart LR
 | M5 | Commit `docs(ONT-55)` y ff a `dev` | Hermon | publicado en dev |
 
 Decisión del orquestador: `kind` por defecto `artifact` por compatibilidad; las tarjetas de trabajo se crean con `kind="work"`.
+
+## 23. Reclasificación de tarjetas legadas, NOOP propio y lista externa congelada ONT-56 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont56_reclassify_snapshot.md` (anterior: `feature_20261114_ont55_kanban_work.md`). Estado: VERIFIED en un ciclo; publicado en dev. Base `dev` `4fc7dc7`, HEAD publicado `42dbb72` (ff).
+
+```mermaid
+flowchart LR
+    I23["Intent: reclasificación y lista externa (ONT-56)"] --> N1["N1: plan inline Short T1-T3 (G50, G51, ONT-46) ✅"]
+    N1 --> N2["N2: commits f083a92, ba327c5, 42dbb72 ✅"]
+    N2 --> V23["M: verified un ciclo (1359 passed, ruff 303) ✅"]
+    V23 --> R23["M: reclassify sobre copia de la DB real ✅"]
+    R23 --> D23["M: documentado (Graphos G2) ✅"]
+    D23 --> H23["M: commit docs(ONT-56) (Hermon, pendiente)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G50 `kanban_board(action="reclassify")` (`f083a92`) | Pragma | ✅ |
+| M2 | T2 G51 `next_action` propio y NOOP terminal (`ba327c5`) | Pragma | ✅ |
+| M3 | T3 backlog ONT-46 `_EXTERNAL_METHODS` congelado (`42dbb72`) | Pragma | ✅ |
+| M4 | Dokimos VERIFIED (1359 passed; ruff 303; grafo idéntico a 4fc7dc7) | Dokimos | ✅ |
+| M5 | Documentación (feature, README, STATE, COMPACT, rollup, esta sección) | Graphos G2 | ✅ |
+| M6 | Commit `docs(ONT-56)` y ff a `dev` | Hermon | pendiente |
+
+Decisiones del orquestador: `reclassify` con dry-run por defecto; work→artifact a BACKLOG con score 0; snapshot de la lista externa con `SNAPSHOT_PY_VERSION` 3.14.7, solo en `detail` del grafo.
