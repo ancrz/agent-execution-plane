@@ -101,9 +101,12 @@ class KanbanBoard:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN refs TEXT")
             if "kind" not in cols:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'artifact'")
-            for col, decl in (("prev_kind", "TEXT"), ("prev_state", "TEXT"), ("prev_score", "REAL")):
-                if col not in cols:
-                    conn.execute(f"ALTER TABLE kanban_tasks ADD COLUMN {col} {decl}")
+            if "prev_kind" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN prev_kind TEXT")
+            if "prev_state" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN prev_state TEXT")
+            if "prev_score" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN prev_score REAL")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
