@@ -1122,7 +1122,7 @@ flowchart LR
     M1 --> M2["M2: implemented (Pragma, 4 commits d0b436e..44b8d8d) ✅"]
     M2 --> M3["M3: verified (Dokimos, 1235 passed, 0 failed) ✅"]
     M3 --> M4["M4: documented (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, reporte) ✅"]
-    M4 --> M5["M5: committed (Hermon, pendiente)"]
+    M4 --> M5["M5: committed (Hermon, 4f6aaf0)"]
     M3 --> B1["G18 playbook_run(batch) proyección duplicada (contrato) ⛔"]
     M3 --> B2["G21 network.neighbors no aprobado ⛔"]
 ```
@@ -1149,7 +1149,7 @@ flowchart LR
     M1 --> M2["M2: implemented (Pragma, T1-T10, c455b4b..5377589) ✅"]
     M2 --> M3["M3: verified (Dokimos, 1174 passed, 1 fallo de carga conocido) ✅"]
     M3 --> M4["M4: documented (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES) ✅"]
-    M4 --> M5["M5: committed (Hermon, pendiente: commit en este track)"]
+    M4 --> M5["M5: committed (Hermon, 66b84d9)"]
 ```
 
 **ONT-46 precision del extractor de hilos (VERIFIED, publicado en `dev`; 1147 passed, gaps 1):** el tipado del receptor en `obj.method()` precede a la resolucion por nombre unico; las resoluciones sin tipo se registran como aristas `weak` (`Edge.weak`), nunca forman co-dependencia y se exponen en `autoevol(graph)` como `weak_edges`, con `"weak": true` en las filas de `autoevol(thread)`; el esquema del grafo es `threads/2`. Detalle: `docs/sdd/sdd_ont46_extractor_precision.md`.

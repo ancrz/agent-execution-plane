@@ -245,9 +245,9 @@ flowchart LR
 flowchart LR
     I6["Intent: ONT-42c evaluador"] --> E1["E1: juez no falsificable (NON_DISCRIMINATING) ✅"]
     E1 --> E2["E2: specs incrementales (VERIFIED, 772 passed) ✅"]
-    E2 --> E3["E3: supervision OTP sobre SCC pendiente"]
-    E3 --> E4["E4: reconciliacion acotada por tier pendiente"]
-    E4 --> C7["C1-C7 ✅ (VERIFIED 754 passed); E3-E4 backlog pendiente"]
+    E2 --> E3["E3: supervision OTP sobre SCC (096ef95..f8eaa9c) VERIFIED ✅"]
+    E3 --> E4["E4: reconciliacion acotada por tier (a8308f8..00886c3) VERIFIED ✅"]
+    E4 --> C7["C1-C7 ✅ (VERIFIED 754 passed); E3-E4 cerrados en 46cc89e"]
 ```
 
 ## 6. Backlog post-ONT-42, E2 y prueba de instalación en sala limpia (2026-11-07)
@@ -258,9 +258,9 @@ Registro: `docs/pipeline/feature_20261107_104734_e2_backlog_install.md` (anterio
 flowchart LR
     I6["Intent: Backlog post-ONT-42 y E2"] --> B1["Backlog cbe7cde..052cb22: VERIFIED ✅"]
     B1 --> B2["E2 specs incrementales 74d5968, eff04ac: VERIFIED (772 passed) ✅"]
-    B2 --> B3["Sala limpia: INSTALA CON DEGRADACION (7 defectos) ⛔"]
-    B3 --> B4["Correccion de instalacion y repetir sala limpia: pendiente"]
-    B4 --> B5["E3 OTP sobre SCC y E4 reconciliacion por tier: pendiente"]
+    B2 --> B3["Sala limpia: INSTALA CON DEGRADACION (7 defectos), corregida; ronda 3 (81ba56b) INSTALA CON INTEGRIDAD ✅"]
+    B3 --> B4["Correccion de instalacion y repetir sala limpia (81ba56b) ✅"]
+    B4 --> B5["E3 OTP sobre SCC y E4 reconciliacion por tier: cerrados (46cc89e) ✅"]
 ```
 
 | Milestone | Intent | Agente | Estado |
@@ -270,7 +270,7 @@ flowchart LR
 | M3 | Prueba de instalación en sala limpia (Ubuntu 26.04, no root, 6rw-) | Dokimos | ✅ rondas 1-2 degradación controlada; ronda 3 INSTALA CON INTEGRIDAD (sección 7) |
 | M4 | Corrección de instalación (7 defectos, checksums, versiones fijas, `uv.lock`) | Pragma | ✅ `92c9661..f8b0d11` |
 | M5 | Repetir sala limpia tras la corrección | Dokimos | ✅ ronda 3 (`81ba56b`) |
-| M6 | E3 supervisión OTP sobre SCC (E4 reconciliación por tier: pendiente, sección 7) | Pragma / Dokimos | ✅ E3 VERIFIED (`096ef95..f8eaa9c`) |
+| M6 | E3 supervisión OTP sobre SCC (E4 reconciliación por tier: cerrada en 46cc89e, sección 8) | Pragma / Dokimos | ✅ E3 VERIFIED (`096ef95..f8eaa9c`) |
 | M7 | Registro documental de este tramo | Graphos G2 | ✅ (`feature_20261107_104734_e2_backlog_install.md`) |
 
 ## 7. Integridad de instalación (ronda 3) y E3 (2026-11-07)
@@ -443,7 +443,7 @@ flowchart LR
     N2 --> N3["N3: T10 suite de regresion (5377589, Pragma) ✅"]
     N3 --> V14["M: verified (Dokimos, 1174 passed, 1 fallo de carga conocido; gaps 1) ✅"]
     V14 --> D14["M: documentado (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES) ✅"]
-    D14 --> H14["M: commit (Hermon, pendiente: commit en este track)"]
+    D14 --> H14["M: commit (Hermon, 07e2641)"]
     V14 --> R14["Residuo: backlog ONT-48 G10-G23 y decision network.neighbors (G21) ⛔"]
 ```
 
@@ -453,7 +453,7 @@ flowchart LR
 | M2 | Fixes T1–T9 (`c455b4b`, `4f8048a`, `dd0bb31`, `3158370`, `1893ac6`, `c084b29`, `5a90232`, `4185412`, `51a8eca`) y suite T10 (`5377589`) | Pragma | ✅ |
 | M3 | Dokimos VERIFIED: 1174 passed, 1 fallo de carga conocido (pasa aislado), ruff limpio, gaps 1, budgets sin subir | Dokimos | ✅ VERIFIED |
 | M4 | Documentación: feature, SDD, README (badge 1174 y grafo), STATE, COMPACT, MILESTONES, reporte de ronda | Graphos G2 | ✅ |
-| M5 | Commit de la tanda y ff a `dev`; repetir las 8 llamadas en el plano vivo | Hermon | pendiente: commit en este track |
+| M5 | Commit de la tanda y ff a `dev`; repetir las 8 llamadas en el plano vivo | Hermon | ✅ `07e2641` |
 
 Residuo fuera de ONT-47: backlog ONT-48 (G10–G23) y decisión de diseño `network.neighbors` (G21), pendiente del usuario.
 
@@ -494,7 +494,7 @@ flowchart LR
     N1 --> N2["N2: T1-T5 en 4 commits d0b436e..44b8d8d (Pragma) ✅"]
     N2 --> V16["M: verified (Dokimos, 1235 passed, 0 failed; gaps 1) ✅"]
     V16 --> D16["M: documentado (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, reporte) ✅"]
-    D16 --> H16["M: commit (Hermon, pendiente)"]
+    D16 --> H16["M: commit (Hermon, 4f6aaf0)"]
     N1 --> R16["Residuo: G18 playbook_run(batch) proyección duplicada (contrato) ⛔"]
     V16 --> R16b["Residuo: G21 network.neighbors no aprobado ⛔"]
 ```
@@ -505,7 +505,7 @@ flowchart LR
 | M2 | Fixes T1 (G28), T2 y T3 (G29, G30), T4 (G27 `history_drop` y fixture om06), T5 (README) | Pragma | ✅ |
 | M3 | Dokimos VERIFIED: 1235 passed, 0 fallos, ruff limpio (276), gaps 1, budgets sin subir | Dokimos | ✅ VERIFIED |
 | M4 | Documentación: feature, SDD, reporte (sección ONT-49), README (badge 1235 y grafo), STATE, COMPACT, MILESTONES | Graphos G2 | ✅ |
-| M5 | Commit de la tanda y ff a `dev` | Hermon | pendiente |
+| M5 | Commit de la tanda y ff a `dev` | Hermon | ✅ `4f6aaf0` |
 
 Residuo fuera de ONT-49: G18 (decisión de contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario). G27 queda cerrado en detección: `history_drop` no impide la caída de la cola.
 
