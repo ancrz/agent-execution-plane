@@ -21,6 +21,9 @@ from typing import Any
 
 from engine.threads_field import field_sig
 
+# ONT-52 G38: single label for an FD whose target cannot be read (fd-rescuer and process_inspect).
+FD_UNREADABLE_LABEL = "[unreadable]"
+
 
 def _self_resources() -> tuple[int, int]:
     """Return (rss_kb, fd_count) for the current process in <0.1ms."""

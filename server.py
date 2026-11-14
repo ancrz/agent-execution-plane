@@ -82,7 +82,7 @@ from engine.privilege import (
     tactical_playbook,
 )
 from engine.security import get_agent_usage_summary, mask_pueue_output, record_audit_event, verify_audit_chain
-from engine.telemetry import RequestTelemetry, attach_envelope, is_field_error_status
+from engine.telemetry import FD_UNREADABLE_LABEL, RequestTelemetry, attach_envelope, is_field_error_status
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard, ToposVerdict
 
@@ -2313,13 +2313,13 @@ async def process_inspect(
         for entry in sorted_entries:
             fd_num = int(entry) if entry.isdigit() else entry
             if elevated_links is not None and entry in elevated_links:
-                target = elevated_links[entry] or "[closed/unreachable]"
+                target = elevated_links[entry] or FD_UNREADABLE_LABEL
             else:
                 link_path = fd_dir / entry
                 try:
                     target = os.readlink(link_path)
                 except FileNotFoundError, ProcessLookupError, OSError:
-                    target = "[closed/unreachable]"
+                    target = FD_UNREADABLE_LABEL
 
             if target.startswith("socket:"):
                 dtype = "socket"

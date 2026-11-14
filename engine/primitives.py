@@ -22,6 +22,7 @@ from typing import Any
 
 from engine.landlock import get_landlock_status
 from engine.net_telemetry import map_socket_inodes, parse_proc_net_sockets
+from engine.telemetry import FD_UNREADABLE_LABEL
 
 logger = logging.getLogger("aep.primitives")
 
@@ -186,7 +187,7 @@ def _run_fd_rescuer(params: dict[str, Any]) -> dict[str, Any]:
                     target = os.readlink(link_path)
                     fds.append({"fd": int(entry) if entry.isdigit() else entry, "target": target})
                 except OSError, PermissionError:
-                    fds.append({"fd": int(entry) if entry.isdigit() else entry, "target": "<unreadable>"})
+                    fds.append({"fd": int(entry) if entry.isdigit() else entry, "target": FD_UNREADABLE_LABEL})
         except (OSError, PermissionError) as e:
             logger.debug("Failed listing /proc/%d/fd: %s", effective_pid, e)
 

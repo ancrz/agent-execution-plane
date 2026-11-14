@@ -146,3 +146,18 @@ def test_embedder_survives_missing_telemetry_api(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))  # sin disable_telemetry_events
     assert embedder._disable_ort_telemetry() is False
+
+
+# ---------------------------------------------------------------- T3 (G38): one label for unreadable FDs
+
+
+def test_unreadable_fd_label_is_unified():
+    from engine import primitives
+    from engine.telemetry import FD_UNREADABLE_LABEL
+
+    assert FD_UNREADABLE_LABEL == "[unreadable]"
+    assert primitives.FD_UNREADABLE_LABEL is FD_UNREADABLE_LABEL
+    root = Path(server.__file__).resolve().parent
+    for rel in ("server.py", "engine/primitives.py"):
+        src = (root / rel).read_text()
+        assert "<unreadable>" not in src and "[closed/unreachable]" not in src
