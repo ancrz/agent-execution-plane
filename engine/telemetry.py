@@ -213,6 +213,9 @@ def attach_envelope(
             or f"{tracker.tool_name}:{tracker.action} completed with status {status_val}"
         )
 
+    own_next = payload.get("next_action")
+    if next_action is None and isinstance(own_next, str) and own_next.strip():
+        next_action = own_next  # ONT-56/G51: un next_action propio del payload manda siempre
     if next_action is None:
         if status_val.upper() in _NEUTRAL_NEXT_ACTION_STATUSES:
             next_action = "Nothing to do; adjust filters or apply=true."

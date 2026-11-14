@@ -267,6 +267,7 @@ class KanbanBoard:
                             "state": from_state,
                             "from_state": from_state,
                             "message": f"La tarjeta ya está en estado terminal {from_state}.",
+                            "next_action": f"Card already in terminal state {from_state}; nothing to do.",
                         }
                     nxt = (_NEXT_WORK if is_work else _NEXT_ARTIFACT).get(from_state)
                     if nxt is None:
