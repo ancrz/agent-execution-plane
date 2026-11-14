@@ -1697,6 +1697,27 @@ async def artifact_lint_and_build(
     return await anyio.to_thread.run_sync(_run)
 
 
+def _page_output_lists(parsed: dict[str, Any], limit: int, cursor: int) -> tuple[bool, str | None]:
+    """Pagina in-place las listas largas de `parsed` (offset `cursor`, tamaño `limit`).
+
+    Devuelve (truncated, next_cursor). Invariante ONT-48/G11: `truncated=True` implica cursor no nulo."""
+    truncated = False
+    for k, v in list(parsed.items()):
+        if isinstance(v, list) and (len(v) > limit or cursor):
+            parsed[f"total_{k}"] = len(v)
+            parsed[k] = v[cursor : cursor + limit]
+            if len(v) > cursor + limit:
+                truncated = True
+    return truncated, (str(cursor + limit) if truncated else None)
+
+
+def _canary_next_action(kanban_canary: Any) -> str | None:
+    """`next_action` de promoción cuando el canary dejó la tarjeta elegible (ONT-48/G11)."""
+    if isinstance(kanban_canary, dict) and kanban_canary.get("eligible_for_promotion") and kanban_canary.get("task_id"):
+        return f'kanban_board(action="promote", task_id={kanban_canary["task_id"]})'
+    return None
+
+
 @mcp.tool(structured_output=False)
 async def artifact_execute_in_ram(
     name: str | None = None,
@@ -1708,6 +1729,7 @@ async def artifact_execute_in_ram(
     verbosity: str = "summary",
     limit: int = 25,
     agent_id: str = "default",
+    cursor: int = 0,
 ) -> str:
     """
     [CAMINO A / MEMFD EXECUTION] Carga un binario Go del catálogo o de bin/
@@ -1718,6 +1740,7 @@ async def artifact_execute_in_ram(
     - `stdin`: texto suministrado como entrada estándar al proceso efímero (GAP-OM-03).
     - `timeout`: tiempo máximo de ejecución en segundos (default 30s, acotado entre 1 y 120s).
     - `verbosity`: 'summary' (default, trunca colecciones extensas a `limit`) | 'detail'.
+    - `cursor`: offset sobre las colecciones truncadas; si hay más, `cursor` del sobre da el siguiente.
     """
 
     def _run() -> str:
@@ -1910,12 +1933,9 @@ async def artifact_execute_in_ram(
                 logger.debug("Stdout was not json: %s", e)
 
             truncated = False
+            next_cur: str | None = None
             if is_compact and isinstance(stdout_parsed, dict):
-                for k, v in list(stdout_parsed.items()):
-                    if isinstance(v, list) and len(v) > eff_limit:
-                        stdout_parsed[f"total_{k}"] = len(v)
-                        stdout_parsed[k] = v[:eff_limit]
-                        truncated = True
+                truncated, next_cur = _page_output_lists(stdout_parsed, eff_limit, max(0, int(cursor or 0)))
 
             recorded = catalog.record_execution_by_name(
                 resolved_name,
@@ -1962,6 +1982,8 @@ async def artifact_execute_in_ram(
                 tracker,
                 verbosity=verbosity,
                 truncated=truncated,
+                cursor=next_cur,
+                next_action=_canary_next_action(kanban_canary),
                 summary=f"RAM execution of '{resolved_name}' finished with status {status_val} in {latency_ms}ms.",
             )
         except Exception as e:
@@ -4444,6 +4466,7 @@ async def kernel_trace(
     limit: int = 25,
     verbosity: str = "summary",
     agent_id: str = "default",
+    cursor: int = 0,
 ) -> str:
     """
     [SPEC-OM-6 / KERNEL TRACE via eBPF] Observabilidad de kernel a bajo nivel (bpftrace).
@@ -4451,7 +4474,7 @@ async def kernel_trace(
     `mode` (alias `probe`): 'syscall_count' (alias 'syscalls'), 'file_opens' ('opens'),
     'tcp_connect' ('tcp'), 'security_open_denials' ('denials'),
     'security_landlock_audit' ('landlock'), 'security_exec_monitor' ('exec'), 'network_sniff' ('sniff'/'network'), 'security_audit' ('audit'), 'tcp_listeners' ('listeners').
-    Ordena resultados de mayor a menor actividad y trunca a `limit` en modo `summary`.
+    Ordena resultados de mayor a menor actividad y trunca a `limit` en modo `summary`; `cursor` = offset sobre esa lista.
     """
 
     def _run() -> str:
@@ -4540,9 +4563,12 @@ async def kernel_trace(
             total_procs = len(sorted_items)
             total_events = sum(v for _, v in sorted_items)
             truncated = False
-            if is_compact and total_procs > eff_limit:
-                sorted_items = sorted_items[:eff_limit]
-                truncated = True
+            eff_cur = max(0, int(cursor or 0))
+            next_cur: str | None = None
+            if is_compact and (total_procs > eff_limit or eff_cur):
+                truncated = total_procs > eff_cur + eff_limit
+                sorted_items = sorted_items[eff_cur : eff_cur + eff_limit]
+                next_cur = str(eff_cur + eff_limit) if truncated else None
             ordered_counts = dict(sorted_items)
 
             trace_data = {
@@ -4566,6 +4592,7 @@ async def kernel_trace(
                 tracker,
                 verbosity=verbosity,
                 truncated=truncated,
+                cursor=next_cur,
                 summary=f"eBPF {eff_mode} ({clamped_dur}s): {total_events} events across {total_procs} processes.",
             )
         except Exception as e:
