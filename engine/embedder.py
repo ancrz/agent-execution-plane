@@ -14,6 +14,7 @@ Relación con catalog.py y docs_vectorizer.py: dependencia unidireccional (A -> 
 """
 
 import logging
+import os
 import threading
 
 log = logging.getLogger("aep.embedder")
@@ -54,6 +55,10 @@ class LocalEmbedder:
         self._embed_lock = threading.Lock()
         try:
             # Import perezoso: fastembed es pesado y puede no estar instalado.
+            # La variable debe existir ANTES de importar onnxruntime (ONT-53 G42): `disable_telemetry_events()`
+            # por sí sola no impide abrir ~/.cache/Microsoft/DeveloperTools/.onnxruntime/onnxruntime.db.
+            # setdefault respeta un valor explícito del operador.
+            os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
             from fastembed import TextEmbedding
 
             _disable_ort_telemetry()
