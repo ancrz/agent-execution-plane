@@ -373,15 +373,17 @@ class CrashRouter:
     ) -> list[dict[str, Any]]:
         """ONT-54 T1: collapse pending rows (ordered id DESC) of the same crash into one group, last_seen desc.
 
-        Key: (source, executable, coredump_info.file) when a file is known (apport rewrites the same `.crash` with a new
-        mtime => a new row each time), else (source, executable, signal). `occurrences` counts rows; `ids` lists them.
+        Key: (executable, coredump_info.file) when a file is known, whatever the row `source` (apport rewrites the same
+        `.crash` with a new mtime => a new row each time; legacy rows may carry source "coredump"), else
+        (source, executable, signal). `source` = most recent occurrence; `sources` only when they differ.
         """
         groups: dict[tuple[str, str, str], dict[str, Any]] = {}
         for a in alerts:
             info = a.get("coredump_info") if isinstance(a.get("coredump_info"), dict) else {}
             src = a.get("source") or "coredump"
             file_name = info.get("file") if isinstance(info.get("file"), str) else None
-            key = (src, str(a.get("executable") or ""), file_name or f"sig:{a.get('signal')}")
+            exe_key = str(a.get("executable") or "")
+            key = ("file", exe_key, file_name) if file_name else (src, exe_key, f"sig:{a.get('signal')}")
             stamp = (
                 cls._iso_utc(info.get("mtime")) or cls._iso_utc(a.get("event_timestamp")) or a.get("event_timestamp")
             )
@@ -397,18 +399,25 @@ class CrashRouter:
                     "cmdline": a.get("cmdline"),
                     "first_seen": stamp,
                     "last_seen": stamp,
-                    "file_present": (Path(crash_dir) / file_name).exists() if src == "apport" and file_name else None,
+                    "file_present": (Path(crash_dir) / file_name).exists() if file_name else None,
                 }
                 if detail:
                     g["coredump_info"] = a.get("coredump_info")  # rows arrive newest first => most recent occurrence
                 groups[key] = g
             g["occurrences"] += 1
             g["ids"].append(a.get("id"))
+            seen_sources = g.setdefault("_sources", [])
+            if src not in seen_sources:
+                seen_sources.append(src)
             if isinstance(stamp, str):
                 if not isinstance(g["first_seen"], str) or stamp < g["first_seen"]:
                     g["first_seen"] = stamp
                 if not isinstance(g["last_seen"], str) or stamp > g["last_seen"]:
                     g["last_seen"] = stamp
+        for g in groups.values():
+            srcs = g.pop("_sources", [])
+            if len(srcs) > 1:
+                g["sources"] = srcs
         return sorted(groups.values(), key=lambda g: str(g.get("last_seen") or ""), reverse=True)
 
     def check(

@@ -88,6 +88,27 @@ def test_resolve_after_report_resolves_all_rows(router: CrashRouter, tmp_path: P
     assert router.check(crash_dir=d)["pending_count"] == 0
 
 
+def test_same_file_across_sources_is_one_group(router: CrashRouter, tmp_path: Path) -> None:
+    d = tmp_path / "crash"
+    d.mkdir()
+    (d / "x.crash").write_text("x", encoding="utf-8")
+    _insert(router, "legacy:1", "/opt/x", {"file": "x.crash", "mtime": 1_700_000_000}, source="coredump")
+    _insert(router, "apport:x.crash:2", "/opt/x", {"file": "x.crash", "mtime": 1_700_000_100}, source="apport")
+    res = router.check(crash_dir=d)
+    assert res["pending_groups"] == 1
+    grp = res["alerts"][0]
+    assert grp["occurrences"] == 2 and grp["source"] == "apport" and grp["sources"] == ["apport", "coredump"]
+    assert grp["file_present"] is True
+
+
+def test_coredump_source_row_with_missing_file_is_flagged(router: CrashRouter, tmp_path: Path) -> None:
+    d = tmp_path / "crash"
+    d.mkdir()
+    _insert(router, "legacy:2", "/usr/bin/gone", {"file": "gone.crash", "mtime": 1_700_000_000}, source="coredump")
+    grp = router.check(crash_dir=d)["alerts"][0]
+    assert grp["file_present"] is False and "sources" not in grp
+
+
 def test_tool_next_action_and_hint(router: CrashRouter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     d = tmp_path / "crash"
     _populate(router, d)
