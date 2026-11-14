@@ -615,10 +615,7 @@ class KanbanBoard:
         if apply:
             out["archived"] = len(candidates)
         else:
-            out["hint"] = (
-                "Revisa candidatos; repite con apply=True para despejar "
-                "(reversible vía kanban_board(action='unarchive', task_id=...))."
-            )
+            out["hint"] = "Reversible: kanban_board(action='unarchive', task_id=...)."
         return out
 
     def _archive_one(self, task_id: int, ignored_states: list[str] | None = None) -> dict[str, Any]:
@@ -761,8 +758,6 @@ class KanbanBoard:
                         f"task_ids in batches of {_REVERT_HINT_MAX_IDS}, or by title_like with care (it also "
                         f"matches native '{back}' cards)."
                     )
-        else:
-            out["hint"] = "Revisa candidatos; repite con apply=True para reclasificar."
         return out
 
     def unarchive(self, task_id: int) -> dict[str, Any]:
