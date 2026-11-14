@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1288_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1304_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1101,6 +1101,8 @@ flowchart LR
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
+
+**ONT-53 telemetría de onnxruntime, sinónimos EN+ES y extracción con recorrido AST único (VERIFIED tras un ciclo de corrección de rendimiento; publicado en dev; 1304 passed, gaps 1):** el embedder fija `ORT_DISABLE_TELEMETRY=1` antes de importar onnxruntime sin pisar un valor explícito, de modo que el proceso ya no abre `onnxruntime.db` (G42); `discover` usa una única tabla de sinónimos de acciones en `engine.privilege` para EN y ES, así que "puertos abiertos escucha" enruta a `listeners` (G41); la extracción de hilos reutiliza un índice de nodos por análisis: en estado estable tarda 1,46–1,49 s frente a 1,67–1,69 s, y solo la primera ejecución de un proceso baja de 1,3 s (G40, cierre parcial).
 
 **ONT-52 ronda 6 de gaps: firewall veraz, embedder, etiquetas, catálogo, routing y margen de extracción (VERIFIED tras un ciclo de corrección de forma; publicado en dev; 1288 passed, gaps 1):** `aep_ctl(domain="security", action="firewall_status")` consulta ufw y nftables con `sudo -n` cuando el tier lo permite; sin privilegio devuelve `DEGRADED` con `active: null` y `reason` en lugar de `active: false`, y lista `nft_tables` (G36); el embedder desactiva la telemetría de onnxruntime antes de cargar el modelo (G37; la escritura de `onnxruntime.db` queda como G42. Causa medida por el orquestador: requiere `ORT_DISABLE_TELEMETRY=1` en el entorno antes de importar onnxruntime (planificado en ONT-53 T1).); la etiqueta de FD ilegible es `[unreadable]` (G38); `artifact_catalog(action="browse")` incluye los builtins de `default_primitives` con `score_reason` (G39); "list open ports" enruta a `listeners`; la extracción usa `_fast_dump`, equivalente a `ast.dump` (mediana 1,73 s frente al objetivo de 1,3 s, pendiente como G40). Detalle: `docs/pipeline/feature_20261114_ont52_round6.md`.
 

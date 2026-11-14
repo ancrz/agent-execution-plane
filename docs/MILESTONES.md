@@ -588,3 +588,30 @@ flowchart LR
 | M8 | G42: onnxruntime sigue escribiendo `onnxruntime.db` pese a `disable_telemetry_events()`. Causa medida por el orquestador: requiere `ORT_DISABLE_TELEMETRY=1` en el entorno antes de importar onnxruntime (planificado en ONT-53 T1). | Pragma (siguiente tanda) | planificado |
 
 Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): T7 descartada (el test de extracción mide correctamente la primera extracción); `firewall_status` devuelve `DEGRADED` y `active: null` sin privilegio, nunca `false`; el hash de nodos cambia de implementación con semántica equivalente (igual `root_hash`), sin bump de `GRAPH_SCHEMA_VERSION` (supuesto a confirmar por Hermon en el diff).
+
+## 20. Telemetría ORT efectiva, sinónimos EN+ES únicos y extracción con recorrido único ONT-53 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont53_ort_synonyms_walk.md` (anterior: `feature_20261114_ont52_round6.md`). Estado: VERIFIED tras un ciclo de corrección de rendimiento; publicado en dev. Base `dev` `cc10757`, HEAD del worktree `1a2d6d4`.
+
+```mermaid
+flowchart LR
+    I20["Intent: telemetría, sinónimos y extracción (ONT-53)"] --> N1["N1: plan inline Short T1-T3 (G40, G41, G42) ✅"]
+    N1 --> N2["N2: commits Pragma 1630453, 140d885, 305851e, 1a2d6d4 ✅"]
+    N2 --> V1["M: verified ciclo 1, LOGIC_ERROR reclasificado (memos en nodos, 1,92 s / 394 MB) ✅"]
+    V1 --> V2["M: verified ciclo 2, VERIFIED (1304 passed, estable 1,46-1,49 s) ✅"]
+    V2 --> D20["M: documentado (Graphos G2) ✅"]
+    D20 --> H20["M: commit (Hermon, publicado en dev)"]
+    V2 --> P20["G40 cierre parcial (1,3 s solo en frío); G41 ✅; G42 ✅"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G42 `ORT_DISABLE_TELEMETRY` por `setdefault` (`1630453`); T2 G41 tabla única `ACTION_SYNONYMS` EN+ES (`140d885`) | Pragma | ✅ |
+| M2 | T3 G40 índice por tipo memoizado (`305851e`) | Pragma | ✅ registrado como LOGIC_ERROR |
+| M3 | Ciclo 1 Dokimos VERIFIED con observación; reclasificado LOGIC_ERROR por regla 12 (memos en nodos) | Dokimos / orquestador | ✅ |
+| M4 | Fix: caché `ContextVar` con ámbito de análisis, sin memos ni `gc.collect` (`1a2d6d4`); ciclo 2 VERIFIED (1304 passed, ruff 290) | Pragma / Dokimos | ✅ VERIFIED |
+| M5 | Documentación: feature (dos ciclos y tabla de ejecuciones), README (badge 1304, párrafo), STATE, COMPACT, rollup (ONT-43 a ONT-53) y esta sección | Graphos G2 | ✅ |
+| M6 | Commit de la tanda `(ONT-53)` y ff a `dev` (solo bajo autorización) | Hermon | publicado en dev |
+| M7 | G40 coste de estado estable (sin objetivo fijado; 1,3 s solo en frío) | Pragma (futura tanda) | backlog |
+
+Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): ciclo 1 reclasificado como LOGIC_ERROR por regla 12; G40 aceptado como cierre parcial; `ORT_DISABLE_TELEMETRY` se fija con `setdefault` antes del import y respeta un valor explícito; la llamada `disable_telemetry_events()` de ONT-52 se conserva.

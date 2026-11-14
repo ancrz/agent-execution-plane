@@ -3,8 +3,42 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md`](feature_20261030_110500_ont21_spec_om7_ipc_socket_pool_and_code_batch_mode.md)
+- **Current Active Document**: [`feature_20261114_ont53_ort_synonyms_walk.md`](feature_20261114_ont53_ort_synonyms_walk.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
+
+---
+
+## Rollup de cadena: ONT-43 a ONT-53 (2026-11-14)
+
+Cadena: `feature_20261113_004026_mcp_coverage_reinforcement.md` → `080406_ont45_topos_residue` → `ont46_extractor_precision` → `ont47_dogfood_frictions` → `ont48_dogfood_gaps` (quinto documento, rollup anterior) → `ont49_dogfood_round3` → `ont50_neighbors_projection` → `ont51_discover_supervise` → `ont52_round6` (noveno) → `ont53_ort_synonyms_walk` (**décimo**, dispara este rollup).
+
+Este rollup consolida ONT-43 a ONT-52 según la sección anterior de este mismo archivo, que se conserva sin cambios. Lo nuevo es ONT-53:
+
+| Documento | Intent | Commits (rango) | Veredicto | Suite | Gaps al cierre |
+|-----------|--------|-----------------|-----------|-------|----------------|
+| ONT-46 | precisión del extractor de hilos, aristas `weak` | `6b05f7b`..`2bd64f9` | VERIFIED, publicado en dev | 1147 | sin gap G |
+| ONT-47 | nueve fricciones de dogfooding (T1-T9) | `c455b4b`..`c2f5152` | VERIFIED, publicado en dev | 1174 (1 fallo de carga conocido) | sin gap G |
+| ONT-48 | trece gaps de la ronda 2 (G10–G26) | `05b9511`..`66b84d9` | VERIFIED, publicado en dev | 1230 (0 fallos) | G10–G26 cerrados |
+| ONT-49 | cuatro fricciones de la ronda 3 (G27–G30) | `d0b436e`..`9b12da5` | VERIFIED | 1235 (0 fallos) | G27 cerrado solo en detección |
+| ONT-50 | descubrimiento LAN (G21), proyección única (G18), G31, G32 | `36c36dc`..`dd0ca29` | VERIFIED, publicado en dev | 1266 (flake de carga conocido) | G18, G21, G31, G32 cerrados |
+| ONT-51 | `discover` por afinidad (G33), supervisión sin aristas `weak`, hitos (G34) | `a15125c`..`4bf0fea` | VERIFIED, publicado en dev | 1271 (0 fallos) | G33, G34 cerrados |
+| ONT-52 | ronda 6: G36–G39, routing de open ports, `_fast_dump` (T6 parcial) | `19494cc`..`cc10757` | VERIFIED tras LOGIC_ERROR cosmético (`eb63fc5`), publicado en dev | 1288 (+17) | G36–G39 cerrados; G40, G41, G42 abiertos |
+| ONT-53 | G42 ORT por entorno (cerrado), G41 sinónimos EN+ES (cerrado), G40 recorrido AST único (cierre parcial) | `1630453`..`1a2d6d4` | VERIFIED tras reclasificar ciclo 1 como LOGIC_ERROR; publicado en dev | 1304 (0 fallos; ruff 290) | G41, G42 cerrados; G40 parcial (1,46–1,49 s estable; 1,3 s solo en frío) |
+
+Gaps abiertos al cierre de ONT-53: G40 (cierre parcial, coste de estado estable). Backlog ONT-46 sin gap formal: defaults `Callable` en `_TypeIndex.resolve`; `_EXTERNAL_METHODS` por versión de Python.
+
+Invariantes que se consolidan en ONT-53:
+1. Ningún recorrido ni caché se guarda en objetos del grafo (`node.__dict__`); el caché de extracción tiene ámbito de análisis y se descarta al salir de `build_graph`. No se usa `gc.collect` como parche.
+2. Equivalencia exacta de resultado: `root_hash`, nodos, aristas y gaps idénticos al base (verificado de nuevo por Graphos en solo lectura).
+3. La telemetría de onnxruntime se desactiva por entorno antes del import, sin pisar un valor explícito del operador.
+4. Una sola tabla de sinónimos de acciones (`engine.privilege.ACTION_SYNONYMS`) para EN y ES.
+5. Modo Short por defecto; commit y push autorizados por el usuario, publicado en dev.
+
+Pendientes que cruzan documentos: G40 (coste de estado estable, cierre parcial), backlog ONT-46 (defaults `Callable` en adaptadores; `_EXTERNAL_METHODS` por versión de Python), G27 (cerrado solo en detección), limitación VPN de ONT-50 en este host.
+
+Documento activo en la cadena: [`feature_20261114_ont53_ort_synonyms_walk.md`](feature_20261114_ont53_ort_synonyms_walk.md) (décimo de la cadena; este rollup lo consolida).
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont53_ort_synonyms_walk.md` (0 de 5 al cierre de este registro).
 
 ---
 
