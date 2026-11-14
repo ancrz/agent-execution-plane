@@ -1,9 +1,10 @@
-# Context Compaction Guidance: AEP (ONT-60 VERIFIED tras dos ciclos; docs publicados en dev)
-Preserve: pipeline mode Short (control de costos); ONT-60 base `dev` `3a89423`, HEAD `e211140` en worktree `agent-a0368bc8d404d0b6c`; commits `cf2d8fb` (T3 G60), `8da28ad` (T1 G58), `b9b7f43` (T2 G59), `5f35ed7` (T5 G62), `5dad90d` (T4 G61), `e211140` (corrección de seguridad del ciclo 2).
-ONT-60 numbers: Dokimos VERIFIED 1498 passed, 0 failed, 205 s; ruff 324 limpio; ciclo 1 DEFECTIVE LOGIC_ERROR de seguridad en T2 (raíces que contienen rutas vetadas), corregido con raíces ancestras de rutas vetadas, `auto_mounts_skipped`, nombres validados y tope 64.
-Decisions taken by user/orchestrator: publicación solo en `dev` (main no); trailers Sonnet 5.5 de los commits de Pragma conservados; G67 se atiende en ONT-61 T0, no en ONT-60.
-Open items with routing: G67 alta (`import server` migra la DB real; aislar con `AEP_DATA_HOME`) → ONT-61 T0; G63 flaky `test_criterion_6_zero_fd_leak`; G64 sandbox sin `/etc/alternatives`; G65 bloque `go` en `discover`; G66 `IN (?,...)` por `json_each`. Operativo: `setup.sh --update` pendiente de decisión del usuario (`go.channel` null).
-Hecho operativo: la salida de `output_ref` vive en `<pool>/sandbox_out/` y la limpia el reaper de slots; expirada devuelve `PARAM_ERROR` (re-ejecutar).
-Next actions: (1) commit `docs(ONT-60)` publicado en `dev` (completado); (2) ONT-61 T0 cuando el usuario lo pida; (3) decidir `setup.sh --update` en el host.
-Drop: pytest output, diffs intermedios, logs de subagentes, plan_ont60 ya ejecutado, detalle de commits ya en el registro.
-Recovery: tras un crash, leer `docs/pipeline/feature_20261114_ont60_sandbox_packages.md` y este archivo; luego `git status` y `git log --oneline 3a89423..HEAD` en el worktree.
+# Context Compaction Guidance: AEP (ONT-61 VERIFIED tras dos ciclos; documentación publicada en dev por Hermon)
+Preserve: pipeline mode Short (control de costos); ONT-61 base `dev` `8d271f4`, HEAD `1120056` en worktree `agent-acf26c30de3644631` (rama `worktree-agent-acf26c30de3644631`).
+Commits: `a369d22` (T0 G67 AEP_DATA_HOME), `ff28e2f` (T4 G66 json_each), `b527e77` (T3 G65 go en discover), `448307b` (T2 G64 sandbox /etc), `6f57a52` (T1 G63 FDs en subproceso), `e73d7d8` (aep-sync desechable), `1120056` (ciclo 2).
+ONT-61 numbers: ciclo 1 DEFECTIVE LOGIC_ERROR en tests (om11, om12, om13 dependían de la DB real); ciclo 2 VERIFIED 1510 passed, 0 failed; DB real md5 205d8013… intacta.
+Decisions taken by user/orchestrator: "Fix them." (G63–G66); G67 hallado en ONT-60 se atiende en ONT-61; modo Short; commits y push autorizados por el usuario; publicado en dev (modo Short).
+Open items with routing: aep_front.py:63 BACKEND_LOG_DIR fuera de AEP_DATA_HOME (menor, front estable, solo logs); `setup.sh --update` pendiente de decisión del usuario.
+Lesson: los tests siembran sus datos en un AEP_DATA_HOME temporal; nunca leen la DB real.
+Next actions: (1) completado: commit de documentación ONT-61 publicado en dev por Hermon; (2) decidir BACKEND_LOG_DIR; (3) decidir `setup.sh --update` en el host.
+Drop: pytest output, diffs intermedios, logs de subagentes, plan_ont61 ya ejecutado, detalle de commits ya en el registro.
+Recovery: leer `docs/pipeline/feature_20261114_ont61_db_isolation.md` y este archivo; luego `git status` y `git log --oneline 8d271f4..HEAD` en el worktree.

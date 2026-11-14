@@ -808,3 +808,33 @@ flowchart LR
 | M7 | Documentación: feature ONT-60, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
 | M8 | Commit `docs(ONT-60)` solo en `dev` | Hermon | publicado en dev |
 | M9 | G67 aislamiento de la DB real (ONT-61 T0) | Pragma | abierto |
+
+
+## 28. Aislamiento de la DB real y fricciones G63–G66 ONT-61 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont61_db_isolation.md` (anterior: `feature_20261114_ont60_sandbox_packages.md`). Estado: VERIFIED tras dos ciclos Pragma→Dokimos (ciclo 1 DEFECTIVE LOGIC_ERROR en tests: om11, om12 y om13 dependían de la DB real; ciclo 2 VERIFIED, 1510 passed, 0 failed). Commits `a369d22`, `ff28e2f`, `b527e77`, `448307b`, `6f57a52`, `e73d7d8`, `1120056`. Cierra M9 de la sección 27.
+
+```mermaid
+flowchart LR
+    I28["Intent: aislamiento de la DB real y G63-G66 (ONT-61)"] --> N1["N1: plan inline Short (orquestador) ✅"]
+    N1 --> P1["P1: Pragma T0 a T4 y aep-sync, ciclo 1 ✅"]
+    P1 --> D1["D1: Dokimos DEFECTIVE LOGIC_ERROR en tests (corregido) ✅"]
+    D1 --> P2["P2: Pragma ciclo 2, 1120056 ✅"]
+    P2 --> V28["V: Dokimos VERIFIED 1510 passed ✅"]
+    V28 --> G28["G: Graphos G2 documentado ✅"]
+    G28 --> H28["H: commit de documentación publicado en dev (Hermon) ✅"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T0 G67 `AEP_DATA_HOME` único y conftest temporal (`a369d22`) | Pragma | ✅ |
+| M2 | T1 G63 medición de FDs en subproceso limpio, causa documentada (`6f57a52`) | Pragma | ✅ |
+| M3 | T2 G64 `/etc/alternatives`, `passwd` y `group` en solo lectura (`448307b`) | Pragma | ✅ |
+| M4 | T3 G65 bloque `go` compacto en `discover` (`b527e77`) | Pragma | ✅ |
+| M5 | T4 G66 `reclassify` con `json_each` (`ff28e2f`) | Pragma | ✅ |
+| M6 | aep-sync con `AEP_DATA_HOME` desechable (`e73d7d8`) y corrección de tests y `setup.sh` (`1120056`) | Pragma | ✅ |
+| M7 | Dokimos VERIFIED (1510 passed, DB real intacta) | Dokimos | ✅ |
+| M8 | Documentación: feature ONT-61, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
+| M9 | Commit de documentación | Hermon | publicado en dev |
+
+Lección: los tests no deben depender de datos de la DB real; el aislamiento de T0 lo hizo visible. Abierto menor: `aep_front.py:63` `BACKEND_LOG_DIR` fuera de `AEP_DATA_HOME`.

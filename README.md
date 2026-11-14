@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1498_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1510_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1102,6 +1102,25 @@ flowchart LR
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
 
+**ONT-61 aislamiento de la DB real y fricciones G63–G66 (VERIFIED tras dos ciclos; 1510 passed, 0 failed):** `AEP_DATA_HOME` es la única fuente del directorio de datos y la suite lo fija a un directorio temporal antes de importar `server`, así que ningún test migra la base real del usuario (G67). El ciclo 1 destapó que tres tests de `om7` dependían de datos de esa base; ahora siembran sus propios datos. Además: la medición de FDs del test C6 corre en un subproceso limpio, el sandbox monta `/etc/alternatives`, `passwd` y `group` en solo lectura (nunca `shadow`, `sudoers` ni `ssh`), `discover` incluye un bloque `go` compacto y `reclassify` usa `json_each` con un único parámetro.
+
+```mermaid
+flowchart LR
+    I61["Intent: aislamiento de la DB real y fricciones G63-G66 (ONT-61)"] --> M1["M1: T0 AEP_DATA_HOME y conftest (G67) ✅"]
+    I61 --> M2["M2: T1 medición de FDs en subproceso limpio (G63) ✅"]
+    I61 --> M3["M3: T2 sandbox con /etc/alternatives, passwd y group (G64) ✅"]
+    I61 --> M4["M4: T3 bloque go en discover (G65) ✅"]
+    I61 --> M5["M5: T4 reclassify con json_each (G66) ✅"]
+    M1 --> V61["M6: verified (Dokimos VERIFIED tras dos ciclos, 1510 passed) ✅"]
+    M2 --> V61
+    M3 --> V61
+    M4 --> V61
+    M5 --> V61
+    V61 --> D61["M7: documented (Graphos G2) ✅"]
+    D61 --> H61["M8: commit de documentación publicado en dev (Hermon) ✅"]
+    V61 -. "front logs fuera de AEP_DATA_HOME" .-> N61["M9: aep_front BACKEND_LOG_DIR (abierto, no bloqueante)"]
+```
+
 **ONT-60 fricciones de sandbox y paquetes halladas con AEP (VERIFIED tras dos ciclos; 1498 passed, 0 failed, ruff limpio):** `sandbox_run` ya no trunca sin cursor: la salida completa queda en el pool y se pagina con `output_ref` + `cursor` sin re-ejecutar (G58). Los toolchains enlazados fuera del jail se montan en solo lectura (`auto_mounts`) con la blacklist aplicada a cada raíz; el ciclo 1 halló que una raíz podía contener una ruta vetada y se corrigió en el ciclo 2 (G59). `package check` cae a PATH si dpkg no lo ve (G60). `lint` usa el modo módulo con healing informativo (G61). `stats_history` conserva las últimas 5 generaciones (G62). Abierto: G67, el `import server` migra la DB real (ONT-61 T0). Detalle: `docs/pipeline/feature_20261114_ont60_sandbox_packages.md`.
 
 ```mermaid
@@ -1336,6 +1355,10 @@ flowchart LR
     B3 --> B4["Setup sin red: falla cerrado ✅"]
     B4 --> B5["Pendiente: LKG, ruff format, texto de field_discrepancy ⏳"]
 ```
+
+### Directorio de datos (`AEP_DATA_HOME`)
+
+`AEP_DATA_HOME` fija el directorio de datos de AEP. Por defecto es `~/.local/share/agent-os` (valor de producción, sin cambio de comportamiento); si está vacía o en blanco, se usa el valor por defecto. `engine/paths.data_home()` es la fuente única para los módulos de catálogo, kanban, backups, threads, playbook, toolchain de Go, vectorizador de docs y crash router; `aep_lkg` y `scripts/setup.sh` leen la misma variable. La suite de pytest (`tests/conftest.py`) la fija a un directorio temporal de sesión antes de importar `server`, de modo que ningún test ni colección toca la base de datos real; un test centinela comprueba que `import server` crea `artifacts.db` solo bajo `AEP_DATA_HOME`.
 
 ## 11. Shell-Agnostic Environment
 

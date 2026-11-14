@@ -401,6 +401,6 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 4. Ningún tier hace commit, merge o push desde Graphos; `main` no se toca en ONT-60.
 5. Modo Short por defecto; commit y push user-gated.
 
-**Documento activo:** [`feature_20261114_ont60_sandbox_packages.md`](feature_20261114_ont60_sandbox_packages.md)
+**Documento activo:** [`feature_20261114_ont61_db_isolation.md`](feature_20261114_ont61_db_isolation.md)
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (0 de 5).
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (1 de 5 tras ONT-61).
