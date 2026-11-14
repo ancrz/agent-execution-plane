@@ -214,7 +214,7 @@ TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 # against the use_case. Kept small on purpose: extend it only for actions that appear in `_CAP_TACTICAL`.
 _ACTION_SYNONYMS: dict[str, tuple[str, ...]] = {
     "neighbors": ("hosts", "lan", "neighbor", "devices", "arp", "subnet", "discovery"),
-    "listeners": ("ports", "listening", "sockets", "open"),
+    "listeners": ("ports", "listening", "sockets", "open", "puertos", "escucha", "abiertos"),
     "probe": ("port", "scan", "reachable"),
     "routes": ("route", "gateway"),
     "interfaces": ("nic", "interface"),

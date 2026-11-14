@@ -324,7 +324,7 @@ _CAP_KEYWORDS = {
     "semantic_memory": "memory search recall catalog query reindex prune index vector embeddings reuse find store sqlite vec memoria buscar recordar catalogo consultar indice podar sanar reutilizar guardar",
     "async_dispatch": "async background queue long job pueue dispatch inspect status log test suite ruff pytest ci lint verify cola asincrono tarea larga despachar inspeccionar estado segundo plano",
     "process_introspection": "process inspect fd descriptor proc pid introspection open files socket pipes leak rss memory telemetry resource footprint proceso descriptor introspeccion archivos abiertos fugas",
-    "system_inspect": "network storage packages inspect read system status listeners mounts disks neighbors hosts lan vecinos schema aep_ctl control plane contract red almacenamiento paquetes inspeccionar sistema estado esquema",
+    "system_inspect": "network storage packages inspect read system status listeners mounts disks neighbors hosts lan vecinos schema aep_ctl control plane contract red almacenamiento paquetes inspeccionar sistema estado esquema list open ports listening ports port scan sockets connections puertos abiertos escucha",
     "service_control": "service control start stop restart systemd daemon unit servicio controlar arrancar detener reiniciar",
     "crash_forensics": "crash core dump forensic coredump diagnose fault alerts router ticket new proactive journalctl systemd errors crasheo volcado forense diagnosticar fallo alertas enrutador ticket nuevo proactivo",
     "kernel_observability": "kernel trace ebpf bpf syscall observe probe openat execve landlock denials trazar sondear llamadas sistema",

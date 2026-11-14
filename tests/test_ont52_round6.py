@@ -197,3 +197,14 @@ def test_score_reason_for_unscored_artifact_with_history(tmp_path):
 def _ctl_tool(**kw: Any) -> dict[str, Any]:
     kw.setdefault("verbosity", "summary")
     return json.loads(asyncio.run(server.artifact_catalog(**kw)))
+
+
+# ---------------------------------------------------------------- T5: routing of "open ports"
+
+
+@pytest.mark.parametrize("use_case", ["list open ports", "puertos abiertos escucha"])
+def test_discover_open_ports_routes_to_listeners(use_case):
+    res = json.loads(asyncio.run(server.discover(use_case=use_case, verbosity="summary")))
+    assert res["confidence"] == "HIGH"
+    assert res["suggested_capability"][0]["capability"] == "system_inspect"
+    assert 'action="listeners"' in res["recommended_next_call"]
