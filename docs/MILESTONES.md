@@ -536,3 +536,27 @@ flowchart LR
 Decisiones delegadas por el usuario (2026-11-14), tomadas por el orquestador: `neighbors` como acción de `aep_ctl`; barrido solo con tier >= 6rw-; prefijos <= /22; sondas <= 16; proyección única en compactos; `NOOP`/`DRY_RUN`/`SKIPPED` como INFO; pueue terse plegado; ARP crudo, OUI y mDNS/SSDP fuera de alcance.
 
 Desviación del plan decidida (barrido primario TCP SYN, commit `d0433e6`): Decisión del orquestador (fix spec 2026-11-14): el host devuelve EPERM a todo UDP saliente nuevo hacia la LAN (netfilter), mientras un SYN TCP no bloqueante sí sale; por eso TCP SYN es el método primario y UDP/9 el fallback. Residuo: limitación del host con VPN kill-switch; G27 sigue cerrado solo en detección.
+
+## 18. Discover por afinidad, supervisión sin aristas débiles y docs históricos ONT-51 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont51_discover_supervise.md` (anterior: `feature_20261114_ont50_neighbors_projection.md`). Estado: VERIFIED y publicado en dev, HEAD `02ce4d4`, base `dev` `dd0ca29`.
+
+```mermaid
+flowchart LR
+    I18["Intent: discover por afinidad, supervisión sin aristas débiles y docs históricos (ONT-51)"] --> N1["N1: plan inline Short T1-T3 (G33, ONT-46, G34) ✅"]
+    N1 --> N2["N2: 3 commits a15125c, f3ab6bd, 02ce4d4 (Pragma) ✅"]
+    N2 --> V18["M: verified (Dokimos, 1271 passed, gaps 1, R idéntico) ✅"]
+    V18 --> D18["M: documentado (Graphos G2) ✅"]
+    D18 --> H18["M: commit (Hermon, publicado en dev)"]
+    V18 --> X18["Extracción en frío: 3,5 s de fase call aclarados (margen en ONT-52 T6) ✅"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G33 `discover` por afinidad (`a15125c`), T2 backlog ONT-46 `file_units` sin `weak` (`f3ab6bd`), T3 G34 docs históricos (`02ce4d4`) | Pragma | ✅ |
+| M2 | Dokimos VERIFIED: 1271 passed (+5), ruff 284, budgets sin diff, GAPS_BASELINE 1, R idéntico | Dokimos | ✅ VERIFIED |
+| M3 | Documentación: feature, README (badge 1271), STATE, COMPACT, rollup, MILESTONES §18 | Graphos G2 | ✅ |
+| M4 | Commit de la tanda y ff a `dev` | Hermon | publicado en dev |
+| M5 | ONT-52: G36 a G39, routing "list open ports", perfil y test de extracción en frío | Pragma (siguiente tanda) | planificado |
+
+Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): puntuación de afinidad por solapamiento con tabla de sinónimos; empate o cero conserva `canonical_calls[0]`; `file_units` sin aristas `weak`, dependientes con `weak` conservados. Aclarado por el orquestador: la aserción mide solo la primera extracción (< 2.0 s); los 3,5 s de fase call incluyen la segunda extracción de estabilidad de R. El margen se aborda en ONT-52 T6 (ast.dump ~21 % del tiempo).

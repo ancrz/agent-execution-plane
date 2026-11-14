@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1266_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1271_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1100,6 +1100,8 @@ flowchart LR
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
+
+**ONT-51 discover por afinidad, supervisión sin aristas débiles y docs históricos (VERIFIED, publicado en dev; 1271 passed, gaps 1):** `discover` recomienda la canonical call con mayor solapamiento con el `use_case` (p. ej. `find which hosts are on my LAN` → `network neighbors`, G33); `file_units` de supervisión ya no fusiona archivos por aristas `weak` (backlog ONT-46); los hitos ya publicados dejan de figurar como pendientes (G34). Detalle: `docs/pipeline/feature_20261114_ont51_discover_supervise.md`.
 
 **ONT-50 descubrimiento de vecinos LAN, proyección única y fricciones ronda 4 (VERIFIED, publicado en dev; 1266 passed, flake de carga conocido en `test_cold_extraction`, gaps 1):** `aep_ctl(domain="network", action="neighbors")` lista los vecinos de la LAN: barrido por TCP SYN no bloqueante (fallback UDP/9) de los prefijos `scope link` de /22 o más estrechos, más lectura pasiva de `/proc/net/arp`. El barrido solo corre con tier >= 6rw-; en 5r-x y 4r-- la acción es pasiva. `playbook_run` compacto (`summary`/`brief`/`terse`) proyecta una vez en el nivel superior sin `output` duplicado; `detail` conserva ambos. `NOOP`, `DRY_RUN` y `SKIPPED` son severidad INFO, y `async_job_dispatch(status, terse)` pliega las filas. Limitación medida en este host: un kill-switch de VPN bloquea el egress a la LAN; el barrido responde con `egress_blocked_suspected: true` y solo aparece el gateway. Fuera de alcance: ARP crudo (requiere privilegios), tabla OUI y escucha mDNS/SSDP. Detalle: `docs/pipeline/feature_20261114_ont50_neighbors_projection.md` y `docs/sdd/sdd_ont50_neighbors_projection.md`.
 
