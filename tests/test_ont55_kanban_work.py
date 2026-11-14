@@ -141,3 +141,38 @@ def test_archive_sweep_skips_done_work_unless_explicit(board: KanbanBoard) -> No
     assert explicit["status"] == "ARCHIVED" and explicit["archived"] == 1
     board.unarchive(wid)
     assert board.archive(task_id=wid)["status"] == "ARCHIVED"
+
+
+def test_server_advance_without_to_state_work_flow(board: KanbanBoard) -> None:
+    created = _call(action="create", title="ONT-77 tarea", kind="work")
+    tid = created["task_id"]
+    assert created["kind"] == "work" and created["next_action"] == f'kanban_board(action="advance", task_id={tid})'
+    r1 = _call(action="advance", task_id=tid)
+    assert r1["status"] == "OK" and r1["state"] == "IN_PROGRESS"
+    assert r1["next_action"] == f'kanban_board(action="advance", task_id={tid})'
+    r2 = _call(action="advance", task_id=tid)
+    assert r2["state"] == "DONE"
+    r3 = _call(action="advance", task_id=tid)
+    assert r3["status"] == "NOOP"
+
+
+def test_server_validation_paths(board: KanbanBoard) -> None:
+    assert _call(action="advance")["status"] == "PARAM_ERROR"
+    tid = _call(action="create", title="art")["task_id"]
+    assert _call(action="advance", task_id=tid)["state"] == "SYNTHESIZED"
+    bad = _call(action="advance", task_id=tid, to_state="DONE")
+    assert bad["status"] == "PARAM_ERROR" and bad["valid_states"] == STATES
+    assert _call(action="create", title="x", kind="zzz")["status"] == "PARAM_ERROR"
+    for _ in range(2):
+        _call(action="advance", task_id=tid)
+    gate = _call(action="advance", task_id=tid)
+    assert gate["status"] == "PARAM_ERROR" and "promote" in gate["next_action"]
+
+
+def test_server_board_work_counts_in_terse_and_summary(board: KanbanBoard) -> None:
+    assert "work_counts" not in _call(action="board", verbosity="terse")
+    _call(action="create", title="w1", kind="work")
+    terse = _call(action="board", verbosity="terse", limit=0)
+    assert terse["work_counts"]["BACKLOG"] == 1
+    summ = _call(action="board", verbosity="summary")
+    assert summ["work_counts"]["BACKLOG"] == 1 and len(summ["work_lanes"]["BACKLOG"]) == 1

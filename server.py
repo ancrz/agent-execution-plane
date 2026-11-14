@@ -4894,13 +4894,14 @@ async def kanban_board(
     verbosity: str = "summary",
     agent_id: str = "default",
     cursor: int = 0,
+    kind: str = "",
 ) -> str:
     """
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
     action:
-      - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED). En modo `summary`, muestra hasta `limit` tareas recientes por lane, desde el offset `cursor` por lane; si se trunca, `cursor` del sobre da el siguiente offset y `lane_totals` los totales por lane.
-      - 'create' (o 'task_create', 'add'): crea una tarea atómica en BACKLOG (requiere `title`). Acepta `description` y `refs` (lista de strings: SHAs, rutas) que se muestran solo en `detail`.
-      - 'advance' (o 'move'): mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
+      - 'board' (default): vista del tablero por lanes de artefacto (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED); si hay tarjetas de trabajo añade `work_lanes`/`work_counts`. En modo `summary`, muestra hasta `limit` tareas recientes por lane, desde el offset `cursor` por lane; si se trunca, `cursor` del sobre da el siguiente offset y `lane_totals` los totales por lane.
+      - 'create' (o 'task_create', 'add'): crea una tarea atómica en BACKLOG (requiere `title`). `kind`: 'artifact' (default, ciclo de vida ponderado) o 'work' (tarjeta de trabajo ONT-*, estados BACKLOG/IN_PROGRESS/BLOCKED/DONE, sin ponderación). Acepta `description` y `refs` (lista de strings: SHAs, rutas) que se muestran solo en `detail`.
+      - 'advance' (o 'move'): mueve una tarea (requiere `task_id`). Sin `to_state` avanza al siguiente estado natural (artifact: BACKLOG>SYNTHESIZED>LINTED>CANARY, luego `promote`; work: BACKLOG>IN_PROGRESS>DONE); con `to_state` valida contra los estados del tipo de la tarjeta (inválido -> PARAM_ERROR con `valid_states`). Solo las tarjetas artifact se ponderan.
       - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
       - 'demote': degrada explícitamente un artefacto a reusable=0 (requiere `artifact_name`).
       - 'reevaluate': re-pondera artefactos reusables y degrada solo los que tienen fallo demostrado.
@@ -4942,6 +4943,8 @@ async def kanban_board(
                         "threshold": res.get("threshold"),
                         **_db_scope_fields(kanban, _kanban_mod.DB_DEFAULT_PATH, compact=True),
                     }
+                    if res.get("work_counts"):
+                        terse_res["work_counts"] = res["work_counts"]
                     n = max(0, int(limit)) if limit is not None else 0
                     terse_cursor = max(0, int(cursor or 0))
                     terse_trunc = False
@@ -4980,6 +4983,13 @@ async def kanban_board(
                             res["lanes"][lane_name] = sorted_cards[eff_cursor : eff_cursor + eff_limit]
                             if len(cards) > eff_cursor + eff_limit:
                                 truncated = True
+                    for lane_name, cards in list((res.get("work_lanes") or {}).items()):
+                        if len(cards) > eff_limit or eff_cursor:
+                            ordered_w = sorted(cards, key=lambda c: int(c.get("task_id", 0)), reverse=True)
+                            res["work_lanes"][lane_name] = ordered_w[eff_cursor : eff_cursor + eff_limit]
+                            lane_totals[f"work:{lane_name}"] = len(cards)
+                            if len(cards) > eff_cursor + eff_limit:
+                                truncated = True
                     if truncated:
                         res["lane_totals"] = lane_totals
                 return attach_envelope(
@@ -5005,20 +5015,22 @@ async def kanban_board(
                     agent_id=agent_id,
                     description=description,
                     refs=refs,
+                    kind=kind or "artifact",
                 )
+                if res.get("kind") == "work" and res.get("task_id"):
+                    res["next_action"] = f'kanban_board(action="advance", task_id={res["task_id"]})'
                 return attach_envelope(res, tracker, verbosity=verbosity)
             elif act in ("advance", "move"):
-                if task_id is None or not (to_state or "").strip():
+                if task_id is None:
                     return attach_envelope(
-                        {"status": "PARAM_ERROR", "error": "Acción 'advance'/'move' requiere 'task_id' y 'to_state'."},
+                        {"status": "PARAM_ERROR", "error": "Acción 'advance'/'move' requiere 'task_id'."},
                         tracker,
                         verbosity=verbosity,
                     )
-                return attach_envelope(
-                    kanban.advance(task_id, to_state.strip(), lint_passed, canary_passed, note),
-                    tracker,
-                    verbosity=verbosity,
-                )
+                adv = kanban.advance(task_id, (to_state or "").strip(), lint_passed, canary_passed, note)
+                if adv.get("status") == "OK" and adv.get("kind") == "work" and adv.get("state") == "IN_PROGRESS":
+                    adv["next_action"] = f'kanban_board(action="advance", task_id={task_id})'
+                return attach_envelope(adv, tracker, verbosity=verbosity)
             elif act == "promote":
                 if task_id is None:
                     return attach_envelope(
