@@ -1,6 +1,7 @@
 """ONT-50 T1 (G21): aep_ctl network neighbors. No real network: sockets, ARP and routes are monkeypatched."""
 
 import asyncio
+import errno
 import ipaddress
 import json
 from pathlib import Path
@@ -21,7 +22,10 @@ def _arp(ip: str, mac: str, dev: str = "wlan0", flags: str = "0x2") -> dict:
 
 
 class _FakeSock:
+    """UDP fake. `udp_error` (errno) makes sendto raise OSError; `sent` records accepted datagrams."""
+
     sent: list = []
+    udp_error: int | None = None
 
     def __init__(self, *a, **k):
         pass
@@ -30,16 +34,41 @@ class _FakeSock:
         assert flag is False
 
     def sendto(self, data, addr):
+        if _FakeSock.udp_error is not None:
+            raise OSError(_FakeSock.udp_error, "blocked")
         _FakeSock.sent.append(addr)
 
     def close(self):
         pass
 
 
+class _FakeTcp:
+    """TCP fake. `rc` is what connect_ex returns (EINPROGRESS = the SYN left the host)."""
+
+    attempts: list = []
+    closed = 0
+    rc = errno.EINPROGRESS
+
+    def setblocking(self, flag):
+        assert flag is False
+
+    def connect_ex(self, addr):
+        _FakeTcp.attempts.append(addr)
+        return _FakeTcp.rc
+
+    def close(self):
+        _FakeTcp.closed += 1
+
+
 @pytest.fixture
 def lan(monkeypatch):
     _FakeSock.sent = []
+    _FakeSock.udp_error = None
+    _FakeTcp.attempts = []
+    _FakeTcp.closed = 0
+    _FakeTcp.rc = errno.EINPROGRESS
     monkeypatch.setattr(nt, "_new_udp_socket", _FakeSock)
+    monkeypatch.setattr(nt, "_new_tcp_socket", _FakeTcp)
     monkeypatch.setattr(nt, "parse_proc_net_route", lambda: [_route("wlan0", "192.168.1.0", "255.255.255.0")])
     arp = [
         _arp("192.168.1.20", "AA:BB:CC:00:00:20"),
@@ -55,8 +84,10 @@ def lan(monkeypatch):
 def test_sweep_24_generates_hosts_and_sorts_neighbors(lan):
     res = asyncio.run(nt.discover_neighbors(None, sweep=True, timeout_ms=50, tier_octal=7))
     assert res["sweep"] is True and res["swept_hosts"] == 254
-    assert len(_FakeSock.sent) == 254
-    assert all(port == nt.NEIGHBOR_DISCARD_PORT for _, port in _FakeSock.sent)
+    assert res["sweep_method"] == "tcp_syn"
+    assert len(_FakeTcp.attempts) == 254 and _FakeTcp.closed == 254  # every socket closed right away
+    assert all(port == nt.NEIGHBOR_TCP_PORT for _, port in _FakeTcp.attempts)
+    assert _FakeSock.sent == []  # UDP untouched when TCP works
     assert [n["ip"] for n in res["neighbors"]] == ["192.168.1.3", "192.168.1.20"]  # numeric order, no incomplete
     assert res["neighbors"][0]["oui"] == "AA:BB:CC"
     assert res["prefixes"] == ["192.168.1.0/24"] and res["arp_raw_count"] == 5
@@ -204,3 +235,36 @@ def test_neighbors_summary_token_budget(lan):
     res = asyncio.run(server.aep_ctl(domain="network", action="neighbors", args="nosweep", verbosity="summary"))
     tok = json.loads(res)["t"]["tok"]
     assert tok <= 450
+
+
+def test_udp_eperm_but_tcp_ok_uses_tcp_syn(lan):
+    _FakeSock.udp_error = errno.EPERM  # netfilter rejects outbound UDP; TCP SYN still leaves
+    res = asyncio.run(nt.discover_neighbors(None, sweep=True, timeout_ms=50, tier_octal=7, probe=False))
+    assert res["sweep_method"] == "tcp_syn" and res["swept_hosts"] == 254
+    assert res["sweep_errors"] == {"tcp_syn": 0, "udp": 0}
+    assert _FakeSock.sent == []
+
+
+def test_tcp_denied_first_batch_falls_back_to_udp(lan):
+    _FakeTcp.rc = errno.EPERM
+    res = asyncio.run(nt.discover_neighbors(None, sweep=True, timeout_ms=50, tier_octal=7))
+    assert res["sweep_method"] == "udp" and res["swept_hosts"] == 254
+    assert len(_FakeSock.sent) == 254 and all(port == nt.NEIGHBOR_DISCARD_PORT for _, port in _FakeSock.sent)
+    assert len(_FakeTcp.attempts) == 254  # whole /24 fits in the first batch
+    assert res["sweep_errors"]["tcp_syn"] == 254 and res["sweep_errors"]["udp"] == 0
+
+
+def test_both_methods_denied_reports_none(lan):
+    _FakeTcp.rc = errno.EACCES
+    _FakeSock.udp_error = errno.EPERM
+    res = asyncio.run(nt.discover_neighbors(None, sweep=True, timeout_ms=50, tier_octal=7))
+    assert res["sweep_method"] == "none" and res["swept_hosts"] == 0
+    assert res["sweep_errors"] == {"tcp_syn": 254, "udp": 254}
+    assert nt.compact_neighbors_result(res)["sweep_method"] == "none"
+    assert "sweep_errors" not in nt.compact_neighbors_result(res)  # per-method errors are detail-only
+
+
+def test_nosweep_and_low_tier_report_no_method(lan):
+    assert asyncio.run(nt.discover_neighbors(None, sweep=False))["sweep_method"] == "none"
+    assert asyncio.run(nt.discover_neighbors(None, sweep=True, tier_octal=4))["sweep_method"] == "none"
+    assert _FakeTcp.attempts == [] and _FakeSock.sent == []

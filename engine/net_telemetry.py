@@ -6,6 +6,7 @@ Zero external binary dependencies (no nmap, no tshark, no docker).
 """
 
 import asyncio
+import errno
 import ipaddress
 import logging
 import os
@@ -463,6 +464,7 @@ NEIGHBOR_MAX_PREFIX_HOSTS = 1024  # /22 or narrower
 NEIGHBOR_PROBE_MAX = 16
 NEIGHBOR_SWEEP_BATCH = 256
 NEIGHBOR_DISCARD_PORT = 9
+NEIGHBOR_TCP_PORT = 80
 NEIGHBOR_DEFAULT_TIMEOUT_MS = 800
 _NEIGHBOR_IGNORED_IFACE_PREFIXES = ("lo", "utun", "tun", "wg", "docker", "br-", "veth")
 _NEIGHBOR_ZERO_MAC = "00:00:00:00:00:00"
@@ -571,29 +573,90 @@ def _new_udp_socket() -> socket.socket:
     return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
-async def _udp_sweep(networks: list[Any], timeout_ms: int) -> tuple[int, int]:
+def _new_tcp_socket() -> socket.socket:
+    return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+
+async def _tcp_syn_sweep(hosts: list[str]) -> tuple[int, int, bool]:
+    """
+    Non-blocking connect_ex to the sweep port, socket closed immediately: the SYN leaves the host, which is enough
+    for the kernel to resolve ARP. Returns (sent, errors, first_batch_denied). `first_batch_denied` is True when
+    every attempt of the first batch failed with EPERM/EACCES (outbound TCP blocked by policy).
+    """
+    sent = 0
+    errors = 0
+    first_batch_total = 0
+    first_batch_denied = 0
+    for idx, host in enumerate(hosts):
+        in_first_batch = idx < NEIGHBOR_SWEEP_BATCH
+        sock = None
+        try:
+            sock = _new_tcp_socket()
+            sock.setblocking(False)
+            rc = sock.connect_ex((host, NEIGHBOR_TCP_PORT))
+        except OSError:
+            rc = errno.EIO
+        finally:
+            if sock is not None:
+                sock.close()
+        if in_first_batch:
+            first_batch_total += 1
+        if rc in (errno.EPERM, errno.EACCES):
+            errors += 1
+            if in_first_batch:
+                first_batch_denied += 1
+        elif rc in (0, errno.EINPROGRESS, errno.ECONNREFUSED, errno.EALREADY, errno.EHOSTUNREACH, errno.ENETUNREACH):
+            sent += 1
+        else:
+            errors += 1
+        if (idx + 1) % NEIGHBOR_SWEEP_BATCH == 0:
+            if first_batch_total and first_batch_denied == first_batch_total and idx + 1 == first_batch_total:
+                return sent, errors, True  # whole first batch denied: abort early, caller falls back to UDP
+            await asyncio.sleep(0)
+    denied = bool(first_batch_total) and first_batch_denied == first_batch_total
+    return sent, errors, denied
+
+
+async def _udp_sweep(hosts: list[str]) -> tuple[int, int]:
     """Fire-and-forget UDP datagrams to the discard port so the kernel resolves ARP. Returns (sent, errors)."""
     sent = 0
     errors = 0
     sock = _new_udp_socket()
     try:
         sock.setblocking(False)
-        batch = 0
-        for net in networks:
-            for host in net.hosts():
-                try:
-                    sock.sendto(b"\x00", (str(host), NEIGHBOR_DISCARD_PORT))
-                    sent += 1
-                except OSError:
-                    errors += 1
-                batch += 1
-                if batch >= NEIGHBOR_SWEEP_BATCH:
-                    batch = 0
-                    await asyncio.sleep(0)
-        await asyncio.sleep(timeout_ms / 1000.0)  # let the kernel populate the ARP cache
+        for idx, host in enumerate(hosts):
+            try:
+                sock.sendto(b"\x00", (host, NEIGHBOR_DISCARD_PORT))
+                sent += 1
+            except OSError:
+                errors += 1
+            if (idx + 1) % NEIGHBOR_SWEEP_BATCH == 0:
+                await asyncio.sleep(0)
     finally:
         sock.close()
     return sent, errors
+
+
+async def _arp_sweep(networks: list[Any], timeout_ms: int) -> dict[str, Any]:
+    """
+    ARP-populating sweep. Primary: TCP SYN (connect_ex, non-blocking). Fallback to UDP/9 only when the whole first
+    TCP batch is denied (EPERM/EACCES). Waits `timeout_ms` afterwards so the kernel fills the ARP cache.
+    """
+    hosts = [str(h) for net in networks for h in net.hosts()]
+    errors: dict[str, int] = {"tcp_syn": 0, "udp": 0}
+    method = "none"
+    sent = 0
+    if hosts:
+        tcp_sent, tcp_err, denied = await _tcp_syn_sweep(hosts)
+        errors["tcp_syn"] = tcp_err
+        if denied:
+            udp_sent, udp_err = await _udp_sweep(hosts)
+            errors["udp"] = udp_err
+            method, sent = ("udp", udp_sent) if udp_sent else ("none", 0)
+        else:
+            method, sent = "tcp_syn", tcp_sent
+    await asyncio.sleep(timeout_ms / 1000.0)  # let the kernel populate the ARP cache
+    return {"method": method, "sent": sent, "errors": errors}
 
 
 async def discover_neighbors(
@@ -632,9 +695,11 @@ async def discover_neighbors(
         sweep_reason = "no eligible prefix"
 
     swept_hosts = 0
-    sweep_errors = 0
+    sweep_method = "none"
+    sweep_errors: dict[str, int] = {"tcp_syn": 0, "udp": 0}
     if do_sweep:
-        swept_hosts, sweep_errors = await _udp_sweep([c["network"] for c in prefixes], timeout_ms)
+        sw = await _arp_sweep([c["network"] for c in prefixes], timeout_ms)
+        swept_hosts, sweep_method, sweep_errors = sw["sent"], sw["method"], sw["errors"]
 
     arp_rows = parse_proc_net_arp()
     wanted = {c["iface"] for c in prefixes} if prefixes else None
@@ -681,6 +746,7 @@ async def discover_neighbors(
         "prefixes": [str(c["network"]) for c in prefixes],
         "swept_hosts": swept_hosts,
         "sweep": do_sweep,
+        "sweep_method": sweep_method,
         **({"reason": sweep_reason} if sweep_reason else {}),
         "neighbors": neighbors,
         "count": len(neighbors),
