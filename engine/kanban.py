@@ -445,14 +445,23 @@ class KanbanBoard:
         max_score: float | None = None,
         protect_states: tuple = ("PROMOTED", "CANARY"),
         apply: bool = False,
+        task_id: int | None = None,
+        title_like: str | None = None,
     ) -> dict[str, Any]:
         """Despeja el board archivando (soft, reversible) tareas estancadas.
+
+        ONT-48/G22: con `task_id` archiva ESA tarjeta en cualquier lane salvo PROMOTED (-> PROTECTED), sin dry-run
+        (`applied: true`); `task_id` tiene prioridad sobre `states`. `title_like` (LIKE SQL parametrizado) filtra el
+        barrido por título; sin `states` explícitos el barrido con `title_like` abarca todas las lanes no protegidas.
 
         dry-run POR DEFECTO: el AGENTE juzga qué despejar vs el veredicto del ponderador — igual
         filosofía que artifact_prune, pero NO destruye (archived=1, recuperable con unarchive).
         Candidato = estado en `states` (def. LINTED+REJECTED) Y promotion_score < `max_score`
         (def. umbral TRUST) Y no está en `protect_states`. Las PROMOTED/CANARY nunca se tocan."""
-        states = [s.upper() for s in (states or ["LINTED", "REJECTED"])]
+        if task_id is not None:
+            return self._archive_one(int(task_id), ignored_states=states)
+        default_states = [s for s in STATES if s != "PROMOTED"] if title_like else ["LINTED", "REJECTED"]
+        states = [s.upper() for s in (states or default_states)]
         thr = ponder.TRUST_BAND if max_score is None else float(max_score)
         protect = {s.upper() for s in protect_states}
         states = [s for s in states if s not in protect]
@@ -460,7 +469,8 @@ class KanbanBoard:
             rows = conn.execute(
                 "SELECT id, title, state, artifact_name, promotion_score, attempts, canary_passed, "
                 "(JULIANDAY('now') - JULIANDAY(updated_at)) * 1440.0 AS age_minutes "
-                "FROM kanban_tasks WHERE archived=0 ORDER BY id DESC"
+                "FROM kanban_tasks WHERE archived=0 AND (? IS NULL OR title LIKE ?) ORDER BY id DESC",
+                (title_like, title_like),
             ).fetchall()
             candidates = [
                 {
@@ -495,12 +505,44 @@ class KanbanBoard:
             "threshold": thr,
             "states_scanned": states,
             "protected_states": sorted(protect),
+            **({"title_like": title_like} if title_like else {}),
             "candidate_count": len(candidates),
             "candidates": candidates,
             "hint": None
             if apply
             else "Revisa candidatos; repite con apply=True para despejar (reversible vía kanban_board(action='unarchive', task_id=...)).",
         }
+
+    def _archive_one(self, task_id: int, ignored_states: list[str] | None = None) -> dict[str, Any]:
+        """Archiva una tarjeta concreta (cualquier lane salvo PROMOTED). Reversible con unarchive."""
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                t = conn.execute("SELECT id, state, archived FROM kanban_tasks WHERE id=?", (task_id,)).fetchone()
+                if not t:
+                    return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                if t["state"] == "PROMOTED":
+                    return {
+                        "status": "PROTECTED",
+                        "applied": False,
+                        "task_id": task_id,
+                        "state": t["state"],
+                        "error": "PROMOTED no se archiva; usa demote primero.",
+                    }
+                if not t["archived"]:
+                    conn.execute(
+                        "UPDATE kanban_tasks SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE id=?", (task_id,)
+                    )
+        out: dict[str, Any] = {
+            "status": "ARCHIVED",
+            "applied": True,
+            "task_id": task_id,
+            "state": t["state"],
+            "was_archived": bool(t["archived"]),
+            "hint": f"Reversible: kanban_board(action='unarchive', task_id={task_id}).",
+        }
+        if ignored_states:
+            out["states_ignored"] = [s.upper() for s in ignored_states]
+        return out
 
     def unarchive(self, task_id: int) -> dict[str, Any]:
         """Reactiva una tarea archivada (archived=0). Inverso de archive — nada se pierde."""

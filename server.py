@@ -4592,6 +4592,7 @@ async def kanban_board(
     max_score: float | None = None,
     apply: bool = False,
     target_state: str = "SYNTHESIZED",
+    title_like: str | None = None,
     limit: int = 5,
     verbosity: str = "summary",
     agent_id: str = "default",
@@ -4606,7 +4607,7 @@ async def kanban_board(
       - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
       - 'demote': degrada explícitamente un artefacto a reusable=0 (requiere `artifact_name`).
       - 'reevaluate': re-pondera artefactos reusables y degrada solo los que tienen fallo demostrado.
-      - 'archive': archiva (soft, reversible) tareas estancadas (apply=False -> DRY_RUN).
+      - 'archive': con `task_id` archiva esa tarjeta (cualquier lane salvo PROMOTED -> PROTECTED); sin él, barrido de tareas estancadas (apply=False -> DRY_RUN) filtrable por `states`/`title_like` (LIKE SQL, ej. '%Alias Task%').
       - 'unarchive': reactiva una tarea archivada (requiere `task_id`).
     """
 
@@ -4708,7 +4709,9 @@ async def kanban_board(
                 return attach_envelope(kanban.reevaluate(), tracker, verbosity=verbosity)
             elif act == "archive":
                 return attach_envelope(
-                    kanban.archive(states=states, max_score=max_score, apply=apply),
+                    kanban.archive(
+                        states=states, max_score=max_score, apply=apply, task_id=task_id, title_like=title_like
+                    ),
                     tracker,
                     verbosity=verbosity,
                 )
