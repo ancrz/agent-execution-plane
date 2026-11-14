@@ -26,6 +26,14 @@ from engine.db import get_ro_connection, get_rw_connection, transaction_immediat
 DB_DEFAULT_PATH = Path.home() / ".local" / "share" / "agent-os" / "artifacts.db"
 
 STATES = ["BACKLOG", "SYNTHESIZED", "LINTED", "CANARY", "PROMOTED", "REJECTED"]
+_ARTIFACT_TO_WORK = {
+    "BACKLOG": "BACKLOG",
+    "SYNTHESIZED": "IN_PROGRESS",
+    "LINTED": "IN_PROGRESS",
+    "CANARY": "IN_PROGRESS",
+    "PROMOTED": "DONE",
+    "REJECTED": "BLOCKED",
+}
 WORK_STATES = ["BACKLOG", "IN_PROGRESS", "BLOCKED", "DONE"]  # tarjetas de trabajo (kind='work'), sin ponderación
 KINDS = ("artifact", "work")
 # Siguiente estado natural (advance sin to_state). CANARY->PROMOTED NO está: la promoción conserva su compuerta.
@@ -638,6 +646,95 @@ class KanbanBoard:
         }
         if ignored_states:
             out["states_ignored"] = [s.upper() for s in ignored_states]
+        return out
+
+    def reclassify(
+        self,
+        kind: str,
+        task_id: int | None = None,
+        title_like: str | None = None,
+        include_archived: bool = False,
+        apply: bool = False,
+    ) -> dict[str, Any]:
+        """ONT-56/G50: cambia el `kind` de tarjetas existentes (artifact <-> work) con el mapa de estados del plan.
+
+        Con `task_id` aplica directo (sin dry-run); con `title_like` (LIKE parametrizado) devuelve DRY_RUN salvo
+        `apply=True`. Tarjetas con `artifact_name` no se pasan a work (son artefactos reales) -> `skipped`.
+        No toca archived/description/refs/attempts."""
+        kind = (kind or "").strip().lower()
+        if kind not in ("work", "artifact"):
+            return {"status": "PARAM_ERROR", "error": f"kind inválido: {kind!r}", "valid": ["work", "artifact"]}
+        if task_id is None and not title_like:
+            return {"status": "PARAM_ERROR", "error": "reclassify requiere 'task_id' o 'title_like'."}
+        direct = task_id is not None
+        do_apply = apply or direct
+        with self._conn_rw() as conn:
+            with transaction_immediate(conn):
+                if direct:
+                    rows = conn.execute("SELECT * FROM kanban_tasks WHERE id=?", (int(task_id),)).fetchall()
+                    if not rows:
+                        return {"status": "ERROR", "error": f"task {task_id} no existe"}
+                else:
+                    rows = conn.execute(
+                        "SELECT * FROM kanban_tasks WHERE title LIKE ? AND (archived=0 OR ?) ORDER BY id",
+                        (title_like, 1 if include_archived else 0),
+                    ).fetchall()
+                candidates: list[dict[str, Any]] = []
+                skipped: list[dict[str, Any]] = []
+                for r in rows:
+                    cur = r["kind"] or "artifact"
+                    if cur == kind:
+                        skipped.append({"task_id": r["id"], "reason": f"already {kind}"})
+                        continue
+                    if kind == "work":
+                        if r["artifact_name"]:
+                            skipped.append({"task_id": r["id"], "reason": "has artifact"})
+                            continue
+                        new_state = _ARTIFACT_TO_WORK.get(r["state"], "BACKLOG")
+                    else:
+                        new_state = "BACKLOG"
+                    candidates.append(
+                        {
+                            "task_id": r["id"],
+                            "title": r["title"],
+                            "state": r["state"],
+                            "new_state": new_state,
+                            "archived": bool(r["archived"]),
+                        }
+                    )
+                if do_apply and candidates:
+                    for c in candidates:
+                        if kind == "artifact":
+                            conn.execute(
+                                "UPDATE kanban_tasks SET kind=?, state=?, promotion_score=0.0, "
+                                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                                (kind, c["new_state"], c["task_id"]),
+                            )
+                        else:
+                            conn.execute(
+                                "UPDATE kanban_tasks SET kind=?, state=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                                (kind, c["new_state"], c["task_id"]),
+                            )
+        if do_apply:
+            status = "RECLASSIFIED" if candidates else "NOOP"
+        else:
+            status = "DRY_RUN"
+        back = "work" if kind == "artifact" else "artifact"
+        out: dict[str, Any] = {
+            "status": status,
+            "applied": bool(do_apply and candidates),
+            "kind": kind,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "skipped": skipped,
+        }
+        if do_apply:
+            out["reclassified"] = len(candidates)
+            if candidates:
+                ids = f"task_id={candidates[0]['task_id']}" if direct else f"title_like={title_like!r}"
+                out["hint"] = f"Reversible: kanban_board(action='reclassify', {ids}, kind='{back}', apply=True)."
+        else:
+            out["hint"] = "Revisa candidatos; repite con apply=True para reclasificar."
         return out
 
     def unarchive(self, task_id: int) -> dict[str, Any]:

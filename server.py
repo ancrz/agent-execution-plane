@@ -114,7 +114,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Domain 2 — State Governance & Process Introspection**:
   17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal"|"evolve"|"reconcile"|"report", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
   6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
-  7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive", verbosity="summary")`
+  7. `kanban_board(action="board"|"create"|"advance"|"promote"|"demote"|"reevaluate"|"archive"|"unarchive"|"reclassify", verbosity="summary")`
   8. `process_inspect(pid=0, limit=15, verbosity="summary")` *(`pid=0` inspects AEP server RSS/FDs; `pid>0` inspects target process)*
 - **Domain 3 — Isolation & Async Job Queues**:
   9. `sandbox_run(command="pytest -q", working_dir="/path/to/repo", ro_paths=[], rw_paths=[], share_net=False, verbosity="summary")` *(Bubblewrap jail; auto-resolves `.venv` symlinks)*
@@ -4907,6 +4907,7 @@ async def kanban_board(
       - 'reevaluate': re-pondera artefactos reusables y degrada solo los que tienen fallo demostrado.
       - 'archive': con `task_id` archiva esa tarjeta (cualquier lane salvo PROMOTED -> PROTECTED); sin él, barrido de tareas estancadas (apply=False -> DRY_RUN) filtrable por `states`/`title_like` (LIKE SQL, ej. '%Alias Task%').
       - 'unarchive': reactiva una tarea archivada (requiere `task_id`).
+      - 'reclassify': cambia el `kind` (destino, requerido: 'work'|'artifact') de tarjetas existentes. `task_id` aplica directo; `title_like` (LIKE) da DRY_RUN con `candidates` paginados (`limit`/`cursor`) salvo `apply=True`; `include_archived` incluye archivadas. Tarjetas con artefacto no pasan a work (`skipped`). artifact->work: BACKLOG=BACKLOG, SYNTHESIZED/LINTED/CANARY=IN_PROGRESS, PROMOTED=DONE, REJECTED=BLOCKED; work->artifact: todo a BACKLOG (score 0). Reversible.
     """
 
     def _run() -> str:
@@ -5066,6 +5067,16 @@ async def kanban_board(
                     tracker,
                     verbosity=verbosity,
                 )
+            elif act == "reclassify":
+                res_rc = kanban.reclassify(
+                    kind,
+                    task_id=task_id,
+                    title_like=title_like,
+                    include_archived=include_archived,
+                    apply=apply,
+                )
+                trunc_rc, cur_rc = _page_output_lists(res_rc, eff_limit, max(0, int(cursor or 0)))
+                return attach_envelope(res_rc, tracker, verbosity=verbosity, truncated=trunc_rc, cursor=cur_rc)
             elif act == "unarchive":
                 if task_id is None:
                     return attach_envelope(
@@ -5078,7 +5089,7 @@ async def kanban_board(
                 return attach_envelope(
                     {
                         "status": "INVALID_ACTION",
-                        "error": f"Acción '{action}' no reconocida. Acciones válidas: 'board', 'create', 'advance', 'promote', 'demote', 'reevaluate', 'archive', 'unarchive'.",
+                        "error": f"Acción '{action}' no reconocida. Acciones válidas: 'board', 'create', 'advance', 'promote', 'demote', 'reevaluate', 'archive', 'unarchive', 'reclassify'.",
                         "valid_actions": [
                             "board",
                             "create",
@@ -5090,6 +5101,7 @@ async def kanban_board(
                             "reevaluate",
                             "archive",
                             "unarchive",
+                            "reclassify",
                         ],
                     },
                     tracker,
