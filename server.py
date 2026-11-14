@@ -6166,8 +6166,16 @@ async def autoevol(
             payload = _threads.graph_payload(analysis_used, terse=terse)
             persisted = {"persisted": False, "reason": "persist=False"}
             if persist:
-                persisted = _threads.persist_generation(analysis_used, tier_octal=octal, agent_id=agent_id)
+                persisted = _threads.persist_generation(
+                    analysis_used, tier_octal=octal, agent_id=agent_id, server_root=REPO_ROOT
+                )
             payload["persisted"] = bool(persisted.get("persisted"))
+            if not persisted.get("persisted") and persisted.get("reason") in {
+                "foreign_root",
+                "unknown_commit",
+                "node_count_drop",
+            }:
+                payload["reason"] = persisted["reason"]
             if probes_status is not None:
                 payload["probe"] = probes_status
             payload["status"] = "OK"

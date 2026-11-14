@@ -983,7 +983,8 @@ THREADS_GEN_DDL = """CREATE TABLE IF NOT EXISTS threads_gen (
     edge_count INTEGER NOT NULL DEFAULT 0,
     gaps_open INTEGER NOT NULL DEFAULT 0,
     codep_count INTEGER NOT NULL DEFAULT 0,
-    snapshot_z BLOB
+    snapshot_z BLOB,
+    root_path TEXT NOT NULL DEFAULT ''
 )"""
 
 
@@ -1007,14 +1008,25 @@ def _load_snapshot(blob: bytes | None) -> dict[str, Any]:
         return {"n": [], "g": []}
 
 
+def _ensure_root_path_column(conn: sqlite3.Connection) -> None:
+    """ALTER idempotente: BD creadas antes de ONT-48 no tienen `threads_gen.root_path`."""
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(threads_gen)").fetchall()}
+    if "root_path" not in cols:
+        conn.execute("ALTER TABLE threads_gen ADD COLUMN root_path TEXT NOT NULL DEFAULT ''")
+
+
 def persist_generation(
     analysis: Analysis,
     *,
     db_path: Path | str | None = None,
     tier_octal: int | None = None,
     agent_id: str = "autoevol",
+    server_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Persiste la generación (DQ-3: solo tier >= 6rw-). Idempotente por R.
+
+    ONT-48/G16/G26: no persiste `unknown_commit`, `foreign_root` (si `server_root` se da y el árbol analizado es otro)
+    ni `node_count_drop` (< 50 % del último node_count del mismo `root_path`); responde `persisted: False, reason`.
 
     Orden de locks FIJO (F4, C6): `_AUDIT_LOCK` -> `transaction_immediate`. INSERT OR IGNORE sobre
     `root_hash UNIQUE`; el ledger se escribe SOLO si `rowcount == 1` (R nuevo). Las columnas propias pasan
@@ -1025,6 +1037,11 @@ def persist_generation(
     tier_label = str(eff["tier"])
     if octal < PERSIST_MIN_OCTAL:
         return {"persisted": False, "reason": f"tier {octal} < {PERSIST_MIN_OCTAL} (6rw-)"}
+    root_path = str(Path(analysis.root).resolve())
+    if server_root is not None and Path(server_root).resolve() != Path(analysis.root).resolve():
+        return {"persisted": False, "reason": "foreign_root"}
+    if analysis.git_commit == "unknown":
+        return {"persisted": False, "reason": "unknown_commit"}
     row = sanitize_dict(
         {
             "root_hash": analysis.root_hash,
@@ -1044,9 +1061,16 @@ def persist_generation(
     try:
         with _AUDIT_LOCK, transaction_immediate(conn):
             conn.execute(THREADS_GEN_DDL)
+            _ensure_root_path_column(conn)
+            last = conn.execute(
+                "SELECT node_count FROM threads_gen WHERE root_path = ? ORDER BY id DESC LIMIT 1", (root_path,)
+            ).fetchone()
+            if last is not None and int(row["node_count"]) < 0.5 * int(last[0]):
+                return {"persisted": False, "reason": "node_count_drop"}
             cur = conn.execute(
                 "INSERT OR IGNORE INTO threads_gen (root_hash, created_at, git_commit, code_fingerprint, py_version, "
-                "node_count, edge_count, gaps_open, codep_count, snapshot_z) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "node_count, edge_count, gaps_open, codep_count, snapshot_z, root_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     row["root_hash"],
                     row["created_at"],
@@ -1058,6 +1082,7 @@ def persist_generation(
                     row["gaps_open"],
                     row["codep_count"],
                     _snapshot(analysis),
+                    root_path,
                 ),
             )
             inserted = cur.rowcount == 1
@@ -1099,11 +1124,18 @@ def list_generations(*, db_path: Path | str | None = None, limit: int = 10) -> d
     if conn is None:
         return {"generations": [], "total": 0, "note": "no database"}
     try:
-        rows = conn.execute(
-            "SELECT id, root_hash, created_at, git_commit, node_count, edge_count, gaps_open, codep_count "
-            "FROM threads_gen ORDER BY id DESC LIMIT ?",
-            (max(limit, 1),),
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                "SELECT id, root_hash, created_at, git_commit, node_count, edge_count, gaps_open, codep_count, "
+                "root_path FROM threads_gen ORDER BY id DESC LIMIT ?",
+                (max(limit, 1),),
+            ).fetchall()
+        except sqlite3.OperationalError:  # BD previa a ONT-48 sin root_path
+            rows = conn.execute(
+                "SELECT id, root_hash, created_at, git_commit, node_count, edge_count, gaps_open, codep_count "
+                "FROM threads_gen ORDER BY id DESC LIMIT ?",
+                (max(limit, 1),),
+            ).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM threads_gen").fetchone()[0]
     except sqlite3.OperationalError:
         return {"generations": [], "total": 0, "note": "threads_gen absent"}

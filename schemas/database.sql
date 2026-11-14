@@ -127,7 +127,8 @@ CREATE TABLE IF NOT EXISTS threads_gen (
     edge_count INTEGER NOT NULL DEFAULT 0,
     gaps_open INTEGER NOT NULL DEFAULT 0,
     codep_count INTEGER NOT NULL DEFAULT 0,
-    snapshot_z BLOB
+    snapshot_z BLOB,
+    root_path TEXT NOT NULL DEFAULT ''
 );
 
 -- ONT-42c evolve: ledger de `autoevol(evolve)` (indice + testigo de gate/merge). engine/threads_ledger.py replica
