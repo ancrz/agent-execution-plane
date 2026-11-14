@@ -279,11 +279,15 @@ def verify_audit_chain(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def get_agent_usage_summary(conn: sqlite3.Connection, session_id: str | None = None) -> dict[str, Any]:
+def get_agent_usage_summary(
+    conn: sqlite3.Connection, session_id: str | None = None, compact: bool = False
+) -> dict[str, Any]:
     """
     Agrega el consumo de herramientas de AEP agrupado por agent_id y tool_name.
     Devuelve calls, bytes, tokens y latencia total y por herramienta.
     Llama a _ensure_audit_table(conn) antes de ejecutar la consulta.
+    ONT-48/G12: el ledger no registra tamaños de salida; con `compact=True` y bytes/tokens a cero en TODOS los
+    agentes, esos campos se eliminan y se declara `fields_unavailable: ["bytes","tokens"]` una sola vez.
     """
     _ensure_audit_table(conn)
     cur = conn.cursor()
@@ -370,10 +374,19 @@ def get_agent_usage_summary(conn: sqlite3.Connection, session_id: str | None = N
         t_data["latency_ms"] = round(t_data["latency_ms"] + lat, 2)
         t_data["actions"][act] = t_data["actions"].get(act, 0) + 1
 
-    return {
+    result: dict[str, Any] = {
         "status": "OK",
         "session_id": session_id,
         "total_calls": total_calls,
         "agent_count": len(agents),
         "agents": agents,
     }
+    if compact and not any(a["bytes"] or a["tokens"] for a in agents.values()):
+        for a in agents.values():
+            a.pop("bytes", None)
+            a.pop("tokens", None)
+            for t in a["tools"].values():
+                t.pop("bytes", None)
+                t.pop("tokens", None)
+        result["fields_unavailable"] = ["bytes", "tokens"]
+    return result

@@ -3976,7 +3976,7 @@ async def aep_ctl(
         elif d == "audit":
             if a == "usage":
                 with catalog._get_ro_conn() as conn:
-                    res_obj = get_agent_usage_summary(conn, session_id=eff_name)
+                    res_obj = get_agent_usage_summary(conn, session_id=eff_name, compact=is_compact)
             else:
                 with catalog._get_ro_conn() as conn:
                     res_obj = verify_audit_chain(conn)
