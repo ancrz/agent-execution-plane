@@ -8,6 +8,7 @@ asynchronous job queues (Pueue), crash forensics, and Topos DAG auditing to AI a
 import concurrent.futures
 import contextlib
 import contextvars
+import hashlib
 import inspect
 import json
 import logging
@@ -2417,6 +2418,38 @@ def _compact_pueue_payload(
     return {"status": "OK", "data": data}, False
 
 
+# ONT-48/G25: comandos "outward-facing" (publican/empujan fuera del host). `async_job_dispatch(dispatch)` los exige con
+# confirm=True Y tier 7rwx; en caso contrario no se ejecuta nada. Cada entrada: (nombre estable, regex sobre el comando).
+OUTWARD_COMMANDS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("git push", re.compile(r"\bgit\s+(?:-[Cc]\s+\S+\s+)*push\b")),
+    ("git tag -a + push", re.compile(r"\bgit\s+tag\b.*(?:\s-a\b|--annotate\b).*\bpush\b")),
+    ("docker push", re.compile(r"\bdocker\s+(?:image\s+)?push\b")),
+    ("gh pr merge", re.compile(r"\bgh\s+pr\s+merge\b")),
+    ("gh release create", re.compile(r"\bgh\s+release\s+create\b")),
+    ("npm publish", re.compile(r"\bnpm\s+publish\b")),
+    ("twine upload", re.compile(r"\btwine\s+upload\b")),
+    ("uv publish", re.compile(r"\buv\s+publish\b")),
+    ("cargo publish", re.compile(r"\bcargo\s+publish\b")),
+    ("pip upload", re.compile(r"\bpip\d?\s+upload\b")),
+)
+
+
+def _match_outward_command(command: str) -> str | None:
+    """Devuelve el nombre del patrón outward-facing que casa con `command`, o None."""
+    for name, rx in OUTWARD_COMMANDS:
+        if rx.search(command):
+            return name
+    return None
+
+
+def _auto_job_label(command: str) -> str:
+    """Etiqueta determinista `aep-<tool>-<sha256(cmd)[:8]>` para jobs despachados sin label."""
+    parts = command.strip().split()
+    tool = re.sub(r"[^a-z0-9_-]", "", Path(parts[0]).name.lower()) if parts else ""
+    digest = hashlib.sha256(command.encode("utf-8")).hexdigest()[:8]
+    return f"aep-{tool or 'job'}-{digest}"
+
+
 @mcp.tool(structured_output=False)
 async def async_job_dispatch(
     action: str = "dispatch",
@@ -2430,6 +2463,7 @@ async def async_job_dispatch(
     verbosity: str = "summary",
     agent_id: str = "default",
     cursor: int = 0,
+    confirm: bool = False,
 ) -> str:
     """
     [CAMINO B / PUEUE] Despacho e inspección unificada de tareas asíncronas en Pueue.
@@ -2438,6 +2472,9 @@ async def async_job_dispatch(
     - 'inspect' / 'status': Consulta las últimas `limit` tareas de la cola (sin volcar `envs` masivos) o logs si se especifica 'task_id'.
     - 'log' / 'logs': Extrae el log aislado del 'task_id' especificado ('lines' por defecto 50).
     - `cursor`: offset (tareas más recientes primero) para paginar 'status'/'inspect'; si hay más, `cursor` del sobre lo indica.
+    - `confirm`: comandos outward-facing (git push, docker push, gh pr merge, npm/uv/cargo publish, twine upload…) exigen
+      `confirm=True` Y tier 7rwx; sin ello devuelven CONFIRM_REQUIRED / PERMISSION_DENIED y NO se ejecutan.
+    - Sin `label` se autogenera `aep-<tool>-<sha8>` (`label_generated: true`).
     Devuelve inmediatamente JSON tipado con fail-soft sin bloquear el loop del agente.
     """
 
@@ -2472,6 +2509,47 @@ async def async_job_dispatch(
                         verbosity=verbosity,
                     )
 
+                outward = _match_outward_command(command)
+                if outward is not None:
+                    if curr_tier != "7rwx":
+                        return attach_envelope(
+                            {
+                                "status": "PERMISSION_DENIED",
+                                "matched": outward,
+                                "chmod_tier": curr_tier,
+                                "hint": "Outward-facing command requires tier 7rwx and confirm=True; nothing was executed.",
+                            },
+                            tracker,
+                            verbosity=verbosity,
+                        )
+                    if not confirm:
+                        return attach_envelope(
+                            {
+                                "status": "CONFIRM_REQUIRED",
+                                "matched": outward,
+                                "hint": "Outward-facing command; re-send with confirm=True to dispatch. Nothing was executed.",
+                            },
+                            tracker,
+                            verbosity=verbosity,
+                        )
+                    try:
+                        with catalog._get_rw_conn() as conn:
+                            record_audit_event(
+                                conn,
+                                agent_id=agent_id,
+                                tool_name="async_job_dispatch",
+                                action="job.outward_confirmed",
+                                capability_tier=capability_tier(),
+                                status="CONFIRMED",
+                                details={"matched": outward, "command": command},
+                                target=outward,
+                            )
+                    except Exception as log_err:
+                        logger.debug("Failed recording outward_confirmed audit event: %s", log_err)
+
+                label_generated = not (label and label.strip())
+                eff_label = _auto_job_label(command) if label_generated else label
+
                 pueue_bin = _ensure_pueue_daemon()
                 if not pueue_bin:
                     return attach_envelope(
@@ -2490,8 +2568,8 @@ async def async_job_dispatch(
                     subprocess.run([pueue_bin, "group", "add", effective_group], capture_output=True, check=False)
 
                 cmd = [pueue_bin, "add", "--print-task-id", "--group", effective_group]
-                if label:
-                    cmd.extend(["--label", label])
+                if eff_label:
+                    cmd.extend(["--label", eff_label])
                 if working_dir:
                     cmd.extend(["--working-directory", working_dir])
                 cmd.extend(["--", command])
@@ -2531,6 +2609,8 @@ async def async_job_dispatch(
                         "group": effective_group,
                         "agent_id": agent_id,
                         "command": command,
+                        "label": eff_label,
+                        **({"label_generated": True} if label_generated else {}),
                     },
                     tracker,
                     verbosity=verbosity,
