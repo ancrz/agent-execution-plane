@@ -417,9 +417,17 @@ def test_installation_pipeline_and_topos_anti_cascade(tmp_path: Path) -> None:
     assert 'PUEUE_VERSION="v' in setup_text and "PUEUE_SHA256_" in setup_text
 
     # 4. ./scripts/setup.sh --check exits 0 and outputs [PASS] SQLite Catalog & Integrity and [PASS] MCP Ecosystem Sync
+    # ONT-61/G67: the check opens the catalog DB; point it at a throwaway AEP_DATA_HOME seeded here, never the real DB.
+    check_data = tmp_path / "check_data"
+    check_data.mkdir()
+    seeded = engine.catalog.ArtifactCatalog(db_path=check_data / "artifacts.db")
+    from engine.backup import verify_database_integrity
+
+    assert verify_database_integrity(seeded.db_path, auto_seed_canary=True)[0]  # plants the canary row
     res_check = subprocess.run(
         ["bash", str(PROJECT_ROOT / "scripts" / "setup.sh"), "--check"],
         cwd=PROJECT_ROOT,
+        env={**os.environ, "AEP_DATA_HOME": str(check_data)},
         capture_output=True,
         text=True,
         check=False,

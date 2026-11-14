@@ -393,7 +393,8 @@ print(next((r["version"][2:] for r in json.load(sys.stdin) if r.get("stable")), 
     fi
 
     # 8. SQLite Catalog & Storage Integrity
-    local DB_PATH="${AEP_CATALOG_DB:-$HOME/.local/share/agent-os/artifacts.db}"
+    # ONT-61/G67: AEP_DATA_HOME relocates the catalog (default unchanged); the venv and probes stay HOME-installed.
+    local DB_PATH="${AEP_CATALOG_DB:-$AEP_DATA_DIR/artifacts.db}"
     if [[ -x "$VENV_PY" ]] && [[ -f "$DB_PATH" ]]; then
         local DB_CHK_OUT
         DB_CHK_OUT=$(PYTHONPATH="$PROJECT_ROOT" "$VENV_PY" - "$DB_PATH" <<'PY' 2>/dev/null || echo "FAILED"

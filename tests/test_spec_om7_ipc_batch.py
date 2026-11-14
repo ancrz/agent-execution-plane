@@ -808,6 +808,26 @@ class TestNonPicoSystemWideConcurrency:
 # ==============================================================================
 
 
+@pytest.fixture
+def seeded_socket_monitor() -> None:
+    """ONT-61: these tests used to depend on `socket_monitor` already living in the user's REAL catalog. The suite now
+    runs on a session-temp AEP_DATA_HOME, so build and register it there (never the real DB)."""
+    built = json.loads(
+        asyncio.run(
+            server.artifact_lint_and_build(action="build", name="socket_monitor", template_name="socket-monitor")
+        )
+    )
+    assert built["status"] in ("OK", "SUCCESS", "BUILT", "CACHED"), built
+
+
+@pytest.fixture
+def seeded_ip_man_page() -> None:
+    """ONT-61: ingest the `ip` man page into the temp system_docs.db (previously read from the real one)."""
+    res = server._get_docs_vectorizer().ingest_command("ip")
+    if res.get("status") not in ("OK", "SKIPPED", "ALREADY_INGESTED", "INGESTED"):
+        pytest.skip(f"man page for `ip` could not be ingested in this environment: {res}")
+
+
 class TestOmissionGapsRemediation:
     def test_gap_om01_artifact_lint_and_vet_actions(self):
         async def _run():
@@ -1019,6 +1039,7 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
+    @pytest.mark.usefixtures("seeded_socket_monitor")
     def test_gap_om11_artifact_catalog_info_action_and_name_param(self):
         async def _run():
             r = json.loads(await server.artifact_catalog(action="info", name="socket_monitor"))
@@ -1033,6 +1054,7 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
+    @pytest.mark.usefixtures("seeded_socket_monitor")
     def test_gap_om12_artifact_execute_in_ram_alias_and_timeout(self):
         async def _run():
             r = json.loads(
@@ -1047,6 +1069,7 @@ class TestOmissionGapsRemediation:
 
         asyncio.run(_run())
 
+    @pytest.mark.usefixtures("seeded_ip_man_page")
     def test_gap_om13_query_system_docs_q_alias(self):
         async def _run():
             r = json.loads(await server.query_system_docs(q="ip", limit=1))
