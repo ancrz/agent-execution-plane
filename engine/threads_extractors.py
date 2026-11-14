@@ -173,8 +173,12 @@ def module_name(relpath: str) -> str:
     return ".".join(parts)
 
 
-_WALK_MEMO_ATTR = "_aep_walk"  # non-field attributes (invisible to ast.dump / compile), like _DUMP_MEMO_ATTR
-_INDEX_MEMO_ATTR = "_aep_index"
+# Cache con ambito de analisis (ONT-53 T3): `build_graph` la crea y la descarta en un `finally`. Los nodos NO la
+# referencian (nada de memos en `node.__dict__`, que formaban ciclos nodo -> lista -> nodo solo liberables por el GC).
+# Entrada: id(nodo) -> [nodo, walk, type_index|None]; guardar el nodo evita que `id()` se reutilice mientras vive.
+_WALK_CACHE: contextvars.ContextVar[dict[int, list[Any]] | None] = contextvars.ContextVar(
+    "aep_walk_cache", default=None
+)
 _AST = ast.AST
 
 
@@ -195,27 +199,33 @@ def _bfs(root: ast.AST) -> list[ast.AST]:
 
 
 def _walk(node: ast.AST) -> list[ast.AST]:
-    """`_bfs(node)` memoised on the node (ONT-53 T3): the walk of a function/module is computed once and shared."""
-    cached = node.__dict__.get(_WALK_MEMO_ATTR)
-    if cached is None:
-        cached = _bfs(node)
-        node.__dict__[_WALK_MEMO_ATTR] = cached
-    return cached
+    """`_bfs(node)` memoizado en la cache del analisis en curso (sin cache activa, se recalcula)."""
+    cache = _WALK_CACHE.get()
+    if cache is None:
+        return _bfs(node)
+    entry = cache.get(id(node))
+    if entry is None:
+        entry = cache[id(node)] = [node, _bfs(node), None]
+    return entry[1]
 
 
 def _type_index(node: ast.AST) -> dict[type, list[ast.AST]]:
-    """`{node type: nodes in walk order}` of the subtree, built once per node (ONT-53 T3)."""
-    cached = node.__dict__.get(_INDEX_MEMO_ATTR)
-    if cached is None:
-        cached = {}
-        for n in _walk(node):
-            bucket = cached.get(type(n))
-            if bucket is None:
-                cached[type(n)] = [n]
-            else:
-                bucket.append(n)
-        node.__dict__[_INDEX_MEMO_ATTR] = cached
-    return cached
+    """`{tipo de nodo: nodos en orden de walk}` del subarbol, una vez por analisis."""
+    walk = _walk(node)
+    cache = _WALK_CACHE.get()
+    entry = cache.get(id(node)) if cache is not None else None
+    if entry is not None and entry[2] is not None:
+        return entry[2]
+    index: dict[type, list[ast.AST]] = {}
+    for n in walk:
+        bucket = index.get(type(n))
+        if bucket is None:
+            index[type(n)] = [n]
+        else:
+            bucket.append(n)
+    if entry is not None:
+        entry[2] = index
+    return index
 
 
 _DUMP_MEMO_ATTR = "_aep_dump"  # non-field attribute: invisible to ast.dump / ast.walk / compile
@@ -2062,6 +2072,14 @@ def _extract_doc_mentions(graph: ThreadGraph, src: Sources, tools: dict[str, dic
 
 def build_graph(src: Sources) -> tuple[ThreadGraph, ExtractionInfo]:
     """Construye el grafo completo a partir de los insumos. Pura y determinista."""
+    token = _WALK_CACHE.set({})
+    try:
+        return _build_graph(src)
+    finally:
+        _WALK_CACHE.reset(token)
+
+
+def _build_graph(src: Sources) -> tuple[ThreadGraph, ExtractionInfo]:
     graph = ThreadGraph()
     info = ExtractionInfo(py_version=sys.version.split()[0])
     funcs = extract_code(graph, src, info)
