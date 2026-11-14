@@ -75,42 +75,61 @@ class RequestTelemetry:
         }
 
 
+# ONT-57 T1: explicit severity table. ERROR = the call did NOT achieve its purpose; WARN = it achieved it partially or
+# the result needs attention / a decision; INFO = it achieved it or there was nothing to do. Unknown statuses stay
+# ERROR (safe default), but tests/test_ont57_severity_table.py forbids emitting an unclassified status.
+_INFO_STATUSES = frozenset(
+    {
+        "OK", "SUCCESS", "APPROVED", "CACHE_HIT", "ALLOWED", "SUPPORTED", "QUEUED", "PROMOTED", "CREATED",
+        "DRY_RUN", "NOOP",  # ONT-50 T3: nothing to do is not an error
+        "SKIPPED", "ARCHIVED", "UNARCHIVED", "PRUNED", "DEMOTED", "REEVALUATED", "REINDEXED", "CLEAN",
+        # ONT-57: successes that used to fall into the ERROR default
+        "APPLIED", "AUTO_RECOVERED", "CLOSED", "CONFIRMED", "DEDUPED", "EMPTY", "HEALED", "HEALTHY",
+        "LOOPBACK_OK", "RECORDED", "RESTORED", "SIMULATED", "PENDING", "RECLASSIFIED", "CACHED", "FRESH",
+    }
+)  # fmt: skip
+_WARN_STATUSES = frozenset(
+    {
+        "DEGRADED", "DIMINISHED", "CACHE_MISS", "PARTIAL", "UNSUPPORTED", "DISPLAY_UNAVAILABLE", "HOLD", "WARN",
+        # ONT-57: attention / decision required, not a failed call
+        "BLOCKED",  # DAG audit verdict (playbook/topos): the audit worked, the plan is the problem
+        "CAPPED", "CONFIRM_REQUIRED", "EXEC_SUSPECT", "LOCKED", "NO_GENERATIONS", "NO_LKG", "NO_MANPAGE",
+        "NOT_CONFIGURED", "NOT_FOUND",  # bare NOT_FOUND: lookup miss (ONT-48); prefixed *_NOT_FOUND is ERROR
+        "POISON_DETECTED", "PROTECTED", "QUARANTINED", "SANDBOX_UNAVAILABLE", "SNAPSHOT_REQUIRED", "UNAVAILABLE",
+        "UNPROVEN",  # template/artifact verdict without execution evidence yet
+    }
+)  # fmt: skip
+_ERROR_STATUSES = frozenset(
+    {
+        "ERROR", "FAILED", "EXEC_FAILED", "TIMEOUT", "BROKEN", "LKG_INVALID", "AUTO_RECOVER_FAILED",
+        # denials: the requested operation was refused, so the purpose was not achieved
+        "PERMISSION_DENIED", "TIER_DENIED", "NOT_ALLOWED", "QUOTA_EXCEEDED", "REJECT", "REJECTED",
+        "REJECTED_NOT_FIELD_ERROR",
+    }
+)  # fmt: skip
+_ERROR_SUFFIXES = ("_ERROR", "_FAILED", "_NOT_FOUND")
+_ERROR_PREFIXES = ("CORRUPTED_", "INVALID")
+
+
+def is_classified_status(status: str) -> bool:
+    """True when `status` is covered by an explicit set or error rule (not the unknown->ERROR default)."""
+    st = (status or "").strip().upper()
+    return (
+        st in _INFO_STATUSES
+        or st in _WARN_STATUSES
+        or st in _ERROR_STATUSES
+        or st.endswith(_ERROR_SUFFIXES)
+        or st.startswith(_ERROR_PREFIXES)
+    )
+
+
 def infer_severity(status: str) -> str:
     st = (status or "OK").upper()
-    if st in (
-        "OK",
-        "SUCCESS",
-        "APPROVED",
-        "CACHE_HIT",
-        "ALLOWED",
-        "SUPPORTED",
-        "QUEUED",
-        "PROMOTED",
-        "CREATED",
-        "DRY_RUN",
-        "NOOP",  # ONT-50 T3: nothing to do is not an error
-        "SKIPPED",
-        "ARCHIVED",
-        "UNARCHIVED",
-        "PRUNED",
-        "DEMOTED",
-        "REEVALUATED",
-        "REINDEXED",
-        "CLEAN",
-    ):
+    if st in _INFO_STATUSES:
         return "INFO"
-    if st in (
-        "DEGRADED",
-        "DIMINISHED",
-        "CACHE_MISS",
-        "PARTIAL",
-        "UNSUPPORTED",
-        "DISPLAY_UNAVAILABLE",
-        "HOLD",
-        "WARN",
-    ):
+    if st in _WARN_STATUSES:
         return "WARN"
-    return "ERROR"
+    return "ERROR"  # explicit error sets/suffix rules and the safe default for unknown statuses
 
 
 MAX_SAFE_JSON_BYTES = 180_000
