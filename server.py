@@ -23,6 +23,7 @@ import threading
 import time
 import tomllib
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -2822,12 +2823,17 @@ async def diagnose_system_crashes(
                                             "uid": c.get("uid"),
                                             "sig": c.get("sig"),
                                             "time": c.get("time"),
+                                            "ts_iso": _epoch_to_iso(c.get("time")),
                                             "exe": c.get("exe"),
                                         }
                                         for c in raw_cd[:limit]
                                     ]
                                 else:
                                     recent_coredumps = raw_cd[:limit] if isinstance(raw_cd, list) else raw_cd
+                                    if isinstance(recent_coredumps, list):
+                                        for c in recent_coredumps:
+                                            if isinstance(c, dict):
+                                                c["ts_iso"] = _epoch_to_iso(c.get("time"))
                             except Exception:
                                 recent_coredumps = []
                     elif coredumps_raw.returncode == 1 and (
@@ -2853,6 +2859,7 @@ async def diagnose_system_crashes(
                                     "file": cf.name,
                                     "size_bytes": cf.stat().st_size,
                                     "time": int(cf.stat().st_mtime),
+                                    "ts_iso": _epoch_to_iso(cf.stat().st_mtime),
                                     "exe": None,
                                     "sig": None,
                                     "date": None,
@@ -2905,9 +2912,11 @@ async def diagnose_system_crashes(
                                         if key in dedup_map:
                                             dedup_map[key]["occurrences"] = dedup_map[key].get("occurrences", 1) + 1
                                             dedup_map[key]["timestamp"] = entry.get("__REALTIME_TIMESTAMP")
+                                            dedup_map[key]["ts_iso"] = _epoch_to_iso(entry.get("__REALTIME_TIMESTAMP"))
                                         else:
                                             dedup_map[key] = {
                                                 "timestamp": entry.get("__REALTIME_TIMESTAMP"),
+                                                "ts_iso": _epoch_to_iso(entry.get("__REALTIME_TIMESTAMP")),
                                                 "unit": unit_str,
                                                 "priority": entry.get("PRIORITY"),
                                                 "pid": entry.get("_PID"),
@@ -2915,6 +2924,8 @@ async def diagnose_system_crashes(
                                                 "occurrences": 1,
                                             }
                                     else:
+                                        if isinstance(entry, dict):
+                                            entry["ts_iso"] = _epoch_to_iso(entry.get("__REALTIME_TIMESTAMP"))
                                         recent_errors.append(entry)
                                 except Exception as e:
                                     logger.debug("Failed parsing journal error line: %s", e)
@@ -3097,6 +3108,26 @@ def _bwrap_device_args() -> list[str]:
 
 
 _EXEC_SUSPECT_MARKERS = ("Traceback (most recent call last)", "PermissionError")
+
+
+def _epoch_to_iso(value: Any) -> str | None:
+    """Epoch (segundos o microsegundos, int/str) -> ISO-8601 UTC; None si no es interpretable (ONT-48/G14)."""
+    try:
+        num = float(value)
+    except TypeError, ValueError:
+        return None
+    if num <= 0:
+        return None
+    if num > 1e17:  # nanosegundos
+        num /= 1e9
+    elif num > 1e14:  # microsegundos (journalctl __REALTIME_TIMESTAMP, coredumpctl time)
+        num /= 1e6
+    elif num > 1e11:  # milisegundos
+        num /= 1e3
+    try:
+        return datetime.fromtimestamp(num, tz=UTC).isoformat()
+    except OverflowError, OSError, ValueError:
+        return None
 
 
 def _deduplicate_lines(lines: list[str]) -> list[str]:
