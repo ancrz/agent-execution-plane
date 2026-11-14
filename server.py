@@ -3393,6 +3393,49 @@ def _deduplicate_lines(lines: list[str]) -> list[str]:
     return result
 
 
+# ONT-60 T2: directorios cuyos symlinks apuntan a toolchains instalados fuera de los montajes base del sandbox.
+_SANDBOX_TOOL_LINK_DIRS: tuple[str, ...] = ("/usr/local/bin",)
+_SANDBOX_BASE_ROOTS: tuple[str, ...] = ("/usr", "/bin", "/lib", "/lib64")
+
+
+def _toolchain_auto_mounts(scan_dirs: list[Path], mounted: list[str]) -> list[str]:
+    """Raíces de instalación a montar (ro) para symlinks cuyo destino real queda fuera de los montajes actuales.
+
+    `<root>/bin/<x>` -> `<root>`; en otro caso el directorio del destino. Se omiten rutas en la blacklist,
+    destinos ya cubiertos por un montaje y raíces que contendrían montajes existentes. Deduplicado y ordenado.
+    """
+
+    def covered(path: str) -> bool:
+        return any(path == m or path.startswith(m.rstrip("/") + "/") for m in (*_SANDBOX_BASE_ROOTS, *mounted))
+
+    roots: list[str] = []
+    for d in scan_dirs:
+        try:
+            entries = sorted(d.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if not entry.is_symlink():
+                    continue
+                real = entry.resolve(strict=True)
+            except OSError:
+                continue  # symlink colgante o ilegible: nada que montar
+            real_s = str(real)
+            if covered(real_s):
+                continue
+            root = real.parent.parent if real.parent.name == "bin" else real.parent
+            root_s = str(root)
+            if root_s in ("/", "") or root_s in roots or covered(root_s):
+                continue
+            if any(m.startswith(root_s.rstrip("/") + "/") for m in mounted):
+                continue
+            if CapabilityGuard.is_path_blacklisted(root_s):
+                continue
+            roots.append(root_s)
+    return roots
+
+
 _SANDBOX_OUT_TTL_SEC = 3600.0
 _SANDBOX_OUT_MAX_FILES = 64
 _SANDBOX_OUT_PAGE_LINES = 200
@@ -3632,6 +3675,16 @@ async def sandbox_run(
             ]
         )
 
+        # ONT-60 T2: toolchains enlazados (p.ej. /usr/local/bin/go -> /mnt/apps/...) fuera de los montajes base.
+        scan_dirs = [Path(d) for d in _SANDBOX_TOOL_LINK_DIRS]
+        local_bin = Path.home() / ".local" / "bin"
+        user_mounts = [str(Path(q).expanduser().resolve()) for q in (*eff_ro, *eff_rw)]
+        if any(local_bin == Path(m) or local_bin.is_relative_to(m) for m in user_mounts):
+            scan_dirs.append(local_bin)
+        auto_mounts = _toolchain_auto_mounts(scan_dirs, user_mounts)
+        for am in auto_mounts:
+            bwrap_cmd.extend(["--ro-bind-try", am, am])
+
         mounted_ro: list[str] = []
         mounted_rw: list[str] = []
         for p in eff_ro:
@@ -3737,6 +3790,9 @@ async def sandbox_run(
                     "--setenv",
                     "GOCACHE",
                     "/tmp/.gocache",
+                    "--setenv",
+                    "GOPATH",
+                    "/tmp/.gopath",
                 ]
             )
 
@@ -3868,6 +3924,7 @@ async def sandbox_run(
                     "working_dir": resolved_wd,
                     "ro_mounts": mounted_ro,
                     "rw_mounts": mounted_rw,
+                    **({"auto_mounts": auto_mounts} if auto_mounts else {}),
                     "stdout": ("" if (is_brief and parsed_result is not None) else out_str),
                     "stderr": (
                         ""
