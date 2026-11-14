@@ -198,6 +198,16 @@ def _clamp_oversized_payload(payload: dict[str, Any], max_bytes: int = MAX_SAFE_
     return clamped
 
 
+def _has_candidates(payload: dict[str, Any]) -> bool:
+    """ONT-57/G52: a DRY_RUN that found candidates is not 'nothing to do'."""
+    for key in ("candidate_count", "total_candidates"):
+        val = payload.get(key)
+        if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+            return True
+    cands = payload.get("candidates")
+    return isinstance(cands, list) and bool(cands)
+
+
 def attach_envelope(
     payload: dict[str, Any],
     tracker: RequestTelemetry,
@@ -236,7 +246,9 @@ def attach_envelope(
     if next_action is None and isinstance(own_next, str) and own_next.strip():
         next_action = own_next  # ONT-56/G51: un next_action propio del payload manda siempre
     if next_action is None:
-        if status_val.upper() in _NEUTRAL_NEXT_ACTION_STATUSES:
+        if status_val.upper() == "DRY_RUN" and _has_candidates(payload):
+            next_action = "Review candidates; repeat with apply=True to execute."  # ONT-57/G52
+        elif status_val.upper() in _NEUTRAL_NEXT_ACTION_STATUSES:
             next_action = "Nothing to do; adjust filters or apply=true."
         elif sev == "ERROR":
             next_action = "Inspect 'error' or 'valid' fields and retry with corrected parameters."
