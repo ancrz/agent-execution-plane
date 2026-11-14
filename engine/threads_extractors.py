@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from engine.threads_external_methods import EXTERNAL_METHODS, SNAPSHOT_PY_VERSION
 from engine.threads_model import Node, ThreadGraph
 
 HIST_MARKERS: tuple[str, ...] = ("(histórico)", "(historical)", "<!-- aep:hist -->")
@@ -626,7 +627,7 @@ def _build_external_methods() -> frozenset[str]:
     """Nombres públicos de métodos de tipos builtin y de clases stdlib usadas por el proyecto.
 
     Un receptor de tipo desconocido cuyo método se llama así NO se resuelve por nombre único: casi seguro es
-    un objeto externo (`items.append`, `proc.terminate`, `conn.execute`). Se construye una vez por intérprete.
+    un objeto externo (`items.append`, `proc.terminate`, `conn.execute`). Generador del literal `threads_external_methods.EXTERNAL_METHODS` (ONT-56); no se usa en el análisis.
     """
     types: tuple[type, ...] = (
         object, list, dict, set, frozenset, str, bytes, bytearray, tuple, int, float, bool, range, slice, type,
@@ -645,7 +646,9 @@ def _build_external_methods() -> frozenset[str]:
     return frozenset(names)
 
 
-_EXTERNAL_METHODS: frozenset[str] = _build_external_methods()
+# ONT-56: literal congelado (independiente de la versión de Python); `_build_external_methods` solo lo regenera/verifica.
+_EXTERNAL_METHODS: frozenset[str] = EXTERNAL_METHODS
+EXTERNAL_METHODS_SNAPSHOT: str = SNAPSHOT_PY_VERSION
 
 
 @dataclass(slots=True)

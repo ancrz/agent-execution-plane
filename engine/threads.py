@@ -890,6 +890,7 @@ def graph_payload(analysis: Analysis, *, terse: bool = False) -> dict[str, Any]:
             "hazards": len(analysis.hazards),
             "coverage": coverage_summary(analysis.graph),
             "py_version": analysis.info.py_version,
+            "external_methods_snapshot": ex.EXTERNAL_METHODS_SNAPSHOT,
             "git_commit": analysis.git_commit,
             "code_fingerprint": analysis.code_fp,
             "extraction_ms": analysis.elapsed_ms,
