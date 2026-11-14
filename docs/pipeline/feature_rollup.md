@@ -3,8 +3,18 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261114_ont58_pending.md`](feature_20261114_ont58_pending.md)
+- **Current Active Document**: [`feature_20261114_ont59_go_philosophy_kanban.md`](feature_20261114_ont59_go_philosophy_kanban.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
+
+---
+
+## Rollup de cadena: ONT-59 (2026-11-14)
+
+Cadena nueva tras el rollup ONT-54 a ONT-58: `feature_20261114_ont58_pending.md` → `feature_20261114_ont59_go_philosophy_kanban.md`.
+
+| Documento | Intent | Commits (rango) | Veredicto | Suite | Gaps al cierre |
+|---|---|---|---|---|---|
+| ONT-59 | kanban con la filosofía de Go: evidencia ligada a `(source_hash, toolchain)` (K1), fallos de build como valores (K2), gofmt y `go fix` antes de vet (K3), toolchain soportado (T4), canal `stable` de Go en `setup.sh` (T5) | `fa64ad7`..`9ee5d8c` | VERIFIED en un ciclo; publicado en dev y main | 1462 (0 fallos; ruff 318) | K1–K3 y T4–T5 cerrados; G61 y G62 abiertos (menores); G58–G60 siguen en ONT-60 |
 
 ---
 

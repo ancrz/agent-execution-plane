@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1396_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1462_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1100,6 +1100,24 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-59 kanban con la filosofía de Go (VERIFIED en un ciclo; 1462 passed, 0 failed, ruff limpio):** la evidencia de una tarjeta se liga a su `source_hash` (sha256 del código tras gofmt) y al `toolchain` (`go env GOVERSION`): recompilar con fuente distinta o con otro Go crea una generación nueva en LINTED sin heredar PROMOTED ni el canary, y el catálogo guarda las estadísticas previas (K1). Un fallo de build se registra como dato (`failures`, `last_error_class`) sin degradar un PROMOTED (K2). Antes de juzgar se aplican gofmt y `go vet ./...` como compuerta; `go fix` se informa y se aplica solo con `autofix=True` (K3). El canal de Go del montaje es `stable` (sección 12). Detalle: `docs/pipeline/feature_20261114_ont59_go_philosophy_kanban.md`.
+
+```mermaid
+flowchart LR
+    I["Intent: kanban con filosofía Go (ONT-59)"] --> M1["M1: K1 direccionamiento por contenido (T1) ✅"]
+    I --> M2["M2: K2 errores como valores (T2) ✅"]
+    I --> M3["M3: K3 curación mecánica (T3) ✅"]
+    I --> M4["M4: toolchain soportado (T4) ✅"]
+    I --> M5["M5: canal stable en setup.sh (T5) ✅"]
+    M1 --> M6["M6: verified (Dokimos, 1462 passed) ✅"]
+    M2 --> M6
+    M3 --> M6
+    M4 --> M6
+    M5 --> M6
+    M6 --> M7["M7: documented (Graphos G2) ✅"]
+    M7 --> M8["M8: publicado en dev y main (Hermon)"]
 ```
 
 **ONT-58 pendientes de ONT-57 cerrados (VERIFIED tras dos ciclos; 1396 passed, 0 failed, ruff limpio):** el reverso de `kanban_board(action="reclassify")` es exacto gracias a `prev_kind`, `prev_state` y `prev_score`; el dry-run marca `restores_previous: true` (G55). El test de coste de extracción mide en subproceso limpio con el mismo umbral de 2.0 s y guarda de pared de 6.0 s (G56). Se eliminan los hints de DRY_RUN que repetían `next_action` (G57). `_TypeIndex.resolve` sigue defaults `Callable` de proyecto (backlog ONT-46 cerrado, +8 aristas exactas). Detalle: `docs/pipeline/feature_20261114_ont58_pending.md`.

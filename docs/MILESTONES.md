@@ -747,3 +747,37 @@ flowchart LR
 | M9 | Commit `docs(ONT-58)` y ff a `dev` | Hermon | publicado en dev |
 
 Decisiones del orquestador: reverso exacto sin cambiar el mapa para tarjetas legadas; el umbral de coste de ONT-40 (2.0 s) no sube; el test de coste mide en subproceso limpio. Entorno: host Go 1.22.5 → 1.27.4 (`/mnt/apps/tools/go`, rollback `/mnt/apps/tools/go1.22.5`), 8 plantillas Go con `go vet` correcto. Abiertos: K1–K3 para ONT-59 (kanban con filosofía Go) y G58–G60 para ONT-60. G55, G56, G57 y el backlog ONT-46 quedan cerrados.
+
+## 26. Kanban con la filosofía de Go y canal stable de Go en el montaje ONT-59 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont59_go_philosophy_kanban.md` (anterior: `feature_20261114_ont58_pending.md`). Estado: VERIFIED en un ciclo Pragma→Dokimos (1462 passed, 0 failed, ruff 318). Commits `fa64ad7`, `ad20bcb`, `23dd2d5`, `37095cb`, `9ee5d8c` sobre `dev` `da22d5d`, publicados en `dev` y `main`.
+
+```mermaid
+flowchart LR
+    I26["Intent: kanban con filosofía Go y Go estable (ONT-59)"] --> N1["N1: plan inline Short (orquestador) ✅"]
+    N1 --> M1["M1: T4 toolchain soportado, fa64ad7 ✅"]
+    N1 --> M2["M2: T1 K1 direccionamiento por contenido, ad20bcb ✅"]
+    N1 --> M3["M3: T2 K2 errores como valores, 23dd2d5 ✅"]
+    N1 --> M4["M4: T3 K3 curación mecánica, 37095cb ✅"]
+    N1 --> M5["M5: T5 canal stable en setup.sh, 9ee5d8c ✅"]
+    M1 --> V26["M6: verified (Dokimos VERIFIED, 1462 passed) ✅"]
+    M2 --> V26
+    M3 --> V26
+    M4 --> V26
+    M5 --> V26
+    V26 --> D26["M7: documented (Graphos G2) ✅"]
+    D26 --> H26["M8: commit docs(ONT-59) (Hermon, publicado en dev y main)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T4 `engine/go_toolchain.py`, gofmt por GOROOT, WARN `toolchain_outdated` (`fa64ad7`) | Pragma | ✅ |
+| M2 | T1 K1 evidencia y promoción ligadas a `(source_hash, toolchain)`, catálogo `previous_stats` y `metrics_floor` (`ad20bcb`) | Pragma | ✅ |
+| M3 | T2 K2 `record_build_failure` con `failures` y `last_error_class` sin degradar PROMOTED (`23dd2d5`) | Pragma | ✅ |
+| M4 | T3 K3 gofmt, `go fix` aplicable con `autofix`, vet como compuerta, build en modo módulo (`37095cb`) | Pragma | ✅ |
+| M5 | T5 canal `stable` en `setup.sh`, `toolchain.env`, pin de caída go1.27.4 (`9ee5d8c`) | Pragma | ✅ |
+| M6 | Dokimos VERIFIED (1462 passed, 0 failed; ruff 318; migraciones sobre copia de la DB real) | Dokimos | ✅ |
+| M7 | Documentación: feature ONT-59, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
+| M8 | Commit `docs(ONT-59)` y publicación en `dev` y `main` | Hermon | ✅ publicado en dev y main (autorización explícita del usuario, 2026-11-14) |
+
+Decisiones del orquestador: K1 invalida evidencia por contenido y toolchain; K2 registra fallos sin degradar PROMOTED; K3 cura lo mecánico antes de juzgar (`go fix` solo con `autofix`); canal `stable` por defecto en el montaje, con pin de caída. Abiertos menores: G61 (`lint` sin build_env) y G62 (`previous_stats` de una generación). Siguen abiertos G58–G60 (ONT-60).
