@@ -49,6 +49,8 @@ from engine.backup import (
     verify_and_auto_recover,
     verify_database_integrity,
 )
+from engine import catalog as _catalog_mod
+from engine import kanban as _kanban_mod
 from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.harness_reconnect import RECONNECT_POINTER
@@ -163,6 +165,23 @@ catalog = ArtifactCatalog()
 hydrator = TemplateHydrator()
 crash_router = CrashRouter()
 kanban = KanbanBoard()
+
+
+def _db_scope_fields(obj: Any, default_path: Any, *, compact: bool) -> dict[str, str]:
+    """ONT-49/G30: tell the caller whether a tool runs over the real DB or a custom one (tmp, test, override).
+
+    detail: `db_scope` always + `db_path` when custom; compact: `db_scope` only when custom (no tokens for the norm)."""
+    try:
+        cur = Path(getattr(obj, "db_path")).resolve()
+        is_custom = cur != Path(default_path).resolve()
+    except Exception:
+        return {}
+    if compact:
+        return {"db_scope": "custom"} if is_custom else {}
+    out = {"db_scope": "custom" if is_custom else "real"}
+    if is_custom:
+        out["db_path"] = str(cur)
+    return out
 playbook_store = PlaybookStore()
 template_registry = TemplateRegistry()
 
@@ -1184,6 +1203,7 @@ async def artifact_catalog(
                         "capability_tier": capability_tier(),
                         "count": len(items),
                         "artifacts": items,
+                        **_db_scope_fields(catalog, _catalog_mod.DB_DEFAULT_PATH, compact=is_compact),
                     },
                     tracker,
                     verbosity=verbosity,
@@ -4679,6 +4699,7 @@ async def kanban_board(
         act = (action or "board").strip().lower()
         tracker = RequestTelemetry("kanban_board", act)
         is_compact = (verbosity or "summary").strip().lower() in ("summary", "brief")
+        is_terse = (verbosity or "").strip().lower() == "terse"
         eff_limit = max(1, int(limit or 5))
         tier_info = get_effective_chmod_tier()
         curr_tier = tier_info.get("tier", "6rw-")
@@ -4695,8 +4716,41 @@ async def kanban_board(
             )
         try:
             if act == "board":
-                res = kanban.board(include_archived=include_archived, with_extras=not is_compact)
+                res = kanban.board(include_archived=include_archived, with_extras=not (is_compact or is_terse))
                 res.setdefault("status", "OK")
+                if is_terse:
+                    # ONT-49/G29: terse = counters only; lanes only as [task_id, title[:60]] when limit > 0.
+                    lanes_full = res.get("lanes") or {}
+                    terse_res: dict[str, Any] = {
+                        "status": res["status"],
+                        "counts": res.get("counts", {}),
+                        "lane_totals": {k: len(v) for k, v in lanes_full.items() if isinstance(v, list)},
+                        "archived_total": res.get("archived_total", 0),
+                        "threshold": res.get("threshold"),
+                        **_db_scope_fields(kanban, _kanban_mod.DB_DEFAULT_PATH, compact=True),
+                    }
+                    n = max(0, int(limit)) if limit is not None else 0
+                    terse_cursor = max(0, int(cursor or 0))
+                    terse_trunc = False
+                    if n > 0:
+                        terse_lanes: dict[str, list[list[Any]]] = {}
+                        for lane_name, cards in lanes_full.items():
+                            ordered = sorted(cards, key=lambda c: int(c.get("task_id", 0)), reverse=True)
+                            page = ordered[terse_cursor : terse_cursor + n]
+                            if page:
+                                terse_lanes[lane_name] = [[c["task_id"], str(c.get("title", ""))[:60]] for c in page]
+                            if len(ordered) > terse_cursor + n:
+                                terse_trunc = True
+                        terse_res["lanes"] = terse_lanes
+                    return attach_envelope(
+                        terse_res,
+                        tracker,
+                        verbosity=verbosity,
+                        truncated=terse_trunc,
+                        cursor=str(terse_cursor + n) if terse_trunc else None,
+                        summary=f"Kanban board terse (counts={res.get('counts', {})}).",
+                    )
+                res.update(_db_scope_fields(kanban, _kanban_mod.DB_DEFAULT_PATH, compact=is_compact))
                 truncated = False
                 eff_cursor = max(0, int(cursor or 0))
                 if is_compact and isinstance(res.get("lanes"), dict):
