@@ -78,7 +78,7 @@ from engine.privilege import (
     tactical_playbook,
 )
 from engine.security import get_agent_usage_summary, mask_pueue_output, record_audit_event, verify_audit_chain
-from engine.telemetry import RequestTelemetry, attach_envelope
+from engine.telemetry import RequestTelemetry, attach_envelope, is_field_error_status
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard, ToposVerdict
 
@@ -5889,12 +5889,23 @@ def _autoevol_report(
     from engine import threads_field as tf
 
     if not sig:
-        return {"status": "OK", "candidates": tf.list_candidates()[: max(1, min(int(limit), tf.LIST_MAX))]}
+        # ONT-48/G15: listar candidatos sigue siendo valido (contrato ONT-43); pero jamas OK vacio sin explicacion.
+        cands = tf.list_candidates()[: max(1, min(int(limit), tf.LIST_MAX))]
+        if not cands:
+            return {"status": "PARAM_ERROR", "reason": "sig required (from evol_hint)", "candidates": []}
+        return {"status": "OK", "candidates": cands}
     # F1: sig estricto en TODA ruta (misma regex y mismo status ERROR que record/promote), antes de tocar estado.
     if not tf.SIG_RE.match(str(sig).strip().lower()):
         return {"status": "ERROR", "error": "sig invalido (12 hex)."}
     rep = report if isinstance(report, dict) else {}
     out: dict[str, Any] = {}
+    rep_status = str(rep.get("status", "")).strip()
+    if rep and rep_status and not is_field_error_status(rep_status):
+        return {
+            "status": "REJECTED_NOT_FIELD_ERROR",
+            "reason": f"report status '{rep_status[:40]}' is not a field error (ERROR/EXEC_FAILED/FAILED/*_ERROR)",
+            "sig": str(sig)[:12],
+        }
     if rep:
         out = tf.record_report(
             sig,
