@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     artifact_name TEXT,                 -- enlace opcional al artefacto ponderado
     state TEXT NOT NULL DEFAULT 'BACKLOG',
     kind TEXT NOT NULL DEFAULT 'artifact',  -- 'artifact' (ciclo de vida ponderado) | 'work' (tarjeta de trabajo)
+    prev_kind TEXT,                     -- ONT-58/G55: (kind, state, score) previos a la última reclasificación
+    prev_state TEXT,
+    prev_score REAL,
     lint_passed INTEGER NOT NULL DEFAULT 0,
     canary_passed INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
@@ -98,6 +101,9 @@ class KanbanBoard:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN refs TEXT")
             if "kind" not in cols:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'artifact'")
+            for col, decl in (("prev_kind", "TEXT"), ("prev_state", "TEXT"), ("prev_score", "REAL")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE kanban_tasks ADD COLUMN {col} {decl}")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -696,40 +702,53 @@ class KanbanBoard:
                     ).fetchall()
                 candidates: list[dict[str, Any]] = []
                 skipped: list[dict[str, Any]] = []
+                plans: dict[int, tuple[float, str, str, float, bool]] = {}
                 for r in rows:
                     cur = r["kind"] or "artifact"
                     if cur == kind:
                         skipped.append({"task_id": r["id"], "reason": f"already {kind}"})
                         continue
-                    if kind == "work":
-                        if r["artifact_name"]:
-                            skipped.append({"task_id": r["id"], "reason": "has artifact"})
-                            continue
+                    restores = bool(r["prev_kind"] == kind and r["prev_state"])
+                    if kind == "work" and r["artifact_name"]:
+                        skipped.append({"task_id": r["id"], "reason": "has artifact"})
+                        continue
+                    if restores:
+                        new_state = r["prev_state"]
+                        new_score = r["prev_score"] if r["prev_score"] is not None else 0.0
+                    elif kind == "work":
                         new_state = _ARTIFACT_TO_WORK.get(r["state"], "BACKLOG")
+                        new_score = r["promotion_score"]
                     else:
                         new_state = "BACKLOG"
-                    candidates.append(
-                        {
-                            "task_id": r["id"],
-                            "title": r["title"],
-                            "state": r["state"],
-                            "new_state": new_state,
-                            "archived": bool(r["archived"]),
-                        }
-                    )
+                        new_score = 0.0
+                    cand: dict[str, Any] = {
+                        "task_id": r["id"],
+                        "title": r["title"],
+                        "state": r["state"],
+                        "new_state": new_state,
+                        "archived": bool(r["archived"]),
+                    }
+                    if restores:
+                        cand["restores_previous"] = True
+                    candidates.append(cand)
+                    plans[r["id"]] = (new_score, r["kind"] or "artifact", r["state"], r["promotion_score"], restores)
                 if do_apply and candidates:
                     for c in candidates:
-                        if kind == "artifact":
-                            conn.execute(
-                                "UPDATE kanban_tasks SET kind=?, state=?, promotion_score=0.0, "
-                                "updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                                (kind, c["new_state"], c["task_id"]),
-                            )
-                        else:
-                            conn.execute(
-                                "UPDATE kanban_tasks SET kind=?, state=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                                (kind, c["new_state"], c["task_id"]),
-                            )
+                        new_score, old_kind, old_state, old_score, restores = plans[c["task_id"]]
+                        # Restaurar limpia prev_*; si no, se guarda el estado actual para poder revertir exacto.
+                        conn.execute(
+                            "UPDATE kanban_tasks SET kind=?, state=?, promotion_score=?, "
+                            "prev_kind=?, prev_state=?, prev_score=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (
+                                kind,
+                                c["new_state"],
+                                new_score,
+                                None if restores else old_kind,
+                                None if restores else old_state,
+                                None if restores else old_score,
+                                c["task_id"],
+                            ),
+                        )
         if do_apply:
             status = "RECLASSIFIED" if candidates else "NOOP"
         else:

@@ -97,7 +97,8 @@ def test_task_id_direct_and_reverse(board: KanbanBoard) -> None:
     back = board.reclassify("artifact", task_id=tid)
     assert back["status"] == "RECLASSIFIED"
     r = _row(board, tid)
-    assert (r["kind"], r["state"], r["promotion_score"]) == ("artifact", "BACKLOG", 0.0)
+    # ONT-58/G55: the reverse restores the exact previous state (CANARY, score 0.9), not the BACKLOG/0.0 reset.
+    assert (r["kind"], r["state"], r["promotion_score"]) == ("artifact", "CANARY", 0.9)
     assert board.reclassify("work", task_id=9999)["status"] == "ERROR"
 
 
