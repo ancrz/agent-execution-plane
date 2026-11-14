@@ -2875,12 +2875,14 @@ async def diagnose_system_crashes(
     resolve_after_report: bool = False,
     verbosity: str = "summary",
     agent_id: str = "default",
+    cursor: int = 0,
 ) -> str:
     """
     [FORENSE DE CRASHES UNIFICADO] Diagnóstico del sistema y alertas de crashes activos.
     action:
       - 'diagnose' (default): ejecuta coredumpctl + journalctl (nivel FULL con sudo -n; DIMINISHED usuario).
-      - 'alerts' (o 'check'): consulta crashes pendientes en artifacts.db; `resolve_after_report=True` los marca resueltos.
+      - 'alerts' (o 'check'): crashes pendientes en artifacts.db agrupados por archivo/ejecutable (`occurrences`, `ids`,
+        `first_seen`/`last_seen`, `file_present`), paginados por `limit`/`cursor`; `resolve_after_report=True` resuelve todas las filas.
     verbosity:
       - 'summary' (default): resume journald a {timestamp, unit, priority, pid, message} ahorrando ~80% de tokens.
       - 'detail': devuelve todos los metadatos crudos de systemd-journald.
@@ -3056,12 +3058,39 @@ async def diagnose_system_crashes(
                 )
 
             elif act in ("alerts", "check"):
-                res = crash_router.check(resolve_after_report)
+                res = crash_router.check(
+                    resolve_after_report,
+                    limit=max(1, int(limit)),
+                    cursor=max(0, int(cursor or 0)),
+                    detail=(verbosity or "summary").strip().lower() not in ("summary", "brief", "terse", "cached"),
+                )
+                missing = [g for g in res.get("alerts", []) if g.get("file_present") is False]
+                if resolve_after_report:
+                    na = "Crashes acknowledged (all pending rows resolved); new crashes will appear on the next alerts call."
+                elif res.get("pending_count", 0) > 0:
+                    na = 'diagnose_system_crashes(action="alerts", resolve_after_report=True) to acknowledge after reviewing.'
+                else:
+                    na = "No pending crashes; nothing to do."
+                if res.get("truncated"):
+                    na = f"cursor={res['cursor']} for more groups; then {na}"
+                hint = (
+                    f"{len(missing)} group(s) with file_present=false: the .crash file is gone (likely already handled)."
+                    if missing
+                    else None
+                )
+                if hint:
+                    res["hint"] = hint
                 return attach_envelope(
                     res,
                     tracker,
                     verbosity=verbosity,
-                    summary=f"Crash alerts ({res.get('source', 'unknown')}): {res.get('pending_count', 0)} pending ({res.get('new_since_last_check', 0)} new).",
+                    summary=(
+                        f"Crash alerts ({res.get('source', 'unknown')}): {res.get('pending_count', 0)} pending rows in "
+                        f"{res.get('pending_groups', 0)} groups ({res.get('new_since_last_check', 0)} new)."
+                    ),
+                    next_action=na,
+                    truncated=bool(res.get("truncated")),
+                    cursor=res.get("cursor"),
                 )
 
             else:

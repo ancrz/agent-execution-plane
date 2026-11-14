@@ -21,6 +21,7 @@ import shutil
 import signal
 import sqlite3
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -348,14 +349,83 @@ class CrashRouter:
 
         return new
 
-    def check(self, resolve_after_report: bool = False) -> dict[str, Any]:
+    @staticmethod
+    def _iso_utc(value: Any) -> str | None:
+        """Epoch (s / ms / us) -> ISO-8601 UTC; None when not numeric (apport `Date:` strings are not parsed)."""
+        try:
+            num = float(value)
+        except TypeError, ValueError:
+            return None
+        if num <= 0:
+            return None
+        if num > 1e14:
+            num /= 1e6
+        elif num > 1e11:
+            num /= 1e3
+        try:
+            return datetime.fromtimestamp(num, tz=UTC).isoformat()
+        except OverflowError, OSError, ValueError:
+            return None
+
+    @classmethod
+    def group_alerts(
+        cls, alerts: list[dict[str, Any]], crash_dir: Path | str = Path("/var/crash"), detail: bool = False
+    ) -> list[dict[str, Any]]:
+        """ONT-54 T1: collapse pending rows (ordered id DESC) of the same crash into one group, last_seen desc.
+
+        Key: (source, executable, coredump_info.file) when a file is known (apport rewrites the same `.crash` with a new
+        mtime => a new row each time), else (source, executable, signal). `occurrences` counts rows; `ids` lists them.
+        """
+        groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for a in alerts:
+            info = a.get("coredump_info") if isinstance(a.get("coredump_info"), dict) else {}
+            src = a.get("source") or "coredump"
+            file_name = info.get("file") if isinstance(info.get("file"), str) else None
+            key = (src, str(a.get("executable") or ""), file_name or f"sig:{a.get('signal')}")
+            stamp = (
+                cls._iso_utc(info.get("mtime")) or cls._iso_utc(a.get("event_timestamp")) or a.get("event_timestamp")
+            )
+            g = groups.get(key)
+            if g is None:
+                g = {
+                    "executable": a.get("executable"),
+                    "source": src,
+                    "file": file_name,
+                    "occurrences": 0,
+                    "ids": [],
+                    "signal": a.get("signal"),
+                    "cmdline": a.get("cmdline"),
+                    "first_seen": stamp,
+                    "last_seen": stamp,
+                    "file_present": (Path(crash_dir) / file_name).exists() if src == "apport" and file_name else None,
+                }
+                if detail:
+                    g["coredump_info"] = a.get("coredump_info")  # rows arrive newest first => most recent occurrence
+                groups[key] = g
+            g["occurrences"] += 1
+            g["ids"].append(a.get("id"))
+            if isinstance(stamp, str):
+                if not isinstance(g["first_seen"], str) or stamp < g["first_seen"]:
+                    g["first_seen"] = stamp
+                if not isinstance(g["last_seen"], str) or stamp > g["last_seen"]:
+                    g["last_seen"] = stamp
+        return sorted(groups.values(), key=lambda g: str(g.get("last_seen") or ""), reverse=True)
+
+    def check(
+        self,
+        resolve_after_report: bool = False,
+        limit: int | None = None,
+        cursor: int = 0,
+        detail: bool = False,
+        crash_dir: Path | str = Path("/var/crash"),
+    ) -> dict[str, Any]:
         new_core = self.sync_coredumps()
-        new_app = self.sync_apport()
+        new_app = self.sync_apport(crash_dir)
         new = new_core + new_app + self.sync_plane_events()
         alerts = self.pending_alerts(resolve_after_report)
 
         has_coredumpctl = shutil.which("coredumpctl") is not None
-        has_apport = Path("/var/crash").is_dir()
+        has_apport = Path(crash_dir).is_dir()
 
         if has_coredumpctl:
             status = "OK"
@@ -370,6 +440,14 @@ class CrashRouter:
             source = "none"
             note = "coredumpctl ausente; enrutador inerte (fail-soft)."
 
+        groups = self.group_alerts(alerts, crash_dir, detail)
+        start = max(0, int(cursor or 0))
+        page = groups[start:] if limit is None else groups[start : start + max(1, int(limit))]
+        truncated = (start + len(page)) < len(groups)
+        if not detail:
+            for g in page:
+                g.pop("coredump_info", None)
+
         return {
             "status": status,
             "source": source,
@@ -377,6 +455,9 @@ class CrashRouter:
             "scope": "system" if privilege_prefix() else "user",
             "new_since_last_check": new,
             "pending_count": len(alerts),
-            "alerts": alerts,
+            "pending_groups": len(groups),
+            "alerts": page,
+            "truncated": truncated,
+            "cursor": str(start + len(page)) if truncated else None,
             "note": note,
         }

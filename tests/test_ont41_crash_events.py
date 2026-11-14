@@ -122,5 +122,5 @@ def test_symlinked_spool_is_refused(router: cr.CrashRouter, tmp_path: Path) -> N
 
 def test_check_includes_plane_events(router: cr.CrashRouter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AEP_FRONT_SPOOL_DIR", str(_spool(tmp_path, [{"kind": "SWAP_FAILED", "pid": 5, "nonce": "z"}])))
-    res = router.check()
+    res = router.check(crash_dir=tmp_path / "no_crash")  # ONT-54: hermetic (no real /var/crash), grouped by last_seen
     assert res["new_since_last_check"] >= 1 and res["alerts"][0]["source"] == "aep_backend"
