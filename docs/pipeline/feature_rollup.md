@@ -369,3 +369,38 @@ Cadena desde Rollup 5: `feature_20261107_115813_e4_reconcile.md` → `feature_20
 **Documento activo:** [`feature_20261113_080406_ont45_topos_residue.md`](feature_20261113_080406_ont45_topos_residue.md)
 
 **Próximo rollup:** al quinto documento posterior a `feature_20261113_004026_mcp_coverage_reinforcement.md` (2 de 5 al cierre de `feature_20261113_080406_ont45_topos_residue.md`).
+
+## Rollup 7: ONT-46 a ONT-60 (Graphos G2, 2026-11-14)
+
+Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `feature_20261113_ont46_extractor_precision.md` → … → `feature_20261114_ont60_sandbox_packages.md`.
+
+**Nota de cadencia:** la regla de cada quinto documento no se cumplió en ONT-50, ONT-55 ni ONT-60. Este rollup consolida los quince documentos y reinicia el contador.
+
+| ONT | Documento | Resultado |
+|-----|-----------|-----------|
+| 46 | `feature_20261113_ont46_extractor_precision.md` | precisión del extractor de hilos |
+| 47 | `feature_20261113_ont47_dogfood_frictions.md` | fricciones de dogfooding, ronda 1 |
+| 48 | `feature_20261113_ont48_dogfood_gaps.md` | gaps de dogfooding, ronda 2 |
+| 49 | `feature_20261114_ont49_dogfood_round3.md` | gaps de dogfooding, ronda 3 |
+| 50 | `feature_20261114_ont50_neighbors_projection.md` | descubrimiento LAN y proyección única |
+| 51 | `feature_20261114_ont51_discover_supervise.md` | discover por afinidad y supervisión |
+| 52 | `feature_20261114_ont52_round6.md` | ronda 6 de gaps |
+| 53 | `feature_20261114_ont53_ort_synonyms_walk.md` | telemetría ORT y sinónimos EN+ES |
+| 54 | `feature_20261114_ont54_round7.md` | ronda 7 de gaps |
+| 55 | `feature_20261114_ont55_kanban_work.md` | tarjetas de trabajo en kanban, 1345 passed |
+| 56 | `feature_20261114_ont56_reclassify_snapshot.md` | reclasificación de tarjetas legadas, 1359 passed |
+| 57 | `feature_20261114_ont57_severity_table.md` | severidad explícita por estado, 1386 passed |
+| 58 | `feature_20261114_ont58_pending.md` | pendientes de ONT-57 cerrados, 1396 passed |
+| 59 | `feature_20261114_ont59_go_philosophy_kanban.md` | kanban con la filosofía de Go, 1462 passed, publicado en dev y main |
+| 60 | `feature_20261114_ont60_sandbox_packages.md` | VERIFIED tras dos ciclos (ciclo 1 de seguridad en T2 corregido), 1498 passed, docs publicados en dev |
+
+**Invariantes preservadas en el tramo:**
+1. Ninguna salida truncada sin `cursor`; la paginación no re-ejecuta el comando.
+2. Un toolchain montado nunca expone una ruta vetada: ninguna raíz es igual o ancestra de una ruta de la blacklist.
+3. La DB real no se toca desde las pruebas; el hallazgo G67 queda abierto para ONT-61 T0.
+4. Ningún tier hace commit, merge o push desde Graphos; `main` no se toca en ONT-60.
+5. Modo Short por defecto; commit y push user-gated.
+
+**Documento activo:** [`feature_20261114_ont60_sandbox_packages.md`](feature_20261114_ont60_sandbox_packages.md)
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (0 de 5).

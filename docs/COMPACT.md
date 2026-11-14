@@ -1,9 +1,9 @@
-# Context Compaction Guidance: AEP (ONT-59 VERIFIED en un ciclo; publicado en dev y main)
-Preserve: pipeline mode Short (control de costos); ONT-59 base `dev` `da22d5d`, HEAD `9ee5d8c` en worktree `agent-a136904026e74a4af`; commits `fa64ad7` (T4), `ad20bcb` (T1 K1), `23dd2d5` (T2 K2), `37095cb` (T3 K3), `9ee5d8c` (T5 canal stable).
-ONT-59 numbers: Dokimos 1462 passed, 0 failed; ruff 318 limpio; migraciones sobre copia de la DB real (322 tarjetas, 95 artefactos) idempotentes; K1 de punta a punta con go1.27.4.
-Decisions taken by user/orchestrator: kanban con filosofía Go (K1 contenido, K2 errores como valores, K3 curación mecánica, T4 toolchain soportado); Go `stable` por defecto en el montaje (`AEP_GO_CHANNEL=pinned` para fijar; pin de caída go1.27.4); host Go 1.22.5 → 1.27.4 (rollback `/mnt/apps/tools/go1.22.5`); reinicio deja stats a cero y tarjetas legadas sin source_hash se democionan al recompilar (aceptado).
-Open items with routing: G61 acción `lint` sin build_env (server.py ~1510) y G62 previous_stats de una generación → ONT-59 menor (Pragma si el usuario lo pide); G58–G60 → ONT-60 (cuando el usuario lo pida).
-Hecho operativo: 40 tarjetas vivas con source_hash NULL bajan a LINTED al recompilar y recuperan promoción al pasar canary.
-Next actions: (1) Hermon commit `docs(ONT-59)` con los documentos de este G2, publicado en dev y main con autorización explícita del usuario (2026-11-14); (2) ONT-60 cuando el usuario lo pida.
-Drop: pytest output, diffs intermedios, logs de subagentes, plan_ont59 ya ejecutado, detalle de commits ya en el registro.
-Recovery: tras un crash, leer docs/pipeline/feature_20261114_ont59_go_philosophy_kanban.md y este archivo; luego `git status` y `git log --oneline da22d5d..HEAD` en el worktree.
+# Context Compaction Guidance: AEP (ONT-60 VERIFIED tras dos ciclos; docs publicados en dev)
+Preserve: pipeline mode Short (control de costos); ONT-60 base `dev` `3a89423`, HEAD `e211140` en worktree `agent-a0368bc8d404d0b6c`; commits `cf2d8fb` (T3 G60), `8da28ad` (T1 G58), `b9b7f43` (T2 G59), `5f35ed7` (T5 G62), `5dad90d` (T4 G61), `e211140` (corrección de seguridad del ciclo 2).
+ONT-60 numbers: Dokimos VERIFIED 1498 passed, 0 failed, 205 s; ruff 324 limpio; ciclo 1 DEFECTIVE LOGIC_ERROR de seguridad en T2 (raíces que contienen rutas vetadas), corregido con raíces ancestras de rutas vetadas, `auto_mounts_skipped`, nombres validados y tope 64.
+Decisions taken by user/orchestrator: publicación solo en `dev` (main no); trailers Sonnet 5.5 de los commits de Pragma conservados; G67 se atiende en ONT-61 T0, no en ONT-60.
+Open items with routing: G67 alta (`import server` migra la DB real; aislar con `AEP_DATA_HOME`) → ONT-61 T0; G63 flaky `test_criterion_6_zero_fd_leak`; G64 sandbox sin `/etc/alternatives`; G65 bloque `go` en `discover`; G66 `IN (?,...)` por `json_each`. Operativo: `setup.sh --update` pendiente de decisión del usuario (`go.channel` null).
+Hecho operativo: la salida de `output_ref` vive en `<pool>/sandbox_out/` y la limpia el reaper de slots; expirada devuelve `PARAM_ERROR` (re-ejecutar).
+Next actions: (1) commit `docs(ONT-60)` publicado en `dev` (completado); (2) ONT-61 T0 cuando el usuario lo pida; (3) decidir `setup.sh --update` en el host.
+Drop: pytest output, diffs intermedios, logs de subagentes, plan_ont60 ya ejecutado, detalle de commits ya en el registro.
+Recovery: tras un crash, leer `docs/pipeline/feature_20261114_ont60_sandbox_packages.md` y este archivo; luego `git status` y `git log --oneline 3a89423..HEAD` en el worktree.

@@ -781,3 +781,30 @@ flowchart LR
 | M8 | Commit `docs(ONT-59)` y publicación en `dev` y `main` | Hermon | ✅ publicado en dev y main (autorización explícita del usuario, 2026-11-14) |
 
 Decisiones del orquestador: K1 invalida evidencia por contenido y toolchain; K2 registra fallos sin degradar PROMOTED; K3 cura lo mecánico antes de juzgar (`go fix` solo con `autofix`); canal `stable` por defecto en el montaje, con pin de caída. Abiertos menores: G61 (`lint` sin build_env) y G62 (`previous_stats` de una generación). Siguen abiertos G58–G60 (ONT-60).
+
+## 27. Fricciones de sandbox y paquetes halladas con AEP ONT-60 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont60_sandbox_packages.md` (anterior: `feature_20261114_ont59_go_philosophy_kanban.md`). Estado: VERIFIED tras dos ciclos Pragma→Dokimos (ciclo 1 DEFECTIVE de seguridad en T2; ciclo 2 VERIFIED, 1498 passed, 0 failed, ruff 324). Commits `cf2d8fb`, `8da28ad`, `b9b7f43`, `5f35ed7`, `5dad90d`, `e211140`.
+
+```mermaid
+flowchart LR
+    I27["Intent: fricciones de sandbox y paquetes (ONT-60)"] --> N1["N1: plan inline Short (orquestador) ✅"]
+    N1 --> P1["P1: Pragma T1 a T5, ciclo 1 ✅"]
+    P1 --> D1["D1: Dokimos DEFECTIVE de seguridad en T2 (corregido) ✅"]
+    D1 --> P2["P2: Pragma ciclo 2, e211140 ✅"]
+    P2 --> V27["V: Dokimos VERIFIED 1498 passed ✅"]
+    V27 --> G27["G: Graphos G2 documentado ✅"]
+    G27 --> H27["H: docs(ONT-60) publicado en dev (Hermon)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G58 salida paginada con `output_ref` y `cursor` (`8da28ad`) | Pragma | ✅ |
+| M2 | T2 G59 `auto_mounts` tras corrección de seguridad (`b9b7f43`, `e211140`) | Pragma | ✅ |
+| M3 | T3 G60 `package check` con `source` y respaldo PATH (`cf2d8fb`, `e211140`) | Pragma | ✅ |
+| M4 | T4 G61 `lint` en modo módulo (`5dad90d`) | Pragma | ✅ |
+| M5 | T5 G62 `stats_history` tope 5 (`5f35ed7`) | Pragma | ✅ |
+| M6 | Dokimos VERIFIED (1498 passed, 0 failed, ruff 324) | Dokimos | ✅ |
+| M7 | Documentación: feature ONT-60, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
+| M8 | Commit `docs(ONT-60)` solo en `dev` | Hermon | publicado en dev |
+| M9 | G67 aislamiento de la DB real (ONT-61 T0) | Pragma | abierto |

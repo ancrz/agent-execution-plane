@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1462_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1498_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -331,7 +331,7 @@ The plane exposes 17 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `sandbox_run` | `DIMINISHED` | `sandbox_run(command: Union[str, List[str]] = "", cmd: Optional[Union[str, List[str]]] = None, share_net: bool = False, working_dir: Optional[str] = None, ro_paths: Optional[List[str]] = None, rw_paths: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, parse: Optional[str] = None, timeout: int = 60) -> str` | Executes commands inside an ephemeral `bwrap` sandbox (`--unshare-all`, `share_net=False` by default). Supports string or argument list (`command`/`cmd` auto-joined with `shlex.join`), authorized `working_dir`, `ro_paths`, `rw_paths`, `env` injection, auto-resolves `.venv` symlinks, redirects tool caches to `/tmp` tmpfs, and features structured test/linter output parsing (`parse="pytest"|"ruff"|"auto"` extracting `passed`, `failed`, `errors`, `skipped`, `duration_s`, failing test node IDs `failures: [...]`, composite parsing `{"tool": "composite", "ruff": {...}, "pytest": {...}}`), and aggressive output trimming in `brief`/`terse` mode (emitting strictly `{status, exit_code, parsed, t}` and suppressing input reflection). | `{"status": "SUCCESS"|"EXEC_FAILED"|"PARAM_ERROR"|"PERMISSION_DENIED", "exit_code": int, "share_net": bool, "working_dir": str, "ro_mounts": [...], "stdout": str, "stderr": str, "parsed": {...}, "telemetry": {...}}` | Blocks blacklisted paths (`/etc/shadow`, `~/.ssh`) with `status: "PERMISSION_DENIED"` and cryptographic audit logging. Fail-soft `PARAM_ERROR` on missing commands.  ONT-48: exit 0 con `Traceback` o `PermissionError` en la salida devuelve `status: "EXEC_SUSPECT"` con `hint` (no es error de campo); con `rw_paths` no se monta `/` en `ro_mounts` y `/dev` es devtmpfs propio del sandbox. |
+| `sandbox_run` | `DIMINISHED` | `sandbox_run(command: Union[str, List[str]] = "", cmd: Optional[Union[str, List[str]]] = None, share_net: bool = False, working_dir: Optional[str] = None, ro_paths: Optional[List[str]] = None, rw_paths: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None, parse: Optional[str] = None, timeout: int = 60) -> str` | Executes commands inside an ephemeral `bwrap` sandbox (`--unshare-all`, `share_net=False` by default). Supports string or argument list (`command`/`cmd` auto-joined with `shlex.join`), authorized `working_dir`, `ro_paths`, `rw_paths`, `env` injection, auto-resolves `.venv` symlinks, redirects tool caches to `/tmp` tmpfs, and features structured test/linter output parsing (`parse="pytest"|"ruff"|"auto"` extracting `passed`, `failed`, `errors`, `skipped`, `duration_s`, failing test node IDs `failures: [...]`, composite parsing `{"tool": "composite", "ruff": {...}, "pytest": {...}}`), and aggressive output trimming in `brief`/`terse` mode (emitting strictly `{status, exit_code, parsed, t}` and suppressing input reflection). | `{"status": "SUCCESS"|"EXEC_FAILED"|"PARAM_ERROR"|"PERMISSION_DENIED", "exit_code": int, "share_net": bool, "working_dir": str, "ro_mounts": [...], "stdout": str, "stderr": str, "parsed": {...}, "telemetry": {...}}` | Blocks blacklisted paths (`/etc/shadow`, `~/.ssh`) with `status: "PERMISSION_DENIED"` and cryptographic audit logging. Fail-soft `PARAM_ERROR` on missing commands.  ONT-48: exit 0 con `Traceback` o `PermissionError` en la salida devuelve `status: "EXEC_SUSPECT"` con `hint` (no es error de campo); con `rw_paths` no se monta `/` en `ro_mounts` y `/dev` es devtmpfs propio del sandbox. ONT-60: si la salida se trunca, se guarda completa en el pool (0600) y la respuesta trae `output_ref` + `cursor`; `sandbox_run(output_ref=..., cursor=N, limit=...)` pagina sin re-ejecutar (rutas fuera del pool dan `PARAM_ERROR`). Los toolchains enlazados fuera del jail se montan en solo lectura y se listan en `auto_mounts` (o en `auto_mounts_skipped` con motivo); ninguna raíz expone una ruta vetada. |
 | `async_job_dispatch` | `DIMINISHED` | `async_job_dispatch(action: str = "dispatch", command: Optional[str] = None, label: Optional[str] = None, group: str = "default", working_dir: Optional[str] = None, task_id: Optional[int] = None, lines: int = 50, limit: int = 15, verbosity: str = "summary", agent_id: str = "default", cursor: int = 0, confirm: bool = False) -> str` | Unified async job queue via Pueue: enqueue tasks (`dispatch`) or inspect status and logs (`inspect`/`status`/`log`). Features automatic daemon startup, centralized secret masking, and compact status pagination (`action="status"` with `limit`/`cursor`) reducing token footprints by 97.4%. | Action-dependent typed JSON (`status`, `task_id`, `group`, `command`, queue state, or task logs). | Returns `status: "PARAM_ERROR"` on invalid inputs or `status: "DEGRADED"` if daemon is missing.  ONT-48: `dispatch` acepta `confirm: bool = False`. Comandos outward-facing (`git push`, `docker push`, `gh pr merge`, `gh release create`, `npm publish`, `twine upload`, `uv publish`, `cargo publish`, `pip upload`) devuelven `CONFIRM_REQUIRED` (o `PERMISSION_DENIED` si tier < 7rwx) sin encolar; con `confirm=True` en 7rwx se despachan y quedan en el ledger como `job.outward_confirmed`. Etiqueta vacía → `aep-<tool>-<sha256[:8]>` con `label_generated: true`. ONT-49: `status` añade `history_drop: {from, to}` + `severity: WARN` (y evento de ledger `jobs.history_drop`) si el total de tareas cae >50 % desde un total previo >= 10. |
 
 #### Domain 4: Crash Forensics & Kernel Observability (2 Tools)
@@ -376,7 +376,7 @@ Source of truth: `aep_ctl(action="schema", verbosity="detail")`. Tiers are the m
 | `aep_ctl(domain="network", action="interfaces")` | List network interfaces and counters. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="network", action="routes")` | Read the routing table. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="network", action="neighbors")` | List LAN neighbors: TCP SYN sweep (UDP/9 fallback) of scope-link prefixes <= /22 plus passive ARP. `name` = interface; `args` = `sweep`, `nosweep`, `probe`, `timeout=<ms>`. ONT-50. | read (sweep needs 6rw-) | 4r-- | passive ARP only below 6rw-; `egress_blocked_suspected` hint when the sweep gets no neighbors |
-| `aep_ctl(domain="package", action="check")` | Check whether package `name` is installed (dpkg). | read | 4r-- | none (read-only) |
+| `aep_ctl(domain="package", action="check")` | Check whether package `name` is installed (dpkg; ONT-60: si dpkg no lo ve, respaldo por PATH con `source: "path"`, `path`, `realpath` y `version`; `source: "dpkg"` con dpkg). El nombre se valida con `^[A-Za-z0-9._+][A-Za-z0-9._+-]*$`. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="package", action="info")` | Show dpkg info for package `name`. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="package", action="installed")` | List installed packages (paginated by `limit`/`cursor`). | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="package", action="list")` | List packages (paginated by `limit`/`cursor`). | read | 4r-- | none (read-only) |
@@ -1100,6 +1100,25 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-60 fricciones de sandbox y paquetes halladas con AEP (VERIFIED tras dos ciclos; 1498 passed, 0 failed, ruff limpio):** `sandbox_run` ya no trunca sin cursor: la salida completa queda en el pool y se pagina con `output_ref` + `cursor` sin re-ejecutar (G58). Los toolchains enlazados fuera del jail se montan en solo lectura (`auto_mounts`) con la blacklist aplicada a cada raíz; el ciclo 1 halló que una raíz podía contener una ruta vetada y se corrigió en el ciclo 2 (G59). `package check` cae a PATH si dpkg no lo ve (G60). `lint` usa el modo módulo con healing informativo (G61). `stats_history` conserva las últimas 5 generaciones (G62). Abierto: G67, el `import server` migra la DB real (ONT-61 T0). Detalle: `docs/pipeline/feature_20261114_ont60_sandbox_packages.md`.
+
+```mermaid
+flowchart LR
+    I60["Intent: fricciones de sandbox y paquetes (ONT-60)"] --> M1["M1: T1 salida paginada output_ref (G58) ✅"]
+    I60 --> M2["M2: T2 toolchains fuera del jail, tras corrección de seguridad (G59) ✅"]
+    I60 --> M3["M3: T3 package check con respaldo PATH (G60) ✅"]
+    I60 --> M4["M4: T4 lint en modo módulo (G61) ✅"]
+    I60 --> M5["M5: T5 stats_history (G62) ✅"]
+    M1 --> V60["M6: verified (Dokimos VERIFIED, 1498 passed) ✅"]
+    M2 --> V60
+    M3 --> V60
+    M4 --> V60
+    M5 --> V60
+    V60 --> D60["M7: documented (Graphos G2) ✅"]
+    D60 --> H60["M8: docs(ONT-60) publicado en dev (Hermon)"]
+    V60 -. "G67 abierto" .-> N60["M9: ONT-61 T0 aislamiento de la DB real (abierto)"]
 ```
 
 **ONT-59 kanban con la filosofía de Go (VERIFIED en un ciclo; 1462 passed, 0 failed, ruff limpio):** la evidencia de una tarjeta se liga a su `source_hash` (sha256 del código tras gofmt) y al `toolchain` (`go env GOVERSION`): recompilar con fuente distinta o con otro Go crea una generación nueva en LINTED sin heredar PROMOTED ni el canary, y el catálogo guarda las estadísticas previas (K1). Un fallo de build se registra como dato (`failures`, `last_error_class`) sin degradar un PROMOTED (K2). Antes de juzgar se aplican gofmt y `go vet ./...` como compuerta; `go fix` se informa y se aplica solo con `autofix=True` (K3). El canal de Go del montaje es `stable` (sección 12). Detalle: `docs/pipeline/feature_20261114_ont59_go_philosophy_kanban.md`.
