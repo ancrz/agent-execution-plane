@@ -108,3 +108,20 @@ Registro: `docs/pipeline/feature_20261114_ont49_dogfood_round3.md`. Base `dev` `
 | G21 | `network.neighbors` | — | **no aprobado**: decisión de diseño del usuario |
 
 Pendientes: G18 (decisión de contrato) y G21 (decisión del usuario). Medidas de la ronda: terse `limit=1` con 45 tarjetas, 175 tok (tope 400); `archive` sin candidatos responde `NOOP`; `db_scope` visible en detail; `history_drop` con `WARN` y evento de auditoría al caer más de un 50 % desde 10 o más tareas.
+
+## ONT-50: ronda 4
+
+Registro: `docs/pipeline/feature_20261114_ont50_neighbors_projection.md`. Base `dev` `4f6aaf0`, 8 commits de Pragma `36c36dc`..`5ebc80f`. Dokimos: **VERIFIED**, 1266 passed (baseline 1235, +31 casos), flake de carga en `test_cold_extraction` que pasa aislado, ruff limpio (282 archivos), budgets sin cambios, GAPS_BASELINE 1.
+
+| Gap | Tarea | Commit | Estado |
+|-----|-------|--------|--------|
+| G21 | T1 `aep_ctl network neighbors` (motor, server, CLI, schema, `discover`) | `36c36dc`, `d058642` | cerrado |
+| G21 | T1 barrido primario TCP SYN con fallback UDP/9 (desviación del plan) | `d0433e6` | cerrado; motivo decidido por el orquestador (fix spec 2026-11-14) |
+| G21 | T1 hint `egress_blocked_suspected` | `5ebc80f` | cerrado con limitación |
+| G18 | T2 proyección única en `playbook_run` compacto; `detail` conserva ambos | `5c9b934` | cerrado; cambia contrato compacto |
+| G31 | T3 `NOOP`, `DRY_RUN` y `SKIPPED` como INFO | `296b8b7` | cerrado |
+| G32 | T4 `async_job_dispatch(status, terse)` pliega filas | `ab4ab3b` | cerrado |
+
+**Nota de VPN (limitación del host de medición).** Hay una VPN con kill-switch (tabla nft `inet windscribe`) que bloquea el egress hacia la LAN. En vivo, `neighbors` con tier 7rwx barrió 254 hosts por TCP SYN, encontró solo el gateway en 804 ms y devolvió `egress_blocked_suspected: true`. Mientras el kill-switch esté activo, el descubrimiento de la LAN completa no funciona en este host. La atribución a la VPN es diagnóstico del orquestador, no comprobado aisladamente. Para obtener vecinos reales hay que desactivar el kill-switch o usar una ruta sin VPN.
+
+Motivo del cambio de barrido a TCP SYN (no registrado en el commit `d0433e6`): Decisión del orquestador (fix spec 2026-11-14): el host devuelve EPERM a todo UDP saliente nuevo hacia la LAN (netfilter), mientras un SYN TCP no bloqueante sí sale; por eso TCP SYN es el método primario y UDP/9 el fallback. Fuera de alcance: ARP crudo por `AF_PACKET`, tabla OUI y escucha mDNS/SSDP. Detalle: `docs/sdd/sdd_ont50_neighbors_projection.md`.

@@ -508,3 +508,31 @@ flowchart LR
 | M5 | Commit de la tanda y ff a `dev` | Hermon | pendiente |
 
 Residuo fuera de ONT-49: G18 (decisión de contrato de tests), G21 `network.neighbors` (decisión de diseño del usuario). G27 queda cerrado en detección: `history_drop` no impide la caída de la cola.
+
+## 17. Descubrimiento LAN, proyección única y fricciones ronda 4 ONT-50 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont50_neighbors_projection.md` (anterior: `feature_20261114_ont49_dogfood_round3.md`). SDD: `docs/sdd/sdd_ont50_neighbors_projection.md`. Estado: VERIFIED en worktree `agent-ad4287007de048e0a`, HEAD `5ebc80f`, base `dev` `4f6aaf0`; publicado en dev.
+
+```mermaid
+flowchart LR
+    I17["Intent: descubrimiento LAN, proyección única y fricciones ronda 4 (ONT-50)"] --> N1["N1: ronda dogfood sobre el plano vivo, G18, G21, G31, G32 (orquestador) ✅"]
+    N1 --> N2["N2: T1-T4 en 8 commits 36c36dc..5ebc80f, rollup 9b12da5 (Pragma) ✅"]
+    N2 --> V17["M: verified (Dokimos, 1266 passed, flake de carga conocido; gaps 1) ✅"]
+    V17 --> D17["M: documentado (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, reporte, rollup) ✅"]
+    D17 --> H17["M: commit (Hermon, publicado en dev)"]
+    V17 --> R17["Decidido: motivo del barrido TCP SYN (fix spec 2026-11-14) ✅"]
+    V17 --> R17b["Limitación: kill-switch de VPN bloquea el egress a la LAN ⛔"]
+    V17 --> R17c["Futuro: ARP crudo, tabla OUI, escucha mDNS/SSDP ⛔"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | Ronda dogfood sobre el plano vivo: G18, G21, G31, G32 | Orquestador (tools AEP) | ✅ |
+| M2 | T1 `network.neighbors` (`36c36dc`, `d058642`, `d0433e6`, `5ebc80f`), T2 G18 (`5c9b934`), T3 G31 (`296b8b7`), T4 G32 (`ab4ab3b`), T5 rollup ONT-49 (`9b12da5`) | Pragma | ✅ |
+| M3 | Dokimos VERIFIED: 1266 passed (+31 casos), flake de carga en `test_cold_extraction` que pasa aislado, ruff limpio (282), gaps 1, budgets sin subir | Dokimos | ✅ VERIFIED |
+| M4 | Documentación: feature, SDD, reporte (sección ONT-50), README (badge 1266 y grafo), STATE, COMPACT, MILESTONES, rollup | Graphos G2 | ✅ |
+| M5 | Commit de la tanda y ff a `dev` | Hermon | publicado en dev |
+
+Decisiones delegadas por el usuario (2026-11-14), tomadas por el orquestador: `neighbors` como acción de `aep_ctl`; barrido solo con tier >= 6rw-; prefijos <= /22; sondas <= 16; proyección única en compactos; `NOOP`/`DRY_RUN`/`SKIPPED` como INFO; pueue terse plegado; ARP crudo, OUI y mDNS/SSDP fuera de alcance.
+
+Desviación del plan decidida (barrido primario TCP SYN, commit `d0433e6`): Decisión del orquestador (fix spec 2026-11-14): el host devuelve EPERM a todo UDP saliente nuevo hacia la LAN (netfilter), mientras un SYN TCP no bloqueante sí sale; por eso TCP SYN es el método primario y UDP/9 el fallback. Residuo: limitación del host con VPN kill-switch; G27 sigue cerrado solo en detección.

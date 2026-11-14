@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1235_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1266_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -374,6 +374,7 @@ Source of truth: `aep_ctl(action="schema", verbosity="detail")`. Tiers are the m
 | `aep_ctl(domain="network", action="inspect")` | Summarize interfaces from `/proc/net/dev`. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="network", action="interfaces")` | List network interfaces and counters. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="network", action="routes")` | Read the routing table. | read | 4r-- | none (read-only) |
+| `aep_ctl(domain="network", action="neighbors")` | List LAN neighbors: TCP SYN sweep (UDP/9 fallback) of scope-link prefixes <= /22 plus passive ARP. `name` = interface; `args` = `sweep`, `nosweep`, `probe`, `timeout=<ms>`. ONT-50. | read (sweep needs 6rw-) | 4r-- | passive ARP only below 6rw-; `egress_blocked_suspected` hint when the sweep gets no neighbors |
 | `aep_ctl(domain="package", action="check")` | Check whether package `name` is installed (dpkg). | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="package", action="info")` | Show dpkg info for package `name`. | read | 4r-- | none (read-only) |
 | `aep_ctl(domain="package", action="installed")` | List installed packages (paginated by `limit`/`cursor`). | read | 4r-- | none (read-only) |
@@ -392,7 +393,7 @@ Chains existing tools and artifacts into validated DAG workflows (e.g., E2E: sta
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `playbook_run` | `DIMINISHED` | `playbook_run(action: str = "run", name: Optional[str] = None, vars: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None, steps: Optional[Union[List[Dict[str, Any]], str]] = None, return_only: str = "all", select_fields: Optional[List[str]] = None, stop_on_error: bool = True, description: Optional[str] = None, intent_description: Optional[str] = None, params_contract: Optional[List[Dict[str, Any]]] = None, names: Optional[List[str]] = None, apply: bool = False) -> str` | Unified execution of DAG workflows (`run`), single-turn ephemeral batch pipelines (`batch` / `code` / `ephemeral` / `pipeline`) supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`), cross-agent shared RAM session cache piping (`$cache.<key>.*`, `$slot.<key>.*`), failed steps preservation (`failed_steps`), server-side field projection (`select_fields` cutting tokens by 80–96.98%), defining automations (`create`), listing inventory (`list`), and safe pruning (`prune`). | Action-dependent typed JSON (`status`, `playbook`, `steps_run`, `results`, `output`, `failed_steps`, `token_savings_estimate`). | Returns `status: "PARAM_ERROR"` on missing inputs, `status: "INVALID_ACTION"` on invalid actions, and `status: "LINT_ERROR"` on recursion attempts. |
+| `playbook_run` | `DIMINISHED` | `playbook_run(action: str = "run", name: Optional[str] = None, vars: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None, steps: Optional[Union[List[Dict[str, Any]], str]] = None, return_only: str = "all", select_fields: Optional[List[str]] = None, stop_on_error: bool = True, description: Optional[str] = None, intent_description: Optional[str] = None, params_contract: Optional[List[Dict[str, Any]]] = None, names: Optional[List[str]] = None, apply: bool = False) -> str` | Unified execution of DAG workflows (`run`), single-turn ephemeral batch pipelines (`batch` / `code` / `ephemeral` / `pipeline`) supporting inter-step parameter piping (`$prev.*`, `$steps.<id>.*`), cross-agent shared RAM session cache piping (`$cache.<key>.*`, `$slot.<key>.*`), failed steps preservation (`failed_steps`), server-side field projection (`select_fields` cutting tokens by 80–96.98%; ONT-50: in `summary`/`brief`/`terse` the projected value is emitted once at top level and `output.<path>` is omitted, while `detail` keeps both), defining automations (`create`), listing inventory (`list`), and safe pruning (`prune`). | Action-dependent typed JSON (`status`, `playbook`, `steps_run`, `results`, `output`, `failed_steps`, `token_savings_estimate`). | Returns `status: "PARAM_ERROR"` on missing inputs, `status: "INVALID_ACTION"` on invalid actions, and `status: "LINT_ERROR"` on recursion attempts. |
 
 ---
 
@@ -1098,6 +1099,19 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-50 descubrimiento de vecinos LAN, proyección única y fricciones ronda 4 (VERIFIED, publicado en dev; 1266 passed, flake de carga conocido en `test_cold_extraction`, gaps 1):** `aep_ctl(domain="network", action="neighbors")` lista los vecinos de la LAN: barrido por TCP SYN no bloqueante (fallback UDP/9) de los prefijos `scope link` de /22 o más estrechos, más lectura pasiva de `/proc/net/arp`. El barrido solo corre con tier >= 6rw-; en 5r-x y 4r-- la acción es pasiva. `playbook_run` compacto (`summary`/`brief`/`terse`) proyecta una vez en el nivel superior sin `output` duplicado; `detail` conserva ambos. `NOOP`, `DRY_RUN` y `SKIPPED` son severidad INFO, y `async_job_dispatch(status, terse)` pliega las filas. Limitación medida en este host: un kill-switch de VPN bloquea el egress a la LAN; el barrido responde con `egress_blocked_suspected: true` y solo aparece el gateway. Fuera de alcance: ARP crudo (requiere privilegios), tabla OUI y escucha mDNS/SSDP. Detalle: `docs/pipeline/feature_20261114_ont50_neighbors_projection.md` y `docs/sdd/sdd_ont50_neighbors_projection.md`.
+
+```mermaid
+flowchart LR
+    I["Intent: descubrimiento LAN, proyección única y fricciones ronda 4 (ONT-50)"] --> M1["M1: ronda dogfood sobre el plano vivo (G18, G21, G31, G32, orquestador) ✅"]
+    M1 --> M2["M2: implemented (Pragma, 8 commits 36c36dc..5ebc80f) ✅"]
+    M2 --> M3["M3: verified (Dokimos, 1266 passed, flake de carga conocido; gaps 1) ✅"]
+    M3 --> M4["M4: documented (Graphos G2: feature, SDD, README, STATE, COMPACT, MILESTONES, reporte, rollup) ✅"]
+    M4 --> M5["M5: committed (Hermon, publicado en dev)"]
+    M3 --> B1["Decidido: motivo del barrido TCP SYN (fix spec 2026-11-14) ✅"]
+    M3 --> B2["Limitación: kill-switch de VPN bloquea el egress a la LAN ⛔"]
 ```
 
 **ONT-49 gaps de dogfooding ronda 3 (VERIFIED, publicado en dev; 1235 passed, 0 failed, gaps 1):** cuatro commits de Pragma (`d0b436e`..`44b8d8d`). `archive` sin candidatos responde `NOOP` sin `hint: null`; `kanban_board(terse)` pliega las tarjetas por `limit` (175 tok con 45 tarjetas y `limit=1`); `kanban_board` y `artifact_catalog` exponen `db_scope` (`real` o `custom`) y `db_path` en detail; `async_job_dispatch(status)` avisa con `history_drop` y `WARN` y registra `jobs.history_drop` en la auditoría cuando la cola cae más de un 50 % desde 10 tareas o más. G27 queda cerrado en detección, no en prevención. Omitidos o abiertos: G18 (proyección duplicada en `playbook_run(batch)`, decisión de contrato) y G21 `network.neighbors` (decisión de diseño pendiente). Detalle: `docs/pipeline/feature_20261114_ont49_dogfood_round3.md` y `docs/sdd/sdd_ont49_dogfood_round3.md`.
