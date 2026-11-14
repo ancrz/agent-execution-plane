@@ -20,10 +20,12 @@ export PATH="$HOME/.local/bin:$HOME/.local/share/go/bin:$HOME/.local/share/agent
 UV_VERSION="0.13.7"
 UV_SHA256_x86_64="c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83"
 UV_SHA256_aarch64="71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc"
-# Go 1.26.10 — hashes: https://go.dev/dl/?mode=json (campo sha256 de cada archive linux)
-GO_VERSION="1.26.10"
-GO_SHA256_amd64="ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
-GO_SHA256_arm64="3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797"
+# Go 1.27.4 — PIN DE CAÍDA (ONT-59/T5): solo se usa con AEP_GO_CHANNEL=pinned o si go.dev no es alcanzable.
+#   Con el canal `stable` (por defecto) la versión y su sha256 se resuelven en https://go.dev/dl/?mode=json.
+#   hashes: https://go.dev/dl/?mode=json (campo sha256 de cada archive linux), verificados el 2026-11-14.
+GO_VERSION="1.27.4"
+GO_SHA256_amd64="7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
+GO_SHA256_arm64="3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92"
 # golangci-lint v2.15.0 (go.mod go 1.26.0; binario compilado con Go 1.27.0, compatible con Go 1.26.10) — hashes:
 #   golangci-lint-2.15.0-checksums.txt (asset oficial del release)
 #   https://github.com/golangci/golangci-lint/releases/tag/v2.15.0
@@ -66,7 +68,7 @@ Options:
   --help, -h            Show this help message.
 
 Default (no flags):
-  Full idempotent provisioning of uv, Python 3.14 hermetic venv, Go toolchain,
+  Full idempotent provisioning of uv, Python 3.14 hermetic venv, Go toolchain (channel AEP_GO_CHANNEL=stable|pinned),
   static probes, Pueue daemon, Playwright, Omarchy skill hubs, and MCP seeding.
 HELP
 }
@@ -210,6 +212,35 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# -----------------------------------------------------------------------------
+# ONT-59/T5: canal de Go. `stable` (defecto) | `pinned`. Lo decide el montaje, no una descarga implícita en un build:
+# setup.sh deja el resultado en toolchain.env y AEP (engine/go_toolchain.py) lo lee (AEP_GO_BIN, ruta absoluta).
+# -----------------------------------------------------------------------------
+# Política de Go: solo se parchean las dos últimas mayores (hoy 1.27 y 1.26). Mantener igual a
+# GO_SUPPORTED_MIN de engine/go_toolchain.py y actualizar al salir Go 1.28.
+GO_SUPPORTED_MIN="1.26"
+AEP_DATA_DIR="${AEP_DATA_HOME:-$HOME/.local/share/agent-os}"
+TOOLCHAIN_ENV="$AEP_DATA_DIR/toolchain.env"
+
+toolchain_env_get() {
+    [[ -f "$TOOLCHAIN_ENV" ]] || return 0
+    sed -n "s/^$1=//p" "$TOOLCHAIN_ENV" | tail -n1 | tr -d "'\""
+}
+go_channel() {
+    case "${AEP_GO_CHANNEL:-$(toolchain_env_get AEP_GO_CHANNEL)}" in
+        pinned) echo "pinned" ;;
+        *) echo "stable" ;;
+    esac
+}
+# ver_ge A B: A >= B (orden de versión)
+ver_ge() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" == "$2" ]]; }
+go_semver() { GOTOOLCHAIN=local "$1" env GOVERSION 2>/dev/null | sed 's/^go//' || true; }
+# Go en uso: AEP_GO_BIN (env o toolchain.env) si es ejecutable; si no, el primero del PATH.
+go_current_bin() {
+    local c="${AEP_GO_BIN:-$(toolchain_env_get AEP_GO_BIN)}"
+    if [[ -n "$c" && -x "$c" ]]; then echo "$c"; else command -v go 2>/dev/null || true; fi
+}
+
 # Cuenta los clientes MCP (CLIs) presentes en PATH donde aep-sync.sh puede registrar el servidor.
 count_mcp_clients() {
     local n=0 c
@@ -270,11 +301,27 @@ run_check() {
 
     # 3. Golang Toolchain
     local GO_BIN
-    GO_BIN="$(command -v go 2>/dev/null || echo "$HOME/.local/bin/go")"
+    GO_BIN="$(go_current_bin)"
+    [[ -n "$GO_BIN" ]] || GO_BIN="$HOME/.local/bin/go"
     if [[ -x "$GO_BIN" ]]; then
-        local GO_VER
-        GO_VER="$("$GO_BIN" version 2>/dev/null || echo "present")"
-        echo -e "[PASS] Golang: $GO_VER ($GO_BIN)"
+        local GO_VER GO_SEMVER GO_SUP="sí" GO_LATEST="unknown"
+        GO_VER="$(GOTOOLCHAIN=local "$GO_BIN" version 2>/dev/null || echo "present")"
+        GO_SEMVER="$(go_semver "$GO_BIN")"
+        ver_ge "${GO_SEMVER:-0}" "$GO_SUPPORTED_MIN" || GO_SUP="no"
+        if command -v curl &>/dev/null && command -v python3 &>/dev/null; then  # solo lectura de red, fail-soft, 4 s
+            GO_LATEST="$(curl -fsS --max-time 4 'https://go.dev/dl/?mode=json' 2>/dev/null \
+                | python3 -c 'import json,sys
+print(next((r["version"][2:] for r in json.load(sys.stdin) if r.get("stable")), "unknown"))' 2>/dev/null || true)"
+            [[ -n "$GO_LATEST" ]] || GO_LATEST="unknown"
+        fi
+        local GO_LINE GO_CH
+        GO_CH="$(go_channel)"
+        GO_LINE="Golang: $GO_VER ($GO_BIN) channel=$GO_CH supported=$GO_SUP latest_stable=$GO_LATEST"
+        if [[ "$GO_SUP" == "sí" ]]; then
+            echo -e "[PASS] $GO_LINE"
+        else
+            echo -e "[WARN] $GO_LINE (fuera de soporte; mínimo $GO_SUPPORTED_MIN: ejecuta setup.sh --update)"
+        fi
     else
         echo -e "[FAIL] Golang: MISSING"
         DEGRADED=1
@@ -578,36 +625,105 @@ fi
 # 4. Golang Toolchain & Static Diagnostic Probes
 # -----------------------------------------------------------------------------
 log_step "Verificando compilador Golang..."
-if ! command -v go &>/dev/null && [[ ! -x "$HOME/.local/bin/go" ]]; then
-    log_step "Golang ausente; intentando instalación..."
-    if [[ "$SETUP_TIER" == "7rwx" ]] && timeout 3 sudo -n true 2>/dev/null; then
-        log_step "Instalando golang-go vía apt-get (sudo no-interactivo)..."
-        sudo -n apt-get update -qq && sudo -n apt-get install -y -qq golang-go 2>/dev/null || true
-    fi
+GO_CHANNEL="$(go_channel)"
+GO_CUR="$(go_current_bin)"
+GO_CUR_VER=""
+[[ -z "$GO_CUR" ]] || GO_CUR_VER="$(go_semver "$GO_CUR")"
+GO_SHA_VAR="GO_SHA256_${GO_ARCH}"
+GO_TARGET_VER="$GO_VERSION"
+GO_TARGET_SHA="${!GO_SHA_VAR:-}"
+GO_RESOLVED="pinned"
 
-    if ! command -v go &>/dev/null; then
-        log_step "Instalando Golang en espacio de usuario desde tarball oficial..."
-        GO_TARBALL="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
-        # Descarga -> valida -> extrae en tmp -> solo entonces reemplaza (nunca borrar la instalación previa antes).
-        GO_SHA_VAR="GO_SHA256_${GO_ARCH}"
-        if [[ $ARCH_OK -eq 1 ]] && download_verified "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" "${!GO_SHA_VAR:-}" \
-            && mkdir -p "$TMP_DIR/go_extract" \
-            && tar -C "$TMP_DIR/go_extract" -xzf "$TMP_DIR/$GO_TARBALL" \
-            && [[ -x "$TMP_DIR/go_extract/go/bin/go" ]]; then
-            mkdir -p "$HOME/.local/share"
-            rm -rf "$HOME/.local/share/go"
-            mv "$TMP_DIR/go_extract/go" "$HOME/.local/share/go"
-            ln -sfn "$HOME/.local/share/go/bin/go" "$HOME/.local/bin/go"
-            export PATH="$HOME/.local/share/go/bin:$HOME/.local/bin:$PATH"
+# resolve_go_stable: primer release `stable: true` de go.dev y el sha256 de su archive linux (mismo JSON oficial, HTTPS).
+resolve_go_stable() {
+    command -v python3 &>/dev/null || return 1
+    download "https://go.dev/dl/?mode=json" "$TMP_DIR/godl.json" || return 1
+    local out
+    out="$(python3 - "$TMP_DIR/godl.json" "$GO_ARCH" <<'PY'
+import json, sys
+try:
+    for rel in json.load(open(sys.argv[1])):
+        if rel.get("stable"):
+            for f in rel["files"]:
+                if f.get("os") == "linux" and f.get("arch") == sys.argv[2] and f.get("kind") == "archive":
+                    print(rel["version"].removeprefix("go"), f["sha256"])
+                    raise SystemExit(0)
+            break
+except Exception:
+    pass
+raise SystemExit(1)
+PY
+)" || return 1
+    read -r GO_TARGET_VER GO_TARGET_SHA <<<"$out"
+    [[ "$GO_TARGET_VER" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ && "$GO_TARGET_SHA" =~ ^[0-9a-f]{64}$ ]]
+}
+
+GO_NEEDS_INSTALL=0
+if [[ -z "$GO_CUR_VER" ]]; then
+    log_step "Golang ausente; se instalará la versión del canal $GO_CHANNEL..."
+    GO_NEEDS_INSTALL=1
+elif ! ver_ge "$GO_CUR_VER" "$GO_SUPPORTED_MIN"; then
+    log_warn "Go $GO_CUR_VER ($GO_CUR) está fuera de soporte (mínimo $GO_SUPPORTED_MIN); se instalará el gestionado por AEP sin tocar el existente."
+    GO_NEEDS_INSTALL=1
+elif [[ "$MODE" == "update" ]]; then
+    GO_NEEDS_INSTALL=1  # se decide tras resolver el objetivo
+fi
+
+if [[ $GO_NEEDS_INSTALL -eq 1 ]]; then
+    if [[ "$GO_CHANNEL" == "stable" ]]; then
+        if resolve_go_stable; then
+            GO_RESOLVED="stable"
         else
-            log_warn "Descarga/validación de Go falló; se conserva la instalación previa (si existe)."
+            GO_RESOLVED="pinned-fallback"
+            GO_TARGET_VER="$GO_VERSION"
+            GO_TARGET_SHA="${!GO_SHA_VAR:-}"
+            log_warn "No se pudo resolver el Go estable desde go.dev; se usa el pin go${GO_VERSION} (AEP_GO_CHANNEL_RESOLVED=pinned-fallback)."
         fi
+    fi
+    if [[ -n "$GO_CUR_VER" ]] && ver_ge "$GO_CUR_VER" "$GO_SUPPORTED_MIN" && ver_ge "$GO_CUR_VER" "$GO_TARGET_VER"; then
+        log_success "Go $GO_CUR_VER ya es >= $GO_TARGET_VER; sin cambios."
+        GO_NEEDS_INSTALL=0
     fi
 fi
 
-if command -v go &>/dev/null || [[ -x "$HOME/.local/bin/go" ]]; then
-    GO_CMD="$(command -v go || echo "$HOME/.local/bin/go")"
-    log_success "Golang disponible: $($GO_CMD version 2>/dev/null)"
+if [[ $GO_NEEDS_INSTALL -eq 1 ]]; then
+    log_step "Instalando Go $GO_TARGET_VER (canal $GO_CHANNEL) en espacio de usuario desde tarball oficial..."
+    GO_TARBALL="go${GO_TARGET_VER}.linux-${GO_ARCH}.tar.gz"
+    # Descarga -> valida -> extrae en tmp -> comprueba versión -> solo entonces reemplaza el gestionado
+    # (nunca se borra la instalación previa antes de validar la nueva; el Go ajeno del sistema no se toca).
+    if [[ $ARCH_OK -eq 1 ]] && download_verified "https://go.dev/dl/$GO_TARBALL" "$TMP_DIR/$GO_TARBALL" "$GO_TARGET_SHA" \
+        && mkdir -p "$TMP_DIR/go_extract" \
+        && tar -C "$TMP_DIR/go_extract" -xzf "$TMP_DIR/$GO_TARBALL" \
+        && [[ -x "$TMP_DIR/go_extract/go/bin/go" ]] \
+        && [[ "$(go_semver "$TMP_DIR/go_extract/go/bin/go")" == "$GO_TARGET_VER" ]]; then
+        mkdir -p "$HOME/.local/share" "$HOME/.local/bin"
+        if [[ -e "$HOME/.local/share/go" ]]; then mv "$HOME/.local/share/go" "$HOME/.local/share/go.prev.$$"; fi
+        mv "$TMP_DIR/go_extract/go" "$HOME/.local/share/go"
+        rm -rf "$HOME/.local/share/go.prev.$$"
+        [[ -n "$GO_CUR" ]] || ln -sfn "$HOME/.local/share/go/bin/go" "$HOME/.local/bin/go"  # sin shadowing de un Go ajeno
+        export PATH="$HOME/.local/share/go/bin:$HOME/.local/bin:$PATH"
+        GO_CUR="$HOME/.local/share/go/bin/go"
+    else
+        log_warn "Descarga/validación de Go falló; se conserva la instalación previa (si existe)."
+    fi
+fi
+
+if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then
+    mkdir -p "$AEP_DATA_DIR"
+    {
+        echo "# Generado por scripts/setup.sh (ONT-59/T5). AEP_GO_CHANNEL=stable|pinned; editar y re-ejecutar setup.sh para aplicar."
+        echo "AEP_GO_CHANNEL=$GO_CHANNEL"
+        echo "AEP_GO_CHANNEL_RESOLVED=$GO_RESOLVED"
+        echo "AEP_GO_VERSION=$(go_semver "$GO_CUR")"
+        echo "AEP_GO_BIN=$GO_CUR"
+        echo "AEP_GO_RESOLVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$TOOLCHAIN_ENV.tmp.$$" && mv "$TOOLCHAIN_ENV.tmp.$$" "$TOOLCHAIN_ENV"
+fi
+
+if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then
+    GO_CMD="$GO_CUR"
+    export AEP_GO_BIN="$GO_CMD" GOTOOLCHAIN=local  # el toolchain lo decide el montaje, no una descarga implícita
+    log_success "Golang disponible: $($GO_CMD version 2>/dev/null) ($GO_CMD) channel=$GO_CHANNEL ($GO_RESOLVED)"
 
     log_step "Compilando sondas Go estáticas (socket-monitor, fd-rescuer)..."
     mkdir -p "$HOME/.local/share/agent-os/bin"

@@ -1338,8 +1338,19 @@ Si faltan, la instalación **degrada con aviso** en lugar de fallar; `./scripts/
 | Arquitectura `x86_64` o `aarch64` | Binarios de uv, Go, golangci-lint, pueue | En otras arquitecturas se omiten Go/golangci-lint/pueue (sondas Go y cola asíncrona degradan); uv es imprescindible. |
 | Un cliente MCP (`claude`, `agy`, `codex` o `gemini`) | Registro automático del servidor | La instalación termina con "0 clientes MCP registrados" (aviso, no éxito pleno). |
 
-Versiones fijadas con SHA-256 (cabecera de `scripts/setup.sh`): uv 0.13.7, Go 1.26.10, golangci-lint v2.15.0,
-pueue v4.0.4. Las dependencias Python se instalan con `uv sync --frozen` desde `uv.lock`.
+Versiones fijadas con SHA-256 (cabecera de `scripts/setup.sh`): uv 0.13.7, golangci-lint v2.15.0, pueue v4.0.4.
+Las dependencias Python se instalan con `uv sync --frozen` desde `uv.lock`.
+
+**Canal de Go (ONT-59).** El toolchain Go lo decide el montaje, no una descarga implícita durante un build.
+`AEP_GO_CHANNEL` (`stable` por defecto | `pinned`) se persiste en `~/.local/share/agent-os/toolchain.env`
+junto con `AEP_GO_VERSION`, `AEP_GO_BIN` (ruta absoluta que usa AEP para vet/build/gofmt/fix) y `AEP_GO_RESOLVED_AT`.
+Con `stable`, `setup.sh` resuelve el primer release `stable` de `https://go.dev/dl/?mode=json` y su sha256 del mismo JSON;
+sin red cae al pin de caída (Go 1.27.4 con su sha256; `AEP_GO_CHANNEL_RESOLVED=pinned-fallback`, con aviso).
+Instala en `~/.local/share/go` solo si no hay Go, el existente es < 1.26 (fuera de soporte; Go parchea las dos últimas
+mayores) o, con `--update`, si es anterior al estable; nunca modifica un Go ajeno (p. ej. `/usr/local/bin/go`) y ya no usa
+`apt install golang-go`. Para fijar la versión: `AEP_GO_CHANNEL=pinned ./scripts/setup.sh` (o editar `toolchain.env`).
+`./scripts/setup.sh --check` informa `Golang: <versión> (<ruta>) channel=… supported=… latest_stable=…` y avisa (WARN)
+si está fuera de soporte. Los builds corren con `GOTOOLCHAIN=local`.
 
 Dominios de red usados por `setup.sh`: `github.com` y `objects.githubusercontent.com` (uv, golangci-lint, pueue),
 `go.dev` y `dl.google.com` (Go), `pypi.org` y `files.pythonhosted.org` (dependencias Python),
