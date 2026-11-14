@@ -643,3 +643,28 @@ flowchart LR
 | M7 | Backlog ONT-46 (defaults `Callable`, `_EXTERNAL_METHODS`) | Pragma (tanda futura) | backlog |
 
 Decisiones tomadas por el orquestador según el plan (delegación del usuario, 2026-11-14): re-plan inline tras el PLAN_GAP propio (Short); clave de agrupación `(executable, file)` cuando hay `file`; `destinations` sin BTF se reporta como `limits` en lugar de inventar datos.
+
+---
+## 22. Tarjetas de trabajo en kanban y `advance` sin `to_state` ONT-55 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont55_kanban_work.md` (anterior: `feature_20261114_ont54_round7.md`). Estado: VERIFIED en un ciclo; publicado en dev. Base `dev` `4fe0283`, HEAD del worktree `2077426`.
+
+```mermaid
+flowchart LR
+    I22["Intent: tarjetas de trabajo y advance (ONT-55)"] --> N1["N1: plan inline Short T1-T2 (G48, G49) ✅"]
+    N1 --> N2["N2: commits f6827ae, 2077426 ✅"]
+    N2 --> V22["M: verified un ciclo (1345 passed, ruff 298) ✅"]
+    V22 --> M22["M: migración sobre copia de la DB real ✅"]
+    M22 --> D22["M: documentado (Graphos G2) ✅"]
+    D22 --> H22["M: commit docs(ONT-55) (Hermon, publicado en dev)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G49 tipo de tarjeta (`f6827ae`) | Pragma | ✅ |
+| M2 | T2 G48 `advance` sin `to_state` y `kind` en la tool (`2077426`) | Pragma | ✅ |
+| M3 | Dokimos VERIFIED (1345 passed; ruff 298; migración idempotente) | Dokimos | ✅ |
+| M4 | Documentación (feature, README, STATE, COMPACT, rollup, esta sección) | Graphos G2 | ✅ |
+| M5 | Commit `docs(ONT-55)` y ff a `dev` | Hermon | publicado en dev |
+
+Decisión del orquestador: `kind` por defecto `artifact` por compatibilidad; las tarjetas de trabajo se crean con `kind="work"`.

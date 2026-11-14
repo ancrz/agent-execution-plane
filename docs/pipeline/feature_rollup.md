@@ -3,7 +3,7 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261114_ont53_ort_synonyms_walk.md`](feature_20261114_ont53_ort_synonyms_walk.md)
+- **Current Active Document**: [`feature_20261114_ont55_kanban_work.md`](feature_20261114_ont55_kanban_work.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -25,6 +25,9 @@ Este rollup consolida ONT-43 a ONT-52 según la sección anterior de este mismo 
 | ONT-52 | ronda 6: G36–G39, routing de open ports, `_fast_dump` (T6 parcial) | `19494cc`..`cc10757` | VERIFIED tras LOGIC_ERROR cosmético (`eb63fc5`), publicado en dev | 1288 (+17) | G36–G39 cerrados; G40, G41, G42 abiertos |
 | ONT-53 | G42 ORT por entorno (cerrado), G41 sinónimos EN+ES (cerrado), G40 recorrido AST único (cierre parcial) | `1630453`..`1a2d6d4` | VERIFIED tras reclasificar ciclo 1 como LOGIC_ERROR; publicado en dev | 1304 (0 fallos; ruff 290) | G41, G42 cerrados; G40 parcial (1,46–1,49 s estable; 1,3 s solo en frío) |
 | ONT-54 | ronda 7: G43 alertas de crash agrupadas por archivo con paginación `cursor`, G44 `error_class` sin acentos, G45 etiqueta de `visual_inspect` y sha256 completo, G46 `destinations` de tcp_connect con BTF, G47 `next_action` de `playbook_run(create)` | `a482909`..`a7f7aea` | VERIFIED tras PLAN_GAP propio (ciclo 2 sobre copia de la DB real); publicado en dev | 1333 (0 fallos; ruff 296) | G43–G47 cerrados; G40 sigue parcial |
+| ONT-55 | tarjetas de trabajo `kind=work` con estados BACKLOG/IN_PROGRESS/BLOCKED/DONE (G49), `advance` sin `to_state` y `PARAM_ERROR` con `valid_states` (G48) | `f6827ae`..`2077426` | VERIFIED en un ciclo; publicado en dev | 1345 (0 fallos; ruff 298) | G48, G49 cerrados |
+
+Cierre de ONT-55: G48 y G49 cerrados; migración idempotente verificada sobre copia de la base real (317 filas, tablero idéntico).
 
 Cierre de ONT-54: G43 a G47 cerrados sin gap nuevo; G40 sigue en cierre parcial. Gaps abiertos al cierre de ONT-53: G40 (cierre parcial, coste de estado estable). Backlog ONT-46 sin gap formal: defaults `Callable` en `_TypeIndex.resolve`; `_EXTERNAL_METHODS` por versión de Python.
 
