@@ -1,7 +1,7 @@
 {
   "_meta": {
     "role": "starter_scaffolding",
-    "description": "Plantillas Go estáticas de andamiaje para síntesis y compilación dinámica de artefactos (artifact_lint_and_build). Para introspección e inspección directa en tiempo de ejecución sin compilación, utilice la herramienta built-in default_primitives.",
+    "description": "Static Go scaffolding templates for dynamic artifact synthesis and compilation (artifact_lint_and_build). For direct runtime introspection without compilation, use the built-in default_primitives tool.",
     "canonical_runtime_tool": "default_primitives",
     "synthesis_tools": [
       "artifact_catalog",
@@ -26,7 +26,7 @@
         "connections",
         "network"
       ],
-      "description": "Lista sockets TCP/UDP del host (LISTEN y ESTABLISHED) leyendo el kernel sin invocar netstat; salida JSON tipada.",
+      "description": "Lists host TCP/UDP sockets (LISTEN and ESTABLISHED) by reading the kernel directly without netstat; typed JSON output.",
       "params": [
         {
           "name": "state",
@@ -55,7 +55,7 @@
         "handles",
         "leak"
       ],
-      "description": "Inspecciona /proc/PID/fd de un proceso para diagnosticar hilos colgados, deadlocks o fugas de descriptores.",
+      "description": "Inspects /proc/PID/fd of a process to diagnose hung threads, deadlocks or descriptor leaks.",
       "params": [
         {
           "name": "pid",
@@ -83,7 +83,7 @@
         "capacity",
         "mount"
       ],
-      "description": "Uso de disco del sistema de archivos root vía statfs: total, libre y usado en bytes.",
+      "description": "Root filesystem disk usage via statfs: total, free and used bytes.",
       "params": [
         {
           "name": "path",
@@ -113,7 +113,7 @@
         "used",
         "consumption"
       ],
-      "description": "Uso de memoria: lee /proc/meminfo y reporta RAM total, libre y disponible (usage) en bytes.",
+      "description": "Memory usage: reads /proc/meminfo and reports total, free and available RAM (usage) in bytes.",
       "params": [],
       "scaffolding_only": true,
       "runtime_alternative": "default_primitives"
@@ -133,7 +133,7 @@
         "filesystem",
         "probe"
       ],
-      "description": "Sonda estática en Go para auditar soporte y confinamiento de Landlock LSM (Kernel 5.13+) vía syscalls puras.",
+      "description": "Static Go probe to audit Landlock LSM support and confinement (Kernel 5.13+) via pure syscalls.",
       "params": [],
       "scaffolding_only": true,
       "runtime_alternative": "default_primitives"
