@@ -15,6 +15,7 @@ Lane/estados (DAG, sin ciclos salvo re-trabajo explícito a BACKLOG):
 Topos: kanban.py -> artifacts.db (A->B). Conexión propia; no importa catalog.py.
 """
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,8 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     archived INTEGER NOT NULL DEFAULT 0,
     agent_id TEXT NOT NULL DEFAULT 'default',
     note TEXT,
+    description TEXT,
+    refs TEXT,                          -- JSON: lista de strings (SHAs, rutas)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,6 +75,10 @@ class KanbanBoard:
             if "agent_id" not in cols:
                 conn.execute("ALTER TABLE kanban_tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'default'")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_kanban_agent ON kanban_tasks(agent_id)")
+            if "description" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN description TEXT")
+            if "refs" not in cols:
+                conn.execute("ALTER TABLE kanban_tasks ADD COLUMN refs TEXT")
 
     def _conn_ro(self) -> sqlite3.Connection:
         return get_ro_connection(self.db_path, row_factory=True, load_vec=False)
@@ -125,13 +132,16 @@ class KanbanBoard:
         category: str = "",
         artifact_name: str | None = None,
         agent_id: str = "default",
+        description: str = "",
+        refs: list[str] | None = None,
     ) -> dict[str, Any]:
+        refs_json = json.dumps([str(r) for r in refs], ensure_ascii=False) if refs else None
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
                 cur = conn.execute(
-                    "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id) "
-                    "VALUES (?, ?, ?, ?, 'BACKLOG', ?)",
-                    (title, intent, category, artifact_name, agent_id),
+                    "INSERT INTO kanban_tasks (title, intent, category, artifact_name, state, agent_id, description, refs) "
+                    "VALUES (?, ?, ?, ?, 'BACKLOG', ?, ?, ?)",
+                    (title, intent, category, artifact_name, agent_id, description or None, refs_json),
                 )
                 return {"status": "OK", "task_id": cur.lastrowid, "state": "BACKLOG"}
 
@@ -554,35 +564,44 @@ class KanbanBoard:
                 conn.execute("UPDATE kanban_tasks SET archived=0, updated_at=CURRENT_TIMESTAMP WHERE id=?", (task_id,))
         return {"status": "OK", "task_id": task_id, "state": t["state"], "archived": False}
 
-    def board(self, include_archived: bool = False) -> dict[str, Any]:
+    def board(self, include_archived: bool = False, with_extras: bool = False) -> dict[str, Any]:
         """Vista del tablero agrupada por lane/estado (idioma agéntico, JSON tipado).
-        Excluye archivadas por defecto; include_archived=True las muestra todas."""
+        Excluye archivadas por defecto; include_archived=True las muestra todas.
+        `with_extras=True` (modo detail) añade `description`/`refs` a las tarjetas que los tengan (ONT-48/G23)."""
         with self._conn() as conn:
             if include_archived:
                 rows = conn.execute(
                     "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
-                    "promotion_score, attempts, archived FROM kanban_tasks ORDER BY updated_at DESC"
+                    "promotion_score, attempts, archived, description, refs FROM kanban_tasks ORDER BY updated_at DESC"
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT id, title, state, artifact_name, lint_passed, canary_passed, "
-                    "promotion_score, attempts, archived FROM kanban_tasks WHERE archived=0 ORDER BY updated_at DESC"
+                    "promotion_score, attempts, archived, description, refs FROM kanban_tasks WHERE archived=0 "
+                    "ORDER BY updated_at DESC"
                 ).fetchall()
             archived_total = conn.execute("SELECT COUNT(*) AS n FROM kanban_tasks WHERE archived=1").fetchone()["n"]
         lanes: dict[str, list[dict[str, Any]]] = {s: [] for s in STATES}
         for r in rows:
-            lanes[r["state"]].append(
-                {
-                    "task_id": r["id"],
-                    "title": r["title"],
-                    "artifact": r["artifact_name"],
-                    "lint": bool(r["lint_passed"]),
-                    "canary": bool(r["canary_passed"]),
-                    "score": r["promotion_score"],
-                    "attempts": r["attempts"],
-                    "archived": bool(r["archived"]),
-                }
-            )
+            card: dict[str, Any] = {
+                "task_id": r["id"],
+                "title": r["title"],
+                "artifact": r["artifact_name"],
+                "lint": bool(r["lint_passed"]),
+                "canary": bool(r["canary_passed"]),
+                "score": r["promotion_score"],
+                "attempts": r["attempts"],
+                "archived": bool(r["archived"]),
+            }
+            if with_extras:
+                if r["description"]:
+                    card["description"] = r["description"]
+                if r["refs"]:
+                    try:
+                        card["refs"] = json.loads(r["refs"])
+                    except ValueError:
+                        card["refs"] = [r["refs"]]
+            lanes[r["state"]].append(card)
         return {
             "status": "OK",
             "threshold": PROMOTION_THRESHOLD,

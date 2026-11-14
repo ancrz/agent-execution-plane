@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS kanban_tasks (
     archived INTEGER NOT NULL DEFAULT 0,
     agent_id TEXT NOT NULL DEFAULT 'default',
     note TEXT,
+    description TEXT,
+    refs TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

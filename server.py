@@ -4593,6 +4593,8 @@ async def kanban_board(
     apply: bool = False,
     target_state: str = "SYNTHESIZED",
     title_like: str | None = None,
+    description: str = "",
+    refs: list[str] | None = None,
     limit: int = 5,
     verbosity: str = "summary",
     agent_id: str = "default",
@@ -4602,7 +4604,7 @@ async def kanban_board(
     [PICO-KANBAN UNIFICADO] Tablero de estados abstracto y ponderación agéntica (transparente al usuario).
     action:
       - 'board' (default): vista del tablero por lanes (BACKLOG/SYNTHESIZED/LINTED/CANARY/PROMOTED/REJECTED). En modo `summary`, muestra hasta `limit` tareas recientes por lane, desde el offset `cursor` por lane; si se trunca, `cursor` del sobre da el siguiente offset y `lane_totals` los totales por lane.
-      - 'create' (o 'task_create', 'add'): crea una tarea atómica en BACKLOG (requiere `title`).
+      - 'create' (o 'task_create', 'add'): crea una tarea atómica en BACKLOG (requiere `title`). Acepta `description` y `refs` (lista de strings: SHAs, rutas) que se muestran solo en `detail`.
       - 'advance' (o 'move'): mueve una tarea de estado y recalcula su ponderación (requiere `task_id` y `to_state`).
       - 'promote': promueve el artefacto ligado como reutilizable si alcanza TRUST (requiere `task_id`).
       - 'demote': degrada explícitamente un artefacto a reusable=0 (requiere `artifact_name`).
@@ -4631,7 +4633,7 @@ async def kanban_board(
             )
         try:
             if act == "board":
-                res = kanban.board(include_archived=include_archived)
+                res = kanban.board(include_archived=include_archived, with_extras=not is_compact)
                 res.setdefault("status", "OK")
                 truncated = False
                 eff_cursor = max(0, int(cursor or 0))
@@ -4666,7 +4668,15 @@ async def kanban_board(
                         tracker,
                         verbosity=verbosity,
                     )
-                res = kanban.create_task(title.strip(), intent, category, artifact_name, agent_id=agent_id)
+                res = kanban.create_task(
+                    title.strip(),
+                    intent,
+                    category,
+                    artifact_name,
+                    agent_id=agent_id,
+                    description=description,
+                    refs=refs,
+                )
                 return attach_envelope(res, tracker, verbosity=verbosity)
             elif act in ("advance", "move"):
                 if task_id is None or not (to_state or "").strip():
