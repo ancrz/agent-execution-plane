@@ -27,8 +27,11 @@ Este rollup consolida ONT-43 a ONT-52 según la sección anterior de este mismo 
 | ONT-54 | ronda 7: G43 alertas de crash agrupadas por archivo con paginación `cursor`, G44 `error_class` sin acentos, G45 etiqueta de `visual_inspect` y sha256 completo, G46 `destinations` de tcp_connect con BTF, G47 `next_action` de `playbook_run(create)` | `a482909`..`a7f7aea` | VERIFIED tras PLAN_GAP propio (ciclo 2 sobre copia de la DB real); publicado en dev | 1333 (0 fallos; ruff 296) | G43–G47 cerrados; G40 sigue parcial |
 | ONT-55 | tarjetas de trabajo `kind=work` con estados BACKLOG/IN_PROGRESS/BLOCKED/DONE (G49), `advance` sin `to_state` y `PARAM_ERROR` con `valid_states` (G48) | `f6827ae`..`2077426` | VERIFIED en un ciclo; publicado en dev | 1345 (0 fallos; ruff 298) | G48, G49 cerrados |
 | ONT-56 | reclasificación `kanban_board(reclassify)` por `task_id` o `title_like` (G50), `next_action` propio y NOOP terminal (G51), `_EXTERNAL_METHODS` congelado (backlog ONT-46) | `f083a92`..`42dbb72` | VERIFIED en un ciclo; publicado en dev | 1359 (0 fallos; ruff 303) | G50, G51 cerrados; backlog ONT-46 `_EXTERNAL_METHODS` resuelto |
+| ONT-57 | severidad explícita por estado (G53), DRY_RUN con candidatos (G52), `reclassify` por `task_ids` y hint de reverso por ids (G54) | `13238bc`..`53958b8` | VERIFIED, publicado en dev | 1386 passed + 1 flake de carga (G56); ruff 307 | G52–G54 cerrados; G55 y G56 abiertos |
 
 Cierre de ONT-55: G48 y G49 cerrados; migración idempotente verificada sobre copia de la base real (317 filas, tablero idéntico).
+
+Cierre de ONT-57: G52, G53 y G54 cerrados; G55 y G56 abiertos (ver `feature_20261114_ont57_severity_table.md`).
 
 Cierre de ONT-56: G50 y G51 cerrados; backlog ONT-46 `_EXTERNAL_METHODS` congelado como literal versionado. Reclasificación sobre copia de la base real: 17 candidatos, tablero y `work_lanes` según lo esperado, segunda aplicación `NOOP`.
 
@@ -45,7 +48,7 @@ Pendientes que cruzan documentos: G40 (coste de estado estable, cierre parcial),
 
 Documento activo en la cadena: [`feature_20261114_ont53_ort_synonyms_walk.md`](feature_20261114_ont53_ort_synonyms_walk.md) (décimo de la cadena; este rollup lo consolida).
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont53_ort_synonyms_walk.md` (0 de 5 al cierre de este registro).
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont53_ort_synonyms_walk.md` (4 de 5 al cierre de `feature_20261114_ont57_severity_table.md`; el siguiente documento dispara el rollup).
 
 ---
 

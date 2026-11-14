@@ -693,3 +693,28 @@ flowchart LR
 | M6 | Commit `docs(ONT-56)` y ff a `dev` | Hermon | pendiente |
 
 Decisiones del orquestador: `reclassify` con dry-run por defecto; work→artifact a BACKLOG con score 0; snapshot de la lista externa con `SNAPSHOT_PY_VERSION` 3.14.7, solo en `detail` del grafo.
+
+## 24. Severidad explícita por estado, hints de dry-run y reclassify por ids ONT-57 (2026-11-14)
+
+Registro: `docs/pipeline/feature_20261114_ont57_severity_table.md` (anterior: `feature_20261114_ont56_reclassify_snapshot.md`). Estado: VERIFIED en un ciclo; pendiente de commit (Hermon). Base `dev` `3ff0c6f`, HEAD `53958b8`.
+
+```mermaid
+flowchart LR
+    I24["Intent: severidad explícita y reclassify por ids (ONT-57)"] --> N1["N1: plan inline Short T1-T3 más ajuste del orquestador (G52, G53, G54) ✅"]
+    N1 --> N2["N2: commits 13238bc, e08b516, 45a8b03, 53958b8 ✅"]
+    N2 --> V24["M: verified un ciclo (1386 passed + 1 flake G56, ruff 307) ✅"]
+    V24 --> R24["M: T3 ida y vuelta por task_ids sobre copia de la DB real ✅"]
+    R24 --> D24["M: documentado (Graphos G2) ✅"]
+    D24 --> H24["M: commit docs(ONT-57) (Hermon, publicado en dev)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 G53 tablas explícitas de severidad y escáner de literales (`13238bc`) | Pragma | ✅ |
+| M2 | T2 G52 DRY_RUN con candidatos sugiere revisar y aplicar (`e08b516`) | Pragma | ✅ |
+| M3 | T3 G54 `reclassify` por `task_ids`, `reclassified_ids` e hint de reverso por ids (`45a8b03`) | Pragma | ✅ |
+| M4 | Ajuste del orquestador: escáner de ternarios y BROKEN a WARN (`53958b8`) | Orquestador | ✅ |
+| M5 | Dokimos VERIFIED (1386 passed + 1 flake de carga G56; ruff 307) y documentación (feature, README, STATE, COMPACT, rollup, esta sección) | Dokimos, Graphos G2 | ✅ |
+| M6 | Commit `docs(ONT-57)` y ff a `dev` | Hermon | publicado en dev |
+
+Decisiones del orquestador: INFO/WARN/ERROR por tabla explícita con semántica fijada; UNPROVEN y BROKEN a WARN; `is_field_error_status` y la lista blanca de ONT-43 intactos. Abiertos: G55 (reverso work→artifact no restaura estado) y G56 (flake de carga, tercer episodio).
