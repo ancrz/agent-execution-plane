@@ -784,6 +784,38 @@ class _TypeIndex:
             if before == (self.module_types, self.class_attrs):
                 break
         self._frozen = True
+        self.callable_defaults: dict[str, dict[str, str]] = {}
+        for mod in sorted(self.trees):
+            for stmt in self.trees[mod].body:
+                if isinstance(stmt, ast.ClassDef):
+                    found = self._scan_callable_defaults(mod, stmt)
+                    if found:
+                        self.callable_defaults[f"{mod}.{stmt.name}"] = found
+
+    def _scan_callable_defaults(self, mod: str, cls: ast.ClassDef) -> dict[str, str]:
+        """ONT-58: campos `x: Callable[...] = fn_del_proyecto` (p. ej. adaptadores inyectables de un dataclass).
+
+        Solo cuenta un default que sea un Name/Attribute que resuelve a una FUNCIÓN del proyecto; `None`,
+        lambdas, `field(...)` u otros valores no producen nada.
+        """
+        out: dict[str, str] = {}
+        for st in cls.body:
+            if not (isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and st.value is not None):
+                continue
+            chain = _chain(st.value) if isinstance(st.value, (ast.Name, ast.Attribute)) else None
+            if not chain:
+                continue
+            hit = self.lookup(_expand_parts(chain, mod, "", self.imports[mod]))
+            if hit and hit[0] == "fn":
+                out[st.target.id] = hit[1]
+        return out
+
+    def find_callable_default(self, cls_key: str, name: str) -> str | None:
+        for k in self.mro(cls_key):
+            fid = self.callable_defaults.get(k, {}).get(name)
+            if fid:
+                return fid
+        return None
 
     # -- nombres, clases y anotaciones ------------------------------------------------------------
 
@@ -1318,7 +1350,7 @@ class _TypeIndex:
         if receiver == REF:
             return None, False
         if receiver is not None:
-            return self.find_method(receiver, chain[-1]), False
+            return self.find_method(receiver, chain[-1]) or self.find_callable_default(receiver, chain[-1]), False
         if chain[-1] in _EXTERNAL_METHODS:
             self.external_skipped += 1
             return None, False
