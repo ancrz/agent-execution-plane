@@ -3445,6 +3445,20 @@ _SANDBOX_NEVER_ROOTS: tuple[str, ...] = (
 )
 
 
+# ONT-61 T2/G64: /etc entries mounted read-only in the sandbox besides ssl/pki/resolv.conf/hosts.
+#  - /etc/alternatives: ONLY symlinks (update-alternatives); without it /usr/bin/awk, vi, cc, nc, java... dangle.
+#  - /etc/localtime: symlink into /usr/share/zoneinfo (already visible via /usr); tools print the host timezone.
+#  - /etc/passwd, /etc/group: world-readable name<->id maps with NO credentials on shadow systems; needed by
+#    id/whoami/ls -l (otherwise "cannot find name for user ID"). Accepted exposure: local user/group names.
+# Never: shadow, gshadow, sudoers(.d), ssh.
+_SANDBOX_ETC_EXTRA_MOUNTS: tuple[str, ...] = (
+    "/etc/alternatives",
+    "/etc/localtime",
+    "/etc/passwd",
+    "/etc/group",
+)
+
+
 def _sandbox_vetoed_paths() -> list[str]:
     """Rutas vetadas: blacklist del guard + ~/.ssh + ~/.gnupg + directorio de datos de AEP."""
     home = Path.home()
@@ -3760,6 +3774,9 @@ async def sandbox_run(
                 "/tmp",
             ]
         )
+        # ONT-61 T2/G64: extra /etc entries (see _SANDBOX_ETC_EXTRA_MOUNTS for the justification).
+        for etc_path in _SANDBOX_ETC_EXTRA_MOUNTS:
+            bwrap_cmd.extend(["--ro-bind-try", etc_path, etc_path])
 
         # ONT-60 T2: toolchains enlazados (p.ej. /usr/local/bin/go -> /mnt/apps/...) fuera de los montajes base.
         scan_dirs = [Path(d) for d in _SANDBOX_TOOL_LINK_DIRS]
