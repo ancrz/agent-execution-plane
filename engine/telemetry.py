@@ -84,6 +84,8 @@ def infer_severity(status: str) -> str:
         "PROMOTED",
         "CREATED",
         "DRY_RUN",
+        "NOOP",  # ONT-50 T3: nothing to do is not an error
+        "SKIPPED",
         "ARCHIVED",
         "UNARCHIVED",
         "PRUNED",
@@ -114,6 +116,7 @@ MAX_SAFE_JSON_BYTES = 180_000
 # (PERMISSION_DENIED, TIER_DENIED, BLOCKED, REJECTED, ...) are the governance layer working as designed, and
 # INVALID_ACTION / NOT_FOUND are caller mistakes. A whitelist (not "severity == ERROR", which is the default for any
 # unknown status) keeps denials out by construction.
+_NEUTRAL_NEXT_ACTION_STATUSES = frozenset({"NOOP", "DRY_RUN", "SKIPPED"})
 _FIELD_ERROR_STATUSES = frozenset({"ERROR", "EXEC_FAILED", "FAILED"})
 _FIELD_NO_HINT_MODES = frozenset({"brief", "terse", "cached"})
 _ERROR_CLASS_KEYS = ("error_class", "error_type", "exception")
@@ -206,7 +209,9 @@ def attach_envelope(
         )
 
     if next_action is None:
-        if sev == "ERROR":
+        if status_val.upper() in _NEUTRAL_NEXT_ACTION_STATUSES:
+            next_action = "Nothing to do; adjust filters or apply=true."
+        elif sev == "ERROR":
             next_action = "Inspect 'error' or 'valid' fields and retry with corrected parameters."
         elif payload.get("truncated"):
             next_action = "Pass verbosity='detail' or increase 'limit' / use 'cursor' to inspect remaining items."
