@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -300,43 +301,69 @@ async def _stable_fds(pid: int, needed: int = 3, max_s: float = 2.0) -> set[str]
     return prev
 
 
+_C6_SWAPS = 10
+
+
+async def _c6_probe() -> dict[str, Any]:
+    """Run `_C6_SWAPS` real backend swaps and report this process's FD set before/after."""
+    from aep_front import LivePlaneManager
+
+    mgr = LivePlaneManager()
+    await mgr.get_or_start_backend()
+    await asyncio.sleep(0.5)  # let the initial connection stabilize
+    initial_fds = await _stable_fds(os.getpid())
+
+    for _ in range(_C6_SWAPS):
+        next_gen = mgr.generation + 1
+        candidate = await mgr._spawn_backend(next_gen)
+        health = await candidate.send_request({"op": "health"}, timeout=10.0)
+        assert health.get("status") == "OK"
+        tools_resp = await candidate.send_request({"op": "list"}, timeout=10.0)
+        old_conn = mgr.active_conn
+        mgr.active_conn = candidate
+        mgr.active_schema = tools_resp.get("tools", [])
+        mgr.active_schema_hash = tools_resp.get("schema_hash", "")
+        mgr.generation = next_gen
+        if old_conn:
+            await old_conn.terminate()
+
+    await asyncio.sleep(0.5)
+    final_fds = await _stable_fds(os.getpid())
+    await mgr.shutdown()
+    return {
+        "initial": len(initial_fds),
+        "final": len(final_fds),
+        "delta": len(final_fds) - len(initial_fds),
+        "leaked": sorted(final_fds - initial_fds),
+    }
+
+
 def test_criterion_6_zero_fd_leak() -> None:
-    """C6: 10 successive swaps result in zero file descriptor leaks (fd_delta == 0)."""
+    """C6: 10 successive swaps result in zero file descriptor leaks (fd_delta == 0).
 
-    async def _run() -> None:
-        from aep_front import LivePlaneManager
+    ONT-61/G63 root cause of the old flake: it was NOT a leak in LivePlaneManager/_spawn_backend/terminate (50 real
+    swaps in a clean process: delta 0 at every checkpoint; FD classes socket/pipe/anon_inode/devnull identical before
+    and after). The old test counted the FDs of the *pytest process*, which in an aggregated run is shared with other
+    tests' threads, loggers, sqlite handles and GC-finalized sockets that open/close between the two samples. The
+    measurement now runs in a clean child process that owns only the front manager; the criterion stays delta == 0.
+    """
+    import aep_front
 
-        mgr = LivePlaneManager()
-        await mgr.get_or_start_backend()
+    assert callable(aep_front.LivePlaneManager._spawn_backend)  # the probed unit (keeps the `covers` edge to aep_front)
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
+    res = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), "--c6-probe"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert res.returncode == 0, res.stderr[-2000:]
+    report = json.loads(res.stdout.strip().splitlines()[-1])
+    assert report["delta"] == 0, f"FD leak detected: {report}"
 
-        # Let the initial connection stabilize
-        await asyncio.sleep(0.5)
-        initial_fds = await _stable_fds(os.getpid())
 
-        # Perform 10 swaps
-        for i in range(10):
-            next_gen = mgr.generation + 1
-            candidate = await mgr._spawn_backend(next_gen)
-            health = await candidate.send_request({"op": "health"}, timeout=10.0)
-            assert health.get("status") == "OK"
-
-            tools_resp = await candidate.send_request({"op": "list"}, timeout=10.0)
-            old_conn = mgr.active_conn
-            mgr.active_conn = candidate
-            mgr.active_schema = tools_resp.get("tools", [])
-            mgr.active_schema_hash = tools_resp.get("schema_hash", "")
-            mgr.generation = next_gen
-
-            if old_conn:
-                await old_conn.terminate()
-
-        await asyncio.sleep(0.5)
-        final_fds = await _stable_fds(os.getpid())
-
-        # Check FD delta
-        fd_delta = len(final_fds) - len(initial_fds)
-        await mgr.shutdown()
-
-        assert fd_delta == 0, f"FD leak detected: delta={fd_delta}, diff={final_fds - initial_fds}"
-
-    asyncio.run(_run())
+if __name__ == "__main__" and "--c6-probe" in sys.argv:
+    print(json.dumps(asyncio.run(_c6_probe())))
