@@ -1732,10 +1732,36 @@ def _kw_constants(call: ast.Call) -> dict[str, str]:
     }
 
 
-def _literal_py_path(n: ast.AST, project: set[str]) -> str | None:
+def _is_anchored(expr: ast.AST, roots: set[str]) -> bool:
+    """Expresión atada a la raíz del proyecto: contiene `__file__` o un nombre ya anclado."""
+    for sub in ast.walk(expr):
+        if isinstance(sub, ast.Name) and (sub.id == "__file__" or sub.id in roots):
+            return True
+    return False
+
+
+def _anchored_roots(tree: ast.AST) -> set[str]:
+    """ONT-65: nombres ligados a nivel de módulo a `Path(__file__)...`/`os.path.dirname(__file__)` (transitivo)."""
+    roots: set[str] = set()
+    body = getattr(tree, "body", [])
+    for _ in range(3):  # punto fijo acotado: ROOT = HERE.parent ; HERE = Path(__file__)
+        for stmt in body:
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                name, value = stmt.targets[0].id, stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.value is not None:
+                name, value = stmt.target.id, stmt.value
+            else:
+                continue
+            if _is_anchored(value, roots):
+                roots.add(name)
+    return roots
+
+
+def _literal_py_path(n: ast.AST, project: set[str], roots: set[str]) -> str | None:
     """ONT-65: `ROOT / "pkg" / "mod.py"` o `os.path.join(ROOT, "pkg", "mod.py")` -> módulo del proyecto.
 
-    Solo cuenta si todos los segmentos tras el primer operando son literales `str` (nada de f-strings ni
+    El primer operando debe estar anclado a la raíz del proyecto (`roots` + `__file__`): fixtures y parámetros
+    (`tmp_path / "engine" / "__init__.py"`) escriben en otro árbol y no cuentan. Solo cuenta si todos los segmentos tras el primer operando son literales `str` (nada de f-strings ni
     variables intermedias) y el resultado es un archivo `.py` que pertenece a los módulos del proyecto.
     """
     parts: list[ast.AST]
@@ -1746,9 +1772,12 @@ def _literal_py_path(n: ast.AST, project: set[str]) -> str | None:
             parts.append(cur.right)
             cur = cur.left
         parts.reverse()
+        head = cur
     elif isinstance(n, ast.Call) and _chain(n.func) == ["os", "path", "join"] and len(n.args) > 1:
-        parts = list(n.args[1:])
+        head, parts = n.args[0], list(n.args[1:])
     else:
+        return None
+    if not _is_anchored(head, roots):
         return None
     segs: list[str] = []
     for p in parts:
@@ -1785,6 +1814,11 @@ def _collect_test_refs(
             local_assigns.setdefault(a.targets[0].id, []).append(a.value)
         elif isinstance(a, ast.AnnAssign) and isinstance(a.target, ast.Name) and a.value is not None:
             local_assigns.setdefault(a.target.id, []).append(a.value)
+    shadowed = set(local_assigns)
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        a = node.args
+        shadowed |= {x.arg for x in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg] if x is not None}
+    open_roots = _anchored_roots(ctx.tree) - shadowed
     for n in nodes:
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in helpers and n.func.id not in seen:
             # Sitio de llamada a helper local: recursar por sitio y fusionar sus kwargs constantes (D-E4-1).
@@ -1842,7 +1876,7 @@ def _collect_test_refs(
         if isinstance(n, ast.Dict):
             _collect_dict_tool(n, tool_names, refs)
         if isinstance(n, (ast.BinOp, ast.Call)):
-            rmod = _literal_py_path(n, project)
+            rmod = _literal_py_path(n, project, open_roots)
             if rmod:
                 refs.read_mods.add(rmod)
         if isinstance(n, ast.Call) and _is_spawn_call(n, facts.has_exec):

@@ -9,7 +9,7 @@ from engine import threads_extractors as ex
 
 REPO = Path(__file__).resolve().parent.parent
 _MOD = "def f():\n    return 1\n"
-_ROOT = "from pathlib import Path\n\nROOT = Path('.')\n\n"
+_ROOT = "from pathlib import Path\n\nROOT = Path(__file__).resolve().parent.parent\n\n\n"
 
 
 def _covers(tmp_path: Path, test_body: str) -> dict[str, bool]:
@@ -47,7 +47,9 @@ def test_c_dynamic_segments_give_no_edge(tmp_path: Path) -> None:
 
 
 def test_d_os_path_join_is_a_weak_cover(tmp_path: Path) -> None:
-    body = "import os\n\n\ndef test_a():\n    open(os.path.join('.', 'engine', 'mod.py')).read()\n"
+    body = (
+        "import os\n\n\ndef test_a():\n    open(os.path.join(os.path.dirname(__file__), 'engine', 'mod.py')).read()\n"
+    )
     assert _covers(tmp_path, body) == {"module:engine.mod": True}
 
 
@@ -63,3 +65,31 @@ def test_f_real_repo_gate8_is_covered_and_no_gaps() -> None:
     assert out.get("module:engine.privilege") is True
     assert out.get("module:server") is True
     assert a.gaps == []
+
+
+def test_g_tmp_path_and_parameter_roots_are_not_project_reads(tmp_path: Path) -> None:
+    body = (
+        "def test_a(tmp_path, root):\n"
+        "    (tmp_path / 'engine' / '__init__.py').write_text('')\n"
+        "    (root / 'engine' / 'mod.py').write_text('')\n"
+    )
+    assert _covers(tmp_path, body) == {}
+
+
+def test_h_file_anchored_root_is_a_project_read(tmp_path: Path) -> None:
+    body = (
+        "from pathlib import Path\n\n"
+        "PROJECT_ROOT = Path(__file__).resolve().parent.parent\n\n\n"
+        "def test_a():\n    (PROJECT_ROOT / 'engine' / 'mod.py').read_text()\n"
+        "    (PROJECT_ROOT / 'engine' / '__init__.py').read_text()\n"
+    )
+    assert _covers(tmp_path, body) == {"module:engine.mod": True, "module:engine": True}
+
+
+def test_i_local_rebinding_of_an_anchored_root_is_not_a_project_read(tmp_path: Path) -> None:
+    body = (
+        "from pathlib import Path\n\n"
+        "ROOT = Path(__file__).parent.parent\n\n\n"
+        "def test_a(tmp_path):\n    ROOT = tmp_path\n    (ROOT / 'engine' / 'mod.py').write_text('')\n"
+    )
+    assert _covers(tmp_path, body) == {}
