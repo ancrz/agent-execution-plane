@@ -55,6 +55,8 @@ from engine.catalog import ArtifactCatalog
 from engine.crash_router import CrashRouter
 from engine.harness_reconnect import RECONNECT_POINTER
 from engine.hydrator import TemplateHydrator, hydrate_struct, resolve_params
+from engine.intent_router import route_basic_intent
+from engine.intent_router import tokens as _intent_tokens
 from engine.ipc_pool import (
     GLOBAL_SESSION_POOL,
     GLOBAL_SOCKET_MUX,
@@ -219,10 +221,8 @@ _CALL_NAMED_ARG_RE = re.compile(r'\b(?:action|domain|name)="([^"]+)"')
 
 
 def _overlap_tokens(text: str) -> set[str]:
-    """Lowercase word tokens (>= 3 chars) with a trailing plural 's' stripped."""
-    return {
-        t[:-1] if t.endswith("s") and len(t) > 3 else t for t in re.findall(r"[a-z0-9]+", text.lower()) if len(t) >= 3
-    }
+    """Accent-folded lowercase word tokens (>= 3 chars) with a trailing plural 's' stripped."""
+    return _intent_tokens(text)
 
 
 def _pick_canonical_call(use_case: str, calls: list[str]) -> str | None:
@@ -1109,14 +1109,21 @@ async def discover(
                     for p in playbook_store.list()
                 ]
                 automate = matcher.rank(eff_use_case, pb_docs, limit=limit)
+                # ONT-63 D2: deterministic lexical pre-route of basic intents, ahead of the 0.12 relevance gate.
+                routed_call = route_basic_intent(eff_use_case)
+                if routed_call:
+                    high_conf = True
                 payload = {
                     "status": "OK",
                     "use_case": eff_use_case,
                     "match_status": "MATCHED" if high_conf else "NO_HIGH_CONFIDENCE_MATCH",
                     "confidence": "HIGH" if high_conf else "LOW",
-                    "recommended_next_call": _pick_canonical_call(eff_use_case, rec_calls)
-                    if (high_conf and rec_calls)
-                    else 'discover(action="playbook")',
+                    "recommended_next_call": routed_call
+                    or (
+                        _pick_canonical_call(eff_use_case, rec_calls)
+                        if (high_conf and rec_calls)
+                        else 'discover(action="playbook")'
+                    ),
                     "suggested_capability": [
                         {
                             "capability": c["name"],
