@@ -597,10 +597,24 @@ log_step "Provisionando entorno hermético Python 3.14..."
 uv python install 3.14
 
 VENV_DIR="$PROJECT_ROOT/.venv"
-if [[ "$MODE" == "update" ]] || [[ ! -d "$VENV_DIR" ]]; then
+# ONT-62/G71: never recreate an existing venv implicitly. uv >= 0.13 rejects `uv venv` over an existing dir without
+# --clear, and recreating the venv that the live plane runs from would break the server. `uv sync --frozen` below
+# updates the packages in place.
+venv_mm() { "$VENV_DIR/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true; }
+if [[ ! -e "$VENV_DIR" ]]; then
     log_step "Creando venv hermético en $VENV_DIR con Python 3.14..."
     # DIR-ONT-04: STRICTLY omit --system-site-packages
     uv venv --python 3.14 "$VENV_DIR"
+else
+    VENV_CUR="$(venv_mm)"
+    if [[ "$VENV_CUR" == "3.14" ]]; then
+        log_step "Reutilizando venv existente (Python $VENV_CUR); uv sync lo actualiza in situ."
+    elif [[ "${AEP_RECREATE_VENV:-}" == "1" ]]; then
+        log_warn "venv existente con Python '${VENV_CUR:-desconocido}': recreando (AEP_RECREATE_VENV=1)."
+        uv venv --clear --python 3.14 "$VENV_DIR"
+    else
+        log_warn "venv existente con Python '${VENV_CUR:-desconocido}' (se esperaba 3.14): NO se recrea. Usa AEP_RECREATE_VENV=1 para forzarlo."
+    fi
 fi
 
 # Instalar dependencias del proyecto en modo editable con extras dev
