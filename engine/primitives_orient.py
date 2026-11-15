@@ -133,6 +133,27 @@ def _detect_virt() -> str:
     return "unknown"
 
 
+_PATH_MAX_BYTES = 60
+
+
+def _trim_path(path: str, limit: int = _PATH_MAX_BYTES) -> str:
+    """Trim `path` to <= `limit` UTF-8 bytes on directory boundaries (`…/tail`); lengths are byte-measured."""
+    if len(path.encode()) <= limit:
+        return path
+    parts = [p for p in path.split("/") if p]
+    for i in range(1, len(parts)):
+        cand = "…/" + "/".join(parts[i:])
+        if len(cand.encode()) <= limit:
+            return cand
+    last = parts[-1] if parts else path
+    cand = "…/" + last
+    if len(cand.encode()) <= limit:
+        return cand
+    # Absurd single component: keep its tail, cut on a character boundary.
+    raw = last.encode()[-(limit - len("…".encode())) :]
+    return "…" + raw.decode("utf-8", errors="ignore")
+
+
 def _aep_python() -> dict[str, str]:
     """Interpreter running AEP (venv), so agents do not confuse it with the PATH `python3` (<= 60 B of path)."""
     import platform
@@ -142,9 +163,7 @@ def _aep_python() -> dict[str, str]:
     home = str(Path.home())
     if path.startswith(home + "/"):
         path = "~" + path[len(home) :]
-    if len(path) > 60:
-        path = "…" + path[-57:]  # the ellipsis is 3 bytes in UTF-8
-    return {"path": path, "version": platform.python_version()}
+    return {"path": _trim_path(path), "version": platform.python_version()}
 
 
 def _run_host_info(params: dict[str, Any]) -> dict[str, Any]:
