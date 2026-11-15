@@ -131,3 +131,36 @@ def test_parse_probe_ports() -> None:
     assert net_telemetry.parse_probe_ports("22, 80,22") == [22, 80]
     with pytest.raises(ValueError):
         net_telemetry.parse_probe_ports([0])
+
+
+_CMD_SECRETS = ("VAL_TOKSEP_b", "VAL_APIKEYSEP_h", "VAL_DASHP_g", "VAL_BEARER_e", "VAL_URLPW_f")
+
+
+@pytest.mark.anyio
+async def test_cmdline_secrets_masked_in_process_inspect_and_orient(tmp_path: Path) -> None:
+    argv = [
+        sys.executable, "-c", "import time; time.sleep(30)",
+        "--token", "VAL_TOKSEP_b", "--api-key", "VAL_APIKEYSEP_h", "-p", "VAL_DASHP_g",
+        "Authorization: Bearer VAL_BEARER_e", "https://user:VAL_URLPW_f@host/x",
+    ]  # fmt: skip
+    proc = subprocess.Popen(argv, cwd=tmp_path, stdin=subprocess.DEVNULL)  # noqa: S603
+    try:
+        time.sleep(0.2)
+        pi = await server.process_inspect(pid=proc.pid, verbosity="detail")
+        orient = await server.default_primitives(action="run", name="orient", params={}, verbosity="detail")
+        for blob in (pi, orient):
+            for secret in _CMD_SECRETS:
+                assert secret not in blob, secret
+        cmd = json.loads(pi)["detail"]["cmdline"]
+        assert "://***:***@" in " ".join(cmd) and cmd.count("***") >= 3
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_mask_cmdline_masks_before_truncation() -> None:
+    from engine.primitives_orient import mask_cmdline
+
+    long_secret = "x" * 190 + "--token=VAL_TRUNC_k"
+    assert "VAL_TRUNC_k" not in " ".join(mask_cmdline([long_secret]))
+    assert all(len(a) <= 200 for a in mask_cmdline(["a" * 500]))

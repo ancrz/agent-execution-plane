@@ -653,6 +653,12 @@ def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
 _ENV_VALUE_ALLOW = re.compile(r"^(AEP_.*|PATH|VIRTUAL_ENV|GOTOOLCHAIN|GOROOT|LANG|PWD|HOME|USER|SHELL)$")
 _SECRET_NAME = re.compile(r"(token|secret|passw|pwd|credential|api[_-]?key|private|auth|(^|_)key($|_))", re.IGNORECASE)
 _SECRET_ARG = re.compile(r"((?:token|secret|passw\w*|api[_-]?key|auth\w*)[=:])\S+", re.IGNORECASE)
+_SECRET_FLAG = re.compile(
+    r"^(?:--?(?:token|secret|passw\w*|api[-_]?key|auth\w*|access[-_]?token|bearer)|-p|authorization:?|bearer)$",
+    re.IGNORECASE,
+)
+_AUTH_HEADER = re.compile(r"(authorization|bearer)\s*[:=]?\s*\S+(\s+\S+)?", re.IGNORECASE)
+_URL_CRED = re.compile(r"://[^/\s:@]+:[^@\s]+@")
 _PROC_ANCESTORS_MAX = 5
 _ENV_NAMES_MAX = 100
 _CMDLINE_ARG_MAX = 200
@@ -674,6 +680,28 @@ def _proc_stat_fields(pid: int) -> tuple[int, int] | None:
         return int(rest[1]), int(rest[19])
     except IndexError, ValueError:
         return None
+
+
+def mask_cmdline(args: list[str]) -> list[str]:
+    """Mask credentials in argv: value after a bare secret flag, `key=value`, auth headers and URL userinfo.
+
+    Masking happens BEFORE the per-arg length cut so a secret cannot survive by straddling the limit.
+    """
+    out: list[str] = []
+    mask_next = 0
+    for arg in args:
+        if mask_next:
+            out.append("***")
+            # "Authorization:" "Bearer" "<token>" arrives as three argv items: keep masking past the scheme word.
+            mask_next = 1 if (mask_next == 2 and arg.lower() == "bearer") else 0
+            continue
+        masked = _AUTH_HEADER.sub(r"\1 ***", arg)
+        masked = _URL_CRED.sub("://***:***@", masked)
+        masked = _SECRET_ARG.sub(r"\1***", masked)
+        out.append(masked[:_CMDLINE_ARG_MAX])
+        if _SECRET_FLAG.fullmatch(arg):
+            mask_next = 2 if arg.lower().startswith("authorization") else 1
+    return out
 
 
 def process_detail(pid: int, *, privileged: bool) -> dict[str, Any]:
@@ -721,7 +749,7 @@ def process_detail(pid: int, *, privileged: bool) -> dict[str, Any]:
         except OSError:
             detail[key] = None
     args = [a for a in _read_text(f"/proc/{pid}/cmdline", 16384).split("\x00") if a]
-    detail["cmdline"] = [_SECRET_ARG.sub(r"\1***", a[:_CMDLINE_ARG_MAX]) for a in args[:20]]
+    detail["cmdline"] = mask_cmdline(args[:20])
     names: list[str] = []
     allowed: dict[str, str] = {}
     for item in _read_text(f"/proc/{pid}/environ", 262144).split("\x00"):
