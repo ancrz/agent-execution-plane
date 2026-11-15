@@ -360,10 +360,19 @@ print(next((r["version"][2:] for r in json.load(sys.stdin) if r.get("stable")), 
     local PUEUE_BIN
     PUEUE_BIN="$(command -v pueue 2>/dev/null || echo "$HOME/.local/bin/pueue")"
     if [[ -x "$PUEUE_BIN" ]]; then
-        if "$PUEUE_BIN" status &>/dev/null; then
+        # ONT-62: the daemon can be momentarily busy; probe up to 3 times (5 s each, 1 s apart) before declaring failure.
+        local PUEUE_TRY PUEUE_ERR="" PUEUE_OK=0
+        for PUEUE_TRY in 1 2 3; do
+            if PUEUE_ERR="$(timeout 5 "$PUEUE_BIN" status 2>&1 >/dev/null)"; then
+                PUEUE_OK=1
+                break
+            fi
+            [[ $PUEUE_TRY -lt 3 ]] && sleep 1
+        done
+        if [[ $PUEUE_OK -eq 1 ]]; then
             echo -e "[PASS] Pueue Daemon: ACTIVE and responsive ($PUEUE_BIN)"
         else
-            echo -e "[FAIL] Pueue Daemon: binary present but daemon NOT responding"
+            echo -e "[FAIL] Pueue Daemon: binary present but daemon NOT responding after 3 attempts (${PUEUE_ERR:0:200})"
             DEGRADED=1
         fi
     else
@@ -386,8 +395,18 @@ print(next((r["version"][2:] for r in json.load(sys.stdin) if r.get("stable")), 
 
     local HOOKS_PATH
     HOOKS_PATH="$(git -C "$PROJECT_ROOT" config core.hooksPath 2>/dev/null || echo "")"
-    if [[ "$HOOKS_PATH" == "scripts/hooks" ]]; then
-        echo -e "[PASS] Git Pre-commit Hook: tracked (core.hooksPath=scripts/hooks)"
+    # ONT-62: core.hooksPath may be relative (to the repo) or an absolute path to the same dir; compare resolved paths.
+    local HOOKS_RESOLVED="" HOOKS_EXPECTED
+    HOOKS_EXPECTED="$(realpath -m "$PROJECT_ROOT/scripts/hooks")"
+    if [[ -n "$HOOKS_PATH" ]]; then
+        if [[ "$HOOKS_PATH" == /* ]]; then
+            HOOKS_RESOLVED="$(realpath -m "$HOOKS_PATH")"
+        else
+            HOOKS_RESOLVED="$(realpath -m "$PROJECT_ROOT/$HOOKS_PATH")"
+        fi
+    fi
+    if [[ -n "$HOOKS_RESOLVED" && "$HOOKS_RESOLVED" == "$HOOKS_EXPECTED" ]]; then
+        echo -e "[PASS] Git Pre-commit Hook: tracked (core.hooksPath=$HOOKS_PATH)"
     else
         echo -e "[WARN] Git Pre-commit Hook: not tracked (current: '$HOOKS_PATH')"
     fi
