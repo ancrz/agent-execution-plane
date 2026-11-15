@@ -60,7 +60,10 @@ from mcp.server.session import ServerSession  # noqa: E402
 logger = logging.getLogger("aep.front")
 PROJECT_ROOT = Path(__file__).resolve().parent
 FRONT_START_TIME_NS: int = time.time_ns()
-BACKEND_LOG_DIR = Path.home() / ".local" / "share" / "agent-os" / "logs"
+# ONT-62: honours AEP_DATA_HOME inline (the front must not import engine/). Canonical source: engine.paths.data_home();
+# tests/test_ont62_front_log_dir.py asserts parity. Stable front: applies at the next front restart (front_stale until then).
+_DATA_HOME_ENV = os.environ.get("AEP_DATA_HOME", "").strip()
+BACKEND_LOG_DIR = (Path(_DATA_HOME_ENV) if _DATA_HOME_ENV else Path.home() / ".local" / "share" / "agent-os") / "logs"
 FRONT_PID: int = os.getpid()
 
 SWAP_FENCE_NAME = ".aep_swap_fence"
