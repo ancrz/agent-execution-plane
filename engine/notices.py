@@ -246,7 +246,7 @@ def build_block(notices: list[Notice]) -> dict[str, Any] | None:
 
 
 def is_quiet(tool: str, action: str) -> bool:
-    return (tool, action) in QUIET_ACTIONS
+    return (tool, str(action).strip().lower()) in QUIET_ACTIONS
 
 
 # --- analisis caliente (T1) ----------------------------------------------------------------------------------

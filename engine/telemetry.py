@@ -17,6 +17,7 @@ import re
 import time
 import unicodedata
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -210,6 +211,26 @@ def _has_candidates(payload: dict[str, Any]) -> bool:
     return isinstance(cands, list) and bool(cands)
 
 
+# ONT-66: provider of the `aep_notice` block (registered by server.py). `(tool, action) -> block | None`; None (or no
+# provider) leaves every response byte-identical to the pre-ONT-66 shape.
+_NOTICE_PROVIDER: Callable[[str, str], dict[str, Any] | None] | None = None
+
+
+def set_notice_provider(provider: Callable[[str, str], dict[str, Any] | None] | None) -> None:
+    global _NOTICE_PROVIDER  # noqa: PLW0603
+    _NOTICE_PROVIDER = provider
+
+
+def _notice_block(tool: str, action: str) -> dict[str, Any] | None:
+    provider = _NOTICE_PROVIDER
+    if provider is None:
+        return None
+    try:
+        return provider(tool, action)
+    except Exception:  # noqa: BLE001 - noisy channel must never break a response
+        return None
+
+
 def attach_envelope(
     payload: dict[str, Any],
     tracker: RequestTelemetry,
@@ -307,6 +328,10 @@ def attach_envelope(
         payload["envelope"] = envelope
     elif "envelope" in payload:
         payload.pop("envelope", None)
+
+    notice = _notice_block(tracker.tool_name, tracker.action)  # ONT-66 T3: piggyback on every response while pending
+    if notice:
+        payload["aep_notice"] = notice
 
     # Provisional serialization to compute exact byte & token footprint and guard JSON-RPC frame size
     provisional = json.dumps(payload, indent=indent_val, ensure_ascii=False)

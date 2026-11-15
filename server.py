@@ -87,7 +87,13 @@ from engine.privilege import (
     tactical_playbook,
 )
 from engine.security import get_agent_usage_summary, mask_pueue_output, record_audit_event, verify_audit_chain
-from engine.telemetry import FD_UNREADABLE_LABEL, RequestTelemetry, attach_envelope, is_field_error_status
+from engine.telemetry import (
+    FD_UNREADABLE_LABEL,
+    RequestTelemetry,
+    attach_envelope,
+    is_field_error_status,
+    set_notice_provider,
+)
 from engine.template_registry import TemplateRegistry
 from engine.topos_guard import ToposGuard, ToposVerdict
 
@@ -6363,6 +6369,8 @@ _AUTOEVOL_ACTIONS = (
     "evolve",
     "reconcile",
     "report",
+    "notices",
+    "ack",
 )
 _AUTOEVOL_OPS = ("spec", "verify", "fix_test", "heal", "evolve", "reconcile", "report")
 _AUTOEVOL_TEST_TIMEOUT_S = 120
@@ -6700,6 +6708,89 @@ def _hot_refresh_if_due() -> None:
         start_hot_analysis()
 
 
+# --- ONT-66: avisos ruidosos (T2/T3) -------------------------------------------------------------------------------
+_NOTICE_REGISTRY: Any = None
+_NOTICE_TTL_S = 2.0
+_NOTICE_CACHE: dict[str, Any] = {"at": 0.0, "active": []}
+_NOTICES_OFF_ENV = "AEP_NOTICES"
+
+
+def _notice_registry() -> Any:
+    global _NOTICE_REGISTRY  # noqa: PLW0603
+    if _NOTICE_REGISTRY is None:
+        from engine import notices
+
+        _NOTICE_REGISTRY = notices.NoticeRegistry()
+    return _NOTICE_REGISTRY
+
+
+def _notice_plane() -> dict[str, Any]:
+    """Senales del plano para avisos: lo OBSERVADO sin pagar un analisis (huella de disco acotada por el TTL)."""
+    meta = _get_live_meta()
+    plane: dict[str, Any] = {
+        "serving_from": meta.get("serving_from"),
+        "reload_error": bool(meta.get("reload_error")),
+        "front_stale": _is_front_stale(),
+    }
+    if LOADED_FINGERPRINT:
+        disk = code_fingerprint(REPO_ROOT)
+        plane["stale"] = bool(disk and disk != LOADED_FINGERPRINT)
+    return plane
+
+
+def _notices_refresh(force: bool = False) -> list[Any]:
+    """Avisos activos (no acked). Solo lee: analisis YA en cache + plano. Nunca analiza ni abre la BD de escritura."""
+    from engine import notices
+    from engine import threads as th
+    from engine.harness_reconnect import RECONNECT_POINTER
+
+    now = time.monotonic()
+    if not force and now - _NOTICE_CACHE["at"] < _NOTICE_TTL_S:
+        return list(_NOTICE_CACHE["active"])
+    _hot_refresh_if_due()
+    cached = th.cached_analysis(REPO_ROOT)
+    found = notices.from_gaps(cached.gaps if cached is not None else [])
+    found += notices.from_plane(_notice_plane(), reconnect=RECONNECT_POINTER)
+    reg = _notice_registry()
+    reg.update(found)
+    active = reg.active()
+    _NOTICE_CACHE.update(at=now, active=active)
+    return list(active)
+
+
+def _notice_block(tool: str, action: str) -> dict[str, Any] | None:
+    """Bloque `aep_notice` para la respuesta de (tool, action); None si no hay avisos o la accion ya trata de ellos."""
+    from engine import notices
+
+    if os.environ.get(_NOTICES_OFF_ENV, "1").strip() == "0" or notices.is_quiet(tool, action):
+        return None
+    active = _notices_refresh()
+    block = notices.build_block(active)
+    if block is not None:
+        _notice_registry().mark_seen(n.id for n in active[: notices.TOP_MAX])
+    return block
+
+
+set_notice_provider(_notice_block)
+
+
+def _autoevol_notices(act: str, ids: list[str] | None, all_: bool, limit: int) -> dict[str, Any]:
+    """`autoevol(notices|ack)` (ONT-66 T5): lista los avisos con su estado / los marca acked. Solo memoria del
+    servidor (tier >= 4r--): no muta el repo ni la BD."""
+    _notices_refresh(force=True)
+    reg = _notice_registry()
+    if act == "notices":
+        snap = reg.snapshot()
+        return {"status": "OK", "count": len(snap), "notices": snap[: max(1, min(int(limit), 50))]}
+    if not all_ and not ids:
+        return {"status": "PARAM_ERROR", "reason": "ack needs ids=[...] or all=True"}
+    acked = reg.ack(ids, all_=bool(all_))
+    _NOTICE_CACHE["at"] = 0.0
+    if not acked and not all_:
+        return {"status": "NOT_FOUND", "acked": [], "remaining": len(reg.active())}
+    return {"status": "OK", "acked": acked, "remaining": len(reg.active())}
+
+
 def _autoevol_reconcile(
     tree: Path, octal: int, terse: bool, open_cycles: bool = False, limit: int = 10
 ) -> dict[str, Any]:
@@ -6907,6 +6998,8 @@ async def autoevol(
     sig: str | None = None,
     repro_test: str | None = None,
     report: dict[str, str] | None = None,
+    ids: list[str] | None = None,
+    all: bool = False,  # noqa: A002 - part of the public tool contract: autoevol(action='ack', all=True)
 ) -> str:
     """
     [AUTOEVOL / THREAD GRAPH] Vista de solo lectura de la estructura y las promesas de AEP (ONT-40).
@@ -6944,6 +7037,7 @@ async def autoevol(
         `repro_test`="tests/field/test_fr_<sig>.py::nombre" (xfail strict, reason "FR-<sig> ...", tier >= 6rw-) corre SOLO ese
         test en sandbox: XFAIL real => PROMOVIDO (gap `field_discrepancy`); si pasa => REJECTED_NO_REPRO. Un reporte solo nunca
         abre ciclos: el opt-in y el tope de 'reconcile' siguen vigentes. Sin `sig`: lista candidatos.
+      - 'notices' / 'ack' (ONT-66): avisos de AEP (`aep_notice` en las respuestas): lista con estado / `ids`=[...] o `all`=True los silencia (memoria del servidor).
     """
     from engine import threads as _threads
 
@@ -7044,6 +7138,11 @@ async def autoevol(
         )
 
     def _run() -> str:
+        if act in ("notices", "ack"):  # ONT-66 T5: solo memoria del servidor, cualquier tier
+            res = _autoevol_notices(act, ids, bool(all), limit)
+            return attach_envelope(
+                _project(res), tracker, verbosity=verbosity, summary=f"autoevol {act}: {res['status']}."
+            )
         if act in _AUTOEVOL_OPS:
             return _ops()
         analysis = _threads.analyze(tree)

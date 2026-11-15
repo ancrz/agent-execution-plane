@@ -771,6 +771,10 @@ def _analyze_core(root: Path | str, *, use_cache: bool = True) -> Analysis:
     if use_cache:
         with _CACHE_LOCK:
             hit = _CACHE.get(key)
+            if (
+                hit is not None
+            ):  # ONT-66: LRU touch, so `cached_analysis` (newest entry) reflects the tree just analyzed
+                _CACHE[key] = _CACHE.pop(key)
         if hit is not None:
             return Analysis(**{**_analysis_fields(hit), "cached": True})
     graph, info = ex.build_graph(src)

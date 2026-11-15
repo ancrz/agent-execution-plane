@@ -96,3 +96,16 @@ def test_hot_analysis_can_be_disabled_and_refresh_is_throttled(
     server._hot_refresh_if_due()
     _join()
     assert th.cached_analysis(mini_repo) is not None
+
+
+def test_cached_analysis_follows_the_tree_last_analyzed_even_on_a_cache_hit(mini_repo: Path) -> None:
+    """Revert-to-earlier-content must not leave `cached_analysis` pointing at the newer, different entry."""
+    a = th.analyze(mini_repo)
+    (mini_repo / "engine" / "mod.py").write_text("def f():\n    return 2\n")
+    b = th.analyze(mini_repo)
+    assert a.inputs_hash != b.inputs_hash
+    (mini_repo / "engine" / "mod.py").write_text("def f():\n    return 1\n")
+    again = th.analyze(mini_repo)
+    assert again.inputs_hash == a.inputs_hash
+    latest = th.cached_analysis(mini_repo)
+    assert latest is not None and latest.inputs_hash == a.inputs_hash
