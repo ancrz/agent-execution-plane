@@ -300,6 +300,350 @@ def _run_toolchain_probe(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- path safety (shared by workspace-probe, file-fingerprint, dir-usage, path-users) --------------------------
+
+_EXTRA_VETO = ("/etc/sudoers.d", "/etc/shadow-", "/etc/gshadow-")
+
+
+def _is_vetoed(raw: str, *, hash_target: bool = False) -> bool:
+    """True when `raw` (lexically OR after realpath, so symlinks cannot bypass) is a protected location.
+
+    Reuses CapabilityGuard's blacklist (+ ~/.ssh, ~/.gnupg); additionally /etc/sudoers.d and, for content
+    hashing only, the AEP data directory except its *.db files (integrity checks of the databases are the point).
+    """
+    from engine.paths import data_home
+    from engine.privilege import CapabilityGuard
+
+    lexical = os.path.abspath(os.path.expanduser(raw))
+    real = os.path.realpath(lexical)
+    for cand in (lexical, real):
+        if CapabilityGuard.is_path_blacklisted(cand):
+            return True
+        if any(cand == v or cand.startswith(v + "/") for v in _EXTRA_VETO):
+            return True
+        if hash_target:
+            dh = os.path.realpath(str(data_home()))
+            if (cand == dh or cand.startswith(dh + "/")) and not cand.endswith(".db"):
+                return True
+    return False
+
+
+# --- workspace-probe -------------------------------------------------------------------------------------------
+
+_MANIFESTS = (
+    "pyproject.toml", "setup.py", "go.mod", "package.json", "Cargo.toml", "Makefile", "Dockerfile",
+    "Jenkinsfile", ".gitlab-ci.yml",
+)  # fmt: skip
+_MANIFEST_PREFIXES = (("requirements", ".txt"), ("docker-compose", (".yml", ".yaml")), ("compose", (".yml", ".yaml")))
+_WALK_SKIP = frozenset({".git", "node_modules", ".venv", "venv", "__pycache__", "target", "dist", "build", ".claude"})
+_LANG_BY_EXT = {
+    ".py": "python", ".go": "go", ".js": "javascript", ".mjs": "javascript", ".ts": "typescript",
+    ".tsx": "typescript", ".jsx": "javascript", ".rs": "rust", ".c": "c", ".h": "c", ".cc": "cpp",
+    ".cpp": "cpp", ".java": "java", ".kt": "kotlin", ".rb": "ruby", ".sh": "shell", ".sql": "sql",
+    ".md": "markdown", ".yml": "yaml", ".yaml": "yaml", ".toml": "toml", ".json": "json",
+}  # fmt: skip
+_WALK_MAX_ENTRIES = 20_000
+_WALK_MAX_S = 2.0
+
+
+def _git_summary(path: str) -> dict[str, Any] | None:
+    rc, out, _ = _run_cmd(["git", "-C", path, "rev-parse", "--show-toplevel"])
+    if rc != 0 or not out.strip():
+        return None
+    info: dict[str, Any] = {"root": out.strip()}
+    rc, out, _ = _run_cmd(["git", "-C", path, "rev-parse", "--short", "HEAD"])
+    info["head"] = out.strip() if rc == 0 else None
+    rc, out, _ = _run_cmd(["git", "-C", path, "status", "--porcelain=v1", "-b"], timeout=_SUBPROC_TIMEOUT_S)
+    lines = out.splitlines() if rc == 0 else []
+    if lines and lines[0].startswith("## "):
+        head = lines[0][3:]
+        branch, _, rest = head.partition("...")
+        info["branch"] = branch.split(" ")[0] if not rest else branch
+        m_ahead = re.search(r"ahead (\d+)", rest)
+        m_behind = re.search(r"behind (\d+)", rest)
+        if "..." in head:
+            info["upstream"] = rest.split(" ")[0]
+            info["ahead"] = int(m_ahead.group(1)) if m_ahead else 0
+            info["behind"] = int(m_behind.group(1)) if m_behind else 0
+        info["dirty_count"] = len(lines) - 1
+    return info
+
+
+def _walk_languages(root: str) -> tuple[dict[str, int], bool]:
+    """Bounded, non-following walk counting files per language; returns (counts, truncated)."""
+    counts: dict[str, int] = {}
+    stack = [root]
+    seen = 0
+    deadline = time.monotonic() + _WALK_MAX_S
+    while stack:
+        cur = stack.pop()
+        try:
+            with os.scandir(cur) as it:
+                for ent in it:
+                    seen += 1
+                    if seen > _WALK_MAX_ENTRIES or time.monotonic() > deadline:
+                        return counts, True
+                    try:
+                        if ent.is_dir(follow_symlinks=False):
+                            if ent.name not in _WALK_SKIP:
+                                stack.append(ent.path)
+                        elif ent.is_file(follow_symlinks=False):
+                            lang = _LANG_BY_EXT.get(os.path.splitext(ent.name)[1].lower())
+                            if lang:
+                                counts[lang] = counts.get(lang, 0) + 1
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return counts, False
+
+
+def _detect_manifests(root: str) -> list[str]:
+    found: list[str] = []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return found
+    for n in names:
+        if n in _MANIFESTS:
+            found.append(n)
+        elif any(n.startswith(p) and n.endswith(sfx) for p, sfx in _MANIFEST_PREFIXES):
+            found.append(n)
+    if os.path.isdir(os.path.join(root, ".github", "workflows")):
+        found.append(".github/workflows")
+    return found
+
+
+def _workspace_next_action(root: str, manifests: list[str]) -> str:
+    wd = f"working_dir='{root}'"
+    if "go.mod" in manifests:
+        return f"sandbox_run(command='go test ./...', {wd}) or artifact_lint_and_build for Go artifacts."
+    if "pyproject.toml" in manifests or "setup.py" in manifests or any(m.startswith("requirements") for m in manifests):
+        py_text = _read_text(os.path.join(root, "pyproject.toml"), 20000)
+        if "pytest" in py_text or os.path.isdir(os.path.join(root, "tests")):
+            return f"sandbox_run(command='pytest -q', {wd})."
+        return f"sandbox_run(command='python -m compileall -q .', {wd})."
+    if "package.json" in manifests:
+        return f"sandbox_run(command='npm test', {wd}, share_net=False)."
+    if "Cargo.toml" in manifests:
+        return f"sandbox_run(command='cargo test', {wd})."
+    return "No recognised manifest; inspect with dir-usage or file-fingerprint."
+
+
+def _run_workspace_probe(params: dict[str, Any]) -> dict[str, Any]:
+    raw = str(params.get("path") or "").strip() or os.getcwd()
+    if _is_vetoed(raw):
+        return _param_error("Path is protected and cannot be probed.")
+    root = os.path.realpath(os.path.expanduser(raw))
+    if not os.path.isdir(root):
+        return _param_error(f"Not a directory: {raw}")
+    git = _git_summary(root)
+    base = git["root"] if git else root
+    manifests = _detect_manifests(base)
+    langs, truncated = _walk_languages(base)
+    ordered = dict(sorted(langs.items(), key=lambda kv: -kv[1]))
+    tests = []
+    if "go.mod" in manifests:
+        tests.append("go test ./...")
+    if any(m in manifests for m in ("pyproject.toml", "setup.py")) or os.path.isdir(os.path.join(base, "tests")):
+        tests.append("pytest -q")
+    if "package.json" in manifests:
+        tests.append("npm test")
+    if "Cargo.toml" in manifests:
+        tests.append("cargo test")
+    return {
+        "primitive": "workspace-probe",
+        "path": root,
+        "git": git,
+        "manifests": manifests,
+        "languages": ordered,
+        "test_hints": tests,
+        "truncated": truncated,
+        "next_action": _workspace_next_action(base, manifests),
+        **(
+            {"escalate": f"L1: sandbox_run(command='find . -type f | wc -l', working_dir='{base}') for exact counts."}
+            if truncated
+            else {}
+        ),
+    }
+
+
+# --- file-fingerprint ------------------------------------------------------------------------------------------
+
+_FP_MAX_PATHS = 20
+_FP_MAX_HASH_BYTES = 256 * 1024 * 1024
+_FP_CHUNK = 1024 * 1024
+
+
+def _file_type(mode: int) -> str:
+    import stat as st
+
+    for fn, label in ((st.S_ISREG, "file"), (st.S_ISDIR, "dir"), (st.S_ISLNK, "symlink")):
+        if fn(mode):
+            return label
+    return "other"
+
+
+def _fingerprint_one(raw: str, want_md5: bool) -> dict[str, Any]:
+    import hashlib
+    import stat as st
+
+    if _is_vetoed(raw, hash_target=True):
+        return {"path": raw, "status": "PARAM_ERROR", "error": "Path is protected; fingerprint refused."}
+    path = os.path.expanduser(raw)
+    try:
+        lst = os.lstat(path)
+    except FileNotFoundError:
+        return {"path": raw, "exists": False}
+    except OSError as e:
+        return {"path": raw, "exists": None, "error": e.strerror or "stat failed"}
+    row: dict[str, Any] = {"path": raw, "exists": True, "type": _file_type(lst.st_mode)}
+    if st.S_ISLNK(lst.st_mode):
+        row["symlink_target"] = os.readlink(path)
+    try:
+        s = os.stat(path)
+    except OSError:
+        s = lst
+        row["dangling"] = True
+    try:
+        owner = pwd.getpwuid(s.st_uid).pw_name
+    except KeyError:
+        owner = str(s.st_uid)
+    row.update(
+        size=s.st_size,
+        mode=format(st.S_IMODE(s.st_mode), "04o"),
+        uid=s.st_uid,
+        owner=owner,
+        mtime_ns=s.st_mtime_ns,
+    )
+    if not st.S_ISREG(s.st_mode):
+        return row
+    if s.st_size > _FP_MAX_HASH_BYTES:
+        row["hash_skipped"] = "too_large"
+        return row
+    sha = hashlib.sha256()
+    md5 = hashlib.md5(usedforsecurity=False) if want_md5 else None
+    try:
+        with open(path, "rb") as fh:
+            while chunk := fh.read(_FP_CHUNK):
+                sha.update(chunk)
+                if md5:
+                    md5.update(chunk)
+    except OSError as e:
+        row["hash_skipped"] = e.strerror or "unreadable"
+        return row
+    row["sha256"] = sha.hexdigest()
+    if md5:
+        row["md5"] = md5.hexdigest()
+    return row
+
+
+def _run_file_fingerprint(params: dict[str, Any]) -> dict[str, Any]:
+    raw = params.get("paths")
+    if isinstance(raw, str):
+        raw = [raw]
+    if (
+        not isinstance(raw, list)
+        or not (1 <= len(raw) <= _FP_MAX_PATHS)
+        or not all(isinstance(p, str) and p for p in raw)
+    ):
+        return _param_error(f"'paths' must be a list of 1..{_FP_MAX_PATHS} non-empty strings.")
+    want_md5 = bool(params.get("md5"))
+    rows = [_fingerprint_one(p, want_md5) for p in raw]
+    refused = sum(1 for r in rows if r.get("status") == "PARAM_ERROR")
+    return {
+        "primitive": "file-fingerprint",
+        "count": len(rows),
+        "refused": refused,
+        "files": rows,
+        "next_action": "Compare sha256 with a previous run to detect change; for a directory use dir-usage.",
+    }
+
+
+# --- dir-usage -------------------------------------------------------------------------------------------------
+
+_DU_MAX_ENTRIES = 200_000
+_DU_MAX_S = 5.0
+
+
+def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
+    raw = str(params.get("path") or "").strip()
+    if not raw:
+        return _param_error("'path' is required.")
+    if _is_vetoed(raw):
+        return _param_error("Path is protected and cannot be measured.")
+    top = _int_param(params, "top", 10, 1, 50)
+    root = os.path.realpath(os.path.expanduser(raw))
+    try:
+        root_dev = os.lstat(root).st_dev
+    except OSError as e:
+        return _param_error(f"Cannot stat path: {e.strerror}")
+    if not os.path.isdir(root):
+        return _param_error(f"Not a directory: {raw}")
+
+    deadline = time.monotonic() + _DU_MAX_S
+    seen = 0
+    truncated = False
+    skipped_mounts = 0
+    totals = {"disk": 0, "apparent": 0, "files": 0}
+    children: dict[str, dict[str, int]] = {}
+    stack: list[tuple[str, str]] = [(root, "")]  # (dir, top-level child name it belongs to)
+    while stack and not truncated:
+        cur, owner = stack.pop()
+        try:
+            it = os.scandir(cur)
+        except OSError:
+            continue
+        with it:
+            for ent in it:
+                seen += 1
+                if seen > _DU_MAX_ENTRIES or time.monotonic() > deadline:
+                    truncated = True
+                    break
+                try:
+                    s = ent.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                import stat as st
+
+                child = owner or ent.name
+                is_dir = st.S_ISDIR(s.st_mode)
+                if is_dir and s.st_dev != root_dev:
+                    skipped_mounts += 1
+                    continue
+                bucket = children.setdefault(child, {"disk": 0, "apparent": 0, "files": 0})
+                bucket["disk"] += s.st_blocks * 512
+                bucket["apparent"] += s.st_size
+                totals["disk"] += s.st_blocks * 512
+                totals["apparent"] += s.st_size
+                if is_dir:
+                    stack.append((ent.path, child))
+                else:
+                    bucket["files"] += 1
+                    totals["files"] += 1
+    ranked = sorted(children.items(), key=lambda kv: -kv[1]["disk"])[:top]
+    return {
+        "primitive": "dir-usage",
+        "path": root,
+        "disk_bytes": totals["disk"],
+        "apparent_bytes": totals["apparent"],
+        "files": totals["files"],
+        "entries_scanned": seen,
+        "skipped_mounts": skipped_mounts,
+        "truncated": truncated,
+        "top": [
+            {"name": n, "disk_bytes": v["disk"], "apparent_bytes": v["apparent"], "files": v["files"]}
+            for n, v in ranked
+        ],
+        "next_action": "Largest child first; drill down with dir-usage(path=<child>), or path-users before deleting.",
+        **(
+            {"escalate": "L2: artifact_lint_and_build(template_name='disk-usage') then artifact_execute_in_ram."}
+            if truncated
+            else {}
+        ),
+    }
+
+
 # --- registry --------------------------------------------------------------------------------------------------
 
 ORIENT_REGISTRY: dict[str, dict[str, Any]] = {
@@ -347,10 +691,51 @@ ORIENT_REGISTRY: dict[str, dict[str, Any]] = {
             }
         },
     ),
+    "workspace-probe": _desc(
+        "workspace-probe",
+        "4r--",
+        "Que es este repo/proyecto: git (rama, head, dirty, ahead/behind), manifiestos, lenguajes y como probarlo.",
+        [
+            "repo",
+            "project",
+            "workspace",
+            "git",
+            "branch",
+            "manifest",
+            "language",
+            "proyecto",
+            "repositorio",
+            "overview",
+        ],
+        {"path": {"type": "string", "required": False, "default": "", "description": "Directorio (default cwd)"}},
+    ),
+    "file-fingerprint": _desc(
+        "file-fingerprint",
+        "4r--",
+        "Huella de archivos (1..20): existencia, tipo, tamano, modo, owner, mtime y sha256; rechaza rutas protegidas.",
+        ["hash", "sha256", "checksum", "fingerprint", "integrity", "changed", "mtime", "md5", "huella", "cambio"],
+        {
+            "paths": {"type": "list", "required": True, "default": None, "description": "1..20 rutas"},
+            "md5": {"type": "bool", "required": False, "default": False, "description": "Incluir md5"},
+        },
+    ),
+    "dir-usage": _desc(
+        "dir-usage",
+        "4r--",
+        "Cuanto ocupa una carpeta: bytes en disco/aparentes, archivos y top N hijos; sin seguir symlinks ni cruzar mounts.",
+        ["folder", "directory", "size", "du", "space", "largest", "carpeta", "ocupa", "tamano", "espacio"],
+        {
+            "path": {"type": "string", "required": True, "default": None, "description": "Directorio"},
+            "top": {"type": "int", "required": False, "default": 10, "description": "Hijos a listar 1..50"},
+        },
+    ),
 }
 
 ORIENT_RUNNERS = {
     "host-info": _run_host_info,
     "cpu-load": _run_cpu_load,
     "toolchain-probe": _run_toolchain_probe,
+    "workspace-probe": _run_workspace_probe,
+    "file-fingerprint": _run_file_fingerprint,
+    "dir-usage": _run_dir_usage,
 }

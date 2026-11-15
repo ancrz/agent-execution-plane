@@ -30,7 +30,7 @@ EXPECTED_PRIMITIVES = {
     "landlock-guard",
 }
 # ONT-63: orientation primitives (4r-- capable) live beside the legacy five in the same registry.
-ORIENT_PRIMITIVES = {"host-info", "cpu-load", "toolchain-probe"}
+ORIENT_PRIMITIVES = {"host-info", "cpu-load", "toolchain-probe", "workspace-probe", "file-fingerprint", "dir-usage"}
 LEGACY_PRIMITIVES = set(EXPECTED_PRIMITIVES)
 EXPECTED_PRIMITIVES = LEGACY_PRIMITIVES | ORIENT_PRIMITIVES
 
