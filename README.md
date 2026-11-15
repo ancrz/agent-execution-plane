@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1510_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1536_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -980,6 +980,8 @@ Every tool in the canonical FastMCP suite (`len(_tools) == 17`) adapts its behav
 
 ### 9.4 Control Plane 9 Domains Graceful Degradation Matrix (`aep_ctl`)
 
+**ONT-62, `service status`:** devuelve `scope: "user"` cuando la unidad está en `systemctl --user`, y `status: RUNNING_UNMANAGED` (WARN, con `pids` y `hint`) cuando hay un proceso vivo con ese nombre sin unidad de systemd (p. ej. `pueued -d`), con `scope: "process"`. Sin unidad ni proceso devuelve `NOT_FOUND`; un nombre inválido devuelve `PARAM_ERROR`.
+
 The control plane (`scripts/aep-ctl` and FastMCP `aep_ctl`) shares `CONTROL_PLANE_SCHEMA` as the single source of truth across all 9 functional domains:
 
 | Domain | Tier `7rwx` (Root / Full Sudo) | Tier `6rw-` (User RW / Standard) | Tier `5r-x` (Restricted / RO-Exec) | Tier `4r--` (Auditor / RO-Observer) |
@@ -1100,6 +1102,18 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-62 pendientes menores, falsos negativos de salud y G71 de `setup.sh --update` (VERIFIED tras dos ciclos; 1536 passed, 0 failed):** el log del front (`aep_front.py`) respeta `AEP_DATA_HOME` en línea; `setup.sh --check` resuelve `core.hooksPath` por ruta real y reintenta la sonda de pueue hasta 3 veces; `aep_ctl service status` distingue `scope: "user"` y el estado `RUNNING_UNMANAGED` (WARN) para procesos sin unidad de systemd; `setup.sh --update` reutiliza el venv 3.14 existente en lugar de ejecutar `uv venv` sobre él (G71). Registro: `docs/pipeline/feature_20261115_ont62_health_and_update.md`.
+
+```mermaid
+flowchart LR
+    I62["Intent: pendientes ONT-61 y salud (ONT-62)"] --> M1["M1: logs del front bajo AEP_DATA_HOME (T1) ✅"]
+    M1 --> M2["M2: --check hook y sonda pueue (T2, T3) ✅"]
+    M2 --> M3["M3: service status user y proceso (T4) ✅"]
+    M3 --> M4["M4: --update reutiliza el venv (T5, G71) ✅"]
+    M4 --> M5["M5: Dokimos VERIFIED 1536 passed ✅"]
+    M5 --> M6["M6: --update real y --check en el host (pendiente)"]
 ```
 
 **ONT-61 aislamiento de la DB real y fricciones G63–G66 (VERIFIED tras dos ciclos; 1510 passed, 0 failed):** `AEP_DATA_HOME` es la única fuente del directorio de datos y la suite lo fija a un directorio temporal antes de importar `server`, así que ningún test migra la base real del usuario (G67). El ciclo 1 destapó que tres tests de `om7` dependían de datos de esa base; ahora siembran sus propios datos. Además: la medición de FDs del test C6 corre en un subproceso limpio, el sandbox monta `/etc/alternatives`, `passwd` y `group` en solo lectura (nunca `shadow`, `sudoers` ni `ssh`), `discover` incluye un bloque `go` compacto y `reclassify` usa `json_each` con un único parámetro.
@@ -1437,6 +1451,8 @@ cd /path/to/agent-execution-plane
 # 5. Autonomous Updater (re-pins uv, venv sync from uv.lock & probe recompilation)
 ./scripts/setup.sh --update
 ```
+
+**`--update` con un venv existente (ONT-62):** reutiliza el venv `.venv` si su intérprete es Python 3.14.x y deja que `uv sync --frozen --extra dev` actualice los paquetes; no recrea el venv del que corre el plano vivo. Si el venv existente usa otra versión de Python, avisa (WARN) y no lo recrea. Para forzar la recreación: `AEP_RECREATE_VENV=1 ./scripts/setup.sh --update` (usa `uv venv --clear --python 3.14`). Si no existe venv, lo crea como antes.
 
 ### 12.2 Autonomous Bootstrapper Architecture
 

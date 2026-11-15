@@ -628,7 +628,7 @@ flowchart LR
     V1 --> P1["M: PLAN_GAP propio sobre copia de la DB real ⛔ corregido"]
     P1 --> V2["M: verified ciclo 2 a7f7aea (1333 passed) ✅"]
     V2 --> D21["M: documentado (Graphos G2) ✅"]
-    D21 --> H21["M: commit docs(ONT-54) (Hermon, pendiente)"]
+    D21 --> H21["M: commit docs(ONT-54) (Hermon, publicado 4fe0283)"]
     V2 --> G21["G43 a G47 cerrados; G40 cierre parcial"]
 ```
 
@@ -680,7 +680,7 @@ flowchart LR
     N2 --> V23["M: verified un ciclo (1359 passed, ruff 303) ✅"]
     V23 --> R23["M: reclassify sobre copia de la DB real ✅"]
     R23 --> D23["M: documentado (Graphos G2) ✅"]
-    D23 --> H23["M: commit docs(ONT-56) (Hermon, pendiente)"]
+    D23 --> H23["M: commit docs(ONT-56) (Hermon, publicado 3ff0c6f)"]
 ```
 
 | Milestone | Descripción | Agente | Estado |
@@ -838,3 +838,34 @@ flowchart LR
 | M9 | Commit de documentación | Hermon | publicado en dev |
 
 Lección: los tests no deben depender de datos de la DB real; el aislamiento de T0 lo hizo visible. Abierto menor: `aep_front.py:63` `BACKEND_LOG_DIR` fuera de `AEP_DATA_HOME`.
+
+## 29. Pendientes menores, falsos negativos de salud y G71 de `setup.sh --update` ONT-62 (2026-11-15)
+
+Registro: `docs/pipeline/feature_20261115_ont62_health_and_update.md` (anterior: `feature_20261114_ont61_db_isolation.md`). Estado: VERIFIED tras dos ciclos Pragma→Dokimos (ciclo 1 DEFECTIVE LOGIC_ERROR en T4: ruff reescribió la cabecera políglota de `scripts/aep-ctl`; ciclo 2 VERIFIED, 1536 passed, 0 failed). Commits `67896be`, `72750c8`, `4eb222f`, `31690c2`, `9d3940f`, `da05dd1`.
+
+```mermaid
+flowchart LR
+    I29["Intent: pendientes ONT-61 y falsos negativos (ONT-62)"] --> N1["N1: plan inline Short T1 a T5 ✅"]
+    N1 --> P1["P1: Pragma 67896be a 31690c2 ✅"]
+    P1 --> D1["D1: Dokimos DEFECTIVE LOGIC_ERROR en T4 (corregido) ✅"]
+    D1 --> P2["P2: Pragma 9d3940f y da05dd1 ✅"]
+    P2 --> V29["V: Dokimos VERIFIED 1536 passed ✅"]
+    V29 --> G29["G: Graphos G2 documentado ✅"]
+    G29 --> H29["H: commit de publicación (Hermon, publicado en dev) ✅"]
+    G29 --> U29["U: setup.sh --update real y --check en el host (pendiente)"]
+```
+
+| Milestone | Descripción | Agente | Estado |
+|-----------|-------------|--------|--------|
+| M1 | T1 logs del front bajo `AEP_DATA_HOME` en línea, pendiente menor de ONT-61 (`67896be`) | Pragma | ✅ |
+| M2 | T2 G68 hook por ruta real y T3 G69 sonda pueue 3 intentos (`72750c8`) | Pragma | ✅ |
+| M3 | T4 G70 `service status` con `scope` y `RUNNING_UNMANAGED` (`4eb222f`) | Pragma | ✅ |
+| M4 | T5 G71 `setup.sh --update` reutiliza el venv 3.14 (`31690c2`) | Pragma | ✅ |
+| M5 | Ciclo 1 DEFECTIVE corregido; cabecera de `aep-ctl` restaurada y excluida de ruff (`9d3940f`, `da05dd1`) | Pragma / Orquestador | ✅ |
+| M6 | Dokimos VERIFIED (1536 passed, DB real intacta) | Dokimos | ✅ |
+| M7 | Documentación: feature ONT-62, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
+| M8 | Publicación en `dev` (ff y push a origin/dev) | Hermon | ✅ |
+| M9 | `setup.sh --update` real y `--check` con HOME real en el host | Orquestador | pendiente |
+
+Lecciones: (1) no pasar formateadores a archivos políglotas sin extensión; usar `force-exclude`. (2) Los modos de un instalador que nunca se ejecutan en CI ocultan fallos durante semanas; el update real es la prueba.
+

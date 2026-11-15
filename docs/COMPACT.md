@@ -1,10 +1,10 @@
-# Context Compaction Guidance: AEP (ONT-61 VERIFIED tras dos ciclos; documentación publicada en dev por Hermon)
-Preserve: pipeline mode Short (control de costos); ONT-61 base `dev` `8d271f4`, HEAD `1120056` en worktree `agent-acf26c30de3644631` (rama `worktree-agent-acf26c30de3644631`).
-Commits: `a369d22` (T0 G67 AEP_DATA_HOME), `ff28e2f` (T4 G66 json_each), `b527e77` (T3 G65 go en discover), `448307b` (T2 G64 sandbox /etc), `6f57a52` (T1 G63 FDs en subproceso), `e73d7d8` (aep-sync desechable), `1120056` (ciclo 2).
-ONT-61 numbers: ciclo 1 DEFECTIVE LOGIC_ERROR en tests (om11, om12, om13 dependían de la DB real); ciclo 2 VERIFIED 1510 passed, 0 failed; DB real md5 205d8013… intacta.
-Decisions taken by user/orchestrator: "Fix them." (G63–G66); G67 hallado en ONT-60 se atiende en ONT-61; modo Short; commits y push autorizados por el usuario; publicado en dev (modo Short).
-Open items with routing: aep_front.py:63 BACKEND_LOG_DIR fuera de AEP_DATA_HOME (menor, front estable, solo logs); `setup.sh --update` pendiente de decisión del usuario.
-Lesson: los tests siembran sus datos en un AEP_DATA_HOME temporal; nunca leen la DB real.
-Next actions: (1) completado: commit de documentación ONT-61 publicado en dev por Hermon; (2) decidir BACKEND_LOG_DIR; (3) decidir `setup.sh --update` en el host.
-Drop: pytest output, diffs intermedios, logs de subagentes, plan_ont61 ya ejecutado, detalle de commits ya en el registro.
-Recovery: leer `docs/pipeline/feature_20261114_ont61_db_isolation.md` y este archivo; luego `git status` y `git log --oneline 8d271f4..HEAD` en el worktree.
+# Context Compaction Guidance: AEP (ONT-62 VERIFIED tras dos ciclos y publicado en dev; update real pendiente)
+Preserve: pipeline mode Short (control de costos); ONT-62 base `dev` `a25d4a0`, HEAD `da05dd1` en worktree `agent-a00b767d80b587df1` (rama `worktree-agent-a00b767d80b587df1`); Graphos no hizo commits.
+Commits ONT-62: `67896be` (T1 logs del front), `72750c8` (T2 hook G68, T3 pueue G69), `4eb222f` (T4 scope y RUNNING_UNMANAGED G70), `31690c2` (T5 venv G71), `9d3940f` y `da05dd1` (ciclo 2).
+ONT-62 numbers: ciclo 1 DEFECTIVE LOGIC_ERROR (ruff reescribió la cabecera políglota de aep-ctl, 3 failed); ciclo 2 VERIFIED 1536 passed, 0 failed; DB real intacta (md5 205d8013… según registros previos).
+Decisions taken by user: "continúa con los pendientes"; autorizó `setup.sh --update` completo asumiendo el blast radius; modo Short; commit y push de ONT-62 autorizados por el usuario para dev; main sigue user-gated.
+Open items with routing: `setup.sh --update` real y `--check` con HOME real (orquestador); reconexión del front con `/mcp` (usuario, aplica T1). Publicado en dev (Hermon).
+Next 3 actions: (1) ejecutar `setup.sh --update` real y confirmar rc 0 sin `uv venv` sobre el venv; (2) `setup.sh --check` con HOME real, hook en PASS; (3) ONT-62 ya publicado en dev por Hermon; no repetir la publicación.
+Lesson: no pasar formateadores a archivos políglotas sin extensión (force-exclude); el update real es la prueba de los modos de instalador.
+Drop: pytest output, diffs intermedios, logs de subagentes, detalle de commits ya registrado, plan_ont62 ya ejecutado.
+Recovery: leer `docs/pipeline/feature_20261115_ont62_health_and_update.md` y este archivo; luego `git status` y `git log --oneline a25d4a0..HEAD` en el worktree.
