@@ -1438,6 +1438,16 @@ class CapabilityGuard:
 
     SYSTEM_MUTATION_ACTIONS: set[str] = {"system_service_mutate", "kernel_trace_start", "audit_purge"}
 
+    # Credential stores under $HOME (ONT-63 R4: cloud/cluster/registry credentials join ssh and gpg).
+    HOME_BLACKLIST: tuple[str, ...] = (
+        ".ssh",
+        ".gnupg",
+        ".aws",
+        ".config/gcloud",
+        ".kube",
+        ".docker/config.json",
+    )
+
     PATH_BLACKLIST: tuple[str, ...] = (
         "/etc/shadow",
         "/etc/gshadow",
@@ -1455,12 +1465,10 @@ class CapabilityGuard:
         try:
             p = Path(path_str).expanduser().resolve()
             resolved_str = str(p)
-            ssh_dir = str(Path.home() / ".ssh")
-            gnupg_dir = str(Path.home() / ".gnupg")
-            if resolved_str == ssh_dir or resolved_str.startswith(ssh_dir + "/"):
-                return True
-            if resolved_str == gnupg_dir or resolved_str.startswith(gnupg_dir + "/"):
-                return True
+            for rel in cls.HOME_BLACKLIST:
+                protected = str(Path.home() / rel)
+                if resolved_str == protected or resolved_str.startswith(protected + "/"):
+                    return True
             for b in cls.PATH_BLACKLIST:
                 if resolved_str == b or resolved_str.startswith(b + "/"):
                     return True

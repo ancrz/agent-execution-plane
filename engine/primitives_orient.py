@@ -133,6 +133,14 @@ def _detect_virt() -> str:
     return "unknown"
 
 
+def _aep_python() -> dict[str, str]:
+    """Interpreter running AEP (venv), so agents do not confuse it with the PATH `python3` (<= 60 B of path)."""
+    import platform
+    import sys
+
+    return {"path": sys.executable[-60:], "version": platform.python_version()}
+
+
 def _run_host_info(params: dict[str, Any]) -> dict[str, Any]:
     from engine.privilege import get_effective_chmod_tier
 
@@ -165,6 +173,7 @@ def _run_host_info(params: dict[str, Any]) -> dict[str, Any]:
         "virt": _detect_virt(),
         "user": {"name": uname, "uid": uid, "gid": os.getgid(), "groups": groups},
         "tier": get_effective_chmod_tier()["tier"],
+        "aep_python": _aep_python(),
         "next_action": "default_primitives(action='run', name='toolchain-probe') to see which tools exist here.",
     }
 
@@ -570,6 +579,20 @@ _DU_MAX_ENTRIES = 200_000
 _DU_MAX_S = 5.0
 
 
+def _protected_paths_below(root: str) -> frozenset[str]:
+    """Absolute protected locations strictly under `root` (walk-time lookup is then a plain set membership)."""
+    from engine.privilege import CapabilityGuard
+
+    home = Path.home()
+    cands = [
+        *CapabilityGuard.PATH_BLACKLIST,
+        *(str(home / rel) for rel in CapabilityGuard.HOME_BLACKLIST),
+        *_EXTRA_VETO,
+    ]
+    prefix = root.rstrip("/") + "/"
+    return frozenset(c for c in (os.path.realpath(x) for x in cands) if c.startswith(prefix))
+
+
 def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
     raw = str(params.get("path") or "").strip()
     if not raw:
@@ -589,6 +612,8 @@ def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
     seen = 0
     truncated = False
     skipped_mounts = 0
+    skipped_protected = 0
+    protected_below = _protected_paths_below(root)
     totals = {"disk": 0, "apparent": 0, "files": 0}
     children: dict[str, dict[str, int]] = {}
     stack: list[tuple[str, str]] = [(root, "")]  # (dir, top-level child name it belongs to)
@@ -604,6 +629,9 @@ def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
                 if seen > _DU_MAX_ENTRIES or time.monotonic() > deadline:
                     truncated = True
                     break
+                if ent.path in protected_below:  # ONT-63 R5: protected children are neither entered nor summed
+                    skipped_protected += 1
+                    continue
                 try:
                     s = ent.stat(follow_symlinks=False)
                 except OSError:
@@ -634,6 +662,7 @@ def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
         "files": totals["files"],
         "entries_scanned": seen,
         "skipped_mounts": skipped_mounts,
+        "skipped_protected": skipped_protected,
         "truncated": truncated,
         "top": [
             {"name": n, "disk_bytes": v["disk"], "apparent_bytes": v["apparent"], "files": v["files"]}
@@ -964,6 +993,7 @@ def _compact_orient(res: dict[str, Any]) -> dict[str, Any]:
             "git": f"{git.get('branch')}@{git.get('head')} dirty={git.get('dirty_count')}" if git else None,
         },
         "aep_ready": sorted(set((t.get("aep_ready") or {}).values())),
+        "aep_python": h.get("aep_python"),
         "next_actions": res.get("next_actions", []),
         "escalate": res.get("escalate"),
     }

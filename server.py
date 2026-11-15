@@ -106,7 +106,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
 0. `default_primitives(action="run", name="orient", verbosity="summary")` -> One-call host/resources/tools/repo overview with `next_actions` and the L0->L1->L2 escalation ladder (WF-0).
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
-2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-11`) and canonical calls.
+2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-11`; start at WF-0) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
 
 ## 2. Complete 17-Tool Suite Map (6 Operational Domains)
@@ -217,6 +217,7 @@ TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ONT-51 (G33) / ONT-53 (G41): the action-synonym table lives in engine.privilege.ACTION_SYNONYMS (single source).
+_PROBE_MAX_PORTS = 1024  # ONT-63 R3: reachability check, not a scanner
 _CALL_NAMED_ARG_RE = re.compile(r'\b(?:action|domain|name)="([^"]+)"')
 
 
@@ -3481,7 +3482,7 @@ _SANDBOX_ETC_EXTRA_MOUNTS: tuple[str, ...] = (
 def _sandbox_vetoed_paths() -> list[str]:
     """Rutas vetadas: blacklist del guard + ~/.ssh + ~/.gnupg + directorio de datos de AEP."""
     home = Path.home()
-    vetoed = [*CapabilityGuard.PATH_BLACKLIST, str(home / ".ssh"), str(home / ".gnupg")]
+    vetoed = [*CapabilityGuard.PATH_BLACKLIST, *(str(home / rel) for rel in CapabilityGuard.HOME_BLACKLIST)]
     data_home = os.environ.get("AEP_DATA_HOME")
     vetoed.append(str(Path(data_home) if data_home else home / ".local" / "share" / "agent-os"))
     vetoed.append(str(home / ".local" / "share" / "agent-os"))
@@ -4397,6 +4398,7 @@ async def aep_ctl(
                 if args and not explicit_ports:
                     candidate_items = args if isinstance(args, list) else str(args).split(",")
                     collected = []
+                    too_many = False
                     for raw_item in candidate_items:
                         item = str(raw_item).strip()
                         if not item:
@@ -4404,6 +4406,9 @@ async def aep_ctl(
                         if "-" in item:
                             try:
                                 p_start, p_end = map(int, item.split("-", 1))
+                                if p_end - p_start + 1 + len(collected) > _PROBE_MAX_PORTS:
+                                    too_many = True
+                                    break
                                 collected.extend(range(p_start, p_end + 1))
                             except ValueError:
                                 pass
@@ -4412,6 +4417,16 @@ async def aep_ctl(
                                 collected.append(int(item))
                             except ValueError:
                                 pass
+                    too_many = too_many or len(collected) > _PROBE_MAX_PORTS
+                    if too_many:
+                        return attach_envelope(
+                            {
+                                "status": "PARAM_ERROR",
+                                "error": f"No es un escáner: at most {_PROBE_MAX_PORTS} ports per probe.",
+                            },
+                            tracker,
+                            verbosity=verbosity,
+                        )
                     if collected:
                         parsed_ports = collected
                 res_obj = asyncio.run(
