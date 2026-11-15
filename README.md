@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1637_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1657_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1131,6 +1131,18 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-64 recorte de `aep_python.path` y puerta de cobertura en pre-commit (Short; VERIFIED en un ciclo; 1657 passed, 0 failed; publicado en dev):** `_trim_path` recorta la ruta por límites de componente, medida en bytes UTF-8 (en este host `…/workspaces/agent-execution-plane/.venv/bin/python`). El hook pre-commit ejecuta `tests/test_ont41_coverage.py` cuando el commit toca documentos, `engine/threads*.py` o `tests/`, así que un conteo incorrecto en la documentación no llega al repositorio. Registro: `docs/pipeline/feature_20261115_ont64_path_trim_and_doc_gate.md`.
+
+```mermaid
+flowchart LR
+    I64["Intent: recorte de aep_python.path y puerta de docs (ONT-64)"] --> M1["M1: _trim_path por componente (4848735) ✅"]
+    M1 --> M2["M2: README sin claim de conteo (4535d83) ✅"]
+    M2 --> M3["M3: pre-commit ejecuta test_ont41_coverage (140a165) ✅"]
+    M3 --> M4["M4: Dokimos VERIFIED 1657 passed ✅"]
+    M4 --> M5["M5: documentado (Graphos G2) ✅"]
+    M5 --> M6["M6: publicado en dev (Hermon)"]
 ```
 
 **ONT-63 capa de orientación básica: primitivas MVP antes de la suite AEP (Short; VERIFIED tras tres ciclos; 1637 passed, 0 failed; publicado en dev por Hermon):** `default_primitives` gana ocho primitivas de solo lectura para las preguntas que todo agente hace al llegar a un host: `host-info`, `cpu-load`, `toolchain-probe`, `workspace-probe`, `file-fingerprint`, `dir-usage`, `path-users` y `orient`, el punto de entrada que compone las anteriores en una llamada (salida ≤1 500 B, presupuesto ≤4 s). Regla **NO DUPLICAR**: las sub-tools existentes se extienden en lugar de crear primitivas paralelas. `aep_ctl network probe` acepta puerto explícito (`port` o `ports` ≤10) y devuelve `resolved` y `error_class`; `process_inspect(pid>0, verbosity="detail")` añade ancestros, cwd, cgroup y `env_names` (nunca valores fuera de la lista permitida). `net-reach` y `proc-detail` se descartaron como primitivas. `discover` resuelve intenciones básicas con coincidencia léxica determinista (EN+ES, pliegue NFKD) en `engine/intent_router.py` antes de la búsqueda semántica. Tres ciclos de corrección: enmascaramiento de credenciales en `cmdline` (`--token`, `-p`, Bearer, URL con credenciales) y vetos de rutas sensibles comparados en forma léxica y resuelta desde una lista única (`CapabilityGuard.protected_roots()`), para que un `~/.docker` enlazado a otro disco no salte el veto. Detalle: `docs/pipeline/feature_20261115_ont63_orientation_layer.md`.

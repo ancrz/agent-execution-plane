@@ -888,6 +888,22 @@ Modo Short; base `dev` `df039ee`; HEAD `98efe5b`; VERIFIED tras tres ciclos (157
 | M9 | Publicación en `dev` (ff a `dev`, push a `origin/dev`) | Hermon | ✅ |
 | M10 | Alcance de `engine/net_telemetry.py` (extensión de network probe) confirmado; tests modificados sin aserciones relajadas | Orquestador | ✅ |
 | M11 | Tiers verificados: `ORIENT_REGISTRY` y `test_orientation_primitives_run_in_auditor_tier` (4r--; path-users 5r-x; legacy PERMISSION_DENIED a 4r--) | Orquestador | ✅ |
-| M12 | `aep_python.path` recorta por límite de directorio (cosmético) | Pragma | pendiente |
+| M12 | `aep_python.path` recorta por límite de directorio (cosmético), resuelto en ONT-64 (`4848735`) | Pragma | ✅ |
 
 Lecciones: (1) probar el enrutado con frases naturales, no con palabras clave; (2) construir las listas de vetos en un único sitio y compararlas en forma léxica y resuelta; (3) los tests sin symlinks no reflejan hosts reales.
+
+## 31. Recorte de `aep_python.path` y puerta de docs ONT-64 (2026-11-15)
+
+Modo Short; base `dev` `fe59411`; HEAD `140a165`; VERIFIED en un ciclo (1657 passed, 0 failed). Registro: `docs/pipeline/feature_20261115_ont64_path_trim_and_doc_gate.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | `_trim_path` por componente, medido en bytes UTF-8 (`4848735`) | Pragma | ✅ |
+| M2 | README: claim de conteo reemplazado por "hasta 30 binarios por consulta" (`4535d83`) | Track ONT-64 | ✅ |
+| M3 | pre-commit ejecuta `tests/test_ont41_coverage.py` con staged `*.md`, `engine/threads*.py` o `tests/*` (`140a165`) | Track ONT-64 | ✅ |
+| M4 | Dokimos VERIFIED en un ciclo (1657 passed; DB real intacta; gate8 como baseline) | Dokimos | ✅ |
+| M5 | Documentación: feature ONT-64, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
+| M6 | Publicado en `dev` por fast-forward, autorizado por AP-1 (tier 7rwx) | Hermon | ✅ |
+| M7 | Truncado de 58-60 B dentro del último componente (`…`) | Pragma (opcional) | pendiente, sin impacto |
+
+Lecciones: (1) los commits de docs posteriores a la verificación también pueden romper gates, porque el grafo lee los `*.md`; el hook pre-commit lo impide ahora; (2) RCA de la regresión: la causa fue la documentación, no el código.

@@ -1,11 +1,10 @@
-# Context Compaction Guidance: AEP (ONT-63 VERIFIED tras tres ciclos; publicado en dev)
-Preserve: pipeline mode Short; base `dev` `df039ee`, HEAD `98efe5b` en worktree `agent-a66c3a57c6b314ef0` (rama `worktree-agent-a66c3a57c6b314ef0`); Graphos no hizo commits.
-Commits ONT-63: `374f83d` (a), `506ec55` (b), `678f07e` (c), `c6fb6d6` (d), `5dc7426` (D1), `f1246a3` (D2), `8b99039` (R1-R5), `98efe5b` (D3).
-ONT-63 numbers: ciclo 1 DEFECTIVE LOGIC_ERROR (D1, D2); ciclo 2 DEFECTIVE seguridad (D3 symlink ~/.docker); ciclo 3 VERIFIED 1637 passed, 0 failed; DB real intacta.
-Decisions taken by user: diseño delegado al orquestador; regla NO DUPLICAR; escalera L0 -> L1 -> L2; net-reach y proc-detail descartados como primitivas.
-Resueltos por orquestador: net_telemetry dentro de alcance (network probe grupo c); tests modificados sin aserciones relajadas; tiers verificados (ORIENT_REGISTRY + test_orientation_primitives_run_in_auditor_tier).
-Open items with routing: publicado en dev (Hermon, ff sobre df039ee); cosmético `aep_python.path` recorta "Documents" (Pragma, opcional).
-Next 3 actions: (1) decidir si el cosmético `aep_python.path` entra en un track posterior; (2) confirmar con el usuario el siguiente track; (3) ONT-65 es el quinto documento del rollup.
-Lessons: (1) probar con frases naturales; (2) listas de vetos comparadas léxica y resueltamente, en un único sitio; (3) tests sin symlinks no reflejan hosts reales (Docker Desktop enlaza ~/.docker).
-Drop: pytest output, diffs intermedios, logs de subagentes, detalle de commits ya registrado, plan_ont63 ya ejecutado.
-Recovery: leer `docs/pipeline/feature_20261115_ont63_orientation_layer.md` y este archivo; luego `git status` y `git log --oneline df039ee..HEAD` en el worktree.
+# Context Compaction Guidance: AEP (ONT-64 VERIFIED en un ciclo; publicado en dev)
+Preserve: pipeline mode Short; base `dev` `fe59411`; worktree `agent-a1a8de650a0c35de8` (rama `worktree-agent-a1a8de650a0c35de8`), HEAD `140a165`; Graphos no hizo commits.
+Commits ONT-64: `4848735` (_trim_path por componente, bytes UTF-8), `4535d83` (README sin claim de conteo), `140a165` (pre-commit ejecuta test_ont41_coverage).
+ONT-64 numbers: Dokimos VERIFIED en 1 ciclo, 1657 passed, 0 failed; gaps = 1 (gate8, baseline); fuzz 300 000 rutas <= 60 B y UTF-8 válido; DB real intacta.
+Decisions taken by user: continuar con el cosmético de aep_python.path (2026-11-15); diseño delegado al orquestador; regla NO DUPLICAR; escalera L0 -> L1 -> L2.
+Open items with routing: publicado en dev por Hermon (ff `fe59411`..`dev`, autorizado por AP-1 tier 7rwx); observación sin impacto: último componente de 58-60 B cortado con `…` (Pragma, opcional).
+Lessons: (1) los commits de docs posteriores a la verificación también rompen gates, porque el grafo lee *.md; el hook lo impide ahora; (2) RCA: la causa fue la documentación, no el código.
+Next actions: (1) confirmar con el usuario el siguiente track; (2) ONT-65 es el quinto documento y hace rollup (feature_rollup.md).
+Drop: salida de pytest, diffs intermedios, logs de subagentes, detalle de commits ya registrado, plan de ONT-64 ya ejecutado.
+Recovery: leer `docs/pipeline/feature_20261115_ont64_path_trim_and_doc_gate.md` y este archivo; luego `git status` y `git log --oneline fe59411..HEAD` en el worktree.

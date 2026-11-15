@@ -408,7 +408,8 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 | 61 | `feature_20261114_ont61_db_isolation.md` | aislamiento de la DB real, VERIFIED tras dos ciclos, 1510 passed |
 | 62 | `feature_20261115_ont62_health_and_update.md` | pendientes menores, falsos negativos de salud y G71 de `setup.sh --update`, VERIFIED tras dos ciclos, 1536 passed |
 | 63 | `feature_20261115_ont63_orientation_layer.md` | capa de orientación básica: 8 primitivas L0, escalera L0-L2 y WF-0; VERIFIED tras tres ciclos, 1637 passed; publicado en dev (Hermon) |
+| 64 | `feature_20261115_ont64_path_trim_and_doc_gate.md` | recorte de `aep_python.path` y puerta de docs en pre-commit, VERIFIED en un ciclo, 1657 passed; publicado en dev |
 
-**Documento activo:** [`feature_20261115_ont63_orientation_layer.md`](feature_20261115_ont63_orientation_layer.md)
+**Documento activo:** [`feature_20261115_ont64_path_trim_and_doc_gate.md`](feature_20261115_ont64_path_trim_and_doc_gate.md)
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (ONT-61 a ONT-65; 3 de 5 tras ONT-63).
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (ONT-61 a ONT-65; 4 de 5 tras ONT-64; ONT-65 hace rollup).
