@@ -407,7 +407,7 @@ Regla **NO DUPLICAR**: si una sub-tool tipada de `aep_ctl` o `process_inspect` y
 |---|---|---|---|
 | `host-info` | 4r-- | host, kernel, distro, arquitectura, uptime, virtualización o contenedor, usuario y tier AEP efectivo | — |
 | `cpu-load` | 4r-- | load average, uso % por muestreo de `/proc/stat`, PSI de CPU | `process_inspect(limit=15)` si la carga viene de un proceso |
-| `toolchain-probe` | 4r-- | presencia, ruta, realpath y versión de hasta 30 herramientas (nunca ejecuta `sudo`) | `sandbox_run` (bwrap), `artifact_lint_and_build` (go), `async_job_dispatch` (pueue) según lo hallado |
+| `toolchain-probe` | 4r-- | presencia, ruta, realpath y versión de hasta 30 binarios por consulta (nunca ejecuta `sudo`) | `sandbox_run` (bwrap), `artifact_lint_and_build` (go), `async_job_dispatch` (pueue) según lo hallado |
 | `workspace-probe` | 4r-- | repo git (rama, HEAD, sucios, ahead/behind), manifiestos, lenguajes, hints de test | `sandbox_run("pytest -q")` o `sandbox_run("go test ./...")` según el manifiesto |
 | `file-fingerprint` | 4r-- | existencia, tipo, tamaño, modo, dueño, mtime_ns, sha256 (md5 opcional); rechaza rutas vetadas | — |
 | `dir-usage` | 4r-- | tamaño de una carpeta, top N hijos, sin seguir symlinks ni cruzar sistemas de archivos | `artifact_lint_and_build(template_name="disk-usage")` si la salida está truncada |
