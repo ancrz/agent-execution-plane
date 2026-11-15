@@ -1460,21 +1460,32 @@ class CapabilityGuard:
     )
 
     @classmethod
+    def protected_roots(cls) -> tuple[str, ...]:
+        """Every protected root in lexical absolute form AND resolved form (symlinked parents such as a
+        `~/.docker -> /mnt/...` link make the two differ). Tolerates roots that do not exist. Single source:
+        nothing else may build its own veto list from HOME_BLACKLIST / PATH_BLACKLIST."""
+        home = Path.home()
+        raw = [*(str(home / rel) for rel in cls.HOME_BLACKLIST), *cls.PATH_BLACKLIST]
+        roots: dict[str, None] = {}
+        for r in raw:
+            roots[os.path.abspath(r)] = None
+            try:
+                roots[str(Path(r).resolve())] = None
+            except OSError, RuntimeError:
+                continue
+        return tuple(roots)
+
+    @classmethod
     def is_path_blacklisted(cls, path_str: str) -> bool:
-        """Comprueba si una ruta coincide con o está dentro de rutas restringidas."""
+        """Comprueba si una ruta (forma léxica o resuelta) coincide con o está dentro de rutas restringidas."""
         try:
-            p = Path(path_str).expanduser().resolve()
-            resolved_str = str(p)
-            for rel in cls.HOME_BLACKLIST:
-                protected = str(Path.home() / rel)
-                if resolved_str == protected or resolved_str.startswith(protected + "/"):
-                    return True
-            for b in cls.PATH_BLACKLIST:
-                if resolved_str == b or resolved_str.startswith(b + "/"):
-                    return True
-        except OSError, ValueError:
+            lexical = os.path.abspath(os.path.expanduser(path_str))
+            candidates = {lexical, str(Path(lexical).resolve())}
+        except OSError, ValueError, RuntimeError:
             return False
-        return False
+        return any(
+            c == root or c.startswith(root.rstrip("/") + "/") for c in candidates for root in cls.protected_roots()
+        )
 
     @classmethod
     def verify_action(

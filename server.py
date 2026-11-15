@@ -3482,7 +3482,7 @@ _SANDBOX_ETC_EXTRA_MOUNTS: tuple[str, ...] = (
 def _sandbox_vetoed_paths() -> list[str]:
     """Rutas vetadas: blacklist del guard + ~/.ssh + ~/.gnupg + directorio de datos de AEP."""
     home = Path.home()
-    vetoed = [*CapabilityGuard.PATH_BLACKLIST, *(str(home / rel) for rel in CapabilityGuard.HOME_BLACKLIST)]
+    vetoed = list(CapabilityGuard.protected_roots())
     data_home = os.environ.get("AEP_DATA_HOME")
     vetoed.append(str(Path(data_home) if data_home else home / ".local" / "share" / "agent-os"))
     vetoed.append(str(home / ".local" / "share" / "agent-os"))

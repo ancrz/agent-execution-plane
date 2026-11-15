@@ -138,7 +138,13 @@ def _aep_python() -> dict[str, str]:
     import platform
     import sys
 
-    return {"path": sys.executable[-60:], "version": platform.python_version()}
+    path = sys.executable
+    home = str(Path.home())
+    if path.startswith(home + "/"):
+        path = "~" + path[len(home) :]
+    if len(path) > 60:
+        path = "…" + path[-57:]  # the ellipsis is 3 bytes in UTF-8
+    return {"path": path, "version": platform.python_version()}
 
 
 def _run_host_info(params: dict[str, Any]) -> dict[str, Any]:
@@ -583,14 +589,9 @@ def _protected_paths_below(root: str) -> frozenset[str]:
     """Absolute protected locations strictly under `root` (walk-time lookup is then a plain set membership)."""
     from engine.privilege import CapabilityGuard
 
-    home = Path.home()
-    cands = [
-        *CapabilityGuard.PATH_BLACKLIST,
-        *(str(home / rel) for rel in CapabilityGuard.HOME_BLACKLIST),
-        *_EXTRA_VETO,
-    ]
+    cands = [*CapabilityGuard.protected_roots(), *_EXTRA_VETO, *(os.path.realpath(x) for x in _EXTRA_VETO)]
     prefix = root.rstrip("/") + "/"
-    return frozenset(c for c in (os.path.realpath(x) for x in cands) if c.startswith(prefix))
+    return frozenset(c for c in cands if c.startswith(prefix))
 
 
 def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:

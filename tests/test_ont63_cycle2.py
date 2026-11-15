@@ -45,7 +45,10 @@ async def test_host_info_reports_aep_python() -> None:
     import sys
 
     py = (await _run("host-info", {}))["result"]["aep_python"]
-    assert sys.executable.endswith(py["path"]) and len(py["path"]) <= 60 and py["version"].count(".") >= 1
+    assert len(py["path"].encode()) <= 60 and py["version"].count(".") >= 1
+    home = str(Path.home())
+    expected = "~" + sys.executable[len(home) :] if sys.executable.startswith(home + "/") else sys.executable
+    assert py["path"] == expected or (py["path"].startswith("…") and expected.endswith(py["path"][1:]))
     summary = json.loads(await server.default_primitives(action="run", name="orient", verbosity="summary"))
     assert summary["result"]["aep_python"] == py
 
