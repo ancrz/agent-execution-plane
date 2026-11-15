@@ -594,7 +594,7 @@ CONTROL_PLANE_SCHEMA: dict[str, dict[str, Any]] = {
     },
     "network": {
         "actions": ["inspect", "routes", "listeners", "probe", "interfaces", "arp", "neighbors"],
-        "arg": '[target] [ports]  (MCP: target=<host>, args="22,80"; name is an alias of target)',
+        "arg": '[target] [ports]  (MCP: target=<host>, args="22,80" or params={host,port|ports<=10,timeout_ms})',
         "description": "Inspect network interfaces, routing tables, active TCP/UDP listening sockets, local ARP tables, or probe TCP ports.",
         "preconditions": {
             "inspect": {

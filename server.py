@@ -2202,6 +2202,13 @@ async def artifact_execute_in_ram(
     return await anyio.to_thread.run_sync(_run)
 
 
+def _process_detail(target_pid: int) -> dict[str, Any]:
+    """ONT-63: start, ancestry, cwd, cgroup and env NAMES of a process (privacy rules in engine.primitives_orient)."""
+    from engine.primitives_orient import process_detail
+
+    return process_detail(target_pid, privileged=get_effective_chmod_tier()["tier"] == "7rwx")
+
+
 @mcp.tool(structured_output=False)
 async def process_inspect(
     pid: int = 0,
@@ -2421,6 +2428,7 @@ async def process_inspect(
                         "rss_kb": rss_kb,
                         "capability_tier": capability_tier(),
                         "fd_access": "restricted",
+                        **({"detail": _process_detail(target_pid)} if pid > 0 and not is_compact else {}),
                         "error": f"Permiso denegado al inspeccionar descriptores en /proc/{target_pid}/fd (métricas de /proc/{target_pid}/status preservadas).",
                     },
                     tracker,
@@ -2487,6 +2495,8 @@ async def process_inspect(
             res_data["uptime_seconds"] = round(time.time() - SERVER_START_TIME, 2)
         if truncated:
             res_data["truncated"] = True
+        if pid > 0 and not is_compact:
+            res_data["detail"] = _process_detail(target_pid)  # ONT-63: orientation detail, detail verbosity only
 
         return attach_envelope(
             res_data,
@@ -4353,9 +4363,29 @@ async def aep_ctl(
             from engine import net_telemetry
 
             if a == "probe":
-                target_host = eff_name or "127.0.0.1"
-                parsed_ports = None
-                if args:
+                # ONT-63: params {host, port | ports (<=10), timeout_ms} are honoured (they were silently ignored).
+                probe_params = params if isinstance(params, dict) else {}
+                target_host = eff_name or str(probe_params.get("host") or "127.0.0.1").strip()
+                if not re.fullmatch(r"[A-Za-z0-9._:-]{1,253}", target_host) or target_host.startswith("-"):
+                    return attach_envelope(
+                        {"status": "PARAM_ERROR", "error": "Invalid host (hostname or IP, no scheme/spaces)."},
+                        tracker,
+                        verbosity=verbosity,
+                    )
+                try:
+                    raw_ports = probe_params.get("ports")
+                    if raw_ports in (None, "", []):
+                        raw_ports = probe_params.get("port")
+                    explicit_ports = net_telemetry.parse_probe_ports(raw_ports)
+                    probe_timeout = int(probe_params.get("timeout_ms") or 300)
+                except (TypeError, ValueError) as exc:
+                    return attach_envelope(
+                        {"status": "PARAM_ERROR", "error": f"Invalid port/timeout: {exc}"},
+                        tracker,
+                        verbosity=verbosity,
+                    )
+                parsed_ports = explicit_ports
+                if args and not explicit_ports:
                     candidate_items = args if isinstance(args, list) else str(args).split(",")
                     collected = []
                     for raw_item in candidate_items:
@@ -4375,7 +4405,9 @@ async def aep_ctl(
                                 pass
                     if collected:
                         parsed_ports = collected
-                res_obj = asyncio.run(net_telemetry.probe_tcp_ports(target_host, parsed_ports))
+                res_obj = asyncio.run(
+                    net_telemetry.probe_tcp_ports(target_host, parsed_ports, timeout_ms=probe_timeout)
+                )
                 if (verbosity or "detail").strip().lower() in ("summary", "brief", "terse", "cached"):
                     res_obj = net_telemetry.compact_probe_result(res_obj)  # ONT-47 T4
                 return attach_envelope(res_obj, tracker, verbosity=verbosity)

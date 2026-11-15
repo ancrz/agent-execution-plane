@@ -644,6 +644,187 @@ def _run_dir_usage(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- process detail (shared with process_inspect) and path-users ----------------------------------------------
+
+_ENV_VALUE_ALLOW = re.compile(r"^(AEP_.*|PATH|VIRTUAL_ENV|GOTOOLCHAIN|GOROOT|LANG|PWD|HOME|USER|SHELL)$")
+_SECRET_NAME = re.compile(r"(token|secret|passw|pwd|credential|api[_-]?key|private|auth|(^|_)key($|_))", re.IGNORECASE)
+_SECRET_ARG = re.compile(r"((?:token|secret|passw\w*|api[_-]?key|auth\w*)[=:])\S+", re.IGNORECASE)
+_PROC_ANCESTORS_MAX = 5
+_ENV_NAMES_MAX = 100
+_CMDLINE_ARG_MAX = 200
+
+
+def _proc_status(pid: int) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in _read_text(f"/proc/{pid}/status", 8192).splitlines():
+        k, _, v = line.partition(":")
+        out[k] = v.strip()
+    return out
+
+
+def _proc_stat_fields(pid: int) -> tuple[int, int] | None:
+    """(ppid, starttime_ticks) from /proc/PID/stat (comm may contain spaces/parens: split after the last ')')."""
+    raw = _read_text(f"/proc/{pid}/stat", 4096)
+    rest = raw.rpartition(")")[2].split()
+    try:
+        return int(rest[1]), int(rest[19])
+    except IndexError, ValueError:
+        return None
+
+
+def process_detail(pid: int, *, privileged: bool) -> dict[str, Any]:
+    """Orientation detail of a process: start, ancestry, cwd, cgroup, redacted cmdline and env NAMES.
+
+    Env VALUES are only emitted for an allow-list and never for credential-looking names. Other-uid processes
+    below 7rwx (`privileged` False) expose neither cwd/exe/cmdline nor environment.
+    """
+    status = _proc_status(pid)
+    if not status:
+        return {"available": False}
+    try:
+        uid = int(status.get("Uid", "").split()[0])
+    except IndexError, ValueError:
+        uid = -1
+    full = privileged or uid == os.getuid()
+    detail: dict[str, Any] = {"available": True, "uid": uid, "ppid": None, "full_access": full}
+    fields = _proc_stat_fields(pid)
+    if fields:
+        ppid, ticks = fields
+        detail["ppid"] = ppid
+        btime = 0
+        for line in _read_text("/proc/stat", 8192).splitlines():
+            if line.startswith("btime "):
+                btime = int(line.split()[1])
+        if btime:
+            start = btime + ticks / os.sysconf("SC_CLK_TCK")
+            detail["start"] = _iso(start)
+            detail["uptime_s"] = max(0, int(time.time() - start))
+        chain: list[dict[str, Any]] = []
+        cur = ppid
+        while cur > 0 and len(chain) < _PROC_ANCESTORS_MAX:
+            chain.append({"pid": cur, "name": _read_text(f"/proc/{cur}/comm", 64).strip() or "?"})
+            nxt = _proc_stat_fields(cur)
+            cur = nxt[0] if nxt else 0
+        detail["ancestors"] = chain
+    cg = _read_text(f"/proc/{pid}/cgroup", 512).splitlines()
+    detail["cgroup"] = cg[0].split(":", 2)[-1][:120] if cg else None
+    if not full:
+        detail["note"] = "other uid below 7rwx: cwd/exe/cmdline/env withheld"
+        return detail
+    for key in ("cwd", "exe"):
+        try:
+            detail[key] = os.readlink(f"/proc/{pid}/{key}")
+        except OSError:
+            detail[key] = None
+    args = [a for a in _read_text(f"/proc/{pid}/cmdline", 16384).split("\x00") if a]
+    detail["cmdline"] = [_SECRET_ARG.sub(r"\1***", a[:_CMDLINE_ARG_MAX]) for a in args[:20]]
+    names: list[str] = []
+    allowed: dict[str, str] = {}
+    for item in _read_text(f"/proc/{pid}/environ", 262144).split("\x00"):
+        name, sep, value = item.partition("=")
+        if not sep or not name:
+            continue
+        names.append(name)
+        if _ENV_VALUE_ALLOW.fullmatch(name) and not _SECRET_NAME.search(name):
+            allowed[name] = value[:200]
+    detail["env_names"] = sorted(set(names))[:_ENV_NAMES_MAX]
+    detail["env_allowed"] = dict(sorted(allowed.items()))
+    return detail
+
+
+_PU_MAX_RESULTS = 200
+_PU_MAX_S = 5.0
+_MAPS_READ_BYTES = 1_048_576
+
+
+def _under(target: str, root: str) -> bool:
+    target = target.removesuffix(" (deleted)")
+    return target == root or target.startswith(root.rstrip("/") + "/")
+
+
+def _proc_hits(pid: int, root: str) -> list[str]:
+    hits: list[str] = []
+    for key in ("exe", "cwd", "root"):
+        try:
+            if _under(os.readlink(f"/proc/{pid}/{key}"), root):
+                hits.append(key)
+        except OSError:
+            continue
+    try:
+        for fd in os.listdir(f"/proc/{pid}/fd"):
+            try:
+                if _under(os.readlink(f"/proc/{pid}/fd/{fd}"), root):
+                    hits.append("fd")
+                    break
+            except OSError:
+                continue
+    except OSError:
+        pass
+    for line in _read_text(f"/proc/{pid}/maps", _MAPS_READ_BYTES).splitlines():
+        idx = line.find("/")
+        if idx > 0 and _under(line[idx:], root):
+            hits.append("mmap")
+            break
+    return hits
+
+
+def _run_path_users(params: dict[str, Any]) -> dict[str, Any]:
+    raw = str(params.get("path") or "").strip()
+    if not raw:
+        return _param_error("'path' is required.")
+    if _is_vetoed(raw):
+        return _param_error("Path is protected and cannot be inspected.")
+    root = os.path.realpath(os.path.expanduser(raw))
+    privileged = params.get("_tier") == "7rwx"
+    me = os.getuid()
+    deadline = time.monotonic() + _PU_MAX_S
+    users: list[dict[str, Any]] = []
+    unreadable = 0
+    scanned = 0
+    truncated = False
+    for ent in os.scandir("/proc"):
+        if not ent.name.isdigit():
+            continue
+        pid = int(ent.name)
+        scanned += 1
+        if time.monotonic() > deadline:
+            truncated = True
+            break
+        try:
+            owner = ent.stat().st_uid
+        except OSError:
+            continue
+        if owner != me and not privileged:
+            unreadable += 1
+            continue
+        hits = _proc_hits(pid, root)
+        if hits:
+            if len(users) >= _PU_MAX_RESULTS:
+                truncated = True
+                break
+            users.append({"pid": pid, "name": _read_text(f"/proc/{pid}/comm", 64).strip(), "uses": sorted(set(hits))})
+    out: dict[str, Any] = {
+        "primitive": "path-users",
+        "path": root,
+        "count": len(users),
+        "processes": users,
+        "scanned": scanned,
+        "unreadable": unreadable,
+        "truncated": truncated,
+    }
+    if users:
+        out["next_action"] = f"process_inspect(pid={users[0]['pid']}, verbosity='detail') to see who it is."
+    else:
+        out["next_action"] = "No visible process uses this path: safe to modify/remove" + (
+            f" (but {unreadable} other-uid processes were not readable)." if unreadable else "."
+        )
+    if truncated or (unreadable and not users):
+        out["escalate"] = (
+            "L1: run at 7rwx or aep_ctl network listeners / sandbox_run('lsof +D <path>') for full coverage."
+        )
+    return out
+
+
 # --- registry --------------------------------------------------------------------------------------------------
 
 ORIENT_REGISTRY: dict[str, dict[str, Any]] = {
@@ -729,6 +910,13 @@ ORIENT_REGISTRY: dict[str, dict[str, Any]] = {
             "top": {"type": "int", "required": False, "default": 10, "description": "Hijos a listar 1..50"},
         },
     ),
+    "path-users": _desc(
+        "path-users",
+        "5r-x",
+        "Quien usa una ruta: procesos con exe/cwd/root/fd/mmap en ella (solo mismo uid bajo 7rwx).",
+        ["lsof", "fuser", "open", "who", "uses", "busy", "in use", "quien usa", "abierto", "ocupado"],
+        {"path": {"type": "string", "required": True, "default": None, "description": "Archivo o directorio"}},
+    ),
 }
 
 ORIENT_RUNNERS = {
@@ -738,4 +926,5 @@ ORIENT_RUNNERS = {
     "workspace-probe": _run_workspace_probe,
     "file-fingerprint": _run_file_fingerprint,
     "dir-usage": _run_dir_usage,
+    "path-users": _run_path_users,
 }

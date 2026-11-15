@@ -76,6 +76,37 @@ TCP_STATE_MAP: dict[str, str] = {
 }
 
 
+async def _resolve_host(host: str, limit: int = 5) -> list[str] | None:
+    """Distinct A/AAAA addresses of `host` (<= limit). None when `host` is already an IP literal; [] on failure."""
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        pass
+    try:
+        infos = await asyncio.wait_for(asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM), 2.0)
+    except OSError, TimeoutError:
+        return []
+    return list(dict.fromkeys(str(i[4][0]) for i in infos))[:limit]
+
+
+def parse_probe_ports(value: Any, max_ports: int = 10) -> list[int] | None:
+    """ONT-63: explicit `port` (int) / `ports` (list or "22,80") -> validated list of at most `max_ports` ports.
+
+    Returns None when `value` is empty. Raises ValueError on out-of-range ports or when the list exceeds the cap
+    (this is a reachability check, not a scanner).
+    """
+    if value in (None, "", []):
+        return None
+    items = value if isinstance(value, list) else str(value).split(",")
+    ports = [int(str(x).strip()) for x in items if str(x).strip()]
+    if not ports:
+        return None
+    if len(ports) > max_ports or any(not 1 <= p <= 65535 for p in ports):
+        raise ValueError(f"ports must be 1..65535 and at most {max_ports} entries")
+    return list(dict.fromkeys(ports))
+
+
 async def probe_tcp_ports(
     host: str = "127.0.0.1",
     ports: list[int] | None = None,
@@ -119,6 +150,16 @@ async def probe_tcp_ports(
     clamped_concurrency = max(1, min(int(concurrency or 50), 200))
     sem = asyncio.Semaphore(clamped_concurrency)
 
+    resolved = await _resolve_host(target_host)
+    if resolved is not None and not resolved:
+        return {
+            "status": "ERROR",
+            "host": target_host,
+            "error": f"DNS resolution failed for '{target_host}'.",
+            "error_class": "dns_fail",
+            "resolved": [],
+        }
+
     async def _probe_single(port: int) -> dict[str, Any]:
         async with sem:
             t0 = time.perf_counter()
@@ -138,13 +179,17 @@ async def probe_tcp_ports(
                     "port": port,
                     "state": "closed",
                     "reason": "timeout",
+                    "error_class": "timeout",
                     "service": COMMON_TCP_SERVICES.get(port, "unknown"),
                 }
-            except ConnectionRefusedError, OSError:
+            except (ConnectionRefusedError, OSError) as exc:
+                # `reason` keeps its historical value; `error_class` (ONT-63) separates refused from unreachable.
+                refused = isinstance(exc, ConnectionRefusedError)
                 return {
                     "port": port,
                     "state": "closed",
                     "reason": "refused",
+                    "error_class": "refused" if refused else "unreachable",
                     "service": COMMON_TCP_SERVICES.get(port, "unknown"),
                 }
             except (RuntimeError, ValueError) as e:
@@ -172,6 +217,7 @@ async def probe_tcp_ports(
     return {
         "status": "OK",
         "host": target_host,
+        "resolved": resolved if resolved is not None else [target_host],
         "scanned_ports": len(effective_ports),
         "open_ports": open_ports,
         "open_count": len(open_ports),
