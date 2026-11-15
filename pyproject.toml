@@ -33,6 +33,8 @@ line-length = 120
 # scripts/aep-ctl is a sh/python polyglot: its line 4 must stay byte-exact. ruff format rewrites the quotes of that
 # line (four single quotes become a triple double quote) and sh then fails with a syntax error. Exclude from format and lint.
 extend-exclude = ["scripts/aep-ctl"]
+# force-exclude: extend-exclude alone is ignored for explicitly passed paths (`ruff format scripts/aep-ctl`).
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
