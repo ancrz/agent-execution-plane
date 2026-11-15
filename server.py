@@ -6662,6 +6662,44 @@ def _reconcile_top() -> str | None:
     return tr.top(proposals)
 
 
+# --- ONT-66: analisis caliente (T1) -----------------------------------------------------------------------------
+_HOT_REFRESH_S_ENV = "AEP_NOTICE_REFRESH_S"
+_HOT_OFF_ENV = "AEP_HOT_ANALYSIS"
+_HOT_REFRESH_DEFAULT_S = 30.0
+_HOT_LAST_KICK: list[float] = [0.0]
+
+
+def _hot_analysis_enabled() -> bool:
+    return os.environ.get(_HOT_OFF_ENV, "1").strip() != "0"
+
+
+def _hot_analyze() -> Any:
+    from engine import threads as th
+
+    return th.analyze(REPO_ROOT)
+
+
+def start_hot_analysis() -> bool:
+    """ONT-66 T1: puebla la cache de analisis en un hilo daemon tras cargar el backend. Nunca bloquea ni escribe en
+    la BD (analisis estatico); fail-soft. Devuelve True si lanzo un hilo."""
+    from engine import notices
+
+    if not _hot_analysis_enabled():
+        return False
+    _HOT_LAST_KICK[0] = time.monotonic()
+    return notices.start_hot_analysis(_hot_analyze) is not None
+
+
+def _hot_refresh_if_due() -> None:
+    """Re-analiza en segundo plano (cache por hash de entradas: barato si nada cambio) cada `AEP_NOTICE_REFRESH_S`."""
+    try:
+        every = float(os.environ.get(_HOT_REFRESH_S_ENV, _HOT_REFRESH_DEFAULT_S))
+    except ValueError:
+        every = _HOT_REFRESH_DEFAULT_S
+    if _HOT_LAST_KICK[0] and time.monotonic() - _HOT_LAST_KICK[0] >= every:
+        start_hot_analysis()
+
+
 def _autoevol_reconcile(
     tree: Path, octal: int, terse: bool, open_cycles: bool = False, limit: int = 10
 ) -> dict[str, Any]:
@@ -7123,4 +7161,5 @@ if _disc_tool and _disc_tool.description:
 
 
 if __name__ == "__main__":
+    start_hot_analysis()
     mcp.run()

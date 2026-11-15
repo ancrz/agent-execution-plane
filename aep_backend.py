@@ -326,6 +326,9 @@ def main() -> None:
             sys.stderr.flush()
 
     worker = BackendWorker(sock, generation=args.generation)
+    # ONT-66 T1: warm the analysis cache off the critical path (daemon thread, fail-soft, never blocks a call or the swap).
+    with contextlib.suppress(Exception):
+        server.start_hot_analysis()
     asyncio.run(worker.run())
     # Non-daemon threads (executors, sandbox waiters) would keep the process alive after the EOF on the front socket.
     sys.stdout.flush()
