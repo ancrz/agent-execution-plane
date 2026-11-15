@@ -20,6 +20,8 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from engine.paths import data_home
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -104,7 +106,7 @@ def test_t_f2_stderr_flood_no_deadlock() -> None:
                     for line in Path(f"/proc/{backend_pid}/status").read_text().splitlines()
                     if line.startswith("PPid:")
                 )
-                log_file = Path.home() / ".local" / "share" / "agent-os" / "logs" / f"aep_backend_{front_pid}_gen1.log"
+                log_file = data_home() / "logs" / f"aep_backend_{front_pid}_gen1.log"
                 assert log_file.exists()
                 assert log_file.stat().st_size >= 256 * 1024
 

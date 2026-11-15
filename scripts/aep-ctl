@@ -1,8 +1,7 @@
 #!/bin/sh
 # sh/python polyglot: sh runs the next line (picks the project venv, falls back to system python3);
 # Python parses that same line as a no-op triple-quoted string.
-"""'true; d=$(cd "$(dirname "$0")/.." && pwd); for p in "$d/.venv/bin/python" "$HOME/.local/share/agent-os/venv/bin/python"; do [ -x "$p" ] && exec "$p" "$0" "$@"; done; exec python3 "$0" "$@" #"""
-
+''''true; d=$(cd "$(dirname "$0")/.." && pwd); for p in "$d/.venv/bin/python" "$HOME/.local/share/agent-os/venv/bin/python"; do [ -x "$p" ] && exec "$p" "$0" "$@"; done; exec python3 "$0" "$@" # '''
 """
 aep-ctl — Unified System Control Plane (SPEC-OM-1)
 
@@ -89,64 +88,51 @@ def _find_pids_by_comm(name: str, proc_root: str = "/proc") -> list[int]:
 
 
 # ------------------------------------------------------------------ dominios
-def domain_service(action: str, name: str | None) -> Any:
+def domain_service(action: str, name: str | None, *extra: str) -> Any:
     if not _need("systemctl"):
         return {"status": "DEGRADED", "message": "systemctl no disponible en este host."}
     if action == "list":
-        r = _run(
-            [
-                "systemctl",
-                "list-units",
-                "--type=service",
-                "--state=running",
-                "--no-pager",
-                "--plain",
-                "--no-legend",
-            ]
-        )
+        r = _run([
+            "systemctl",
+            "list-units",
+            "--type=service",
+            "--state=running",
+            "--no-pager",
+            "--plain",
+            "--no-legend",
+        ])
         services = []
         for ln in r.stdout.splitlines():
             parts = ln.split(None, 4)
             if len(parts) >= 4:
-                services.append(
-                    {
-                        "unit": parts[0],
-                        "load": parts[1],
-                        "active": parts[2],
-                        "sub": parts[3],
-                        "description": parts[4].strip() if len(parts) > 4 else "",
-                    }
-                )
+                services.append({
+                    "unit": parts[0],
+                    "load": parts[1],
+                    "active": parts[2],
+                    "sub": parts[3],
+                    "description": parts[4].strip() if len(parts) > 4 else "",
+                })
         return {"status": "OK", "capability_tier": _tier(), "count": len(services), "services": services}
     if not name:
         fail("Falta <name> del servicio.", usage="aep-ctl service <action> <name> --json")
     if action == "status":
-        if name.startswith("-"):
-            fail("Nombre de servicio inválido.", usage="aep-ctl service status <name> --json")
+        if name.startswith("-") or extra:
+            emit({"status": "PARAM_ERROR", "exit_code": 1, "message": "Nombre de servicio inválido."}, code=1)
         # Lectura de scope de sistema (servicios reales: redis, nginx...). No requiere sudo.
-        r = _run(["systemctl", "show", name, "--property=ActiveState,SubState,LoadState,MainPID,UnitFileState"])
-        props = dict(line.split("=", 1) for line in r.stdout.splitlines() if "=" in line)
+        r = _run(["systemctl", "show", name,
+                  "--property=ActiveState,SubState,LoadState,MainPID,UnitFileState"])
+        props = dict(
+            line.split("=", 1) for line in r.stdout.splitlines() if "=" in line
+        )
         if props.get("LoadState") == "not-found":
             # ONT-62: antes de declarar NOT_FOUND, buscar la unidad en scope de usuario y luego un proceso vivo sin unidad.
             if _PKG_NAME_RE.fullmatch(name):  # sin guion inicial: nunca se interpreta como flag
-                ur = _run(
-                    [
-                        "systemctl",
-                        "--user",
-                        "show",
-                        name,
-                        "--property=ActiveState,SubState,LoadState,MainPID,UnitFileState",
-                    ]
-                )
+                ur = _run(["systemctl", "--user", "show", name,
+                           "--property=ActiveState,SubState,LoadState,MainPID,UnitFileState"])
                 uprops = dict(line.split("=", 1) for line in ur.stdout.splitlines() if "=" in line)
                 if uprops and uprops.get("LoadState") not in (None, "not-found"):
-                    return {
-                        "status": "OK",
-                        "service": name,
-                        "capability_tier": _tier(),
-                        "scope": "user",
-                        "properties": uprops,
-                    }
+                    return {"status": "OK", "service": name, "capability_tier": _tier(), "scope": "user",
+                            "properties": uprops}
                 pids = _find_pids_by_comm(name)
                 if pids:
                     return {
@@ -189,24 +175,18 @@ def domain_service(action: str, name: str | None) -> Any:
         r = _run(["systemctl", "--user", action, name])
         return {
             "status": "OK" if r.returncode == 0 else "DIMINISHED",
-            "service": name,
-            "action": action,
-            "capability_tier": "DIMINISHED",
+            "service": name, "action": action, "capability_tier": "DIMINISHED",
             "chmod_tier": chmod_tier,
-            "scope": "user",
-            "exit_code": r.returncode,
+            "scope": "user", "exit_code": r.returncode,
             "stderr": r.stderr.strip() or None,
             "note": "Sin privilegio para servicios de sistema; limitado a scope de usuario.",
         }
     r = _run(prefix + ["systemctl", action, name])
     return {
         "status": "OK" if r.returncode == 0 else "FAILED",
-        "service": name,
-        "action": action,
-        "capability_tier": "FULL",
+        "service": name, "action": action, "capability_tier": "FULL",
         "chmod_tier": chmod_tier,
-        "scope": "system",
-        "exit_code": r.returncode,
+        "scope": "system", "exit_code": r.returncode,
         "stderr": r.stderr.strip() or None,
     }
 
@@ -216,7 +196,6 @@ def domain_network(action: str, name: str | None = None, ports_arg: str | None =
 
     if action == "probe":
         import asyncio
-
         target = name.strip() if name and name.strip() else "127.0.0.1"
         ports = None
         if ports_arg and ports_arg.strip():
@@ -290,12 +269,12 @@ def domain_network(action: str, name: str | None = None, ports_arg: str | None =
                     proc_name = m.group(1)
                     try:
                         pid = int(m.group(2))
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         pid = None
                     if m.group(3):
                         try:
                             fd = int(m.group(3))
-                        except ValueError, TypeError:
+                        except (ValueError, TypeError):
                             fd = None
                 entry = {
                     "proto": parts[0],
@@ -337,16 +316,8 @@ def domain_storage(action: str) -> Any:
         for ln in r.stdout.splitlines()[1:]:
             p = ln.split()
             if len(p) >= 6:
-                rows.append(
-                    {
-                        "source": p[0],
-                        "mount": p[1],
-                        "size": int(p[2]),
-                        "used": int(p[3]),
-                        "avail": int(p[4]),
-                        "use_pct": p[5],
-                    }
-                )
+                rows.append({"source": p[0], "mount": p[1], "size": int(p[2]),
+                             "used": int(p[3]), "avail": int(p[4]), "use_pct": p[5]})
         return {"status": "OK", "filesystems": rows}
     if action == "mounts":
         if _need("findmnt"):
@@ -379,7 +350,7 @@ def _path_probe(name: str) -> dict[str, Any] | None:
     for flag in ("--version", "version"):
         try:
             r = subprocess.run([found, flag], capture_output=True, text=True, timeout=3, check=False)  # noqa: S603
-        except OSError, subprocess.SubprocessError:
+        except (OSError, subprocess.SubprocessError):
             continue
         lines = (r.stdout or r.stderr or "").strip().splitlines()
         if r.returncode == 0 and lines:
@@ -429,7 +400,8 @@ def domain_package(action: str, name: str | None) -> Any:
         if r.returncode != 0:
             return {"status": "OK", "package": name, "installed": False}
         p = r.stdout.split("\t")
-        return {"status": "OK", "package": p[0], "version": p[1], "arch": p[2] if len(p) > 2 else None}
+        return {"status": "OK", "package": p[0], "version": p[1],
+                "arch": p[2] if len(p) > 2 else None}
     fail(f"Acción de package desconocida: {action}", valid=SCHEMA["package"]["actions"])
 
 
@@ -450,16 +422,11 @@ def domain_security(action: str, name: str | None) -> Any:
         if r.returncode == 0:
             lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
             return {"status": "OK", "rules_count": len(lines), "ruleset": lines[:50]}
-        return {
-            "status": "DEGRADED",
-            "message": "nftables unprivileged or not configured",
-            "stderr": r.stderr.strip()[:200],
-        }
+        return {"status": "DEGRADED", "message": "nftables unprivileged or not configured", "stderr": r.stderr.strip()[:200]}
     if action == "threat_mitigate":
         if not name:
             fail("Falta <target_ip> para threat_mitigate", usage="aep-ctl security threat_mitigate <ip> --json")
         from engine.net_telemetry import enforce_netfilter_mitigation
-
         chmod_tier = _chmod_tier()
         # En tiers 6rw-, 5r-x y 4r-- emite SIMULATED; en 7rwx aplica netfilter real
         return enforce_netfilter_mitigation(name, rule_action="drop", simulate=(chmod_tier != "7rwx"))
@@ -469,15 +436,8 @@ def domain_security(action: str, name: str | None) -> Any:
 def domain_backup(action: str, name: str | None) -> Any:
     chmod_tier = _chmod_tier()
     if action in (
-        "backup",
-        "restore",
-        "golden",
-        "restore_golden",
-        "workspace_snapshot",
-        "workspace_restore",
-        "micro_snapshot",
-        "restore_micro_snapshot",
-        "clear_micro_snapshots",
+        "backup", "restore", "golden", "restore_golden", "workspace_snapshot",
+        "workspace_restore", "micro_snapshot", "restore_micro_snapshot", "clear_micro_snapshots",
     ):
         if chmod_tier in ("4r--", "5r-x"):
             return {
@@ -557,11 +517,9 @@ def domain_backup(action: str, name: str | None) -> Any:
         return get_quarantine_status()
     if action == "workspace_snapshot":
         from engine.backup import create_workspace_snapshot
-
         return create_workspace_snapshot(path=name or ".")
     if action == "workspace_restore":
         from engine.backup import restore_workspace_snapshot
-
         return restore_workspace_snapshot(path=name or ".")
     fail(f"Acción de backup desconocida: {action}", valid=SCHEMA["backup"]["actions"])
 
@@ -740,10 +698,7 @@ def evolve_command(args: list[str]) -> Any:
         fail("Uso: aep-ctl evolve resolve-revert <ciclo> --confirm", valid=["resolve-revert"])
     cycle = args[2]
     if "--confirm" not in args[3:]:
-        fail(
-            "resolve-revert exige --confirm (decision humana: libera el push bloqueado por dev_dirty_by_revert)",
-            cycle=cycle,
-        )
+        fail("resolve-revert exige --confirm (decision humana: libera el push bloqueado por dev_dirty_by_revert)", cycle=cycle)
     from engine import threads as th
     from engine import threads_ledger as tl
 
@@ -756,15 +711,13 @@ def evolve_command(args: list[str]) -> Any:
 def main(argv: list[str]) -> None:
     args = [a for a in argv if a != "--json"]  # --json es el default; lo aceptamos y lo ignoramos
     if not args or args[0] in ("schema", "--schema"):
-        emit(
-            {
-                "status": "OK",
-                "tool": "aep-ctl",
-                "chmod_tier": _chmod_tier(),
-                "degradation_matrix": CHMOD_DEGRADATION_MATRIX.get("domains", {}),
-                "domains": SCHEMA,
-            }
-        )
+        emit({
+            "status": "OK",
+            "tool": "aep-ctl",
+            "chmod_tier": _chmod_tier(),
+            "degradation_matrix": CHMOD_DEGRADATION_MATRIX.get("domains", {}),
+            "domains": SCHEMA,
+        })
     domain = args[0]
     if domain == "evolve":
         emit(evolve_command(args))
@@ -772,16 +725,14 @@ def main(argv: list[str]) -> None:
         fail(f"Dominio desconocido: {domain}", valid=list(SCHEMA.keys()))
     action = args[1] if len(args) > 1 else None
     if action in ("--schema", "schema"):
-        emit(
-            {
-                "status": "OK",
-                "tool": "aep-ctl",
-                "domain": domain,
-                "chmod_tier": _chmod_tier(),
-                "degradation_matrix": CHMOD_DEGRADATION_MATRIX.get("domains", {}).get(domain, {}),
-                "schema": SCHEMA[domain],
-            }
-        )  # ONT-47 T8: no full `domains` dump for a per-domain schema query
+        emit({
+            "status": "OK",
+            "tool": "aep-ctl",
+            "domain": domain,
+            "chmod_tier": _chmod_tier(),
+            "degradation_matrix": CHMOD_DEGRADATION_MATRIX.get("domains", {}).get(domain, {}),
+            "schema": SCHEMA[domain],
+        })  # ONT-47 T8: no full `domains` dump for a per-domain schema query
     name = args[2] if len(args) > 2 else None
     rest = args[3:] if len(args) > 3 else []
     if not action or action not in SCHEMA[domain]["actions"]:

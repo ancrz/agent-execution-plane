@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 from types import ModuleType
@@ -116,3 +117,23 @@ def test_comm_is_truncated_like_the_kernel(tmp_path):
     proc = _fake_proc(tmp_path / "proc", {"9": "a-very-long-nam"})  # kernel keeps 15 chars
     assert ctl._find_pids_by_comm("a-very-long-name-service-x", str(proc)) == [9]
     assert infer_severity("RUNNING_UNMANAGED") == "WARN"
+
+
+def _ctl_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["sh", str(ROOT / "scripts" / "aep-ctl"), *args], capture_output=True, text=True, timeout=60, check=False
+    )
+
+
+def test_polyglot_header_survives_formatting_sh_can_run_the_ctl():
+    """Regression: ruff format once rewrote line 4 and `sh scripts/aep-ctl` died with a syntax error."""
+    res = _ctl_cli("schema")
+    assert res.returncode == 0, res.stderr
+    assert "service" in res.stdout and infer_severity("OK") == "INFO"
+
+
+def test_double_dash_name_is_param_error_not_traceback():
+    res = _ctl_cli("service", "status", "--", "-x")
+    assert res.returncode == 1 and "Traceback" not in res.stderr
+    assert json.loads(res.stdout)["status"] == "PARAM_ERROR"
+    assert infer_severity("PARAM_ERROR") == "ERROR"

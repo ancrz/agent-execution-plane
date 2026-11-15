@@ -21,7 +21,9 @@ def _exe(path: Path, body: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def _run_update(tmp_path: Path, venv_version: str | None, env_extra: dict[str, str] | None = None):
+def _run_update(
+    tmp_path: Path, venv_version: str | None, env_extra: dict[str, str] | None = None, real_link_dir: bool = False
+):
     project = tmp_path / "project"
     (project / "scripts").mkdir(parents=True)
     shutil.copy(ROOT / "scripts" / "setup.sh", project / "scripts" / "setup.sh")
@@ -33,6 +35,8 @@ def _run_update(tmp_path: Path, venv_version: str | None, env_extra: dict[str, s
     _exe(stubs / "curl", "echo 'curl: (6) Could not resolve host' >&2\nexit 6\n")
     home = tmp_path / "home"
     home.mkdir()
+    if real_link_dir:
+        (home / ".local" / "share" / "agent-os" / "venv").mkdir(parents=True)
     env = {
         "HOME": str(home),
         "TMPDIR": str(tmp_path),
@@ -78,3 +82,16 @@ def test_other_version_recreated_only_with_explicit_variable(tmp_path):
     _, venv_calls = _run_update(tmp_path, "3.12", {"AEP_RECREATE_VENV": "1"})
     assert len(venv_calls) == 1 and "--clear" in venv_calls[0]
     assert "--system-site-packages" not in venv_calls[0]
+
+
+def test_real_directory_at_venv_link_is_not_linked_into_nor_deleted(tmp_path):
+    res, _ = _run_update(tmp_path, "3.14", real_link_dir=True)
+    link = tmp_path / "home" / ".local" / "share" / "agent-os" / "venv"
+    assert link.is_dir() and not link.is_symlink()
+    assert list(link.iterdir()) == []  # no `.venv` link created inside the user's directory
+    assert "directorio real" in res.stdout
+
+
+def test_missing_link_is_created_as_symlink(tmp_path):
+    _run_update(tmp_path, "3.14")
+    assert (tmp_path / "home" / ".local" / "share" / "agent-os" / "venv").is_symlink()

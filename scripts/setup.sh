@@ -625,7 +625,13 @@ log_step "Sincronizando dependencias en el venv hermético..."
 
 # Sincronizar symlink canónico para ~/.local/share/agent-os/venv
 mkdir -p "$HOME/.local/share/agent-os"
-ln -sfn "$VENV_DIR" "$HOME/.local/share/agent-os/venv"
+VENV_LINK="$HOME/.local/share/agent-os/venv"
+if [[ -d "$VENV_LINK" && ! -L "$VENV_LINK" ]]; then
+    # ONT-62: a real directory (possibly the user's own venv): `ln -sfn` would create a link INSIDE it. Never delete it.
+    log_warn "$VENV_LINK es un directorio real, no un symlink: no se enlaza (no se borra). Apunta tus clientes a $VENV_DIR."
+else
+    ln -sfn "$VENV_DIR" "$VENV_LINK"
+fi
 
 # ONT-41: last-known-good store (private, 0700). AEP_DATA_HOME overrides the data home (same as aep_lkg.lkg_home()).
 AEP_LKG_DIR="${AEP_DATA_HOME:-$HOME/.local/share/agent-os}/lkg"
