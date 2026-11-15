@@ -38,6 +38,7 @@ ORIENT_PRIMITIVES = {
     "file-fingerprint",
     "dir-usage",
     "path-users",
+    "orient",
 }
 LEGACY_PRIMITIVES = set(EXPECTED_PRIMITIVES)
 EXPECTED_PRIMITIVES = LEGACY_PRIMITIVES | ORIENT_PRIMITIVES

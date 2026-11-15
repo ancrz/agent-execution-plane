@@ -16,13 +16,12 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 
 from engine.landlock import get_landlock_status
 from engine.net_telemetry import map_socket_inodes, parse_proc_net_sockets
-from engine.primitives_orient import ORIENT_REGISTRY, ORIENT_RUNNERS
+from engine.primitives_orient import ORIENT_REGISTRY, ORIENT_RUNNERS, _run_disk_usage, _run_mem_stat
 from engine.telemetry import FD_UNREADABLE_LABEL
 
 logger = logging.getLogger("aep.primitives")
@@ -203,62 +202,6 @@ def _run_fd_rescuer(params: dict[str, Any]) -> dict[str, Any]:
         "pid": effective_pid,
         "fd_count": len(fds),
         "descriptors": fds,
-    }
-
-
-def _run_disk_usage(params: dict[str, Any]) -> dict[str, Any]:
-    raw_path = str(params.get("path") or "/").strip()
-    target_path = Path(raw_path or "/")
-    effective_path = str(target_path) if target_path.exists() else "/"
-
-    usage = shutil.disk_usage(effective_path)
-    percent_used = round((usage.used / usage.total) * 100.0, 2) if usage.total > 0 else 0.0
-
-    st_vfs = os.statvfs(effective_path)
-    return {
-        "primitive": "disk-usage",
-        "path": effective_path,
-        "total_bytes": usage.total,
-        "used_bytes": usage.used,
-        "free_bytes": usage.free,
-        "percent_used": percent_used,
-        "block_size": st_vfs.f_frsize,
-        "total_blocks": st_vfs.f_blocks,
-        "free_blocks": st_vfs.f_bavail,
-    }
-
-
-def _run_mem_stat(params: dict[str, Any]) -> dict[str, Any]:
-    meminfo_path = Path("/proc/meminfo")
-    info: dict[str, int] = {}
-    if meminfo_path.exists():
-        try:
-            content = meminfo_path.read_text(encoding="utf-8", errors="replace")
-            for line in content.splitlines():
-                if ":" in line:
-                    key, rest = line.split(":", 1)
-                    parts = rest.strip().split()
-                    if parts and parts[0].isdigit():
-                        val_kb = int(parts[0])
-                        info[key.strip()] = val_kb * 1024
-        except OSError as e:
-            logger.debug("Failed reading /proc/meminfo: %s", e)
-
-    total = info.get("MemTotal", 0)
-    free = info.get("MemFree", 0)
-    available = info.get("MemAvailable", free)
-    used = max(0, total - available) if total > 0 else 0
-    percent_used = round((used / total) * 100.0, 2) if total > 0 else 0.0
-
-    return {
-        "primitive": "mem-stat",
-        "total_bytes": total,
-        "free_bytes": free,
-        "available_bytes": available,
-        "used_bytes": used,
-        "percent_used": percent_used,
-        "swap_total_bytes": info.get("SwapTotal", 0),
-        "swap_free_bytes": info.get("SwapFree", 0),
     }
 
 

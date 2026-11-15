@@ -338,6 +338,31 @@ ACTION_SYNONYMS: dict[str, tuple[str, ...]] = {
     "status": ("service", "running", "servicio", "ejecutando"),
 }
 
+# ONT-63: sinonimos EN+ES por primitiva de capa 0 (`default_primitives(name=...)`). Solo los consume
+# `server._pick_canonical_call`; NO se mezclan en `_CAP_KEYWORDS["system_inspect"]` para no sesgar el ranking.
+# Red -> `aep_ctl network`, proceso -> `process_inspect`: se enrutan por sus capacidades, no por primitivas.
+PRIMITIVE_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "orient": (
+        "orient",
+        "overview",
+        "start",
+        "begin",
+        "first",
+        "orientar",
+        "orientarme",
+        "empezar",
+        "resumen",
+        "iniciar",
+    ),
+    "host-info": ("hostname", "distro", "kernel", "uptime", "arch", "equipo", "sistema", "operativo", "virtualization"),
+    "cpu-load": ("cpu", "load", "loadavg", "busy", "carga", "procesador"),
+    "toolchain-probe": ("toolchain", "version", "binary", "tools", "herramientas", "binario"),
+    "workspace-probe": ("repo", "repository", "project", "workspace", "branch", "proyecto", "repositorio", "rama"),
+    "file-fingerprint": ("hash", "checksum", "sha256", "fingerprint", "changed", "huella", "cambio", "cambiado"),
+    "dir-usage": ("folder", "directory", "size", "largest", "carpeta", "directorio", "ocupa", "tamano"),
+    "path-users": ("lsof", "fuser", "using", "uses", "busy", "usa", "usando", "abierto", "ocupado"),
+}
+
 # Keywords BILINGÜES (EN/ES) por capacidad: anclas léxicas language-aligned para el enrutador
 # `discover`. Las descriptions están en español y los names/tools en inglés, así que una query EN
 # ("run binary", "memory", "trace kernel") tenía poco con qué casar. Esto cierra la colisión ES/EN:
@@ -361,7 +386,7 @@ _CAP_KEYWORDS = {
     "backup_admin": "backup restore recover rotation hot snapshot sqlite wal quarantine golden micro_snapshot copia seguridad restaurar",
     "audit_read": "audit log security chain cryptographic hash ledger tamper verify verificar auditoria cadena criptografica",
     "system_docs": "man manpage documentation syntax flags command help manual documentacion sintaxis comando",
-    "default_primitives": "default primitives system diagnostic probes socket monitor fd rescuer disk usage mem stat landlock guard ram in-memory sondas diagnostico primitivas por defecto memoria",
+    "default_primitives": "default primitives system diagnostic probes socket monitor fd rescuer disk usage mem stat landlock guard ram in-memory sondas diagnostico primitivas por defecto memoria orient overview start orientarme empezar resumen hostname distro kernel uptime cpu load carga toolchain version herramientas repo repository workspace project proyecto repositorio hash checksum sha256 fingerprint huella folder directory carpeta size ocupa lsof fuser using usa abierto",
 }
 
 # Las keywords de system_inspect incluyen los sinonimos de accion (sin duplicar tokens ya presentes).
@@ -1051,9 +1076,16 @@ _CAP_TACTICAL: dict[str, dict[str, Any]] = {
     "default_primitives": {
         "when_to_use": "Execute built-in system introspection and diagnostic probes directly in RAM without template compilation.",
         "canonical_calls": [
-            'default_primitives(action="list")',
-            'default_primitives(action="info", name="socket-monitor")',
+            'default_primitives(action="run", name="orient", verbosity="summary")',
+            'default_primitives(action="run", name="host-info", verbosity="summary")',
+            'default_primitives(action="run", name="cpu-load", verbosity="summary")',
+            'default_primitives(action="run", name="toolchain-probe", verbosity="summary")',
+            'default_primitives(action="run", name="workspace-probe", params={"path": "."}, verbosity="summary")',
+            'default_primitives(action="run", name="file-fingerprint", params={"paths": ["<file>"]}, verbosity="summary")',
+            'default_primitives(action="run", name="dir-usage", params={"path": "<dir>"}, verbosity="summary")',
+            'default_primitives(action="run", name="path-users", params={"path": "<path>"}, verbosity="summary")',
             'default_primitives(action="run", name="disk-usage", params={"path": "/"})',
+            'default_primitives(action="list")',
         ],
     },
 }
@@ -1125,6 +1157,15 @@ def tactical_playbook() -> dict[str, Any]:
             "10. VERIFY LOADED CODE (ONT-39): tras editar o recargar, discover(capabilities, terse) y exigir stale == false y code_fingerprint_loaded == code_fingerprint_disk; si no, el cambio NO está cargado. Cambios multiarchivo: crea .aep_swap_fence, edita, valida, borra el fence y verifica con discover(capabilities, terse).",
         ],
         "workflow_recipes": [
+            {
+                "id": "WF-0",
+                "name": "Orient first (L0 primitives -> L1 typed sub-tools -> L2 in-memory artifacts)",
+                "steps": [
+                    '1. default_primitives(action="run", name="orient", verbosity="summary") -> host, resources, tools, repo, aep_ready and next_actions in one call (<=1.5 KB).',
+                    "2. L1 if L0 is not enough: aep_ctl domains (network/storage/package/service), process_inspect(pid, verbosity='detail'), query_system_docs, sandbox_run for isolated shell commands.",
+                    "3. L2 only when a shell cannot solve it (raw syscalls, bulk or continuous parsing, concurrency, sampling, state between steps): artifact_lint_and_build(template_name=...) then artifact_execute_in_ram.",
+                ],
+            },
             {
                 "id": "WF-1",
                 "name": "Code, Contract & Architecture Audit",
@@ -1218,6 +1259,7 @@ def tactical_playbook() -> dict[str, Any]:
             },
         ],
         "quick_reference": {
+            "orient_first": 'default_primitives(action="run", name="orient", verbosity="summary")',
             "orient_and_readiness": 'discover(action="capabilities", verbosity="summary")',
             "tactical_guide": 'discover(action="playbook", verbosity="summary")',
             "control_plane_schema": 'aep_ctl(action="schema")',

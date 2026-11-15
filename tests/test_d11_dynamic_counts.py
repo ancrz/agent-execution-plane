@@ -43,7 +43,7 @@ def test_d11_derived_recipe_range_in_playbook_next_action() -> None:
     raw = asyncio.run(server.discover(action="playbook", verbosity="summary", force_refresh=True))
     payload = json.loads(raw)
     next_action = payload.get("next_action", "")
-    assert "WF-1..WF-11" in next_action
+    assert "WF-0..WF-11" in next_action
 
 
 def test_d11_derived_counts_in_schema_summary() -> None:

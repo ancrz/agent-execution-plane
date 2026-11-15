@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import grp
+import logging
 import os
 import pwd
 import re
@@ -22,7 +23,10 @@ import socket
 import subprocess
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger("aep.primitives")
 
 # --- shared helpers --------------------------------------------------------------------------------------------
 
@@ -825,6 +829,177 @@ def _run_path_users(params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# --- disk-usage / mem-stat (legacy runners; live here so engine.primitives -> orient stays one-way) ---
+
+
+def _run_disk_usage(params: dict[str, Any]) -> dict[str, Any]:
+    raw_path = str(params.get("path") or "/").strip()
+    target_path = Path(raw_path or "/")
+    effective_path = str(target_path) if target_path.exists() else "/"
+
+    usage = shutil.disk_usage(effective_path)
+    percent_used = round((usage.used / usage.total) * 100.0, 2) if usage.total > 0 else 0.0
+
+    st_vfs = os.statvfs(effective_path)
+    return {
+        "primitive": "disk-usage",
+        "path": effective_path,
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_bytes": usage.free,
+        "percent_used": percent_used,
+        "block_size": st_vfs.f_frsize,
+        "total_blocks": st_vfs.f_blocks,
+        "free_blocks": st_vfs.f_bavail,
+    }
+
+
+def _run_mem_stat(params: dict[str, Any]) -> dict[str, Any]:
+    meminfo_path = Path("/proc/meminfo")
+    info: dict[str, int] = {}
+    if meminfo_path.exists():
+        try:
+            content = meminfo_path.read_text(encoding="utf-8", errors="replace")
+            for line in content.splitlines():
+                if ":" in line:
+                    key, rest = line.split(":", 1)
+                    parts = rest.strip().split()
+                    if parts and parts[0].isdigit():
+                        val_kb = int(parts[0])
+                        info[key.strip()] = val_kb * 1024
+        except OSError as e:
+            _log.debug("Failed reading /proc/meminfo: %s", e)
+
+    total = info.get("MemTotal", 0)
+    free = info.get("MemFree", 0)
+    available = info.get("MemAvailable", free)
+    used = max(0, total - available) if total > 0 else 0
+    percent_used = round((used / total) * 100.0, 2) if total > 0 else 0.0
+
+    return {
+        "primitive": "mem-stat",
+        "total_bytes": total,
+        "free_bytes": free,
+        "available_bytes": available,
+        "used_bytes": used,
+        "percent_used": percent_used,
+        "swap_total_bytes": info.get("SwapTotal", 0),
+        "swap_free_bytes": info.get("SwapFree", 0),
+    }
+
+
+# --- orient (entry point) --------------------------------------------------------------------------------------
+
+_ORIENT_BUDGET_S = 4.0
+LADDER = (
+    "L1 aep_ctl/process_inspect/sandbox_run; L2 artifact_lint_and_build+artifact_execute_in_ram "
+    "(syscalls, bulk/continuous parsing, concurrency, sampling)."
+)
+
+
+def _orient_subprobes(path: str) -> dict[str, Any]:
+    """Callables for each sub-probe; imported lazily because disk-usage/mem-stat live in engine.primitives."""
+    return {
+        "host": lambda: _run_host_info({}),
+        "cpu": lambda: _run_cpu_load({"sample_ms": 100}),
+        "mem": lambda: _run_mem_stat({}),
+        "disk_root": lambda: _run_disk_usage({"path": "/"}),
+        "disk_path": lambda: _run_disk_usage({"path": path}),
+        "tools": lambda: _run_toolchain_probe({}),
+        "workspace": lambda: _run_workspace_probe({"path": path}),
+    }
+
+
+def _compact_orient(res: dict[str, Any]) -> dict[str, Any]:
+    h, c = res.get("host") or {}, res.get("cpu") or {}
+    m, dr, dp = res.get("mem") or {}, res.get("disk_root") or {}, res.get("disk_path") or {}
+    t, w = res.get("tools") or {}, res.get("workspace") or {}
+    distro = (h.get("distro") or {}).get("pretty") or ""
+    u = h.get("user") or {}
+    git = w.get("git") or {}
+    out: dict[str, Any] = {
+        "primitive": "orient",
+        "host": f"{h.get('hostname')} | {distro} | {h.get('kernel')} | {h.get('arch')} {h.get('ncpu')}cpu | "
+        f"{h.get('virt')} | {u.get('name')} {h.get('tier')}",
+        "resources": {
+            "cpu_pct": c.get("usage_pct"),
+            "load1": (c.get("loadavg") or [None])[0],
+            "mem_pct": m.get("percent_used"),
+            "disk_root_pct": dr.get("percent_used"),
+            "disk_path_pct": dp.get("percent_used"),
+        },
+        "tools_present": [x["name"] for x in t.get("tools", []) if x.get("present")],
+        "tools_missing": t.get("missing", []),
+        "workspace": {
+            "langs": list(w.get("languages") or {})[:3],
+            "manifests": (w.get("manifests") or [])[:5],
+            "git": f"{git.get('branch')}@{git.get('head')} dirty={git.get('dirty_count')}" if git else None,
+        },
+        "aep_ready": sorted(set((t.get("aep_ready") or {}).values())),
+        "next_actions": res.get("next_actions", []),
+        "escalate": res.get("escalate"),
+    }
+    if res.get("partial"):
+        out["partial"] = True
+        out["errors"] = res.get("errors")
+    return out
+
+
+def _run_orient(params: dict[str, Any]) -> dict[str, Any]:
+    path = str(params.get("path") or "").strip() or os.getcwd()
+    if _is_vetoed(path):
+        return _param_error("Path is protected and cannot be probed.")
+    probes = _orient_subprobes(path)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(probes))
+    futs = {k: pool.submit(fn) for k, fn in probes.items()}
+    deadline = time.monotonic() + _ORIENT_BUDGET_S
+    res: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for key, fut in futs.items():
+        try:
+            val = fut.result(timeout=max(0.0, deadline - time.monotonic()))
+        except concurrent.futures.TimeoutError:
+            errors[key] = "timeout"
+            continue
+        except Exception as exc:  # noqa: BLE001 - one failing probe must not sink the others
+            errors[key] = type(exc).__name__
+            continue
+        if val.get("status") == "PARAM_ERROR":
+            errors[key] = str(val.get("error", "param error"))[:80]
+        else:
+            res[key] = val
+    pool.shutdown(wait=False, cancel_futures=True)
+
+    actions: list[str] = []
+    ws = res.get("workspace") or {}
+    if ws.get("manifests"):
+        actions.append(str(ws.get("next_action")))
+    cpu = res.get("cpu") or {}
+    if cpu.get("load_per_cpu", 0) > 1.0:
+        actions.append("CPU saturated: process_inspect(filter=<name>) before heavy work.")
+    for key in ("disk_path", "disk_root"):
+        if (res.get(key) or {}).get("percent_used", 0) >= 90:
+            actions.append(f"Disk {res[key].get('path')} >= 90% used: dir-usage(path=<dir>) to find what to free.")
+            break
+    ready = (res.get("tools") or {}).get("aep_ready") or {}
+    if "bwrap" in ready:
+        actions.append("Run untrusted/shell commands isolated: sandbox_run(command=..., working_dir=<repo>).")
+    actions.append("aep_ctl(action='schema') for typed system domains (network, storage, package, service).")
+    res["next_actions"] = actions[:5]
+    res["escalate"] = LADDER
+    res["primitive"] = "orient"
+    if errors:
+        res["partial"] = True
+        res["errors"] = errors
+        res["status"] = "PARTIAL"
+    if params.get("compact"):
+        compact = _compact_orient(res)
+        if errors:
+            compact["status"] = "PARTIAL"
+        return compact
+    return res
+
+
 # --- registry --------------------------------------------------------------------------------------------------
 
 ORIENT_REGISTRY: dict[str, dict[str, Any]] = {
@@ -917,6 +1092,27 @@ ORIENT_REGISTRY: dict[str, dict[str, Any]] = {
         ["lsof", "fuser", "open", "who", "uses", "busy", "in use", "quien usa", "abierto", "ocupado"],
         {"path": {"type": "string", "required": True, "default": None, "description": "Archivo o directorio"}},
     ),
+    "orient": _desc(
+        "orient",
+        "4r--",
+        "PUNTO DE ENTRADA: host + recursos + herramientas + repo + que AEP esta listo + siguientes pasos y escalera L0>L1>L2.",
+        [
+            "orient",
+            "overview",
+            "start",
+            "begin",
+            "where am i",
+            "first",
+            "arrive",
+            "orientar",
+            "orientarme",
+            "empezar",
+            "resumen",
+            "primera llamada",
+            "que hay aqui",
+        ],
+        {"path": {"type": "string", "required": False, "default": "", "description": "Workspace (default cwd)"}},
+    ),  # fmt: skip
 }
 
 ORIENT_RUNNERS = {
@@ -927,4 +1123,5 @@ ORIENT_RUNNERS = {
     "file-fingerprint": _run_file_fingerprint,
     "dir-usage": _run_dir_usage,
     "path-users": _run_path_users,
+    "orient": _run_orient,
 }

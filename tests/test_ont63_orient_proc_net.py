@@ -23,7 +23,13 @@ async def _run(name: str, params: dict) -> dict:
 
 @pytest.fixture
 def sleeper(tmp_path: Path):
-    env = {**os.environ, "AEP_VISIBLE": "yes", "MY_SECRET_TOKEN": "s3cr3t-xyz", "API_KEY": "k-123"}
+    env = {
+        **os.environ,
+        "AEP_VISIBLE": "yes",
+        "MY_SECRET_TOKEN": "s3cr3t-xyz",
+        "API_KEY": "k-123",
+        "AEP_API_TOKEN": "s3cr3t-aep",
+    }
     proc = subprocess.Popen(  # noqa: S603
         [sys.executable, "-c", "import time; time.sleep(30)", "--token=abc123", "plain"],
         cwd=tmp_path,
@@ -57,9 +63,9 @@ def test_process_detail_never_leaks_env_values(sleeper: subprocess.Popen) -> Non
     d = process_detail(sleeper.pid, privileged=False)
     assert d["available"] and d["ppid"] == os.getpid()
     assert d["ancestors"] and d["start"].endswith("Z") and d["uptime_s"] >= 0
-    assert "MY_SECRET_TOKEN" in d["env_names"] and "API_KEY" in d["env_names"]
+    assert {"MY_SECRET_TOKEN", "API_KEY", "AEP_API_TOKEN"} <= set(d["env_names"])
     blob = json.dumps(d)
-    assert "s3cr3t-xyz" not in blob and "k-123" not in blob and "abc123" not in blob
+    assert all(v not in blob for v in ("s3cr3t-xyz", "k-123", "abc123", "s3cr3t-aep"))
     assert d["env_allowed"].get("AEP_VISIBLE") == "yes"
     allow = {"PATH", "HOME", "LANG", "PWD", "USER", "SHELL", "VIRTUAL_ENV", "GOTOOLCHAIN", "GOROOT"}
     assert all(k in allow or k.startswith("AEP_") for k in d["env_allowed"])

@@ -73,6 +73,7 @@ from engine.privilege import (
     BACKUP_MUTATING_MIN_OCTAL,
     CHMOD_DEGRADATION_MATRIX,
     CONTROL_PLANE_SCHEMA,
+    PRIMITIVE_SYNONYMS,
     CapabilityGuard,
     PermissionDenied,
     capability_manifest,
@@ -101,6 +102,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - Backward compatibility: `FULL` maps to `7rwx`; `DIMINISHED` maps to `6rw-`, `5r-x`, and `4r--`.
 
 ## 1. Recommended First Calls (Zero-Guessing Orientation)
+0. `default_primitives(action="run", name="orient", verbosity="summary")` -> One-call host/resources/tools/repo overview with `next_actions` and the L0->L1->L2 escalation ladder (WF-0).
 1. `discover(action="capabilities", verbosity="summary")` -> Returns the `chmod/777`-style autonomy manifest (`r`=sense, `w`=act, `x`=execute), active tier (`FULL`/`DIMINISHED`), and real host binary readiness.
 2. `discover(action="playbook", verbosity="summary")` -> Returns workflow recipes (`WF-1..WF-11`) and canonical calls.
 3. `aep_ctl(action="schema")` -> Returns the complete 9-domain control-plane contract (`service`, `network`, `storage`, `package`, `backup`, `security`, `audit`, `ipc`, `schema`) without requiring a dummy domain.
@@ -111,7 +113,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
   2. `artifact_lint_and_build(action="build"|"catalog"|"select"|"hydrate", name=..., template_name=..., agent_id=..., verbosity="summary")` *(1-step isolated Go build in `/dev/shm/aep_pool` + atomic `os.replace` & `kanban.upsert_build_task`: `template_name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard"`)*
   3. `artifact_execute_in_ram(name="socket_monitor", args=[], verbosity="summary", limit=25)` *(executes ELF via `memfd_create` with `fd_delta=0`)*
   4. `artifact_catalog(action="browse"|"query"|"reindex"|"prune", query=..., limit=10, verbosity="summary")`
-  5. `default_primitives(action="list"|"info"|"run", name="socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
+  5. `default_primitives(action="list"|"info"|"run", name="orient"|"host-info"|"cpu-load"|"toolchain-probe"|"workspace-probe"|"file-fingerprint"|"dir-usage"|"path-users"|"socket-monitor"|"fd-rescuer"|"disk-usage"|"mem-stat"|"landlock-guard", params={}, verbosity="summary")` *(instant in-RAM system diagnostics without template compilation lifecycle)*
 - **Domain 2 — State Governance & Process Introspection**:
   17. `autoevol(action="graph"|"gaps"|"thread"|"log"|"diff"|"spec"|"verify"|"fix_test"|"heal"|"evolve"|"reconcile"|"report", node=..., a=..., b=..., gap=..., base=..., cycle=..., job=..., apply=False, restart=False, probe=False, limit=10, select_fields=[...], verbosity="summary")` *(read-only thread graph: Merkle root R, omission gaps, drift, ranking; persists generations only at tier >= 6rw-)*
   6. `topos_audit_dag(tasks=["plan","code","test"], dependencies={"code":["plan"],"test":["code"]}, verbosity="summary")` *(blocks circular co-dependencies `A <-> B`)*
@@ -213,7 +215,7 @@ TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ONT-51 (G33) / ONT-53 (G41): the action-synonym table lives in engine.privilege.ACTION_SYNONYMS (single source).
-_CALL_NAMED_ARG_RE = re.compile(r'\b(?:action|domain)="([^"]+)"')
+_CALL_NAMED_ARG_RE = re.compile(r'\b(?:action|domain|name)="([^"]+)"')
 
 
 def _overlap_tokens(text: str) -> set[str]:
@@ -235,7 +237,7 @@ def _pick_canonical_call(use_case: str, calls: list[str]) -> str | None:
     for call in calls:
         head = call.split("(", 1)[0]
         named = _CALL_NAMED_ARG_RE.findall(call)
-        extra = [syn for n in named for syn in ACTION_SYNONYMS.get(n, ())]
+        extra = [syn for n in named for syn in (*ACTION_SYNONYMS.get(n, ()), *PRIMITIVE_SYNONYMS.get(n, ()))]
         scores.append(len(want & _overlap_tokens(" ".join([head.replace("_", " "), *named, *extra]))))
     best = max(scores)
     if best == 0 or scores.count(best) > 1:
@@ -6266,6 +6268,9 @@ async def default_primitives(
             effective_params.setdefault("limit", limit)
             effective_params.setdefault("cursor", cursor)
 
+        if compact_run and normalize_primitive_name(name) == "orient":
+            effective_params.setdefault("compact", True)  # ONT-63: terse entry point in summary/brief/terse
+
         result = execute_primitive(name, params=effective_params, tier=active_tier)
         status_val = result.get("status", "OK")
 
@@ -6296,7 +6301,11 @@ async def default_primitives(
             next_action=(
                 f"More rows available: repeat with cursor={page_cursor}."
                 if page_cursor
-                else (inner.get("next_action") or "Review primitive diagnostics or proceed with next workflow step.")
+                else (
+                    inner.get("next_action")
+                    or (inner.get("next_actions") or [None])[0]
+                    or "Review primitive diagnostics or proceed with next workflow step."
+                )
             ),
             truncated=True if page_truncated else None,
             cursor=page_cursor,
