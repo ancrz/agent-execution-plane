@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1536_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1637_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -318,7 +318,7 @@ The plane exposes 17 RPC tools organized across operational domains plus the roo
 
 | Tool | Privilege Tier | Signature & Parameters | Mechanics & Operational Purpose | JSON Output Contract | Fail-Soft Guarantee |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| `default_primitives` | `DIMINISHED` | `default_primitives(action: str = "list", name: Optional[str] = None, params: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, verbosity: str = "detail", agent_id: str = "default") -> str` | Direct in-memory execution of system diagnostic probes (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`) in pure Python / Linux kernel `/proc` without compilation overhead or Go toolchain prerequisites. Supports `action="list"` (inspect available probes), `action in ("info", "get")` (probe specifications, metrics, and parameters), and `action in ("run", "exec")` (execute diagnostic probe). Enforces fail-soft 4-tier chmod privilege degradation (`4r--` returns `PERMISSION_DENIED` without raising exceptions) and returns single-encoded JSON with `attach_envelope(...)` where `output_schema is None`. Decouples runtime introspection from template factory synthesis. | `{"status": "OK"|"SUCCESS"|"PERMISSION_DENIED", "primitive": str, "output": {...}, "envelope": {...}, "telemetry": {...}}` | Parameter errors return `status: "PARAM_ERROR"`; missing names return `status: "NOT_FOUND"`; unprivileged executions degrade to `status: "PERMISSION_DENIED"`. Zero unhandled exceptions. |
+| `default_primitives` | `DIMINISHED` | `default_primitives(action: str = "list", name: Optional[str] = None, params: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, verbosity: str = "detail", agent_id: str = "default") -> str` | Direct in-memory execution of system diagnostic probes (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`; ONT-63 orientation: `host-info`, `cpu-load`, `toolchain-probe`, `workspace-probe`, `file-fingerprint`, `dir-usage`, `path-users`, `orient`) in pure Python / Linux kernel `/proc` without compilation overhead or Go toolchain prerequisites. Supports `action="list"` (inspect available probes), `action in ("info", "get")` (probe specifications, metrics, and parameters), and `action in ("run", "exec")` (execute diagnostic probe). Enforces fail-soft 4-tier chmod privilege degradation (per-primitive `required_tier`: the five legacy probes return `PERMISSION_DENIED` at `4r--`; ONT-63 orientation primitives run at `4r--` (`path-users` at `5r-x`)) and returns single-encoded JSON with `attach_envelope(...)` where `output_schema is None`. Decouples runtime introspection from template factory synthesis. | `{"status": "OK"|"SUCCESS"|"PERMISSION_DENIED", "primitive": str, "output": {...}, "envelope": {...}, "telemetry": {...}}` | Parameter errors return `status: "PARAM_ERROR"`; missing names return `status: "NOT_FOUND"`; unprivileged executions degrade to `status: "PERMISSION_DENIED"`. Zero unhandled exceptions. |
 
 #### Domain 2: Pico-Kanban & Multidimensional Scoring (2 Tools)
 
@@ -398,6 +398,35 @@ Chains existing tools and artifacts into validated DAG workflows (e.g., E2E: sta
 
 ---
 
+
+### Capa de orientación básica (ONT-63): primitivas L0, sub-tools extendidas y escalera de resolución
+
+Regla **NO DUPLICAR**: si una sub-tool tipada de `aep_ctl` o `process_inspect` ya responde la pregunta, se extiende ahí y la capa básica apunta a ella. Con las cinco primitivas previas (`socket-monitor`, `fd-rescuer`, `disk-usage`, `mem-stat`, `landlock-guard`), `default_primitives` suma 13. Todas son de solo lectura y no compilan artefactos.
+
+| Primitiva | Tier verificado | Responde | Escalada (`escalate` / `next_action`) |
+|---|---|---|---|
+| `host-info` | 4r-- | host, kernel, distro, arquitectura, uptime, virtualización o contenedor, usuario y tier AEP efectivo | — |
+| `cpu-load` | 4r-- | load average, uso % por muestreo de `/proc/stat`, PSI de CPU | `process_inspect(limit=15)` si la carga viene de un proceso |
+| `toolchain-probe` | 4r-- | presencia, ruta, realpath y versión de hasta 30 herramientas (nunca ejecuta `sudo`) | `sandbox_run` (bwrap), `artifact_lint_and_build` (go), `async_job_dispatch` (pueue) según lo hallado |
+| `workspace-probe` | 4r-- | repo git (rama, HEAD, sucios, ahead/behind), manifiestos, lenguajes, hints de test | `sandbox_run("pytest -q")` o `sandbox_run("go test ./...")` según el manifiesto |
+| `file-fingerprint` | 4r-- | existencia, tipo, tamaño, modo, dueño, mtime_ns, sha256 (md5 opcional); rechaza rutas vetadas | — |
+| `dir-usage` | 4r-- | tamaño de una carpeta, top N hijos, sin seguir symlinks ni cruzar sistemas de archivos | `artifact_lint_and_build(template_name="disk-usage")` si la salida está truncada |
+| `path-users` | 5r-x | procesos cuyo exe, cwd, root, fd o mmap están en la ruta | `process_inspect(pid=<n>, verbosity="detail")` |
+| `orient` | 4r-- | compone host-info, cpu-load, mem-stat, disk-usage, toolchain-probe y workspace-probe en una llamada; ejecución paralela | `next_actions` (≤5, ordenadas) |
+
+Tiers verificados contra `engine/primitives_orient.py` (`ORIENT_REGISTRY`, campo `required_tier`) y `tests/test_ont63_orient_basic.py::test_orientation_primitives_run_in_auditor_tier`: `host-info`, `cpu-load`, `toolchain-probe`, `workspace-probe`, `file-fingerprint`, `dir-usage` y `orient` a `4r--`; `path-users` a `5r-x`. `socket-monitor` sigue en `PERMISSION_DENIED` a `4r--`, como fijan los tests legacy.
+
+**Extensiones de sub-tools (L1):** `aep_ctl network probe` acepta `port` o `ports` (≤10) y devuelve `resolved` (≤5 direcciones) y `error_class` (`dns_fail`, `refused`, `timeout`, `unreachable`); sin puerto conserva los 25 comunes. `process_inspect(pid>0, verbosity="detail")` añade start ISO, uptime_s, ppid con ancestros (≤5 con nombre), cwd, cgroup y `env_names`. Otros uid por debajo de 7rwx no ven cwd ni entorno.
+
+**Escalera de resolución** (el playbook WF-0 "Orient first" es el paso 0 de cualquier flujo):
+
+| Nivel | Qué es | Ejemplos |
+|---|---|---|
+| L0 | Primitivas en RAM, instantáneas, solo lectura | `orient`, `host-info`, `toolchain-probe` |
+| L1 | Sub-tools tipadas y ejecución aislada | `aep_ctl network probe`, `aep_ctl service status`, `process_inspect`, `query_system_docs`, `sandbox_run` |
+| L2 | Artefactos en memoria | `artifact_lint_and_build` + `artifact_execute_in_ram` para syscalls, parseo masivo, concurrencia, muestreo temporal o estado entre pasos |
+
+**Enrutado de `discover`:** intenciones básicas ("qué host/distro", "carga de cpu", "está instalado X", "qué es este repo", "hash del archivo", "cuánto ocupa la carpeta", "quién usa la ruta", "orientarme") se resuelven con coincidencia léxica determinista antes de la búsqueda semántica. Las intenciones de red van a `aep_ctl network`; "qué es este proceso" va a `process_inspect`.
 
 ### Factory Decoupling: Runtime Primitives vs. Template Synthesis
 
@@ -1102,6 +1131,21 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-63 capa de orientación básica: primitivas MVP antes de la suite AEP (Short; VERIFIED tras tres ciclos; 1637 passed, 0 failed; publicado en dev por Hermon):** `default_primitives` gana ocho primitivas de solo lectura para las preguntas que todo agente hace al llegar a un host: `host-info`, `cpu-load`, `toolchain-probe`, `workspace-probe`, `file-fingerprint`, `dir-usage`, `path-users` y `orient`, el punto de entrada que compone las anteriores en una llamada (salida ≤1 500 B, presupuesto ≤4 s). Regla **NO DUPLICAR**: las sub-tools existentes se extienden en lugar de crear primitivas paralelas. `aep_ctl network probe` acepta puerto explícito (`port` o `ports` ≤10) y devuelve `resolved` y `error_class`; `process_inspect(pid>0, verbosity="detail")` añade ancestros, cwd, cgroup y `env_names` (nunca valores fuera de la lista permitida). `net-reach` y `proc-detail` se descartaron como primitivas. `discover` resuelve intenciones básicas con coincidencia léxica determinista (EN+ES, pliegue NFKD) en `engine/intent_router.py` antes de la búsqueda semántica. Tres ciclos de corrección: enmascaramiento de credenciales en `cmdline` (`--token`, `-p`, Bearer, URL con credenciales) y vetos de rutas sensibles comparados en forma léxica y resuelta desde una lista única (`CapabilityGuard.protected_roots()`), para que un `~/.docker` enlazado a otro disco no salte el veto. Detalle: `docs/pipeline/feature_20261115_ont63_orientation_layer.md`.
+
+```mermaid
+flowchart LR
+    I63["Intent: capa de orientación básica (ONT-63)"] --> M1["M1: host-info, cpu-load, toolchain-probe (a) ✅"]
+    M1 --> M2["M2: workspace-probe, file-fingerprint, dir-usage (b) ✅"]
+    M2 --> M3["M3: path-users, process_inspect detail, network probe (c) ✅"]
+    M3 --> M4["M4: orient, escalera L0-L2, WF-0, discover (d) ✅"]
+    M4 --> M5["M5: ciclos 1-2 corregidos D1, D2, D3 ✅"]
+    M5 --> M6["M6: Dokimos VERIFIED 1637 passed ✅"]
+    M6 --> M7["M7: documentación Graphos G2 ✅"]
+    M7 --> M8["M8: publicado en dev (Hermon)"]
+    M8 --> M9["M9: aep_python.path sin recorte de Documents (cosmético, pendiente)"]
 ```
 
 **ONT-62 pendientes menores, falsos negativos de salud y G71 de `setup.sh --update` (VERIFIED tras dos ciclos; 1536 passed, 0 failed):** el log del front (`aep_front.py`) respeta `AEP_DATA_HOME` en línea; `setup.sh --check` resuelve `core.hooksPath` por ruta real y reintenta la sonda de pueue hasta 3 veces; `aep_ctl service status` distingue `scope: "user"` y el estado `RUNNING_UNMANAGED` (WARN) para procesos sin unidad de systemd; `setup.sh --update` reutiliza el venv 3.14 existente en lugar de ejecutar `uv venv` sobre él (G71). Registro: `docs/pipeline/feature_20261115_ont62_health_and_update.md`.

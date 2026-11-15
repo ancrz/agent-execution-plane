@@ -869,3 +869,25 @@ flowchart LR
 
 Lecciones: (1) no pasar formateadores a archivos políglotas sin extensión; usar `force-exclude`. (2) Los modos de un instalador que nunca se ejecutan en CI ocultan fallos durante semanas; el update real es la prueba.
 
+
+
+## 30. Capa de orientación básica ONT-63: primitivas L0, sub-tools extendidas y escalera (2026-11-15)
+
+Modo Short; base `dev` `df039ee`; HEAD `98efe5b`; VERIFIED tras tres ciclos (1572 → 1630 → 1637 passed). Registro: `docs/pipeline/feature_20261115_ont63_orientation_layer.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | host-info, cpu-load, toolchain-probe (grupo a, `374f83d`) | Pragma | ✅ |
+| M2 | workspace-probe, file-fingerprint, dir-usage (grupo b, `506ec55`) | Pragma | ✅ |
+| M3 | path-users, extensión de process_inspect y de network probe (grupo c, `678f07e`) | Pragma | ✅ |
+| M4 | orient, escalera L0-L2, WF-0 y enrutado de discover (grupo d, `c6fb6d6`) | Pragma | ✅ |
+| M5 | Ciclo 1 corregido: D1 enmascaramiento de cmdline (`5dc7426`), D2 enrutado léxico EN+ES (`f1246a3`) | Pragma | ✅ |
+| M6 | Ciclo 2: R1–R5 (`8b99039`) y D3 vetos léxicos y resueltos (`98efe5b`) | Pragma / Orquestador | ✅ |
+| M7 | Dokimos VERIFIED (1637 passed; DB real intacta) | Dokimos | ✅ |
+| M8 | Documentación: feature ONT-63, README, STATE, COMPACT, rollup y esta sección | Graphos G2 | ✅ |
+| M9 | Publicación en `dev` (ff a `dev`, push a `origin/dev`) | Hermon | ✅ |
+| M10 | Alcance de `engine/net_telemetry.py` (extensión de network probe) confirmado; tests modificados sin aserciones relajadas | Orquestador | ✅ |
+| M11 | Tiers verificados: `ORIENT_REGISTRY` y `test_orientation_primitives_run_in_auditor_tier` (4r--; path-users 5r-x; legacy PERMISSION_DENIED a 4r--) | Orquestador | ✅ |
+| M12 | `aep_python.path` recorta por límite de directorio (cosmético) | Pragma | pendiente |
+
+Lecciones: (1) probar el enrutado con frases naturales, no con palabras clave; (2) construir las listas de vetos en un único sitio y compararlas en forma léxica y resuelta; (3) los tests sin symlinks no reflejan hosts reales.

@@ -407,7 +407,8 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 |-----|-----------|-----------|
 | 61 | `feature_20261114_ont61_db_isolation.md` | aislamiento de la DB real, VERIFIED tras dos ciclos, 1510 passed |
 | 62 | `feature_20261115_ont62_health_and_update.md` | pendientes menores, falsos negativos de salud y G71 de `setup.sh --update`, VERIFIED tras dos ciclos, 1536 passed |
+| 63 | `feature_20261115_ont63_orientation_layer.md` | capa de orientación básica: 8 primitivas L0, escalera L0-L2 y WF-0; VERIFIED tras tres ciclos, 1637 passed; publicado en dev (Hermon) |
 
-**Documento activo:** [`feature_20261115_ont62_health_and_update.md`](feature_20261115_ont62_health_and_update.md)
+**Documento activo:** [`feature_20261115_ont63_orientation_layer.md`](feature_20261115_ont63_orientation_layer.md)
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (ONT-61 a ONT-65; 2 de 5 tras ONT-62).
+**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (ONT-61 a ONT-65; 3 de 5 tras ONT-63).
