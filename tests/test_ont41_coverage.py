@@ -14,7 +14,8 @@ from engine.threads_model import Node, ThreadGraph
 REPO = Path(__file__).resolve().parent.parent
 # 103 -> 122 (D-AE-1): the extractor now sees ipc.* and backup.* of CONTROL_PLANE_SCHEMA; the new gaps are real
 # uncovered actions (own_gaps stays 0). Do not raise this without the same justification.
-GAPS_BASELINE = 1
+# 1 -> 0 (ONT-65): tests that read project .py files by literal path now cover them (weak edge). Never raise.
+GAPS_BASELINE = 0
 
 
 def _graph() -> ThreadGraph:
