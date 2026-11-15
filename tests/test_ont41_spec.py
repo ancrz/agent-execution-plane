@@ -149,20 +149,35 @@ def test_fit_truncates_lists_then_drops_optional_keys() -> None:
     assert _tokens(spec._fit(nested, 200, ())) <= 200
 
 
+def _synthetic_gaps(real: threads.Analysis, count: int) -> list[Gap]:
+    """Gaps sintéticos sobre funciones públicas reales: el test no depende de que el repo tenga gaps (ONT-65)."""
+    nodes = [n for n in real.graph.nodes.values() if n.type == "function" and n.attrs.get("public")]
+    gaps = [Gap(f"omission:{n.id}:in:covers", "omission", n.id, 0.3, "x") for n in sorted(nodes, key=lambda n: n.id)]
+    assert len(gaps) >= count
+    return gaps[:count]
+
+
+def _with_gaps(real: threads.Analysis, gaps: list[Gap]) -> threads.Analysis:
+    fields = {f: getattr(real, f) for f in threads.Analysis.__slots__}
+    return threads.Analysis(**{**fields, "gaps": gaps})
+
+
 def test_real_gaps_respect_token_budgets(real: threads.Analysis) -> None:
-    ids = [g.id for g in real.gaps[:25]]
+    synth = _with_gaps(real, _synthetic_gaps(real, 25))
+    ids = [g.id for g in synth.gaps]
     assert ids
     for gid in ids:
-        terse = spec.build_spec(real, gid, terse=True)
-        full = spec.build_spec(real, gid)
+        terse = spec.build_spec(synth, gid, terse=True)
+        full = spec.build_spec(synth, gid)
         assert terse["status"] == full["status"] == "OK"
         assert _tokens(terse) <= spec.TERSE_MAX_TOKENS
         assert _tokens(full) <= spec.SUMMARY_MAX_TOKENS
 
 
 def test_spec_is_deterministic(real: threads.Analysis) -> None:
-    gid = real.gaps[0].id
-    assert spec.build_spec(real, gid) == spec.build_spec(real, gid)
+    synth = _with_gaps(real, _synthetic_gaps(real, 1))
+    gid = synth.gaps[0].id
+    assert spec.build_spec(synth, gid) == spec.build_spec(synth, gid)
 
 
 def test_huge_test_list_is_truncated_within_budget() -> None:

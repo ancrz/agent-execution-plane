@@ -17,6 +17,7 @@ from engine import threads_events as ev
 from engine import threads_ops as ops
 from engine import threads_verify as tv
 from engine.privilege import _PrivilegeCache, get_effective_chmod_tier
+from engine.threads_model import Gap
 
 REPO = Path(__file__).resolve().parent.parent
 GAP = "syntax_error:module:engine.m"
@@ -73,8 +74,19 @@ def _verify(new: Path, base: Path | None, **kw: Any) -> dict[str, Any]:
 
 
 # --- spec -------------------------------------------------------------------------------------------------
-def test_spec_terse_and_summary_budgets(isolated_home: Path) -> None:
-    gap_id = threads.analyze(REPO).gaps[0].id
+def test_spec_terse_and_summary_budgets(isolated_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ONT-65: el repo real puede tener 0 gaps; se inyecta un gap sintético sobre una función pública real.
+    real = threads.analyze(REPO)
+    node = next(
+        n
+        for n in sorted(real.graph.nodes.values(), key=lambda n: n.id)
+        if n.type == "function" and n.attrs.get("public")
+    )
+    gap = Gap(f"omission:{node.id}:in:covers", "omission", node.id, 0.3, "x")
+    fields = {f: getattr(real, f) for f in threads.Analysis.__slots__}
+    injected = threads.Analysis(**{**fields, "gaps": [gap]})
+    monkeypatch.setattr(threads, "analyze", lambda *_a, **_k: injected)
+    gap_id = gap.id
     terse = _call(action="spec", gap=gap_id, verbosity="terse")
     assert terse["status"] == "OK" and terse["t"]["tok"] <= 400, terse["t"]
     full = _call(action="spec", gap=gap_id)
