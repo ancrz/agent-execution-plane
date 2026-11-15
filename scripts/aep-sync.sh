@@ -37,6 +37,18 @@ resolve_py() {
     fi
 }
 
+# ONT-64: names on stdin; exit 0 when any is *.md, engine/threads*.py or under tests/ (they can move the
+# thread-graph claims/coverage). Pure function so it can be tested without a git repo.
+needs_coverage_gate() {
+    local f
+    while IFS= read -r f; do
+        case "$f" in
+            *.md | engine/threads*.py | tests/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 validate() {
     local py; py="$(resolve_py)"
     log "Validando con $py"
@@ -54,6 +66,13 @@ validate() {
     # Smoke de import: construye el server completo (registra las tools). Falla => no se enchufa.
     if ! AEP_DATA_HOME="$smoke_data" PYTHONPATH="$PROJECT_ROOT" "$py" -c "import server; assert hasattr(server,'mcp'); assert len(server.mcp._tool_manager._tools) == 17, f'Expected 17 tools, got {len(server.mcp._tool_manager._tools)}'" 2>"$err_import"; then
         err "import de server falló:"; cat "$err_import"; return 1
+    fi
+    # ONT-64: claim drift / coverage gaps are only visible to the thread graph; gate staged docs/tests/threads changes.
+    if git -C "$PROJECT_ROOT" diff --cached --name-only 2>/dev/null | needs_coverage_gate; then
+        log "Thread-graph coverage gate (staged *.md / engine/threads*.py / tests/)"
+        if ! AEP_DATA_HOME="$smoke_data" PYTHONPATH="$PROJECT_ROOT" "$py" -m pytest -q -x "$PROJECT_ROOT/tests/test_ont41_coverage.py" >"$err_import" 2>&1; then
+            err "claim drift / coverage gap: run pytest tests/test_ont41_coverage.py"; tail -n 25 "$err_import"; return 1
+        fi
     fi
     chmod +x "$LAUNCHER" "$SCRIPT_DIR/aep-ctl" "$PROJECT_ROOT/aep_front.py" "$PROJECT_ROOT/aep_backend.py" 2>/dev/null || true
     ok "Validación superada (server importable, tools registradas)."
