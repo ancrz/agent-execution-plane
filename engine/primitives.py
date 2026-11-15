@@ -22,6 +22,7 @@ from typing import Any
 
 from engine.landlock import get_landlock_status
 from engine.net_telemetry import map_socket_inodes, parse_proc_net_sockets
+from engine.primitives_orient import ORIENT_REGISTRY, ORIENT_RUNNERS
 from engine.telemetry import FD_UNREADABLE_LABEL
 
 logger = logging.getLogger("aep.primitives")
@@ -94,6 +95,12 @@ DEFAULT_PRIMITIVES_REGISTRY: dict[str, dict[str, Any]] = {
         "required_tier": "5r-x",
     },
 }
+
+# ONT-63: layer-0 orientation primitives share the single registry and runner table.
+DEFAULT_PRIMITIVES_REGISTRY.update(ORIENT_REGISTRY)
+
+# Legacy primitives keep the original rule (all denied in 4r--); orientation primitives declare their own tier.
+_TIER_RANK = {"4r--": 0, "5r-x": 1, "6rw-": 2, "7rwx": 3}
 
 
 def normalize_primitive_name(name: str) -> str:
@@ -269,6 +276,7 @@ _RUNNERS = {
     "disk-usage": _run_disk_usage,
     "mem-stat": _run_mem_stat,
     "landlock-guard": _run_landlock_guard,
+    **ORIENT_RUNNERS,
 }
 
 
@@ -302,8 +310,10 @@ def execute_primitive(
             "error": f"Unknown primitive '{name}'. Available: {list(DEFAULT_PRIMITIVES_REGISTRY.keys())}",
         }
 
-    # 4-tier degradation enforcement: 4r-- denies execution
-    if tier == "4r--":
+    # 4-tier degradation enforcement: legacy primitives are denied in 4r--; orientation ones by required_tier.
+    required = str(DEFAULT_PRIMITIVES_REGISTRY[norm].get("required_tier", "4r--"))
+    below_required = _TIER_RANK.get(tier, 0) < _TIER_RANK.get(required, 0)
+    if (tier == "4r--" and norm not in ORIENT_REGISTRY) or below_required:
         return {
             "status": "PERMISSION_DENIED",
             "chmod_tier": tier,
@@ -320,11 +330,14 @@ def execute_primitive(
             "error": f"No runner registered for primitive '{norm}'",
         }
 
-    effective_params = params or {}
+    effective_params = {**(params or {}), "_tier": tier}
     try:
         data = runner(effective_params)
+        lifted = data.pop("status", None) if norm in ORIENT_REGISTRY else None
+        if lifted == "PARAM_ERROR":
+            return {"status": "PARAM_ERROR", "chmod_tier": tier, "primitive": norm, "error": data.get("error", "")}
         return {
-            "status": "OK",
+            "status": str(lifted) if lifted == "PARTIAL" else "OK",
             "chmod_tier": tier,
             "primitive": norm,
             "result": data,

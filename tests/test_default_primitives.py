@@ -29,6 +29,10 @@ EXPECTED_PRIMITIVES = {
     "mem-stat",
     "landlock-guard",
 }
+# ONT-63: orientation primitives (4r-- capable) live beside the legacy five in the same registry.
+ORIENT_PRIMITIVES = {"host-info", "cpu-load", "toolchain-probe"}
+LEGACY_PRIMITIVES = set(EXPECTED_PRIMITIVES)
+EXPECTED_PRIMITIVES = LEGACY_PRIMITIVES | ORIENT_PRIMITIVES
 
 
 # ==============================================================================
@@ -51,7 +55,7 @@ async def test_gate2_action_list_returns_5_primitives() -> None:
     raw = await server.default_primitives(action="list", verbosity="detail")
     data = json.loads(raw)
     assert data["status"] == "OK"
-    assert data["count"] == 5
+    assert data["count"] == len(EXPECTED_PRIMITIVES)
     prims = {p["name"] for p in data["primitives"]}
     assert prims == EXPECTED_PRIMITIVES
     assert "envelope" in data
@@ -158,7 +162,7 @@ async def test_gate5_chmod_4r_auditor_degradation_denies_execution() -> None:
         assert json.loads(raw_info)["status"] == "OK"
 
         # Execution actions are disabled with PERMISSION_DENIED
-        for name in EXPECTED_PRIMITIVES:
+        for name in LEGACY_PRIMITIVES:
             raw_run = await server.default_primitives(action="run", name=name)
             data_run = json.loads(raw_run)
             assert data_run["status"] == "PERMISSION_DENIED"

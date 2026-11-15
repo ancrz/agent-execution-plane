@@ -6245,7 +6245,7 @@ async def default_primitives(
                 summary=result.get("summary", f"Execution of primitive '{name}' disabled under {active_tier}."),
                 next_action="Elevate chmod tier or inspect primitive metadata with action='info'.",
             )
-        elif status_val != "OK":
+        elif status_val not in ("OK", "PARTIAL"):
             return attach_envelope(
                 result,
                 tracker,
@@ -6264,7 +6264,7 @@ async def default_primitives(
             next_action=(
                 f"More rows available: repeat with cursor={page_cursor}."
                 if page_cursor
-                else "Review primitive diagnostics or proceed with next workflow step."
+                else (inner.get("next_action") or "Review primitive diagnostics or proceed with next workflow step.")
             ),
             truncated=True if page_truncated else None,
             cursor=page_cursor,
