@@ -97,6 +97,7 @@ _WARN_STATUSES = frozenset(
         "NOT_CONFIGURED", "NOT_FOUND",  # bare NOT_FOUND: lookup miss (ONT-48); prefixed *_NOT_FOUND is ERROR
         "POISON_DETECTED", "PROTECTED", "QUARANTINED", "SANDBOX_UNAVAILABLE", "SNAPSHOT_REQUIRED", "UNAVAILABLE",
         "BROKEN",  # diagnosis that fulfilled its purpose (pair of CLEAN), not a failed call
+        "RUNNING_UNMANAGED",  # ONT-62: found alive but without a systemd unit (not managed, no restart on boot)
         "UNPROVEN",  # template/artifact verdict without execution evidence yet
     }
 )  # fmt: skip
