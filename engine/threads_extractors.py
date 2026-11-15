@@ -1671,6 +1671,7 @@ class _TestRefs:
     fns: set[str] = field(default_factory=set)
     weak_fns: set[str] = field(default_factory=set)  # ONT-46: cobertura por nombre único sin tipo
     spawn_mods: set[str] = field(default_factory=set)  # ONT-46 F1: módulos lanzados como subproceso
+    read_mods: set[str] = field(default_factory=set)  # ONT-65: archivos .py del proyecto leídos por ruta literal
     mods: set[str] = field(default_factory=set)
     tool_calls: list[tuple[str, dict[str, str]]] = field(default_factory=list)  # (tool, kwargs constantes)
     budgets: list[tuple[str, dict[str, str], str, int]] = field(default_factory=list)  # tool, kw, op, limit
@@ -1731,6 +1732,35 @@ def _kw_constants(call: ast.Call) -> dict[str, str]:
     }
 
 
+def _literal_py_path(n: ast.AST, project: set[str]) -> str | None:
+    """ONT-65: `ROOT / "pkg" / "mod.py"` o `os.path.join(ROOT, "pkg", "mod.py")` -> módulo del proyecto.
+
+    Solo cuenta si todos los segmentos tras el primer operando son literales `str` (nada de f-strings ni
+    variables intermedias) y el resultado es un archivo `.py` que pertenece a los módulos del proyecto.
+    """
+    parts: list[ast.AST]
+    if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Div):
+        parts = []
+        cur: ast.AST = n
+        while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Div):
+            parts.append(cur.right)
+            cur = cur.left
+        parts.reverse()
+    elif isinstance(n, ast.Call) and _chain(n.func) == ["os", "path", "join"] and len(n.args) > 1:
+        parts = list(n.args[1:])
+    else:
+        return None
+    segs: list[str] = []
+    for p in parts:
+        if not (isinstance(p, ast.Constant) and isinstance(p.value, str)):
+            return None
+        segs.append(p.value.strip("/"))
+    rel = "/".join(segs)
+    if not rel.endswith(".py") or not rel.isascii() or " " in rel or module_name(rel) not in project:
+        return None
+    return module_name(rel)
+
+
 def _collect_test_refs(
     node: ast.AST,
     ctx: _FuncInfo,
@@ -1768,6 +1798,7 @@ def _collect_test_refs(
             refs.weak_fns |= sub.weak_fns
             refs.mods |= sub.mods
             refs.spawn_mods |= sub.spawn_mods
+            refs.read_mods |= sub.read_mods
             refs.tool_calls += [(t, {**site, **kws}) for t, kws in sub.tool_calls]
             refs.budgets += sub.budgets
     for n in nodes:
@@ -1786,6 +1817,7 @@ def _collect_test_refs(
                 refs.weak_fns |= sub.weak_fns
                 refs.mods |= sub.mods
                 refs.spawn_mods |= sub.spawn_mods
+                refs.read_mods |= sub.read_mods
                 refs.tool_calls += sub.tool_calls
                 refs.budgets += sub.budgets
             expanded = _expand(chain, ctx, imports, project)
@@ -1809,6 +1841,10 @@ def _collect_test_refs(
                         refs.tool_calls.append((tname, _kw_constants(n)))
         if isinstance(n, ast.Dict):
             _collect_dict_tool(n, tool_names, refs)
+        if isinstance(n, (ast.BinOp, ast.Call)):
+            rmod = _literal_py_path(n, project)
+            if rmod:
+                refs.read_mods.add(rmod)
         if isinstance(n, ast.Call) and _is_spawn_call(n, facts.has_exec):
             # ONT-46 F1 (cobertura por spawn): un literal que nombra un archivo del proyecto SOLO cuenta si está
             # en los argumentos de una llamada que lo lanza. Leerlo o citarlo no es ejercitarlo. Es cobertura
@@ -1916,6 +1952,8 @@ def extract_tests(
             for mname in sorted(refs.mods):
                 graph.add_edge(tid, f"module:{mname}", "covers")
             for mname in sorted(refs.spawn_mods):
+                graph.add_edge(tid, f"module:{mname}", "covers", weak=True)
+            for mname in sorted(refs.read_mods):
                 graph.add_edge(tid, f"module:{mname}", "covers", weak=True)
             for tool, kws in refs.tool_calls:
                 graph.add_edge(tid, f"tool:{tool}", "covers")
