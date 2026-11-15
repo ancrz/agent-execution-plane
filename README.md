@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1657_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1666_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1131,6 +1131,19 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-65 cero gaps de cobertura (Short; VERIFIED tras dos ciclos; 1666 passed, 0 failed; gaps 0; publicado en `dev` y `main`):** el extractor de hilos cuenta como cobertura débil (`covers`, peso débil) un test que lee archivos `.py` del proyecto por ruta literal, por ejemplo `PROJECT_ROOT / "engine" / "privilege.py"`, siempre que el primer operando esté anclado a la raíz del proyecto. Los archivos no `.py` y las rutas dinámicas no generan arista. `GAPS_BASELINE` pasa de 1 a 0: cualquier gap rompe `tests/test_ont41_coverage.py`. Registro: `docs/pipeline/feature_20261115_ont65_zero_gaps.md`.
+
+```mermaid
+flowchart LR
+    I65["Intent: cero gaps de cobertura (ONT-65)"] --> M1["M1: read_mods como covers débiles (9bb7758) ✅"]
+    M1 --> M2["M2: GAPS_BASELINE 0 (7c29bfb) ✅"]
+    M2 --> M3["M3: primer operando anclado a la raíz (535b4b0) ✅"]
+    M3 --> M4["M4: tests de spec con gaps sintéticos (086dc02) ✅"]
+    M4 --> M5["M5: Dokimos VERIFIED 1666 passed, gaps 0 ✅"]
+    M5 --> M6["M6: documentado (Graphos G2) ✅"]
+    M6 --> M7["M7: publicado en dev y main (Hermon)"]
 ```
 
 **ONT-64 recorte de `aep_python.path` y puerta de cobertura en pre-commit (Short; VERIFIED en un ciclo; 1657 passed, 0 failed; publicado en dev):** `_trim_path` recorta la ruta por límites de componente, medida en bytes UTF-8 (en este host `…/workspaces/agent-execution-plane/.venv/bin/python`). El hook pre-commit ejecuta `tests/test_ont41_coverage.py` cuando el commit toca documentos, `engine/threads*.py` o `tests/`, así que un conteo incorrecto en la documentación no llega al repositorio. Registro: `docs/pipeline/feature_20261115_ont64_path_trim_and_doc_gate.md`.

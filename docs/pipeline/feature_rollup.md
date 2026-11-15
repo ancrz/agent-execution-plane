@@ -3,8 +3,55 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261114_ont59_go_philosophy_kanban.md`](feature_20261114_ont59_go_philosophy_kanban.md)
+- **Current Active Document**: [`feature_20261115_ont65_zero_gaps.md`](feature_20261115_ont65_zero_gaps.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
+
+---
+
+## Rollup de cadena: ONT-61 a ONT-65 (2026-11-15)
+
+Cadena: `feature_20261114_ont60_sandbox_packages.md` (último documento del rollup 7) → `feature_20261114_ont61_db_isolation.md` (primero) → `feature_20261115_ont62_health_and_update.md` → `feature_20261115_ont63_orientation_layer.md` → `feature_20261115_ont64_path_trim_and_doc_gate.md` → `feature_20261115_ont65_zero_gaps.md` (**quinto**, dispara este rollup).
+
+Este rollup consolida ONT-61 a ONT-65. La sección "Registro posterior a Rollup 7" se conserva sin cambios.
+
+| Documento | Intent | Commits (rango) | Veredicto | Suite | Gaps al cierre |
+|---|---|---|---|---|---|
+| ONT-61 | aislamiento de la DB real en la suite (G67: `AEP_DATA_HOME` único y conftest temporal) y fricciones G63–G66 | `8d271f4`..`1120056` (base `8d271f4`, HEAD `1120056`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: om11–om13 usaban la DB real) | 1510 passed, 0 failed; ruff limpio; DB real intacta | G63–G67 cerrados |
+| ONT-62 | pendientes menores (logs del front bajo `AEP_DATA_HOME`, `--check` por ruta real, sonda pueue, `scope` y `RUNNING_UNMANAGED`) y G71 de `setup.sh --update` | `67896be`..`da05dd1` (base `a25d4a0`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: ruff reescribió la cabecera políglota de `aep-ctl`) | 1536 passed, 0 failed; ruff limpio | G68–G71 cerrados; `setup.sh --update` real pendiente en el host |
+| ONT-63 | capa de orientación básica: ocho primitivas L0 de solo lectura, extensiones de `network probe` y `process_inspect(detail)`, escalera L0→L1→L2, WF-0 | `374f83d`..`98efe5b` (base `df039ee`) | VERIFIED tras tres ciclos; publicado en dev (Hermon, ff) | 1637 passed, 0 failed | sin dato de gaps en el registro de ONT-63; cosmético `aep_python.path` cerrado en ONT-64 |
+| ONT-64 | recorte de `aep_python.path` por componente (bytes UTF-8) y puerta `test_ont41_coverage` en pre-commit; cierre del claim de conteo de ONT-63 | `4848735`, `4535d83`, `140a165` (base `fe59411`; HEAD en `fa1c1b9`) | VERIFIED en un ciclo; publicado en dev | 1657 passed, 0 failed | gate8 como baseline (1) |
+| ONT-65 | cero gaps: `read_mods` (aristas `covers` débiles por lectura de archivos del proyecto), `GAPS_BASELINE` 0 | `9bb7758`, `7c29bfb`, `535b4b0`, `086dc02` (base `fa1c1b9`, HEAD `086dc02`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: 3 tests con `gaps[0]` y 75 aristas desde fixtures) | 1666 passed, 0 failed | **0** (gate8 cubierto por `read_mods`) |
+
+**Ciclos de Dokimos por track:** ONT-61 2, ONT-62 2, ONT-63 3, ONT-64 1, ONT-65 2.
+
+**Métricas del tramo:**
+- Tests: 1510 → 1666 (+156).
+- Gaps: 1 → 0 (`GAPS_BASELINE` 1 → 0, sin enmascaramiento: el experimento de 5 funciones no pierde gaps).
+- Veredictos: 5 de 5 VERIFIED final; `LOGIC_ERROR` en ciclos intermedios de ONT-61, ONT-62 y ONT-65 (uno cada uno), además de los ciclos intermedios de ONT-63 (tres ciclos en total, registro de ciclos no detallado aquí). Ninguno requirió PLAN_GAP.
+- Publicación: ONT-61 a ONT-64 publicados en dev por Hermon (ff). ONT-65 publicado en dev y main por Hermon (ff; main autorizado por el usuario con condición 0 gaps).
+
+**Invariantes que se consolidan en ONT-61 a ONT-65:**
+1. La suite y la verificación no escriben en la DB real: cada test siembra su propio `AEP_DATA_HOME` (ONT-61), y el orquestador no opera sobre la base mientras Dokimos verifica (incidente del ciclo 1 de ONT-65).
+2. La documentación es entrada de los gates: los `*.md` se leen como afirmaciones de conteo. Un commit de docs posterior a la verificación puede romper el gate (ONT-63 → ONT-64). El hook pre-commit lo impide desde `140a165` (ONT-64).
+3. Las primitivas se extienden, no se duplican (regla NO DUPLICAR, ONT-63 y ONT-64).
+4. Un cero de gaps solo vale si no está enmascarado: una arista débil resuelve únicamente la omisión del propio test (ONT-65).
+5. Los tests no usan gaps reales como material; siembran los suyos (ONT-65, lección 2).
+6. Modo Short por defecto; commit y push a `main` solo con autorización explícita del usuario (ONT-65, condicionada a 0 gaps).
+
+**Lecciones agregadas:**
+- Un fallo de RCA por documentación (ONT-63) se convierte en gate automático, no en una nota (ONT-64).
+- Los tests de cobertura con dependencias de datos reales se rompen cuando el dato cambia de forma legítima (ONT-65). Deben sembrar sus datos.
+- Todo cambio de estado en la base real durante una verificación contamina el veredicto (ONT-61 y ONT-65).
+
+**Pendientes que cruzan documentos:**
+- ONT-66 ENCOLADO: `aep_notice` ruidoso. AEP debe notificar al agente de turno lo que detecta y permitir que pregunte "AEP reporta x, y o z, ¿quieres mejorarlo?" (plan en `docs/pipeline/plan_ont66_noisy_notices.md`).
+- Operativo: `setup.sh --update` real y reconexión del front en el host (ONT-62).
+- Publicación de ONT-65 en `dev` y `main`: completada (ff).
+- Opcional, sin impacto: truncado de 58 a 60 B en `aep_python.path` (ONT-64).
+
+**Documento activo en la cadena:** [`feature_20261115_ont65_zero_gaps.md`](feature_20261115_ont65_zero_gaps.md) (quinto de la cadena desde el rollup 7; este rollup lo consolida).
+
+**Próximo rollup:** al quinto documento posterior a `feature_20261115_ont65_zero_gaps.md` (0 de 5 al cierre de este documento; ONT-66 es el primero).
 
 ---
 

@@ -907,3 +907,21 @@ Modo Short; base `dev` `fe59411`; HEAD `140a165`; VERIFIED en un ciclo (1657 pas
 | M7 | Truncado de 58-60 B dentro del último componente (`…`) | Pragma (opcional) | pendiente, sin impacto |
 
 Lecciones: (1) los commits de docs posteriores a la verificación también pueden romper gates, porque el grafo lee los `*.md`; el hook pre-commit lo impide ahora; (2) RCA de la regresión: la causa fue la documentación, no el código.
+
+## 32. Cero gaps de cobertura por lectura de archivos del proyecto ONT-65 (2026-11-15)
+
+Modo Short; base `dev` `fa1c1b9`; HEAD `086dc02`; VERIFIED tras dos ciclos (1666 passed, 0 failed; gaps 0). Registro: `docs/pipeline/feature_20261115_ont65_zero_gaps.md`. Rollup ONT-61..65: `docs/pipeline/feature_rollup.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | `read_mods`: lecturas de `.py` del proyecto por ruta literal como `covers` débiles (`9bb7758`) | Pragma | ✅ |
+| M2 | `GAPS_BASELINE` 1 → 0 (`7c29bfb`) | Pragma | ✅ |
+| M3 | Primer operando anclado a la raíz del proyecto; parámetros, locals y `tmp_path` excluidos (`535b4b0`) | Pragma (ciclo 2) | ✅ |
+| M4 | Tests de spec con gaps sintéticos; límites de presupuesto sin cambios (`086dc02`) | Pragma (ciclo 2) | ✅ |
+| M5 | Dokimos VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: 3 tests con `gaps[0]`, 75 aristas desde fixtures); 1666 passed; gaps 0; DB real intacta; enmascaramiento re-probado sin gaps perdidos | Dokimos | ✅ |
+| M6 | Documentación: feature ONT-65, rollup ONT-61..65, README (badge 1666 y párrafo ONT-65), STATE, COMPACT y esta sección | Graphos G2 | ✅ |
+| M7 | Publicación en `dev` (ff) y luego `main` (ff a `dev`), autorizada por el usuario con condición 0 gaps | Hermon | ✅ publicado en `dev` y `main` |
+| M8 | Evidencia de rendimiento y ruff: rendimiento del análisis 1.62 s → 1.59 s (ciclo 1) y ~0.75 s tras el ciclo 2, dentro del criterio ≤5 %; `ruff check` y `ruff format --check` limpios (350 archivos, Dokimos ciclo 2) | Dokimos | ✅ |
+| M9 | ONT-66 `aep_notice` ruidoso (AEP notifica al agente de turno; `ask_user` redactado para el usuario) | Archon / Pragma (Short: orquestador) | ENCOLADO |
+
+Lecciones: (1) cero gaps solo vale si no está enmascarado: una arista débil resuelve únicamente la omisión del propio test; (2) los tests no usan gaps reales como material, siembran los suyos; (3) no escribir en la DB real durante una verificación (incidente del ciclo 1: una tarjeta kanban creada por el orquestador durante la suite).
