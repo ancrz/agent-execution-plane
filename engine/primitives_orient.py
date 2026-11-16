@@ -721,6 +721,27 @@ def _proc_status(pid: int) -> dict[str, str]:
     return out
 
 
+_MEMORY_KEYS = {"VmRSS": "rss_kb", "RssAnon": "rss_anon_kb", "RssFile": "rss_file_kb", "VmSwap": "swap_kb"}
+
+
+def process_memory(pid: int) -> dict[str, int]:
+    """ONT-67 T1: resident-memory breakdown of a process in kB, straight from /proc/<pid>/status.
+
+    `rss_kb` (VmRSS) = `rss_anon_kb` (heap/stack, what an allocator or cache actually costs) + `rss_file_kb`
+    (mapped files and shared libs, reclaimable) [+ shmem]; `swap_kb` is what the kernel already pushed out.
+    Missing fields (kernel thread, permission) are simply absent.
+    """
+    out: dict[str, int] = {}
+    for key, val in _proc_status(pid).items():
+        name = _MEMORY_KEYS.get(key)
+        if name:
+            try:
+                out[name] = int(val.split()[0])
+            except IndexError, ValueError:
+                continue
+    return out
+
+
 def _proc_stat_fields(pid: int) -> tuple[int, int] | None:
     """(ppid, starttime_ticks) from /proc/PID/stat (comm may contain spaces/parens: split after the last ')')."""
     raw = _read_text(f"/proc/{pid}/stat", 4096)

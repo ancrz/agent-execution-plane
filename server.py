@@ -2222,6 +2222,13 @@ async def artifact_execute_in_ram(
     return await anyio.to_thread.run_sync(_run)
 
 
+def process_memory(target_pid: int) -> dict[str, int]:
+    """ONT-67 T1: VmRSS / RssAnon / RssFile / VmSwap (kB) of a process (engine.primitives_orient)."""
+    from engine.primitives_orient import process_memory as _process_memory
+
+    return _process_memory(target_pid)
+
+
 def _process_detail(target_pid: int) -> dict[str, Any]:
     """ONT-63: start, ancestry, cwd, cgroup and env NAMES of a process (privacy rules in engine.primitives_orient)."""
     from engine.primitives_orient import process_detail
@@ -2448,6 +2455,7 @@ async def process_inspect(
                         "rss_kb": rss_kb,
                         "capability_tier": capability_tier(),
                         "fd_access": "restricted",
+                        **({"memory": process_memory(target_pid)} if not is_compact else {}),
                         **({"detail": _process_detail(target_pid)} if pid > 0 and not is_compact else {}),
                         "error": f"Permiso denegado al inspeccionar descriptores en /proc/{target_pid}/fd (métricas de /proc/{target_pid}/status preservadas).",
                     },
@@ -2515,6 +2523,8 @@ async def process_inspect(
             res_data["uptime_seconds"] = round(time.time() - SERVER_START_TIME, 2)
         if truncated:
             res_data["truncated"] = True
+        if not is_compact:
+            res_data["memory"] = process_memory(target_pid)  # ONT-67 T1: RSS/anon/file/swap breakdown, detail only
         if pid > 0 and not is_compact:
             res_data["detail"] = _process_detail(target_pid)  # ONT-63: orientation detail, detail verbosity only
 
