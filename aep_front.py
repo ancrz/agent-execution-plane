@@ -473,6 +473,8 @@ class BackendConnection:
         self.in_flight_calls = 0
         self._read_task: asyncio.Task[None] | None = None
         self.alive = True
+        # ONT-66: unsolicited backend events (`{"op": "event", "push": {...}}`), e.g. a notice found by the hot analysis.
+        self.on_event: Callable[[dict[str, Any]], None] | None = None
 
     async def initialize(self) -> None:
         self.reader, self.writer = await asyncio.open_connection(sock=self.sock)
@@ -487,6 +489,10 @@ class BackendConnection:
                     break
                 try:
                     data = json.loads(line.decode("utf-8", errors="replace"))
+                    if data.get("op") == "event":
+                        if self.on_event is not None:
+                            self.on_event(data)
+                        continue
                     req_id = str(data.get("id"))
                     fut = self.pending_requests.pop(req_id, None)
                     if fut and not fut.done():
@@ -630,6 +636,10 @@ class LivePlaneManager:
         self.swap_fence_orphan: bool = False
         self.swap_lock = asyncio.Lock()
         self.cached_session: ServerSession | None = None
+        # ONT-66 T4: MCP `notifications/message` (logger "aep.notice"), once per change (deduped across generations).
+        self.last_push_key: str = ""
+        self.pending_push: dict[str, Any] | None = None
+        self._push_tasks: set[asyncio.Task[None]] = set()
         # ONT-41 (LKG)
         self.serving_lkg: bool = False
         self.lkg_key: str | None = None
@@ -738,6 +748,7 @@ class LivePlaneManager:
                 stderr=log_fd,
             )
             conn = BackendConnection(proc, s_front, generation)
+            conn.on_event = self._on_backend_event
             await conn.initialize()
             return conn
         except BaseException:
@@ -1199,6 +1210,35 @@ class LivePlaneManager:
                 return state
             await self.sleep(BARRIER_POLL_S)
 
+    def _on_backend_event(self, data: dict[str, Any]) -> None:
+        push = data.get("push")
+        if isinstance(push, dict):
+            task = asyncio.get_running_loop().create_task(self.emit_push(push))
+            self._push_tasks.add(task)
+            task.add_done_callback(self._push_tasks.discard)
+
+    async def emit_push(self, push: dict[str, Any]) -> bool:
+        """Send one `notifications/message` for a notice change. Fail-soft (the `aep_notice` piggyback is the
+        guarantee); identical content is never resent, also across hot-swaps. Without a session it is kept pending."""
+        key = json.dumps(push.get("data"), sort_keys=True, default=str)
+        if key == self.last_push_key:
+            return False
+        session = self.cached_session
+        if session is None:
+            self.pending_push = push
+            return False
+        level = push.get("level") if push.get("level") in ("warning", "error") else "warning"
+        try:
+            await session.send_log_message(
+                level=level, data=push.get("data"), logger=str(push.get("logger") or "aep.notice")
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("notice push failed: %s", exc)
+            return False
+        self.last_push_key = key
+        self.pending_push = None
+        return True
+
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         # `_barrier` is front-owned: a client-supplied value is always discarded.
         arguments = {k: v for k, v in (arguments or {}).items() if k != "_barrier"}
@@ -1218,6 +1258,9 @@ class LivePlaneManager:
             conn.in_flight_calls -= 1
 
         if resp.get("status") == "OK":
+            push = resp.get("push") if isinstance(resp.get("push"), dict) else self.pending_push
+            if push:
+                await self.emit_push(push)
             res = resp.get("result")
             return res if isinstance(res, str) else json.dumps(res)
         raise RuntimeError(resp.get("error", "Tool execution error in backend"))
@@ -1250,6 +1293,10 @@ class LivePlaneManager:
 def create_front_server(mgr: LivePlaneManager, instructions: str | None = None) -> Server:
     """Create Low-Level MCP Server instance with optional advertised instructions (F3)."""
     srv = Server("Agent-Execution-Plane", instructions=instructions)
+
+    @srv.set_logging_level()
+    async def handle_set_level(level: types.LoggingLevel) -> None:  # declares the `logging` capability (ONT-66 T4)
+        return None
 
     @srv.list_tools()
     async def handle_list_tools() -> list[types.Tool]:

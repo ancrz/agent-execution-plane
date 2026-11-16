@@ -6687,6 +6687,24 @@ def _hot_analyze() -> Any:
     return th.analyze(REPO_ROOT)
 
 
+_HOT_DONE_HOOKS: list[Any] = []  # called (in the analysis thread) when a hot analysis ends; fail-soft
+
+
+def _run_hot_done_hooks() -> None:
+    for hook in list(_HOT_DONE_HOOKS):
+        try:
+            hook()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("hot analysis hook failed: %s", type(exc).__name__)
+
+
+def hot_analysis_done() -> bool:
+    """True once at least one hot analysis finished in this process."""
+    from engine import notices
+
+    return int(notices.hot_state()["runs"]) > 0
+
+
 def start_hot_analysis() -> bool:
     """ONT-66 T1: puebla la cache de analisis en un hilo daemon tras cargar el backend. Nunca bloquea ni escribe en
     la BD (analisis estatico); fail-soft. Devuelve True si lanzo un hilo."""
@@ -6695,7 +6713,7 @@ def start_hot_analysis() -> bool:
     if not _hot_analysis_enabled():
         return False
     _HOT_LAST_KICK[0] = time.monotonic()
-    return notices.start_hot_analysis(_hot_analyze) is not None
+    return notices.start_hot_analysis(_hot_analyze, on_done=_run_hot_done_hooks) is not None
 
 
 def _hot_refresh_if_due() -> None:
@@ -6772,6 +6790,14 @@ def _notice_block(tool: str, action: str) -> dict[str, Any] | None:
 
 
 set_notice_provider(_notice_block)
+
+
+def notice_push_event(force: bool = False) -> dict[str, Any] | None:
+    """ONT-66 T4: datos de UNA notificacion MCP por cambio del conjunto de avisos (None si no cambio). Solo lee."""
+    if os.environ.get(_NOTICES_OFF_ENV, "1").strip() == "0":
+        return None
+    _notices_refresh(force)
+    return _notice_registry().push_event()
 
 
 def _autoevol_notices(act: str, ids: list[str] | None, all_: bool, limit: int) -> dict[str, Any]:

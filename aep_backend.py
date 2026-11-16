@@ -238,14 +238,11 @@ class BackendWorker:
             barrier = args.pop("_barrier", None)
             server._BARRIER_CTX.set(barrier if _valid_barrier(barrier) else None)
             res = await tm.call_tool(name, args)
-            await self._send_response(
-                writer,
-                {
-                    "status": "OK",
-                    "id": req_id,
-                    "result": res,
-                },
-            )
+            reply: dict[str, Any] = {"status": "OK", "id": req_id, "result": res}
+            push = await self._notice_push()
+            if push:
+                reply["push"] = push
+            await self._send_response(writer, reply)
         except Exception as e:  # noqa: BLE001
             await self._send_response(
                 writer,
@@ -256,6 +253,23 @@ class BackendWorker:
                     "traceback": traceback.format_exc(),
                 },
             )
+
+    def _spawn(self, coro: Any) -> None:
+        task = asyncio.create_task(coro)
+        self.in_flight_tasks.add(task)
+        task.add_done_callback(self.in_flight_tasks.discard)
+
+    async def _notice_push(self, force: bool = False) -> dict[str, Any] | None:
+        """ONT-66 T4: one MCP notification per change of the notice set (None when unchanged). Fail-soft."""
+        try:
+            return await asyncio.to_thread(server.notice_push_event, force)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _push_event(self, writer: asyncio.StreamWriter) -> None:
+        push = await self._notice_push(force=True)
+        if push:
+            await self._send_response(writer, {"op": "event", "push": push})
 
     async def _send_response(self, writer: asyncio.StreamWriter, data: dict[str, Any]) -> None:
         payload = (json.dumps(data) + "\n").encode("utf-8")
@@ -268,6 +282,14 @@ class BackendWorker:
 
     async def run(self) -> None:
         reader, writer = await asyncio.open_connection(sock=self.sock)
+        loop = asyncio.get_running_loop()
+
+        def _after_hot_analysis() -> None:  # runs in the analysis thread: hop back to the loop
+            loop.call_soon_threadsafe(lambda: self._spawn(self._push_event(writer)))
+
+        server._HOT_DONE_HOOKS.append(_after_hot_analysis)
+        if server.hot_analysis_done():
+            _after_hot_analysis()
         try:
             while self.running:
                 line = await reader.readline()
