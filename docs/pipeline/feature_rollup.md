@@ -3,10 +3,20 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261115_ont65_zero_gaps.md`](feature_20261115_ont65_zero_gaps.md)
+- **Current Active Document**: [`feature_20261115_ont66_noisy_notices.md`](feature_20261115_ont66_noisy_notices.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
+
+## Cadena nueva 66..70: ONT-66 (2026-11-15)
+
+Cadena: `feature_20261115_ont65_zero_gaps.md` (último documento del rollup 61..65) → `feature_20261115_ont66_noisy_notices.md` (primero de la cadena 66..70).
+
+| Documento | Intent | Commits (rango) | Veredicto | Suite | Gaps al cierre |
+|---|---|---|---|---|---|
+| ONT-66 | AEP ruidoso: `aep_notice` en todas las respuestas, `autoevol` `notices`/`ack`, análisis caliente, push MCP `aep.notice`, `ask_user` para reenviar | `7129048`..`5c93d12` (base `69b1b76`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: presupuesto terse 414 > 400, literal de conteo, `_INSTRUCTIONS` 9465 > 9400, prueba vacua y bug de `cached_analysis`) | 1700 passed, 0 failed (reportado por Dokimos) | 0 |
+
+**Ciclos de Dokimos por track:** ONT-66 2. Publicado en `dev` por Hermon; `main` a decisión del usuario.
 
 ## Rollup de cadena: ONT-61 a ONT-65 (2026-11-15)
 

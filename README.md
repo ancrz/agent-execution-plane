@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1666_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1700_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1131,6 +1131,21 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-66 AEP ruidoso (Short; VERIFIED tras dos ciclos; 1700 passed, 0 failed; gaps 0; publicado en dev por Hermon):** AEP anuncia lo que detecta. Cada respuesta de cualquier herramienta lleva `aep_notice` (<= 350 B: `count`, `top`, `severity`, `ask_user`, `next_action`, `ack`) mientras haya avisos sin reconocer: gaps del análisis (todos los tipos, incluidas omisiones) y señales del plano. `ask_user` está redactado para reenviarlo tal cual al usuario ("AEP reporta: x, y o z. ¿Quieres mejorarlo?"); el agente de turno debe reenviarlo. `autoevol(action="notices")` lista los avisos y `autoevol(action="ack", ids=[...] | all=True)` los silencia para la sesión de servidor (solo memoria). El análisis se calienta en segundo plano tras cada carga del backend. El push MCP envía `notifications/message` (logger `aep.notice`), una vez por cambio, y requiere `/mcp` del usuario porque el front no es hot-swappable. Sin avisos, las respuestas no cambian.
+
+```mermaid
+flowchart LR
+    I66["Intent: AEP ruidoso (ONT-66)"] --> M1["M1: análisis caliente y registro de avisos (7129048) ✅"]
+    M1 --> M2["M2: aep_notice en todas las respuestas, notices y ack (ce8210c) ✅"]
+    M2 --> M3["M3: push MCP notifications/message (fa1d18c) ✅"]
+    M3 --> M4["M4: gaps_open y relay ask_user (c6508ee) ✅"]
+    M4 --> M5["M5: endurecimiento y caché analizada (5c93d12) ✅"]
+    M5 --> M6["M6: Dokimos VERIFIED 1700 passed, gaps 0 ✅"]
+    M6 --> M7["M7: documentado (Graphos G2) ✅"]
+    M7 --> M8["M8: publicado en dev (Hermon)"]
+    M8 --> M9["M9: main a decisión del usuario"]
 ```
 
 **ONT-65 cero gaps de cobertura (Short; VERIFIED tras dos ciclos; 1666 passed, 0 failed; gaps 0; publicado en `dev` y `main`):** el extractor de hilos cuenta como cobertura débil (`covers`, peso débil) un test que lee archivos `.py` del proyecto por ruta literal, por ejemplo `PROJECT_ROOT / "engine" / "privilege.py"`, siempre que el primer operando esté anclado a la raíz del proyecto. Los archivos no `.py` y las rutas dinámicas no generan arista. `GAPS_BASELINE` pasa de 1 a 0: cualquier gap rompe `tests/test_ont41_coverage.py`. Registro: `docs/pipeline/feature_20261115_ont65_zero_gaps.md`.

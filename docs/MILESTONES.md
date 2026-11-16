@@ -922,6 +922,28 @@ Modo Short; base `dev` `fa1c1b9`; HEAD `086dc02`; VERIFIED tras dos ciclos (1666
 | M6 | Documentación: feature ONT-65, rollup ONT-61..65, README (badge 1666 y párrafo ONT-65), STATE, COMPACT y esta sección | Graphos G2 | ✅ |
 | M7 | Publicación en `dev` (ff) y luego `main` (ff a `dev`), autorizada por el usuario con condición 0 gaps | Hermon | ✅ publicado en `dev` y `main` |
 | M8 | Evidencia de rendimiento y ruff: rendimiento del análisis 1.62 s → 1.59 s (ciclo 1) y ~0.75 s tras el ciclo 2, dentro del criterio ≤5 %; `ruff check` y `ruff format --check` limpios (350 archivos, Dokimos ciclo 2) | Dokimos | ✅ |
-| M9 | ONT-66 `aep_notice` ruidoso (AEP notifica al agente de turno; `ask_user` redactado para el usuario) | Archon / Pragma (Short: orquestador) | ENCOLADO |
+| M9 | ONT-66 `aep_notice` ruidoso (AEP notifica al agente de turno; `ask_user` redactado para el usuario) | Archon / Pragma (Short: orquestador) | ✅ VERIFIED, ver sección 33 |
 
 Lecciones: (1) cero gaps solo vale si no está enmascarado: una arista débil resuelve únicamente la omisión del propio test; (2) los tests no usan gaps reales como material, siembran los suyos; (3) no escribir en la DB real durante una verificación (incidente del ciclo 1: una tarjeta kanban creada por el orquestador durante la suite).
+
+## 33. AEP ruidoso: avisos al agente de turno, push MCP y análisis caliente ONT-66 (2026-11-15)
+
+Modo Short; base `main` = `dev` `69b1b76`; HEAD `5c93d12`; VERIFIED tras dos ciclos (1700 passed, 0 failed reportado por Dokimos; gaps 0). Registro: `docs/pipeline/feature_20261115_ont66_noisy_notices.md`. Rollup de la cadena nueva 66..70: `docs/pipeline/feature_rollup.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | Análisis caliente tras la carga del backend y registro `engine/notices.py` (`7129048`) | Pragma | ✅ |
+| M2 | `aep_notice` en `attach_envelope` para todas las respuestas; `autoevol` `notices` y `ack` (`ce8210c`) | Pragma | ✅ |
+| M3 | Push MCP `notifications/message` con logger `aep.notice`, una vez por cambio (`fa1d18c`) | Pragma | ✅ |
+| M4 | `gaps_open` en `orient` y `discover`; línea de reenvío de `ask_user`; paso WF-0; documentación de `setup.sh --update` (`c6508ee`) | Pragma | ✅ |
+| M5 | Endurecimiento de etiquetas, referencias cortas, recorte de instrucciones y `cached_analysis` que devolvía la entrada equivocada (`5c93d12`) | Pragma (ciclo 2) | ✅ |
+| M6 | Dokimos: ciclo 1 DEFECTIVE LOGIC_ERROR (1691 passed, 3 failed); ciclo 2 VERIFIED (1700 passed, 0 failed; gaps 0; DB real intacta) | Dokimos | ✅ |
+| M7 | Documentación: feature ONT-66, rollup de la cadena 66..70, README (badge 1700 y párrafo ONT-66), STATE, COMPACT y esta sección | Graphos G2 | ✅ |
+| M8 | Publicación en `dev` (fast-forward, sin force) | Hermon | ✅ publicado en `dev` |
+| M9 | Publicación en `main` | Usuario (decisión) | pendiente |
+
+Pendiente operativo: el push MCP requiere `/mcp` del usuario, porque el front no es hot-swappable.
+
+Residuales: el `ack` vive en el proceso backend (se pierde en hot-swap y los avisos reaparecen); riesgo teórico de colisión entre un `gap.ref` ajeno y una referencia corta; acks y avisos no van al ledger.
+
+Lecciones: (1) un agente que reenvía texto del repositorio al usuario debe filtrar por clase de caracteres, no solo recortar; (2) los informes se limitan a lo commiteado; (3) las pruebas de regresión deben fallar en la base.
