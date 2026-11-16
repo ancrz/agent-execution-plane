@@ -2204,4 +2204,7 @@ def _build_graph(src: Sources) -> tuple[ThreadGraph, ExtractionInfo]:
             info.errors.append({"file": rel, "error": pf.error})
     info.weak_edges = sum(1 for e in graph.edges() if e.weak)
     info.external_skipped = info.type_index.external_skipped if info.type_index is not None else 0
+    # ONT-67 T4: the type index references every AST node of the tree (~150 MB for this repo); nothing reads it after
+    # the build, and `ExtractionInfo` lives in the analysis cache, so release it here.
+    info.type_index = None
     return graph, info

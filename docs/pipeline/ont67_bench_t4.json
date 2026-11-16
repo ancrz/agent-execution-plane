@@ -1,0 +1,340 @@
+{
+ "label": "t4notrim",
+ "env": {
+  "AEP_EMBED_IDLE_S": "2"
+ },
+ "runs": [
+  {
+   "phases": [
+    {
+     "phase": "import",
+     "latency_ms": null,
+     "rss_kb": 82052,
+     "anon_kb": 57676,
+     "file_kb": 24376,
+     "swap_kb": 0
+    },
+    {
+     "phase": "discover",
+     "latency_ms": 3.86,
+     "first_ms": 24.86,
+     "rss_kb": 82848,
+     "anon_kb": 58444,
+     "file_kb": 24404,
+     "swap_kb": 0
+    },
+    {
+     "phase": "catalog_query",
+     "latency_ms": 4.09,
+     "first_ms": 296.54,
+     "rss_kb": 318232,
+     "anon_kb": 268688,
+     "file_kb": 49544,
+     "swap_kb": 0
+    },
+    {
+     "phase": "orient",
+     "latency_ms": 7.76,
+     "first_ms": 8.12,
+     "rss_kb": 318360,
+     "anon_kb": 268816,
+     "file_kb": 49544,
+     "swap_kb": 0
+    },
+    {
+     "phase": "autoevol_graph",
+     "latency_ms": 467.68,
+     "first_ms": 2136.11,
+     "rss_kb": 307096,
+     "anon_kb": 257260,
+     "file_kb": 49836,
+     "swap_kb": 0
+    },
+    {
+     "phase": "sandbox_big_out",
+     "latency_ms": 17.68,
+     "first_ms": 21.52,
+     "rss_kb": 314976,
+     "anon_kb": 265140,
+     "file_kb": 49836,
+     "swap_kb": 0
+    },
+    {
+     "phase": "kanban_board",
+     "latency_ms": 0.68,
+     "first_ms": 0.83,
+     "rss_kb": 314976,
+     "anon_kb": 265140,
+     "file_kb": 49836,
+     "swap_kb": 0
+    },
+    {
+     "phase": "idle_6s",
+     "latency_ms": null,
+     "rss_kb": 314976,
+     "anon_kb": 265140,
+     "file_kb": 49836,
+     "swap_kb": 0
+    },
+    {
+     "phase": "catalog_after_idle",
+     "latency_ms": 420.7,
+     "first_ms": 420.7,
+     "rss_kb": 458252,
+     "anon_kb": 408416,
+     "file_kb": 49836,
+     "swap_kb": 0
+    }
+   ]
+  },
+  {
+   "phases": [
+    {
+     "phase": "import",
+     "latency_ms": null,
+     "rss_kb": 78620,
+     "anon_kb": 54448,
+     "file_kb": 24172,
+     "swap_kb": 0
+    },
+    {
+     "phase": "discover",
+     "latency_ms": 20.31,
+     "first_ms": 110.03,
+     "rss_kb": 80232,
+     "anon_kb": 56032,
+     "file_kb": 24200,
+     "swap_kb": 0
+    },
+    {
+     "phase": "catalog_query",
+     "latency_ms": 12.01,
+     "first_ms": 835.63,
+     "rss_kb": 315720,
+     "anon_kb": 266408,
+     "file_kb": 49312,
+     "swap_kb": 0
+    },
+    {
+     "phase": "orient",
+     "latency_ms": 25.29,
+     "first_ms": 22.42,
+     "rss_kb": 315860,
+     "anon_kb": 266548,
+     "file_kb": 49312,
+     "swap_kb": 0
+    },
+    {
+     "phase": "autoevol_graph",
+     "latency_ms": 634.76,
+     "first_ms": 2602.28,
+     "rss_kb": 320924,
+     "anon_kb": 271192,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "sandbox_big_out",
+     "latency_ms": 19.09,
+     "first_ms": 21.86,
+     "rss_kb": 328116,
+     "anon_kb": 278384,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "kanban_board",
+     "latency_ms": 0.59,
+     "first_ms": 0.85,
+     "rss_kb": 328116,
+     "anon_kb": 278384,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "idle_6s",
+     "latency_ms": null,
+     "rss_kb": 328116,
+     "anon_kb": 278384,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "catalog_after_idle",
+     "latency_ms": 135.77,
+     "first_ms": 135.77,
+     "rss_kb": 458356,
+     "anon_kb": 408624,
+     "file_kb": 49732,
+     "swap_kb": 0
+    }
+   ]
+  },
+  {
+   "phases": [
+    {
+     "phase": "import",
+     "latency_ms": null,
+     "rss_kb": 78616,
+     "anon_kb": 54444,
+     "file_kb": 24172,
+     "swap_kb": 0
+    },
+    {
+     "phase": "discover",
+     "latency_ms": 3.74,
+     "first_ms": 26.12,
+     "rss_kb": 80232,
+     "anon_kb": 56032,
+     "file_kb": 24200,
+     "swap_kb": 0
+    },
+    {
+     "phase": "catalog_query",
+     "latency_ms": 4.15,
+     "first_ms": 272.09,
+     "rss_kb": 315712,
+     "anon_kb": 266400,
+     "file_kb": 49312,
+     "swap_kb": 0
+    },
+    {
+     "phase": "orient",
+     "latency_ms": 8.56,
+     "first_ms": 8.4,
+     "rss_kb": 315864,
+     "anon_kb": 266552,
+     "file_kb": 49312,
+     "swap_kb": 0
+    },
+    {
+     "phase": "autoevol_graph",
+     "latency_ms": 463.1,
+     "first_ms": 2103.57,
+     "rss_kb": 300980,
+     "anon_kb": 251248,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "sandbox_big_out",
+     "latency_ms": 18.5,
+     "first_ms": 21.56,
+     "rss_kb": 308864,
+     "anon_kb": 259132,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "kanban_board",
+     "latency_ms": 0.49,
+     "first_ms": 0.74,
+     "rss_kb": 308864,
+     "anon_kb": 259132,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "idle_6s",
+     "latency_ms": null,
+     "rss_kb": 308864,
+     "anon_kb": 259132,
+     "file_kb": 49732,
+     "swap_kb": 0
+    },
+    {
+     "phase": "catalog_after_idle",
+     "latency_ms": 132.13,
+     "first_ms": 132.13,
+     "rss_kb": 461004,
+     "anon_kb": 411272,
+     "file_kb": 49732,
+     "swap_kb": 0
+    }
+   ]
+  }
+ ],
+ "median": [
+  {
+   "phase": "import",
+   "rss_kb": 78620,
+   "anon_kb": 54448,
+   "file_kb": 24172,
+   "swap_kb": 0,
+   "latency_ms": null,
+   "first_ms": null
+  },
+  {
+   "phase": "discover",
+   "rss_kb": 80232,
+   "anon_kb": 56032,
+   "file_kb": 24200,
+   "swap_kb": 0,
+   "latency_ms": 3.86,
+   "first_ms": 26.12
+  },
+  {
+   "phase": "catalog_query",
+   "rss_kb": 315720,
+   "anon_kb": 266408,
+   "file_kb": 49312,
+   "swap_kb": 0,
+   "latency_ms": 4.15,
+   "first_ms": 296.54
+  },
+  {
+   "phase": "orient",
+   "rss_kb": 315864,
+   "anon_kb": 266552,
+   "file_kb": 49312,
+   "swap_kb": 0,
+   "latency_ms": 8.56,
+   "first_ms": 8.4
+  },
+  {
+   "phase": "autoevol_graph",
+   "rss_kb": 307096,
+   "anon_kb": 257260,
+   "file_kb": 49732,
+   "swap_kb": 0,
+   "latency_ms": 467.68,
+   "first_ms": 2136.11
+  },
+  {
+   "phase": "sandbox_big_out",
+   "rss_kb": 314976,
+   "anon_kb": 265140,
+   "file_kb": 49732,
+   "swap_kb": 0,
+   "latency_ms": 18.5,
+   "first_ms": 21.56
+  },
+  {
+   "phase": "kanban_board",
+   "rss_kb": 314976,
+   "anon_kb": 265140,
+   "file_kb": 49732,
+   "swap_kb": 0,
+   "latency_ms": 0.59,
+   "first_ms": 0.83
+  },
+  {
+   "phase": "idle_6s",
+   "rss_kb": 314976,
+   "anon_kb": 265140,
+   "file_kb": 49732,
+   "swap_kb": 0,
+   "latency_ms": null,
+   "first_ms": null
+  },
+  {
+   "phase": "catalog_after_idle",
+   "rss_kb": 458356,
+   "anon_kb": 408624,
+   "file_kb": 49732,
+   "swap_kb": 0,
+   "latency_ms": 135.77,
+   "first_ms": 135.77
+  }
+ ]
+}
