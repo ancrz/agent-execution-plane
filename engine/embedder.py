@@ -20,6 +20,7 @@ import threading
 import time
 
 from engine import memtrim
+from engine.go_toolchain import read_toolchain_env
 
 log = logging.getLogger("aep.embedder")
 
@@ -57,6 +58,8 @@ IDLE_DEFAULT_S = 600.0  # ONT-67 T3: unload the ~235 MB model after 10 minutes w
 def idle_seconds() -> float:
     """Idle time before the model is unloaded (`AEP_EMBED_IDLE_S`, default 600; 0 or invalid-negative = never)."""
     raw = os.environ.get(IDLE_ENV, "").strip()
+    if not raw:  # ONT-67 T8: a value the user set in toolchain.env (written by setup.sh) counts like the env var
+        raw = read_toolchain_env().get(IDLE_ENV, "").strip()
     if not raw:
         return IDLE_DEFAULT_S
     try:
@@ -115,8 +118,10 @@ class LocalEmbedder:
 
     def _schedule_idle_check(self, delay: float | None = None) -> None:
         """Arm (at most) one daemon timer. Caller holds `_embed_lock`."""
+        if self._timer is not None or self._model is None:
+            return
         idle = idle_seconds()
-        if idle <= 0 or self._timer is not None or self._model is None:
+        if idle <= 0:
             return
         timer = threading.Timer(idle if delay is None else delay, self._idle_check)
         timer.daemon = True

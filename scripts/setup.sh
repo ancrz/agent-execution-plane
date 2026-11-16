@@ -241,6 +241,52 @@ go_current_bin() {
     if [[ -n "$c" && -x "$c" ]]; then echo "$c"; else command -v go 2>/dev/null || true; fi
 }
 
+# ONT-67/T8: ajustes de memoria. Los valores por defecto viven en el código de AEP (un fresh start los hereda);
+# setup.sh solo persiste en toolchain.env lo que el usuario fija (AEP_EMBED_IDLE_S) y --update no lo pisa.
+toolchain_env_set() {
+    local key="$1" val="$2" tmp="$TOOLCHAIN_ENV.tmp.$$"
+    mkdir -p "$AEP_DATA_DIR"
+    { [[ -f "$TOOLCHAIN_ENV" ]] && grep -v "^$key=" "$TOOLCHAIN_ENV"; echo "$key=$val"; } > "$tmp" && mv "$tmp" "$TOOLCHAIN_ENV"
+}
+# Valor del usuario para AEP_EMBED_IDLE_S (entorno > toolchain.env); vacío si no lo fijó o no es un número >= 0.
+embed_idle_user_value() {
+    local v="${AEP_EMBED_IDLE_S:-$(toolchain_env_get AEP_EMBED_IDLE_S)}"
+    [[ "$v" =~ ^[0-9]+([.][0-9]+)?$ ]] && echo "$v" || true
+}
+# Memoria del host (solo lectura). Las rutas son sobreescribibles para tests.
+# Imprime una línea "[PASS|WARN|FAIL] Memory: ..." y, si hay aviso, líneas "       -> recomendación".
+# Código de salida: 1 si FAIL (la ejecución en RAM de AEP no funciona), 0 en otro caso.
+memory_check() {
+    local vmdir="${AEP_PROC_VM_DIR:-/proc/sys/vm}" mmdir="${AEP_SYS_MM_DIR:-/sys/kernel/mm}"
+    local meminfo="${AEP_PROC_MEMINFO:-/proc/meminfo}"
+    local noexec thp ksm swap_total swap_free swap_pct="n/a" level="PASS" idle notes=()
+    noexec="$(tr -d '[:space:]' < "$vmdir/memfd_noexec" 2>/dev/null || true)"
+    thp="$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$mmdir/transparent_hugepage/enabled" 2>/dev/null | head -n1 || true)"
+    ksm="$(tr -d '[:space:]' < "$mmdir/ksm/run" 2>/dev/null || true)"
+    swap_total="$(awk '/^SwapTotal:/ {print $2}' "$meminfo" 2>/dev/null || true)"
+    swap_free="$(awk '/^SwapFree:/ {print $2}' "$meminfo" 2>/dev/null || true)"
+    if [[ "${swap_total:-0}" =~ ^[0-9]+$ && "${swap_total:-0}" -gt 0 && "${swap_free:-0}" =~ ^[0-9]+$ ]]; then
+        swap_pct=$(( (swap_total - swap_free) * 100 / swap_total ))
+    fi
+    idle="$(embed_idle_user_value)"
+    if [[ "$noexec" == "2" ]]; then
+        level="FAIL"
+        notes+=("vm.memfd_noexec=2: artifact_execute_in_ram cannot run (AEP answers error_class=memfd_noexec_enforced and points to sandbox_run). Set vm.memfd_noexec=0 or 1 yourself if you want in-RAM execution; setup.sh never changes sysctl.")
+    elif [[ "$noexec" == "1" ]]; then
+        level="WARN"
+        notes+=("vm.memfd_noexec=1: memfds are non-executable by default; AEP asks for MFD_EXEC explicitly so it still works on kernels >= 6.3.")
+    fi
+    if [[ "$swap_pct" =~ ^[0-9]+$ && "$swap_pct" -gt 90 ]]; then
+        [[ "$level" == "PASS" ]] && level="WARN"
+        notes+=("swap ${swap_pct}% used: consider zram (e.g. zram-generator) as a manual step; setup.sh never changes swap, zram, KSM or THP.")
+    fi
+    echo -e "[$level] Memory: memfd_noexec=${noexec:-n/a} THP=${thp:-n/a} KSM=${ksm:-n/a} swap_used=${swap_pct}%" \
+        "| AEP embed_idle=${idle:-600}s sqlite_mmap=256MiB sqlite_cache=64MiB/conn sandbox_out=zstd"
+    local n
+    for n in "${notes[@]}"; do echo "       -> $n"; done
+    [[ "$level" != "FAIL" ]]
+}
+
 # Cuenta los clientes MCP (CLIs) presentes en PATH donde aep-sync.sh puede registrar el servidor.
 count_mcp_clients() {
     local n=0 c
@@ -471,6 +517,9 @@ PY
     else
         echo -e "[PASS] MCP Clients: $MCP_CLIENTS cliente(s) MCP detectado(s) en PATH"
     fi
+
+    # 11. Memoria (ONT-67/T8): solo lectura; FAIL si el kernel impide la ejecución en RAM de AEP.
+    memory_check || DEGRADED=1
 
     echo "=========================================================="
     if [[ $DEGRADED -eq 0 ]]; then
@@ -750,6 +799,7 @@ fi
 
 if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then
     mkdir -p "$AEP_DATA_DIR"
+    KEEP_EMBED_IDLE="$(embed_idle_user_value)"  # ONT-67/T8: el reescrito de toolchain.env no pisa ajustes del usuario
     {
         echo "# Generado por scripts/setup.sh (ONT-59/T5). AEP_GO_CHANNEL=stable|pinned; editar y re-ejecutar setup.sh para aplicar."
         echo "AEP_GO_CHANNEL=$GO_CHANNEL"
@@ -758,6 +808,11 @@ if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then
         echo "AEP_GO_BIN=$GO_CUR"
         echo "AEP_GO_RESOLVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } > "$TOOLCHAIN_ENV.tmp.$$" && mv "$TOOLCHAIN_ENV.tmp.$$" "$TOOLCHAIN_ENV"
+fi
+
+# ONT-67/T8: AEP_EMBED_IDLE_S solo se escribe si el usuario la fijó (entorno o toolchain.env); sin valor no se toca nada.
+if [[ -n "$(embed_idle_user_value)" ]]; then
+    toolchain_env_set AEP_EMBED_IDLE_S "$(embed_idle_user_value)"
 fi
 
 if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then

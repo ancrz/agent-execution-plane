@@ -30,3 +30,13 @@ T8 Instalador (fresh start): setup.sh --check añade línea "Memory" con vm.memf
 No subir budgets; sin avisos → respuestas byte-idénticas (ONT-66) salvo campos nuevos de process_inspect detail; GAPS_BASELINE 0 (tests llaman funciones del proyecto); AEP_DATA_HOME temporal; ruff; nunca scripts/aep-ctl con ruff; pre-commit sin --no-verify; docs sin "<n> herramientas/tools/capacidades". Ningún cambio de sysctl/zram/KSM del host.
 ## Entregable de medición (obligatorio en el informe)
 Tabla base vs final por fase (RSS, RssAnon, swap, latencia) y por tarea qué se conservó y qué se revirtió con su número.
+
+## Resultados medidos (Pragma, banco scripts/bench_ram.py, 3 corridas, mediana)
+Datos: docs/pipeline/ont67_bench_{base,t3,t4,final}.json. Candidato = AEP_EMBED_IDLE_S=2 y espera de 6 s en reposo.
+- T0 base: reposo 548 592 kB RSS (RssAnon 499 044). T1: el rss_kb de process_inspect ya era VmRSS (330 916 vs 333 380 en vivo); los 31 596 kB no se reprodujeron; se añadió el bloque `memory` (detail).
+- T2 aplicado (compatibilidad/integridad). T3 conservado: descarga por inactividad + malloc_trim, reposo -21,3 % (tras T3 solo; sin trim -3,5 %); recarga 5,9 -> ~129 ms una vez. enable_cpu_mem_arena=False: sin ganancia (529 268 vs 529 536 kB), no aplicado.
+- T4 conservado: la caché de análisis retenía ~168 MB por entrada (type_index con todos los AST) -> 6,2 MB. Reposo final 328 188 kB (-40,2 %), RssAnon -44,3 %.
+- T5 NO aplicado: artifacts.db de 151 MB, 90 lecturas de blob, RSS idéntico (283 MB) y latencia 1,38 vs 1,37 ms con cache_size -64000 y -16000 (las conexiones se cierran por uso).
+- T6 NO aplicado: malloc_trim tras analyze/embed_batch +1,2 % RSS sin él vs con él (sin ganancia); MALLOC_ARENA_MAX=2 -0,1 %; PYTHONMALLOC=malloc +3,7 % RSS y +39 % latencia de autoevol. Solo se conserva malloc_trim en la descarga del embedder (T3).
+- T7 conservado: zstd nivel 3 en salidas >= 4 KiB (17,3x en seq, 4,1x en código, 3,4x en git log); coste ~6 ms en el caso de 2,7 MB.
+- T8: línea Memory en setup.sh --check (FAIL si memfd_noexec=2); AEP_EMBED_IDLE_S solo se persiste si el usuario la fija y el reescrito de toolchain.env la conserva.
