@@ -23,6 +23,7 @@ import threading
 import time
 import tomllib
 import uuid
+from compression import zstd
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -3632,15 +3633,37 @@ def _sandbox_out_reap(d: Path, now: float | None = None) -> None:
             f.unlink()
 
 
+_SANDBOX_OUT_ZSTD_MIN_BYTES = 4096  # smaller outputs stay plain text: the frame overhead would not pay off
+_SANDBOX_OUT_ZSTD_LEVEL = 3
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def _sandbox_out_encode(text: str) -> bytes:
+    """ONT-67 T7: the pool lives in tmpfs (= RAM), so outputs >= 4 KiB are stored as a zstd frame (level 3)."""
+    raw = text.encode("utf-8", errors="replace")
+    if len(raw) < _SANDBOX_OUT_ZSTD_MIN_BYTES:
+        return raw
+    return zstd.compress(raw, level=_SANDBOX_OUT_ZSTD_LEVEL)
+
+
+def _sandbox_out_read(path: Path) -> str:
+    """Inverse of `_sandbox_out_encode`; plain files written before ONT-67 (no zstd magic) are read as-is."""
+    data = path.read_bytes()
+    if data[:4] == _ZSTD_MAGIC:
+        data = zstd.decompress(data)
+    return data.decode("utf-8", errors="replace")
+
+
 def _sandbox_out_persist(request_id: str, stdout: str, stderr: str) -> str | None:
     """Guarda la salida completa (stdout + stderr) con permisos 0600; None si no se puede persistir."""
     try:
         d = _sandbox_out_dir()
         full = stdout + (f"\n--- stderr ---\n{stderr}" if stderr else "")
         path = d / f"sandbox_{request_id}.out"
+        payload = _sandbox_out_encode(full)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(full)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(payload)
         _sandbox_out_reap(d)  # tras escribir: el tope de ficheros queda exacto
         return str(path)
     except OSError as e:
@@ -3664,7 +3687,10 @@ def _sandbox_out_page(output_ref: str, cursor: Any, limit: int) -> dict[str, Any
     except TypeError, ValueError:
         return {"status": "PARAM_ERROR", "error": "cursor debe ser un offset de línea entero."}
     eff_limit = max(1, min(int(limit or _SANDBOX_OUT_PAGE_LINES), 2000))
-    lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    try:
+        lines = _sandbox_out_read(target).splitlines()
+    except (OSError, ValueError, zstd.ZstdError) as e:
+        return {"status": "PARAM_ERROR", "error": f"output_ref ilegible: {e}"}
     chunk = lines[start : start + eff_limit]
     more = start + len(chunk) < len(lines)
     return {
