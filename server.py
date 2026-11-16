@@ -150,6 +150,7 @@ AEP is a deterministic Linux Control Plane and High-Resilience Agent Runtime on 
 - **Tactical Security & Incident Workflows (ONT-32)**: Use WF-10 ('Native Network Telemetry & Port Observability') and WF-11 ('Security Observability & Netfilter Hardening' with netfilter mitigation and Landlock verification).
 - **Tactical Sandbox Recipes (ONT-30)**: Use `sandbox-linter-fix` (`rw_paths=[<repo>]`) for in-place formatting, `untrusted-adversarial-probe` (`rw_paths=[<scratch>]`) for isolated fuzzing, and `composite-verification-runner` (`parse="auto"`) for unified ruff && pytest in 1 turn.
 - **SELF-HEAL (ONT-41, N0-N3)**: the agent patches, `autoevol` judges. If `discover(action="capabilities", verbosity="terse")` shows `serving_from: lkg` or a reload error, do NOT revert by hand: `autoevol(action="heal")` (dry-run) -> `autoevol(action="spec", gap=...)` -> patch -> `autoevol(action="fix_test", cycle=...)` (max 3 iterations, never auto-reverts; EXHAUSTED -> `heal`). Restore only via `aep_ctl(domain="backup", action="lkg_restore", params={"apply": true})` (dry-run first, tier >= 6rw-). `front_stale`: `aep_ctl(domain="ipc", action="harness_reconnect", params={"mode":"plan"})`.
+- **AEP NOTICES (ONT-66)**: If a response has `aep_notice`, relay its `ask_user` to the user before continuing.
 - **VERIFY LOADED CODE (ONT-39 / SDD §5)**: Después de editar código o de un reload, llamar a `discover(action="capabilities", verbosity="terse")` y exigir `stale == false` y `code_fingerprint_loaded == code_fingerprint_disk`. Si no se cumple, el cambio NO está cargado y cualquier prueba hecha sobre él es inválida. FENCE MULTIARCHIVO (D-20): para cambios multiarchivo, crea `.aep_swap_fence` en la raíz del proyecto, edita, valida, borra el fence y luego verifica con `discover(capabilities, terse)` (mientras exista el fence el front no hace swap y reporta `swap_fenced=true`; un fence con más de 600 s se ignora como huérfano).
 """
 
@@ -908,6 +909,9 @@ async def discover(
                 payload["reload_error"] = err_s
             if live_meta["lkg_module_drift"]:
                 payload["lkg_module_drift"] = True
+            open_gaps = _notice_gaps_open()  # ONT-66 T6: only when > 0 (clean repo => identical payload)
+            if open_gaps:
+                payload["gaps_open"] = open_gaps
             if compact:  # E4: <= 1 propuesta, solo si existe; lectura pura, nunca ejecuta
                 try:
                     reconcile_top = _reconcile_top()
@@ -6319,6 +6323,8 @@ async def default_primitives(
             )
 
         inner = result.get("result") if isinstance(result.get("result"), dict) else {}
+        if inner and normalize_primitive_name(name) == "orient" and (open_gaps := _notice_gaps_open()):
+            inner["gaps_open"] = open_gaps  # ONT-66 T6: orient flags pending findings (absent when there are none)
         page_truncated = bool(inner.get("truncated")) if compact_run else None
         page_cursor = inner.get("next_cursor") if compact_run else None
         return attach_envelope(
@@ -6790,6 +6796,16 @@ def _notice_block(tool: str, action: str) -> dict[str, Any] | None:
 
 
 set_notice_provider(_notice_block)
+
+
+def _notice_gaps_open() -> int:
+    """ONT-66 T6: gaps abiertos segun el analisis YA en cache (0 si no hay cache o los avisos estan apagados)."""
+    from engine import threads as th
+
+    if os.environ.get(_NOTICES_OFF_ENV, "1").strip() == "0":
+        return 0
+    cached = th.cached_analysis(REPO_ROOT)
+    return len(cached.gaps) if cached is not None else 0
 
 
 def notice_push_event(force: bool = False) -> dict[str, Any] | None:

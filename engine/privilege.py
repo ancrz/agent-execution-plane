@@ -1203,6 +1203,7 @@ def tactical_playbook() -> dict[str, Any]:
                     '1. default_primitives(action="run", name="orient", verbosity="summary") -> host, resources, tools, repo, aep_ready and next_actions in one call (<=1.5 KB).',
                     "2. L1 if L0 is not enough: aep_ctl domains (network/storage/package/service), process_inspect(pid, verbosity='detail'), query_system_docs, sandbox_run for isolated shell commands.",
                     "3. L2 only when a shell cannot solve it (raw syscalls, bulk or continuous parsing, concurrency, sampling, state between steps): artifact_lint_and_build(template_name=...) then artifact_execute_in_ram.",
+                    "4. If any response carries aep_notice, relay its ask_user to the user before continuing; silence it with autoevol(action='ack', all=True) once handled.",
                 ],
             },
             {

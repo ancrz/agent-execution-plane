@@ -83,7 +83,11 @@ def test_backend_process_reports_serving_lkg_end_to_end(tree: Path) -> None:  # 
             terse = json.loads(await mgr.call_tool("discover", {"action": "capabilities", "verbosity": "terse"}))
             assert terse["serving_from"] == "lkg" and terse["failure_kind"] == "SERVING_LKG"
             assert terse["lkg_fingerprint"] == str(mgr.lkg_fingerprint)[:8] and terse["stale"] is True
-            assert tokens(terse) <= 400
+            # ONT-66: serving from LKG is itself a notice; the 400-token budget is measured WITHOUT the separate
+            # `aep_notice` block (bounded to 350 B). The budget is not raised.
+            notice = terse.pop("aep_notice", None)
+            assert notice is not None and len(json.dumps(notice, ensure_ascii=False).encode()) <= 350
+            assert tokens(terse) - round(len(json.dumps(notice, ensure_ascii=False).encode()) / 4) <= 400
             assert "lkg_module_drift" not in terse and "reload_error" not in terse
         finally:
             await mgr.shutdown()
