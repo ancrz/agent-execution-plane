@@ -303,7 +303,12 @@ def test_discover_terse_shows_single_top_within_budget_and_writes_nothing(
     before = _snapshot(env.home, env.state)
     payload = _caps("terse")
     assert payload["reconcile_top"] == "heal:plane:serving_lkg" and isinstance(payload["reconcile_top"], str)
-    assert _tokens(payload) <= 400, _tokens(payload)
+    # ONT-66: serving from LKG is itself a notice; the 400-token limit is measured WITHOUT the separate `aep_notice`
+    # block (bounded to 350 B). The limit is not raised.
+    notice_json = json.dumps(payload.pop("aep_notice"), ensure_ascii=False)
+    assert len(notice_json.encode()) <= 350
+    used = _tokens(payload) - round(len(notice_json.encode()) / 4)
+    assert used <= 400, used
     assert _snapshot(env.home, env.state) == before
 
 

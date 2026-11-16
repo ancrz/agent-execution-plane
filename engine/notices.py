@@ -87,27 +87,68 @@ def gap_severity(gap: Any) -> str:
     return WARN if sev >= 0.5 else INFO
 
 
-def _gap_label(gap: Any) -> str:
+_UNSAFE_RE = re.compile(r"[^\w.:/≠<>-]")
+REF_MAX = 40
+
+
+def safe_text(text: object) -> str:
+    """Texto controlado por el repo -> solo `[\\w.:/≠<>-]` (espacios, saltos de linea, markdown y comillas fuera): un
+    aviso que el agente reenvia al usuario tal cual nunca puede llevar prosa ni instrucciones ajenas."""
+    return _UNSAFE_RE.sub("", str(text))
+
+
+def _safe_name(path_text: str) -> str:
+    """Basename de una ruta del repo, pasado por el veto ANTES de tomarse: una ruta vetada se muestra como `<path>`."""
+    from engine.primitives_orient import _is_vetoed
+
+    raw = str(path_text).strip()
+    if not raw or _is_vetoed(raw) or raw.startswith("~") or any(seg in raw for seg in _SECRET_DIRS):
+        return "<path>"
+    return safe_text(raw.rsplit("/", 1)[-1]) or "<path>"
+
+
+def short_ref(gap_id: str, peers: Iterable[str] = ()) -> str:
+    """Referencia corta y resoluble para `autoevol(spec|ack)`: el sufijo mas corto (por `:`) que sea UNICO entre los
+    `peers` y quepa en 40 B; si no existe, el id completo."""
+    gid = str(gap_id)
+    if len(gid.encode("utf-8")) <= REF_MAX:
+        return gid
+    others = [str(p) for p in peers if str(p) != gid]
+    parts = gid.split(":")
+    for i in range(len(parts) - 1, 0, -1):
+        cand = ":".join(parts[i:])
+        if len(cand.encode("utf-8")) > REF_MAX:
+            break
+        if not any(o == cand or o.endswith(":" + cand) for o in others):
+            return cand
+    return gid
+
+
+def _gap_label_full(gap: Any) -> str:
     detail = str(getattr(gap, "detail", ""))
     m = _DRIFT_RE.match(detail)
     if getattr(gap, "kind", "") == "claim_drift" and m:
         kind, declared, observed, where = m.groups()
-        return _clip(f"claim_drift {where.rsplit('/', 1)[-1]} {kind} {declared}≠{observed}", LABEL_MAX)
-    return _clip(f"{gap.kind} {str(gap.node).split(':', 1)[-1]}", LABEL_MAX)
+        return f"claim_drift {_safe_name(where)} {safe_text(kind)} {safe_text(declared)}≠{safe_text(observed)}"
+    return f"{safe_text(gap.kind)} {safe_text(str(gap.node).split(':', 1)[-1])}"
 
 
 def from_gaps(gaps: Iterable[Any]) -> list[Notice]:
-    """Un aviso por gap (todos los tipos), ids estables = id del gap, orden de entrada (ya rankeado por score)."""
+    """Un aviso por gap (todos los tipos), ids estables = id del gap, orden de entrada (ya rankeado por score).
+
+    Resumen y etiqueta salen SOLO de componentes saneados (`safe_text`/`_safe_name`), nunca de `gap.detail` en bruto."""
     out: list[Notice] = []
+    gaps = list(gaps)
+    ids = [str(g.id) for g in gaps]
     for gap in gaps:
-        summary = sanitize(f"{gap.kind} {gap.detail}")
+        full = _gap_label_full(gap)
         out.append(
             Notice(
                 id=str(gap.id),
                 severity=gap_severity(gap),
-                summary=_clip(summary, SUMMARY_MAX),
-                label=sanitize(_gap_label(gap)),
-                next_action=f"autoevol(action='spec', gap='{gap.id}')",
+                summary=_clip(full, SUMMARY_MAX),
+                label=_clip(full, LABEL_MAX),
+                next_action=f"autoevol(action='spec', gap='{short_ref(str(gap.id), ids)}')",
             )
         )
     return out
@@ -192,10 +233,21 @@ class NoticeRegistry:
                 if self._state.get(nid) == NEW:
                     self._state[nid] = SEEN
 
+    def _resolve(self, ref: str) -> str | None:
+        """Id exacto o sufijo unico (`:ref`) entre los avisos conocidos (las referencias cortas del bloque)."""
+        if ref in self._items:
+            return ref
+        hits = [nid for nid in self._items if nid.endswith(":" + ref)]
+        return hits[0] if len(hits) == 1 else None
+
     def ack(self, ids: Iterable[str] | None = None, *, all_: bool = False) -> list[str]:
-        """Marca acked los `ids` (o todos). Devuelve los ids realmente reconocidos."""
+        """Marca acked los `ids` (exactos o referencia corta) o todos. Devuelve los ids realmente reconocidos."""
         with self._lock:
-            targets = list(self._items) if all_ else [i for i in (ids or []) if i in self._items]
+            if all_:
+                targets = list(self._items)
+            else:
+                resolved = (self._resolve(str(i)) for i in (ids or []))
+                targets = [nid for nid in dict.fromkeys(resolved) if nid is not None]
             for nid in targets:
                 self._state[nid] = ACKED
             return targets
@@ -222,27 +274,28 @@ class NoticeRegistry:
 
 
 def build_block(notices: list[Notice]) -> dict[str, Any] | None:
-    """Bloque `aep_notice` <= 350 B para `notices` (ya ordenados por gravedad); None si no hay ninguno."""
+    """Bloque `aep_notice` <= 350 B para `notices` (ya ordenados por gravedad); None si no hay ninguno.
+
+    Prefiere etiquetas anchas (44 B): primero con `top` y, si no cabe, sin `top` (`ask_user` ya lleva las mismas
+    etiquetas); solo despues estrecha las etiquetas o reduce cuantas se muestran."""
     if not notices:
         return None
     sev = max((n.severity for n in notices), key=lambda s: _RANK[s])
     head = notices[0]
-    for k in range(min(TOP_MAX, len(notices)), 0, -1):
-        for width in (LABEL_MAX, 32, 22):
+    for width in (LABEL_MAX, 36, 28):
+        for k in range(min(TOP_MAX, len(notices)), 0, -1):
             labels = [_clip(n.label, width) for n in notices[:k]]
-            block = {
-                "count": len(notices),
-                "top": labels,
-                "severity": sev,
-                "ask_user": ASK_TEMPLATE.format(items=", ".join(labels[:-1]) + (" o " if k > 1 else "") + labels[-1]),
-                "next_action": head.next_action,
-                "ack": ACK_HINT,
-            }
-            if len(json.dumps(block, ensure_ascii=False).encode("utf-8")) <= BLOCK_MAX_BYTES:
-                return block
-    minimal = {"count": len(notices), "severity": sev, "ask_user": ASK_TEMPLATE.format(items=_clip(head.label, 30)),
-               "ack": ACK_HINT}  # fmt: skip
-    return minimal
+            items = ", ".join(labels[:-1]) + (" o " if k > 1 else "") + labels[-1]
+            base = {"count": len(notices), "severity": sev, "ask_user": ASK_TEMPLATE.format(items=items)}
+            for with_top in (True, False):
+                block: dict[str, Any] = {"count": base["count"]}
+                if with_top:
+                    block["top"] = labels
+                block.update(severity=sev, ask_user=base["ask_user"], next_action=head.next_action, ack=ACK_HINT)
+                if len(json.dumps(block, ensure_ascii=False).encode("utf-8")) <= BLOCK_MAX_BYTES:
+                    return block
+    return {"count": len(notices), "severity": sev, "ask_user": ASK_TEMPLATE.format(items=_clip(head.label, 30)),
+            "ack": ACK_HINT}  # fmt: skip
 
 
 def is_quiet(tool: str, action: str) -> bool:

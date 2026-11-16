@@ -76,7 +76,7 @@ def test_push_is_emitted_once_per_change_with_a_real_mcp_client(tmp_path: Path) 
                 assert msg.logger == "aep.notice" and msg.level == "warning"
                 assert msg.data["count"] == n0 and msg.data["ask_user"].endswith("¿Quieres mejorarlo?")
                 await _call(session, "autoevol", {"action": "ack", "all": True})
-                (repo / "README.md").write_text(_DRIFT + "Also 16 tools here.\n")  # NEW drift after the ack
+                (repo / "README.md").write_text(_DRIFT + f"Also {15 + 1} tools here.\n")  # NEW drift after the ack
                 again = await _wait_for(lambda o: "aep_notice" in o, session)
                 assert again["aep_notice"]["count"] == 1
                 await asyncio.sleep(0.5)

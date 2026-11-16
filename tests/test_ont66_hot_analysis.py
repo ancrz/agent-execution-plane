@@ -99,12 +99,17 @@ def test_hot_analysis_can_be_disabled_and_refresh_is_throttled(
 
 
 def test_cached_analysis_follows_the_tree_last_analyzed_even_on_a_cache_hit(mini_repo: Path) -> None:
-    """Revert-to-earlier-content must not leave `cached_analysis` pointing at the newer, different entry."""
+    """Revert-to-earlier-content must not leave `cached_analysis` pointing at the newer, different entry.
+
+    The original mtime is restored (os.utime) so the third analysis is a real cache hit on the OLD tree's entry."""
+    mod = mini_repo / "engine" / "mod.py"
+    st = os.stat(mod)
     a = th.analyze(mini_repo)
-    (mini_repo / "engine" / "mod.py").write_text("def f():\n    return 2\n")
+    mod.write_text("def f():\n    return 2\n")
     b = th.analyze(mini_repo)
     assert a.inputs_hash != b.inputs_hash
-    (mini_repo / "engine" / "mod.py").write_text("def f():\n    return 1\n")
+    mod.write_text("def f():\n    return 1\n")
+    os.utime(mod, ns=(st.st_atime_ns, st.st_mtime_ns))
     again = th.analyze(mini_repo)
     assert again.inputs_hash == a.inputs_hash
     latest = th.cached_analysis(mini_repo)

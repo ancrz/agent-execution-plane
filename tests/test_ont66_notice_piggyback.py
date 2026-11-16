@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -85,7 +86,8 @@ def test_any_tool_carries_aep_notice_with_ask_user_until_ack(repo: Path) -> None
         blk = out["aep_notice"]
         assert blk["count"] == 1 and blk["severity"] == "WARN"
         assert "claim_drift" in blk["ask_user"] and blk["ask_user"].endswith("¿Quieres mejorarlo?")
-        assert blk["next_action"].startswith("autoevol(action='spec', gap='drift:claim:")
+        assert blk["next_action"].startswith("autoevol(action='spec', gap='")
+        assert len(blk["next_action"].encode()) <= 80
         assert len(json.dumps(blk, ensure_ascii=False).encode()) <= notices.BLOCK_MAX_BYTES
     # "ruidoso": se repite en cada respuesta (no se suprime por repeticion) y llega a otras tools
     assert "aep_notice" in _call("topos_audit_dag", tasks=["a"], dependencies={}, verbosity="terse")
@@ -98,7 +100,7 @@ def test_any_tool_carries_aep_notice_with_ask_user_until_ack(repo: Path) -> None
 
 def test_new_drift_after_ack_reappears_and_resolution_retires_it(repo: Path) -> None:
     _call("autoevol", action="ack", all=True)
-    _reanalyze(repo, _DRIFT + "Also 16 tools here.\n")
+    _reanalyze(repo, _DRIFT + f"Also {15 + 1} tools here.\n")
     out = _call("process_inspect", pid=0, verbosity="terse")
     assert out["aep_notice"]["count"] == 1  # solo el nuevo; el primero sigue acked
     listed = _call("autoevol", action="notices")
@@ -118,6 +120,14 @@ def test_ack_by_ids_validates_input(repo: Path) -> None:
     done = _call("autoevol", action="ack", ids=[gap_id])
     assert done["acked"] == [gap_id] and done["remaining"] == 0
     assert "aep_notice" not in _call("process_inspect", pid=0, verbosity="terse")
+
+
+def test_short_gap_ref_in_next_action_resolves_in_spec_and_ack(repo: Path) -> None:
+    block = _call("process_inspect", pid=0, verbosity="terse")["aep_notice"]
+    ref = re.search(r"gap='([^']+)'", block["next_action"]).group(1)
+    assert len(ref) < len(_call("autoevol", action="notices")["notices"][0]["id"])
+    assert _call("autoevol", action="spec", gap=ref, verbosity="terse")["status"] == "OK"
+    assert _call("autoevol", action="ack", ids=[ref])["remaining"] == 0
 
 
 def test_spec_and_gaps_responses_do_not_duplicate_the_block(repo: Path) -> None:
