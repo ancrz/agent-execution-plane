@@ -47,7 +47,8 @@ async def test_process_inspect_self_detail_has_memory_and_rss_is_server_vmrss() 
 @pytest.mark.anyio
 async def test_process_inspect_summary_is_unchanged_without_memory_block() -> None:
     res = json.loads(await server.process_inspect(pid=0, verbosity="summary"))
-    assert "memory" not in res and res["rss_kb"] > 0
+    assert "memory" not in res
+    assert abs(res["rss_kb"] - _status_kb(os.getpid(), "VmRSS")) < 8192  # summary rss_kb is the real VmRSS
 
 
 @pytest.mark.anyio

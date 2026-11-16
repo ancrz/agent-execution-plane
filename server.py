@@ -35,6 +35,7 @@ from engine import catalog as _catalog_mod
 from engine import go_toolchain, headless_display, matcher
 from engine import kanban as _kanban_mod
 from engine import lkg_ctl as _lkg_ctl
+from engine import memfd as _memfd
 from engine.backup import (
     clear_micro_snapshots,
     create_backup,
@@ -2106,9 +2107,8 @@ async def artifact_execute_in_ram(
         start_time = time.time()
         fd = None
         try:
-            fd = os.memfd_create(f"anon_{resolved_name}", 0)
-            os.write(fd, elf_bytes)
-            os.lseek(fd, 0, os.SEEK_SET)
+            # ONT-67 T2: CLOEXEC + MFD_EXEC (EINVAL fallback on kernels < 6.3) and sealed before exec (runc pattern).
+            fd = _memfd.create_sealed_exec_memfd(f"anon_{resolved_name}", elf_bytes)
 
             sub_env = os.environ.copy()
             if env and isinstance(env, dict):
@@ -2129,6 +2129,8 @@ async def artifact_execute_in_ram(
                     timeout=eff_timeout,
                     check=False,
                 )
+            except PermissionError as exc:
+                raise _memfd.MemfdNoexecEnforced(exc.errno or 0, f"exec of the sealed memfd denied: {exc}") from exc
             except subprocess.TimeoutExpired:
                 os.close(fd)
                 fd = None
@@ -2206,7 +2208,31 @@ async def artifact_execute_in_ram(
                 next_action=_canary_next_action(kanban_canary),
                 summary=f"RAM execution of '{resolved_name}' finished with status {status_val} in {latency_ms}ms.",
             )
+        except _memfd.MemfdNoexecEnforced as e:
+            if fd is not None:  # close before the envelope measures fd_delta
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                fd = None
+            return attach_envelope(
+                {
+                    "status": "ERROR",
+                    "agent_id": agent_id,
+                    "error_class": "memfd_noexec_enforced",
+                    "error": f"In-RAM execution is unavailable on this host: {e.strerror or e}",
+                    "memfd_noexec": _memfd.noexec_policy(),
+                    "next_action": (
+                        f'sandbox_run(command="{bin_file}", ro_paths=["{TEMP_BIN_DIR}"], verbosity="summary") '
+                        "runs the same catalog binary from disk inside the sandbox."
+                    ),
+                },
+                tracker,
+                verbosity=verbosity,
+            )
         except Exception as e:
+            if fd is not None:  # close before the envelope measures fd_delta
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                fd = None
             return attach_envelope(
                 {"status": "ERROR", "agent_id": agent_id, "error": str(e)},
                 tracker,
