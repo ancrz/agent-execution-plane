@@ -1,10 +1,10 @@
-# Context Compaction Guidance: AEP (ONT-66 VERIFIED tras dos ciclos; gaps 0; publicado en dev por Hermon)
-Preserve: pipeline mode Short; base `main` = `dev` `69b1b76`; worktree `agent-a1f0db185df7df481`, HEAD `5c93d12`; Graphos no hizo commits.
-Commits ONT-66: `7129048` (análisis caliente + engine/notices.py), `ce8210c` (aep_notice en todas las respuestas, notices/ack), `fa1d18c` (push MCP aep.notice), `c6508ee` (gaps_open, relay ask_user, WF-0), `5c93d12` (endurecimiento, caché analizada).
-ONT-66 numbers: Dokimos VERIFIED en 2 ciclos (ciclo 1 DEFECTIVE LOGIC_ERROR: 1691 passed, 3 failed); 1700 passed, 0 failed (reportado por Dokimos); gaps 0; test_ont41_coverage 11 passed; `_INSTRUCTIONS` 9388 B.
-Decisions taken by user: aviso ruidoso (2026-11-15); publicar en main a decisión del usuario; diseño delegado al orquestador.
-Open: publicado en dev (Hermon, ff); push MCP requiere /mcp del usuario; residuales: ack por proceso backend, avisos fuera del ledger.
-Lessons: (1) filtrar texto reenviado al usuario por clase de caracteres; (2) informes limitados a lo commiteado; (3) pruebas de regresión deben fallar en la base.
-Next actions: (1) usuario: /mcp para activar el push; (2) decidir publicación en main.
-Drop: salida de pytest, diffs intermedios, logs de subagentes, detalle de commits ya registrado, plan de ONT-66 ya ejecutado.
-Recovery: leer `docs/pipeline/feature_20261115_ont66_noisy_notices.md` y `docs/pipeline/feature_rollup.md`; luego `git status` y `git log --oneline 69b1b76..HEAD` en el worktree.
+# Context Compaction Guidance: AEP (ONT-67 VERIFIED en un ciclo; publicado en dev)
+Preserve: pipeline mode Short; base `dev` `2317d8d`; worktree `agent-a97a79376546e1bcf`, HEAD `e2f1e19`; Graphos no hizo commits.
+Preserve ONT-67 commits: `47b1c14` (T2 memfd CLOEXEC/MFD_EXEC y sellos), `3c180ae` (T3 descarga del embedder y malloc_trim), `a023297` (T4 caché sin AST), `eb5b7ad` (T7 zstd en tmpfs), `e2f1e19` (T8 línea Memory y toolchain.env).
+ONT-67 numbers: Dokimos VERIFIED 1740 passed, 0 failed, gaps 0, DB real intacta; reposo -41,6 % RSS; tras autoevol -43,2 %; recarga del embedder +136 ms una vez; sandbox grande +5,6 ms.
+Decisions taken by user: aplicar solo lo que mejora la RAM medida; el instalador debe contemplarlo en fresh start; sin cambios de sysctl, zram, KSM ni THP en el host.
+Open defects (no bloquean ONT-67): `server.py:2067/2079` magic ELF nunca coincide (routing: ONT futuro, Short); `test_ont40_acceptance` sensible a carga; `KEEP_EMBED_IDLE` muerta en `setup.sh` (eliminar o cablear).
+Open: publicado en `dev` (Hermon, fast-forward, sin force); `main` solo por decisión del usuario.
+Next 2 pending actions: (1) ONT futuro para el magic ELF y la caché binaria en disco; (2) decidir `KEEP_EMBED_IDLE` (eliminar o cablear a `AEP_EMBED_IDLE_S`).
+Drop: salida de pytest, tablas de bench intermedias, logs de subagentes, plan de ONT-67 ya ejecutado (ver `plan_ont67_ram_efficiency.md`), detalle de commits ya registrado.
+Recovery: leer `docs/pipeline/feature_20261116_ont67_ram_efficiency.md` y `docs/pipeline/feature_rollup.md`; luego `git status` y `git log --oneline 2317d8d..HEAD` en el worktree.

@@ -466,7 +466,10 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 | 62 | `feature_20261115_ont62_health_and_update.md` | pendientes menores, falsos negativos de salud y G71 de `setup.sh --update`, VERIFIED tras dos ciclos, 1536 passed |
 | 63 | `feature_20261115_ont63_orientation_layer.md` | capa de orientación básica: 8 primitivas L0, escalera L0-L2 y WF-0; VERIFIED tras tres ciclos, 1637 passed; publicado en dev (Hermon) |
 | 64 | `feature_20261115_ont64_path_trim_and_doc_gate.md` | recorte de `aep_python.path` y puerta de docs en pre-commit, VERIFIED en un ciclo, 1657 passed; publicado en dev |
+| 65 | `feature_20261115_ont65_zero_gaps.md` | cero gaps de cobertura, VERIFIED tras dos ciclos, 1666 passed |
+| 66 | `feature_20261115_ont66_noisy_notices.md` | AEP ruidoso (`aep_notice`), VERIFIED tras dos ciclos, 1700 passed |
+| 67 | `feature_20261116_ont67_ram_efficiency.md` | uso de RAM medido: memfd sellado, descarga del embedder, caché sin AST, zstd en tmpfs y línea Memory, VERIFIED en un ciclo, 1740 passed |
 
-**Documento activo:** [`feature_20261115_ont64_path_trim_and_doc_gate.md`](feature_20261115_ont64_path_trim_and_doc_gate.md)
+**Documento activo:** [`feature_20261116_ont67_ram_efficiency.md`](feature_20261116_ont67_ram_efficiency.md)
 
-**Próximo rollup:** al quinto documento posterior a `feature_20261114_ont60_sandbox_packages.md` (ONT-61 a ONT-65; 4 de 5 tras ONT-64; ONT-65 hace rollup).
+**Próximo rollup:** cadena 66..70; el rollup se dispara con ONT-70 (2 de 5 tras `feature_20261116_ont67_ram_efficiency.md`; las filas 65 y 66 se añaden aquí porque faltaban en el registro).

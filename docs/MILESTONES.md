@@ -947,3 +947,26 @@ Pendiente operativo: el push MCP requiere `/mcp` del usuario, porque el front no
 Residuales: el `ack` vive en el proceso backend (se pierde en hot-swap y los avisos reaparecen); riesgo teórico de colisión entre un `gap.ref` ajeno y una referencia corta; acks y avisos no van al ledger.
 
 Lecciones: (1) un agente que reenvía texto del repositorio al usuario debe filtrar por clase de caracteres, no solo recortar; (2) los informes se limitan a lo commiteado; (3) las pruebas de regresión deben fallar en la base.
+
+## 34. Uso de RAM ONT-67: medición, descarga del embedder, caché sin AST y zstd (2026-11-16)
+
+Modo Short; base `dev` `2317d8d`; HEAD `e2f1e19`; VERIFIED en un ciclo (1740 passed, 0 failed; gaps 0; DB real intacta). Registro: `docs/pipeline/feature_20261116_ont67_ram_efficiency.md`. Plan y resultados: `docs/pipeline/plan_ont67_ram_efficiency.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | Banco reproducible y bloque `memory` en `process_inspect` (T0, T1) | Pragma | ✅ |
+| M2 | memfd con `MFD_CLOEXEC`, `MFD_EXEC` con fallback y sellos; `error_class` `memfd_noexec_enforced` (T2, `47b1c14`) | Pragma | ✅ |
+| M3 | Descarga del embedder por inactividad y `malloc_trim` (T3, `3c180ae`); `enable_cpu_mem_arena` revertido sin ganancia | Pragma | ✅ |
+| M4 | Caché de análisis sin AST: 168 MB a 6 MB por entrada (T4, `a023297`) | Pragma | ✅ |
+| M5 | zstd nivel 3 en salidas de sandbox ≥ 4 KiB en tmpfs (T7, `eb5b7ad`) | Pragma | ✅ |
+| M6 | Línea Memory en `setup.sh --check`; `AEP_EMBED_IDLE_S` en `toolchain.env` (T8, `e2f1e19`) | Pragma | ✅ |
+| M7 | Dokimos VERIFIED en un ciclo (1740 passed, 0 failed; gaps 0; DB real intacta; reposo −41,6 % RSS; tras autoevol −43,2 %) | Dokimos | ✅ |
+| M8 | Documentación: feature ONT-67, README (badge 1740 y párrafo), STATE, COMPACT, rollup (fila 67) y esta sección | Graphos G2 | ✅ |
+| M9 | Publicación en `dev` (fast-forward, sin force) | Hermon | pendiente |
+
+Pendientes para futuros ONT (hallazgos, sin bloquear ONT-67):
+- `server.py:2067` y `server.py:2079`: `raw_elf[:4] == b"ELF"` nunca coincide (magic `\x7fELF`); la caché de binarios en disco no se usa.
+- `test_ont40_acceptance`: la extracción en frío es sensible a la carga del host.
+- `KEEP_EMBED_IDLE`: variable muerta en `setup.sh`; eliminar o cablear a `AEP_EMBED_IDLE_S`.
+
+Lecciones: (1) medir antes de aplicar: T5 y T6 no ganaron nada en el banco; (2) la lectura de RSS debe desglosar VmRSS frente a RssAnon, porque una cifra sin desglose produjo un diagnóstico falso.

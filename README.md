@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1700_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1740_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1131,6 +1131,28 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-67 uso de RAM (Short; VERIFIED en un ciclo; 1740 passed, 0 failed; gaps 0; publicado en dev por Hermon):** AEP mide y reduce su huella sin tocar el host. El embedder se descarga tras `AEP_EMBED_IDLE_S` segundos sin uso (defecto 600; `0` = nunca) y se recarga de forma perezosa. La caché de análisis deja de retener los AST (168 MB a 6 MB por entrada). Las salidas de sandbox de 4 KiB o más se comprimen con zstd en tmpfs (≈17× en salida secuencial). `setup.sh --check` añade una línea **Memory** (FAIL si `vm.memfd_noexec=2`, WARN si vale 1 o el swap supera el 90 %); nunca escribe sysctl, zram, KSM ni THP. `process_inspect(pid=0, verbosity="detail")` expone el bloque `memory`. Medido con `scripts/bench_ram.py`:
+
+| Medida | Resultado |
+|---|---|
+| RSS en reposo | −41,6 % |
+| RSS tras autoevol | −43,2 % |
+| Recarga del embedder | +136 ms, una vez |
+| Sandbox con salida grande | +5,6 ms |
+
+No aplicado por medición: `cache_size` de SQLite, `MALLOC_ARENA_MAX`, `PYTHONMALLOC` y la arena de ONNX Runtime. Detalle: `docs/pipeline/feature_20261116_ont67_ram_efficiency.md`.
+
+```mermaid
+flowchart LR
+    I67["Intent: uso de RAM (ONT-67)"] --> M1["M1: medición reproducible y memory en process_inspect (T0, T1) ✅"]
+    M1 --> M2["M2: memfd sellado y compatible (T2) ✅"]
+    M2 --> M3["M3: descarga del embedder y caché sin AST (T3, T4) ✅"]
+    M3 --> M4["M4: zstd en tmpfs y línea Memory del instalador (T7, T8) ✅"]
+    M4 --> M5["M5: Dokimos VERIFIED 1740 passed, gaps 0 ✅"]
+    M5 --> M6["M6: documentado (Graphos G2) ✅"]
+    M6 --> M7["M7: publicado en dev (Hermon) ✅"]
 ```
 
 **ONT-66 AEP ruidoso (Short; VERIFIED tras dos ciclos; 1700 passed, 0 failed; gaps 0; publicado en dev por Hermon):** AEP anuncia lo que detecta. Cada respuesta de cualquier herramienta lleva `aep_notice` (<= 350 B: `count`, `top`, `severity`, `ask_user`, `next_action`, `ack`) mientras haya avisos sin reconocer: gaps del análisis (todos los tipos, incluidas omisiones) y señales del plano. `ask_user` está redactado para reenviarlo tal cual al usuario ("AEP reporta: x, y o z. ¿Quieres mejorarlo?"); el agente de turno debe reenviarlo. `autoevol(action="notices")` lista los avisos y `autoevol(action="ack", ids=[...] | all=True)` los silencia para la sesión de servidor (solo memoria). El análisis se calienta en segundo plano tras cada carga del backend. El push MCP envía `notifications/message` (logger `aep.notice`), una vez por cambio, y requiere `/mcp` del usuario porque el front no es hot-swappable. Sin avisos, las respuestas no cambian.
