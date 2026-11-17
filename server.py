@@ -224,6 +224,29 @@ TEMP_BIN_DIR = data_home() / "bin"
 AEP_CTL = PROJECT_DIR / "scripts" / "aep-ctl"
 TEMP_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
+# ONT-68: ELF magic spelled with an explicit escape (a raw 0x7f byte in the source is invisible and fragile).
+_ELF_MAGIC = b"\x7fELF"
+
+
+def _is_elf(data: bytes) -> bool:
+    return data[: len(_ELF_MAGIC)] == _ELF_MAGIC
+
+
+def _read_trusted_cached_elf(path: Path, name: str) -> bytes | None:
+    """Return the cached ELF at ``path`` only if it is a real ELF and, when the catalog knows a
+    binary hash for ``name``, its sha256 matches. Otherwise None (caller falls back to the catalog blob)."""
+    try:
+        raw = path.read_bytes()
+    except Exception:  # noqa: BLE001
+        return None
+    if not _is_elf(raw):
+        return None
+    expected = catalog.get_binary_hash(name)
+    if expected is not None and hashlib.sha256(raw).hexdigest() != expected:
+        logger.debug("Binary cache %s does not match catalog hash; using catalog blob", path)
+        return None
+    return raw
+
 
 # ONT-51 (G33) / ONT-53 (G41): the action-synonym table lives in engine.privilege.ACTION_SYNONYMS (single source).
 _PROBE_MAX_PORTS = 1024  # ONT-63 R3: reachability check, not a scanner
@@ -2062,26 +2085,17 @@ async def artifact_execute_in_ram(
         bin_file = TEMP_BIN_DIR / resolved_name
         elf_bytes: bytes | None = None
         if bin_file.exists():
-            try:
-                raw_elf = bin_file.read_bytes()
-                if len(raw_elf) >= 4 and raw_elf[:4] == b"ELF":
-                    elf_bytes = raw_elf
-            except Exception:  # noqa: BLE001
-                elf_bytes = None
+            elf_bytes = _read_trusted_cached_elf(bin_file, resolved_name)
 
         if not elf_bytes:
             blob = catalog.get_binary_blob(resolved_name)
             if not blob:
                 alt_name = eff_name.replace("-", "_") if "-" in eff_name else eff_name.replace("_", "-")
                 if (TEMP_BIN_DIR / alt_name).exists():
-                    try:
-                        raw_elf = (TEMP_BIN_DIR / alt_name).read_bytes()
-                        if len(raw_elf) >= 4 and raw_elf[:4] == b"ELF":
-                            resolved_name = alt_name
-                            bin_file = TEMP_BIN_DIR / resolved_name
-                            elf_bytes = raw_elf
-                    except Exception:  # noqa: BLE001
-                        elf_bytes = None
+                    elf_bytes = _read_trusted_cached_elf(TEMP_BIN_DIR / alt_name, alt_name)
+                    if elf_bytes:
+                        resolved_name = alt_name
+                        bin_file = TEMP_BIN_DIR / resolved_name
                 if not elf_bytes:
                     blob = catalog.get_binary_blob(alt_name)
                     if blob:

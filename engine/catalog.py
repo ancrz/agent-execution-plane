@@ -777,6 +777,17 @@ class ArtifactCatalog:
             "db_telemetry": self.storage_telemetry(),
         }
 
+    def get_binary_hash(self, name: str) -> str | None:
+        """sha256 hex registrado del binario de un artefacto (None si no existe o no tiene hash)."""
+        try:
+            with self._get_ro_conn() as conn:
+                row = conn.execute("SELECT binary_hash FROM artifacts WHERE name = ?", (name,)).fetchone()
+                if row and row["binary_hash"]:
+                    return str(row["binary_hash"])
+        except (sqlite3.Error, OSError) as e:
+            logger.debug("Failed retrieving binary hash for %s: %s", name, e)
+        return None
+
     def get_binary_blob(self, name: str) -> bytes | None:
         """Recupera el blob binario compilado de un artefacto desde SQLite por nombre."""
         try:
