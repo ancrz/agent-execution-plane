@@ -1,9 +1,8 @@
-# Context Compaction Guidance: AEP (ONT-68 VERIFIED tras dos ciclos; sin commit, Hermon commitea a dev)
-Preserve: pipeline mode Short; base `dev` `c4345e8`; cambios ONT-68 sin commit en `server.py`, `engine/catalog.py`, `scripts/setup.sh`, `tests/test_ont40_acceptance.py`, `tests/test_ont67_setup_memory.py` y `tests/test_ont68_elf_cache.py` (nuevo); Graphos no hizo commits.
-Preserve ONT-68 numbers: Dokimos VERIFIED 1751 passed, 0 failed (serie), gaps 0, md5 de la DB real sin cambios; ciclo 1 LOGIC_ERROR solo en tests (3 tests sin `covers` de bordes, 3 gaps, 7 fallos).
-Preserve corrections: el magic ELF de ONT-67 era falso positivo (byte 0x7f en bruto, verificado con `od`); `KEEP_EMBED_IDLE` era un bug real y queda reaplicado tras reescribir `toolchain.env`.
-Decisions taken by user: corregir los tres hallazgos reportados como AEP; publicar con Hermon en `dev` y luego fast-forward de `dev` a `main` con ONT-66, ONT-67 y ONT-68 ("procesa lo que falta"); sin force.
-Open (no bloquean ONT-68): carrera benigna en la caché ELF entre el reemplazo del archivo y `register_artifact`; `test_ont40_acceptance` mitigado, sensible a carga.
-Next 3 pending actions: (1) Hermon commit en `dev` de los cambios ONT-68; (2) fast-forward `dev` a `main` (ONT-66 a ONT-68); (3) definir el intent ONT-69 (no definido) y cerrar el rollup 66..70 con ONT-70.
-Drop: salida de pytest, tablas de bench intermedias, logs de subagentes, detalle de hallazgos ya registrado en `feature_20261116_ont68_aep_findings.md`.
-Recovery: leer `docs/pipeline/feature_20261116_ont68_aep_findings.md` y `docs/pipeline/feature_rollup.md`; luego `git status` y `git log --oneline -5` en el repo principal.
+# Compact: AEP estado limpio, ONT-68 publicado (main = dev = 6a359f7)
+Preserve: git limpio; `main` = `dev` = `origin/main` = `origin/dev` = `6a359f7`; 1751 tests, 0 failed, gaps 0; modo de pipeline Short por defecto.
+Preserve reglas permanentes: push a `main` sujeto a autorización del usuario por track; `dev` sólo ff tras VERIFIED; nunca force; los tests nunca tocan la DB real; sin sysctl, zram, KSM ni THP en el host (salvo aprobación explícita); avisos de AEP al usuario como "AEP reporta X, ¿quieres mejorarlo?"; verificar bytes sospechosos con `od` antes de declarar un bug de literal.
+Preserve decisiones del usuario: ONT-66, ONT-67 y ONT-68 publicados en `main` sin force; el usuario delega en el orquestador las decisiones de contratos, capacidades y promociones; push a `main`, force y privilegios siguen sujetos a su autorización.
+Preserve abiertos (baja prioridad, no bloquean): carrera benigna en caché ELF entre reemplazo de archivo y `register_artifact`; `test_ont40_acceptance` mitigado y sensible a carga; presión de swap del host por otra sesión (no AEP); ONT-69 sin intent definido; rollup 66..70 se cierra con ONT-70.
+Drop: salida de pytest, tablas de bench, logs de subagentes, detalle de hallazgos ya registrado en `docs/pipeline/feature_20261116_ont68_aep_findings.md`, planes superados.
+Next actions: ninguna requerida. Opcionales: (1) definir el intent de ONT-69; (2) investigar la presión de swap del host; (3) cerrar la carrera de caché ELF en un ONT futuro.
+Recovery: leer `docs/COMPACT.md`, `docs/STATE.md`, `docs/pipeline/feature_20261116_ont68_aep_findings.md` y `docs/pipeline/feature_rollup.md`; luego `git status`, `git log --oneline -1 main` y `git log --oneline -1 dev` en el repo principal.

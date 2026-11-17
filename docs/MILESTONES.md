@@ -975,7 +975,7 @@ Corrección (ONT-68): los pendientes de `server.py` (magic ELF) y `KEEP_EMBED_ID
 
 ## 35. Hallazgos reportados por AEP ONT-68: caché ELF, `KEEP_EMBED_IDLE` y extracción en frío (2026-11-16)
 
-Modo Short; base `dev` `c4345e8`; cambios sin commit (Hermon commitea); VERIFIED tras dos ciclos (1751 passed, 0 failed en serie; gaps 0; DB real intacta). Registro: `docs/pipeline/feature_20261116_ont68_aep_findings.md`.
+Modo Short; base `dev` `c4345e8`; publicado por Hermon en `dev` (`3b18e75`, `3c6f928`, `c891293`, `6a359f7`) y en `main` (`6a359f7`); VERIFIED tras dos ciclos (1751 passed, 0 failed en serie; gaps 0; DB real intacta). Registro: `docs/pipeline/feature_20261116_ont68_aep_findings.md`.
 
 | Hito | Descripción | Responsable | Estado |
 |------|-------------|-------------|--------|
@@ -985,11 +985,15 @@ Modo Short; base `dev` `c4345e8`; cambios sin commit (Hermon commitea); VERIFIED
 | M4 | T3 `test_ont40_acceptance`: muestreo adaptativo de 3 a 7 corridas, cota de 2,0 s sin cambios | Pragma | ✅ |
 | M5 | Ciclo 1 LOGIC_ERROR en tests (3 tests sin `covers` de bordes, 3 gaps, 7 fallos); corregido; ciclo 2 VERIFIED (1751 passed, gaps 0) | Dokimos | ✅ |
 | M6 | Documentación: feature ONT-68, rollup (filas 67 y 68), STATE, COMPACT, README (badge 1751 y párrafo) y esta sección | Graphos G2 | ✅ |
-| M7 | Commit en `dev` | Hermon | pendiente |
-| M8 | Fast-forward de `dev` a `main` con ONT-66, ONT-67 y ONT-68 (autorizado por el usuario) | Hermon | pendiente |
+| M7 | Commit en `dev` (`3b18e75`, `3c6f928`, `c891293`, `6a359f7`) | Hermon | ✅ |
+| M8 | Fast-forward de `dev` a `main` (`69b1b76`..`6a359f7`) con ONT-66, ONT-67 y ONT-68 (autorizado por el usuario, sin force) | Hermon | ✅ |
+| M9 | Publicación verificada: `dev` = `main` = `origin/*` = `6a359f7`; backend recargado en caliente (backend_generation 2), `front_stale` false, sin `aep_notice` | Orquestador / AEP | ✅ |
 
 Pendientes para futuros ONT:
 - Carrera benigna en la caché ELF: se puede ejecutar un binario entre el reemplazo del archivo y `register_artifact`; se autocorrige en la siguiente lectura.
 - `test_ont40_acceptance`: mitigado, no eliminado; sensible a la carga del host.
+- Presión de swap del host por otra sesión (no AEP): observación abierta, fuera del alcance de AEP.
+- ONT-69 sin intent definido; el rollup 66..70 se cierra con ONT-70.
+- Reconexión del front tras la publicación: `aep_ctl ipc harness_reconnect` con `execute` devuelve NOOP si `front_stale` es false; se forzó con `{mode:"execute", confirm:true, force:true}`, con aprobación explícita del usuario, por la ruta `tty_inject`; `sysctl legacy_tiocsti` se fijó a 0 antes y después.
 
 Lecciones: (1) comprobar los bytes con `od` antes de declarar un bug en un literal, porque `grep` oculta los bytes de control; (2) un test nuevo sin `covers` de bordes es un gap que rompe `GAPS_BASELINE=0` y arrastra fallos en cascada.

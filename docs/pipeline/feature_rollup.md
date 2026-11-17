@@ -472,10 +472,10 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 | 66 | `feature_20261115_ont66_noisy_notices.md` | AEP ruidoso (`aep_notice`), VERIFIED tras dos ciclos, 1700 passed |
 | 67 | `feature_20261116_ont67_ram_efficiency.md` | uso de RAM medido: memfd sellado, descarga del embedder, caché sin AST, zstd en tmpfs y línea Memory, VERIFIED en un ciclo, 1740 passed |
 
-| 68 | `feature_20261116_ont68_aep_findings.md` | hallazgos reportados por AEP: caché ELF (falso positivo corregido), `KEEP_EMBED_IDLE` (bug real) y extracción en frío robusta a carga; VERIFIED tras dos ciclos, 1751 passed |
+| 68 | `feature_20261116_ont68_aep_findings.md` | hallazgos reportados por AEP: caché ELF (falso positivo corregido), `KEEP_EMBED_IDLE` (bug real) y extracción en frío robusta a carga; VERIFIED tras dos ciclos, 1751 passed; publicado en `dev` y `main` (`6a359f7`) |
 
 **Documento activo:** [`feature_20261116_ont68_aep_findings.md`](feature_20261116_ont68_aep_findings.md)
 
-**Próximo rollup:** cadena 66..70; el rollup se dispara con ONT-70 (3 de 5 tras `feature_20261116_ont68_aep_findings.md`: ONT-66, ONT-67 y ONT-68 documentados; las filas 65 y 66 se añaden aquí porque faltaban en el registro).
+**Próximo rollup:** cadena 66..70; se dispara con ONT-70 (3 de 5 tras `feature_20261116_ont68_aep_findings.md`: ONT-66, ONT-67 y ONT-68 documentados y publicados en `main` `6a359f7`; ONT-69 no tiene intent definido; las filas 65 y 66 se añaden aquí porque faltaban en el registro).
 
 **Corrección de registro:** el hallazgo 1 de `feature_20261116_ont67_ram_efficiency.md` (magic ELF "nunca coincide") era falso positivo, verificado con `od` en ONT-68. El hallazgo 3 (`KEEP_EMBED_IDLE`) era un bug real y queda resuelto en ONT-68.

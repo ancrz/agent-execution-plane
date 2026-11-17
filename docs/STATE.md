@@ -1,6 +1,6 @@
 # AEP — Estado del Proyecto (snapshot para continuidad)
 
-> ONT-68 hallazgos reportados por AEP: caché ELF con hash de catálogo (el magic ELF de ONT-67 era falso positivo, comprobado con `od`), `KEEP_EMBED_IDLE` reaplicado tras reescribir `toolchain.env` (bug real) y extracción en frío robusta a carga (`test_ont40_acceptance`) **VERIFIED tras dos ciclos; 1751 passed, 0 failed (serie); gaps 0; sin commit: Hermon commitea a `dev`**. Base `dev` `c4345e8`. Registro: `docs/pipeline/feature_20261116_ont68_aep_findings.md`.
+> ONT-68 hallazgos reportados por AEP: caché ELF con hash de catálogo (el magic ELF de ONT-67 era falso positivo, comprobado con `od`), `KEEP_EMBED_IDLE` reaplicado tras reescribir `toolchain.env` (bug real) y extracción en frío robusta a carga (`test_ont40_acceptance`) **PUBLICADO en `dev` y `main` en `6a359f7`** (Hermon: `3b18e75`, `3c6f928`, `c891293`, `6a359f7`; `dev` ff a `main` `69b1b76`..`6a359f7`, sin force). VERIFIED tras dos ciclos; 1751 passed, 0 failed (serie); gaps 0. Base `dev` `c4345e8`. Registro: `docs/pipeline/feature_20261116_ont68_aep_findings.md`.
 >
 > ONT-67 uso de RAM: T2 memfd sellado (CLOEXEC, MFD_EXEC con fallback), descarga del embedder por inactividad (`AEP_EMBED_IDLE_S`), caché de análisis sin AST, zstd en salidas de sandbox y línea Memory en `setup.sh --check` **VERIFIED en un ciclo; 1740 passed, 0 failed; gaps 0; publicado en `dev` por Hermon**. Base `dev` `2317d8d`; worktree `agent-a97a79376546e1bcf`, HEAD `e2f1e19`. Registro: `docs/pipeline/feature_20261116_ont67_ram_efficiency.md`.
 >
