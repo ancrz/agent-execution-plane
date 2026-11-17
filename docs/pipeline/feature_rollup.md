@@ -3,7 +3,7 @@
 - **Document ID**: `feature_rollup.md`
 - **Rollup Period**: 2026-10-23T04:41:56Z — 2026-10-30T19:30:00Z
 - **Trigger**: Consolidated Pipeline Rollup Across Documents 1 to 24 (Autonomous Zero-Dependency Setup & Updater, Python 3.14 Production LTS Migration & Complete Tooling Self-Provisioning Complete)
-- **Current Active Document**: [`feature_20261115_ont66_noisy_notices.md`](feature_20261115_ont66_noisy_notices.md)
+- **Current Active Document**: [`feature_20261116_ont68_aep_findings.md`](feature_20261116_ont68_aep_findings.md)
 - **Author**: Graphos (Universal State Manager & Knowledge Graph Custodian)
 
 ---
@@ -15,8 +15,10 @@ Cadena: `feature_20261115_ont65_zero_gaps.md` (último documento del rollup 61..
 | Documento | Intent | Commits (rango) | Veredicto | Suite | Gaps al cierre |
 |---|---|---|---|---|---|
 | ONT-66 | AEP ruidoso: `aep_notice` en todas las respuestas, `autoevol` `notices`/`ack`, análisis caliente, push MCP `aep.notice`, `ask_user` para reenviar | `7129048`..`5c93d12` (base `69b1b76`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: presupuesto terse 414 > 400, literal de conteo, `_INSTRUCTIONS` 9465 > 9400, prueba vacua y bug de `cached_analysis`) | 1700 passed, 0 failed (reportado por Dokimos) | 0 |
+| ONT-67 | uso de RAM medido: memfd sellado, descarga del embedder, caché sin AST, zstd en tmpfs y línea Memory | `47b1c14`..`e2f1e19` (base `2317d8d`) | VERIFIED en un ciclo | 1740 passed, 0 failed | 0 |
+| ONT-68 | hallazgos reportados por AEP: caché ELF con hash de catálogo (T1, falso positivo corregido), `KEEP_EMBED_IDLE` reaplicado (T2, bug real) y extracción en frío robusta a carga (T3) | sin commit al cierre; base `dev` `c4345e8` | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR solo en tests: 3 tests sin `covers` de bordes, 3 gaps y 7 fallos) | 1751 passed, 0 failed (serie) | 0 |
 
-**Ciclos de Dokimos por track:** ONT-66 2. Publicado en `dev` por Hermon; `main` a decisión del usuario.
+**Ciclos de Dokimos por track:** ONT-66 2, ONT-67 1, ONT-68 2. Publicado en `dev` por Hermon; `main` a decisión del usuario.
 
 ## Rollup de cadena: ONT-61 a ONT-65 (2026-11-15)
 
@@ -470,6 +472,10 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 | 66 | `feature_20261115_ont66_noisy_notices.md` | AEP ruidoso (`aep_notice`), VERIFIED tras dos ciclos, 1700 passed |
 | 67 | `feature_20261116_ont67_ram_efficiency.md` | uso de RAM medido: memfd sellado, descarga del embedder, caché sin AST, zstd en tmpfs y línea Memory, VERIFIED en un ciclo, 1740 passed |
 
-**Documento activo:** [`feature_20261116_ont67_ram_efficiency.md`](feature_20261116_ont67_ram_efficiency.md)
+| 68 | `feature_20261116_ont68_aep_findings.md` | hallazgos reportados por AEP: caché ELF (falso positivo corregido), `KEEP_EMBED_IDLE` (bug real) y extracción en frío robusta a carga; VERIFIED tras dos ciclos, 1751 passed |
 
-**Próximo rollup:** cadena 66..70; el rollup se dispara con ONT-70 (2 de 5 tras `feature_20261116_ont67_ram_efficiency.md`; las filas 65 y 66 se añaden aquí porque faltaban en el registro).
+**Documento activo:** [`feature_20261116_ont68_aep_findings.md`](feature_20261116_ont68_aep_findings.md)
+
+**Próximo rollup:** cadena 66..70; el rollup se dispara con ONT-70 (3 de 5 tras `feature_20261116_ont68_aep_findings.md`: ONT-66, ONT-67 y ONT-68 documentados; las filas 65 y 66 se añaden aquí porque faltaban en el registro).
+
+**Corrección de registro:** el hallazgo 1 de `feature_20261116_ont67_ram_efficiency.md` (magic ELF "nunca coincide") era falso positivo, verificado con `od` en ONT-68. El hallazgo 3 (`KEEP_EMBED_IDLE`) era un bug real y queda resuelto en ONT-68.

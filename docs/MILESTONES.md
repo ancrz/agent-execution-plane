@@ -962,7 +962,7 @@ Modo Short; base `dev` `2317d8d`; HEAD `e2f1e19`; VERIFIED en un ciclo (1740 pas
 | M6 | Línea Memory en `setup.sh --check`; `AEP_EMBED_IDLE_S` en `toolchain.env` (T8, `e2f1e19`) | Pragma | ✅ |
 | M7 | Dokimos VERIFIED en un ciclo (1740 passed, 0 failed; gaps 0; DB real intacta; reposo −41,6 % RSS; tras autoevol −43,2 %) | Dokimos | ✅ |
 | M8 | Documentación: feature ONT-67, README (badge 1740 y párrafo), STATE, COMPACT, rollup (fila 67) y esta sección | Graphos G2 | ✅ |
-| M9 | Publicación en `dev` (fast-forward, sin force) | Hermon | pendiente |
+| M9 | Publicación en `dev` (fast-forward, sin force) | Hermon | ✅ |
 
 Pendientes para futuros ONT (hallazgos, sin bloquear ONT-67):
 - `server.py:2067` y `server.py:2079`: `raw_elf[:4] == b"ELF"` nunca coincide (magic `\x7fELF`); la caché de binarios en disco no se usa.
@@ -970,3 +970,26 @@ Pendientes para futuros ONT (hallazgos, sin bloquear ONT-67):
 - `KEEP_EMBED_IDLE`: variable muerta en `setup.sh`; eliminar o cablear a `AEP_EMBED_IDLE_S`.
 
 Lecciones: (1) medir antes de aplicar: T5 y T6 no ganaron nada en el banco; (2) la lectura de RSS debe desglosar VmRSS frente a RssAnon, porque una cifra sin desglose produjo un diagnóstico falso.
+
+Corrección (ONT-68): los pendientes de `server.py` (magic ELF) y `KEEP_EMBED_IDLE` quedaron resueltos; el primero era falso positivo y el segundo un bug real. Ver sección 35.
+
+## 35. Hallazgos reportados por AEP ONT-68: caché ELF, `KEEP_EMBED_IDLE` y extracción en frío (2026-11-16)
+
+Modo Short; base `dev` `c4345e8`; cambios sin commit (Hermon commitea); VERIFIED tras dos ciclos (1751 passed, 0 failed en serie; gaps 0; DB real intacta). Registro: `docs/pipeline/feature_20261116_ont68_aep_findings.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | Hallazgos triados y reportados al usuario como hallazgos de AEP | Orquestador | ✅ |
+| M2 | T1 caché ELF: el magic de ONT-67 era falso positivo (byte 0x7f verificado con `od`); caché en disco confiada solo con el hash de `engine/catalog.py:get_binary_hash` | Pragma | ✅ |
+| M3 | T2 `KEEP_EMBED_IDLE` (bug real): `AEP_EMBED_IDLE_S` se captura y reaplica al reescribir `toolchain.env` | Pragma | ✅ |
+| M4 | T3 `test_ont40_acceptance`: muestreo adaptativo de 3 a 7 corridas, cota de 2,0 s sin cambios | Pragma | ✅ |
+| M5 | Ciclo 1 LOGIC_ERROR en tests (3 tests sin `covers` de bordes, 3 gaps, 7 fallos); corregido; ciclo 2 VERIFIED (1751 passed, gaps 0) | Dokimos | ✅ |
+| M6 | Documentación: feature ONT-68, rollup (filas 67 y 68), STATE, COMPACT, README (badge 1751 y párrafo) y esta sección | Graphos G2 | ✅ |
+| M7 | Commit en `dev` | Hermon | pendiente |
+| M8 | Fast-forward de `dev` a `main` con ONT-66, ONT-67 y ONT-68 (autorizado por el usuario) | Hermon | pendiente |
+
+Pendientes para futuros ONT:
+- Carrera benigna en la caché ELF: se puede ejecutar un binario entre el reemplazo del archivo y `register_artifact`; se autocorrige en la siguiente lectura.
+- `test_ont40_acceptance`: mitigado, no eliminado; sensible a la carga del host.
+
+Lecciones: (1) comprobar los bytes con `od` antes de declarar un bug en un literal, porque `grep` oculta los bytes de control; (2) un test nuevo sin `covers` de bordes es un gap que rompe `GAPS_BASELINE=0` y arrastra fallos en cascada.

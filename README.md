@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1740_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1751_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1131,6 +1131,19 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-68 hallazgos reportados por AEP (Short; VERIFIED tras dos ciclos; 1751 passed, 0 failed en serie; gaps 0; commit en dev pendiente de Hermon):** AEP corrige tres hallazgos de su propio runtime. La caché de binarios ELF en disco solo se confía si su sha256 coincide con el hash del catálogo (`get_binary_hash`); si no coincide, se reescribe desde el catálogo. `AEP_EMBED_IDLE_S` fijado solo en `toolchain.env` sobrevive a la reescritura del archivo al ejecutar `setup.sh`. La extracción en frío de `test_ont40_acceptance` usa muestreo adaptativo y es menos sensible a la carga del host, con la misma cota de 2,0 s. El magic ELF que ONT-67 señalaba como roto era un falso positivo (un byte 0x7f en bruto, comprobado con `od`).
+
+```mermaid
+flowchart LR
+    I68["Intent: hallazgos AEP (ONT-68)"] --> M1["M1: hallazgos triados y reportados ✅"]
+    M1 --> M2["M2: caché ELF con hash de catálogo (T1) ✅"]
+    M2 --> M3["M3: KEEP_EMBED_IDLE reaplicado (T2) ✅"]
+    M3 --> M4["M4: extracción en frío robusta a carga (T3) ✅"]
+    M4 --> M5["M5: Dokimos VERIFIED 1751 passed, gaps 0 ✅"]
+    M5 --> M6["M6: documentado (Graphos G2) ✅"]
+    M6 --> M7["M7: commit en dev (Hermon)"]
 ```
 
 **ONT-67 uso de RAM (Short; VERIFIED en un ciclo; 1740 passed, 0 failed; gaps 0; publicado en dev por Hermon):** AEP mide y reduce su huella sin tocar el host. El embedder se descarga tras `AEP_EMBED_IDLE_S` segundos sin uso (defecto 600; `0` = nunca) y se recarga de forma perezosa. La caché de análisis deja de retener los AST (168 MB a 6 MB por entrada). Las salidas de sandbox de 4 KiB o más se comprimen con zstd en tmpfs (≈17× en salida secuencial). `setup.sh --check` añade una línea **Memory** (FAIL si `vm.memfd_noexec=2`, WARN si vale 1 o el swap supera el 90 %); nunca escribe sysctl, zram, KSM ni THP. `process_inspect(pid=0, verbosity="detail")` expone el bloque `memory`. Medido con `scripts/bench_ram.py`:

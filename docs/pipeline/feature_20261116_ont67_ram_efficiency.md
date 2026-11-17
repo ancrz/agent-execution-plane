@@ -83,9 +83,9 @@ flowchart LR
 
 ## 7. Hallazgos para futuros ONT (pendientes, sin bloquear ONT-67)
 
-1. **`server.py:2067` y `server.py:2079`:** `raw_elf[:4] == b"ELF"` nunca coincide, porque el magic es `\x7fELF`. La caché de binarios en disco no se usa nunca. Ruta: ONT futuro (Short).
+1. **`server.py:2067` y `server.py:2079`:** `raw_elf[:4] == b"ELF"` nunca coincide, porque el magic es `\x7fELF`. La caché de binarios en disco no se usa nunca. **Corrección (ONT-68):** falso positivo. El literal contenía el byte 0x7f en bruto, así que la comparación sí coincidía; ver `feature_20261116_ont68_aep_findings.md`.
 2. **`test_ont40_acceptance`:** la extracción en frío es sensible a la carga del host. Riesgo de falso fallo bajo carga.
-3. **`KEEP_EMBED_IDLE`:** variable muerta en `setup.sh`. Hay que eliminarla o cablearla a `AEP_EMBED_IDLE_S`.
+3. **`KEEP_EMBED_IDLE`:** variable muerta en `setup.sh`. **Resuelto en ONT-68:** no era código muerto, sino un bug real (un `AEP_EMBED_IDLE_S` fijado solo en `toolchain.env` se perdía al reescribirlo).
 
 ## 8. Lecciones
 

@@ -1,10 +1,9 @@
-# Context Compaction Guidance: AEP (ONT-67 VERIFIED en un ciclo; publicado en dev)
-Preserve: pipeline mode Short; base `dev` `2317d8d`; worktree `agent-a97a79376546e1bcf`, HEAD `e2f1e19`; Graphos no hizo commits.
-Preserve ONT-67 commits: `47b1c14` (T2 memfd CLOEXEC/MFD_EXEC y sellos), `3c180ae` (T3 descarga del embedder y malloc_trim), `a023297` (T4 caché sin AST), `eb5b7ad` (T7 zstd en tmpfs), `e2f1e19` (T8 línea Memory y toolchain.env).
-ONT-67 numbers: Dokimos VERIFIED 1740 passed, 0 failed, gaps 0, DB real intacta; reposo -41,6 % RSS; tras autoevol -43,2 %; recarga del embedder +136 ms una vez; sandbox grande +5,6 ms.
-Decisions taken by user: aplicar solo lo que mejora la RAM medida; el instalador debe contemplarlo en fresh start; sin cambios de sysctl, zram, KSM ni THP en el host.
-Open defects (no bloquean ONT-67): `server.py:2067/2079` magic ELF nunca coincide (routing: ONT futuro, Short); `test_ont40_acceptance` sensible a carga; `KEEP_EMBED_IDLE` muerta en `setup.sh` (eliminar o cablear).
-Open: publicado en `dev` (Hermon, fast-forward, sin force); `main` solo por decisión del usuario.
-Next 2 pending actions: (1) ONT futuro para el magic ELF y la caché binaria en disco; (2) decidir `KEEP_EMBED_IDLE` (eliminar o cablear a `AEP_EMBED_IDLE_S`).
-Drop: salida de pytest, tablas de bench intermedias, logs de subagentes, plan de ONT-67 ya ejecutado (ver `plan_ont67_ram_efficiency.md`), detalle de commits ya registrado.
-Recovery: leer `docs/pipeline/feature_20261116_ont67_ram_efficiency.md` y `docs/pipeline/feature_rollup.md`; luego `git status` y `git log --oneline 2317d8d..HEAD` en el worktree.
+# Context Compaction Guidance: AEP (ONT-68 VERIFIED tras dos ciclos; sin commit, Hermon commitea a dev)
+Preserve: pipeline mode Short; base `dev` `c4345e8`; cambios ONT-68 sin commit en `server.py`, `engine/catalog.py`, `scripts/setup.sh`, `tests/test_ont40_acceptance.py`, `tests/test_ont67_setup_memory.py` y `tests/test_ont68_elf_cache.py` (nuevo); Graphos no hizo commits.
+Preserve ONT-68 numbers: Dokimos VERIFIED 1751 passed, 0 failed (serie), gaps 0, md5 de la DB real sin cambios; ciclo 1 LOGIC_ERROR solo en tests (3 tests sin `covers` de bordes, 3 gaps, 7 fallos).
+Preserve corrections: el magic ELF de ONT-67 era falso positivo (byte 0x7f en bruto, verificado con `od`); `KEEP_EMBED_IDLE` era un bug real y queda reaplicado tras reescribir `toolchain.env`.
+Decisions taken by user: corregir los tres hallazgos reportados como AEP; publicar con Hermon en `dev` y luego fast-forward de `dev` a `main` con ONT-66, ONT-67 y ONT-68 ("procesa lo que falta"); sin force.
+Open (no bloquean ONT-68): carrera benigna en la caché ELF entre el reemplazo del archivo y `register_artifact`; `test_ont40_acceptance` mitigado, sensible a carga.
+Next 3 pending actions: (1) Hermon commit en `dev` de los cambios ONT-68; (2) fast-forward `dev` a `main` (ONT-66 a ONT-68); (3) definir el intent ONT-69 (no definido) y cerrar el rollup 66..70 con ONT-70.
+Drop: salida de pytest, tablas de bench intermedias, logs de subagentes, detalle de hallazgos ya registrado en `feature_20261116_ont68_aep_findings.md`.
+Recovery: leer `docs/pipeline/feature_20261116_ont68_aep_findings.md` y `docs/pipeline/feature_rollup.md`; luego `git status` y `git log --oneline -5` en el repo principal.
