@@ -797,9 +797,10 @@ if [[ $GO_NEEDS_INSTALL -eq 1 ]]; then
     fi
 fi
 
+# ONT-67/T8: capturar ANTES del reescrito de toolchain.env (que lo descarta) para no pisar ajustes del usuario.
+KEEP_EMBED_IDLE="$(embed_idle_user_value)"
 if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then
     mkdir -p "$AEP_DATA_DIR"
-    KEEP_EMBED_IDLE="$(embed_idle_user_value)"  # ONT-67/T8: el reescrito de toolchain.env no pisa ajustes del usuario
     {
         echo "# Generado por scripts/setup.sh (ONT-59/T5). AEP_GO_CHANNEL=stable|pinned; editar y re-ejecutar setup.sh para aplicar."
         echo "AEP_GO_CHANNEL=$GO_CHANNEL"
@@ -811,8 +812,8 @@ if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then
 fi
 
 # ONT-67/T8: AEP_EMBED_IDLE_S solo se escribe si el usuario la fijó (entorno o toolchain.env); sin valor no se toca nada.
-if [[ -n "$(embed_idle_user_value)" ]]; then
-    toolchain_env_set AEP_EMBED_IDLE_S "$(embed_idle_user_value)"
+if [[ -n "$KEEP_EMBED_IDLE" ]]; then
+    toolchain_env_set AEP_EMBED_IDLE_S "$KEEP_EMBED_IDLE"
 fi
 
 if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then

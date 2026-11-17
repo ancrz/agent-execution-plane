@@ -86,3 +86,52 @@ def test_embedder_reads_idle_from_toolchain_env(tmp_path: Path, monkeypatch) -> 
     assert embedder.idle_seconds() == 77.0
     monkeypatch.setenv(embedder.IDLE_ENV, "5")
     assert embedder.idle_seconds() == 5.0
+
+
+# --------------------------------------------------------------------------- ONT-68: KEEP_EMBED_IDLE survives the rewrite
+def _rewrite_flow(tmp_path: Path, seed_env: str | None, user_env: dict[str, str] | None = None) -> str:
+    """Run the real capture + toolchain.env rewrite + AEP_EMBED_IDLE_S re-apply blocks of setup.sh; return the file."""
+    text = SETUP.read_text()
+    # Anchor on the enclosing `if` (present in the old and new script); include the capture line when it precedes it.
+    start = text.index('if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then\n    mkdir -p "$AEP_DATA_DIR"')
+    cap = text.rfind("KEEP_EMBED_IDLE=", 0, start)
+    if cap != -1 and start - cap < 400:
+        start = text.rfind("\n", 0, cap) + 1
+    end = text.index('if [[ -n "$GO_CUR" && -x "$GO_CUR" ]]; then\n    GO_CMD=')
+    data = tmp_path / "data"
+    data.mkdir()
+    if seed_env is not None:
+        (data / "toolchain.env").write_text(seed_env)
+    script = (
+        f'source <(sed -n "/^toolchain_env_get()/,/^}}/p;/^toolchain_env_set()/,/^}}/p;/^embed_idle_user_value()/,/^}}/p" "{SETUP}");'
+        f'AEP_DATA_DIR="{data}"; TOOLCHAIN_ENV="$AEP_DATA_DIR/toolchain.env"; go_semver() {{ echo 1.2.3; }};'
+        "GO_CUR=/bin/true; GO_CHANNEL=stable; GO_RESOLVED=1.2.3;\n" + text[start:end]
+    )
+    env = {"PATH": "/usr/bin:/bin", "LANG": "C", **(user_env or {})}
+    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)  # noqa: S603
+    assert res.returncode == 0, res.stderr
+    return (data / "toolchain.env").read_text()
+
+
+def test_idle_value_only_in_toolchain_env_survives_rewrite(tmp_path: Path, monkeypatch) -> None:
+    out = _rewrite_flow(tmp_path, "AEP_GO_CHANNEL=pinned\nAEP_EMBED_IDLE_S=45\n")
+    assert out.count("AEP_EMBED_IDLE_S=45") == 1 and "AEP_GO_BIN=/bin/true" in out
+    monkeypatch.delenv(embedder.IDLE_ENV, raising=False)
+    monkeypatch.setenv("AEP_DATA_HOME", str(tmp_path / "data"))
+    assert embedder.idle_seconds() == 45.0  # the engine still sees the user's setting after the rewrite
+
+
+def test_idle_value_from_environment_is_persisted(tmp_path: Path, monkeypatch) -> None:
+    out = _rewrite_flow(tmp_path, "AEP_GO_CHANNEL=stable\n", {"AEP_EMBED_IDLE_S": "30"})
+    assert out.count("AEP_EMBED_IDLE_S=30") == 1
+    monkeypatch.delenv(embedder.IDLE_ENV, raising=False)
+    monkeypatch.setenv("AEP_DATA_HOME", str(tmp_path / "data"))
+    assert embedder.idle_seconds() == 30.0
+
+
+def test_nothing_written_when_user_never_set_idle(tmp_path: Path, monkeypatch) -> None:
+    out = _rewrite_flow(tmp_path, "AEP_GO_CHANNEL=stable\n")
+    assert "AEP_EMBED_IDLE_S" not in out and "AEP_GO_BIN=/bin/true" in out
+    monkeypatch.delenv(embedder.IDLE_ENV, raising=False)
+    monkeypatch.setenv("AEP_DATA_HOME", str(tmp_path / "data"))
+    assert embedder.idle_seconds() >= 0  # unset: engine falls back to its code default
