@@ -245,10 +245,6 @@ def _fr_marker(fn: ast.AST, sig: str) -> ast.Call | None:
     return None
 
 
-def _has_strict_fr_marker(fn: ast.AST, sig: str) -> bool:
-    return _fr_marker(fn, sig) is not None
-
-
 def _marker_raises(marker: ast.Call) -> str | None:
     """Clase unica de `raises=` (Name o Attribute), normalizada; None si falta o es tupla/expresion."""
     for k in marker.keywords:

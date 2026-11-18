@@ -408,11 +408,6 @@ def _get_server_version() -> str:
 SERVER_VERSION: str = _get_server_version()
 
 
-def _get_git_commit() -> str:
-    """Backward-compatible retrieval returning the frozen loaded commit (GAP-RT-04)."""
-    return LOADED_COMMIT
-
-
 def _get_schema_hash() -> str:
     """Compute deterministic SHA-256 fingerprint across all FastMCP registered tool schemas (Directive OM-1)."""
     try:

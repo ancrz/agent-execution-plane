@@ -74,9 +74,6 @@ class ManPagesVectorizer:
     def _conn_rw(self) -> sqlite3.Connection:
         return get_rw_connection(self.db_path, row_factory=True, load_vec=True)
 
-    def _conn(self) -> sqlite3.Connection:
-        return self._conn_rw()
-
     def _init_vec(self, conn: sqlite3.Connection) -> bool:
         if sqlite_vec is None:
             return False

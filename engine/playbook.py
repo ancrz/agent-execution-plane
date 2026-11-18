@@ -60,9 +60,6 @@ class PlaybookStore:
     def _conn_rw(self) -> sqlite3.Connection:
         return get_rw_connection(self.db_path, row_factory=True, load_vec=False)
 
-    def _conn(self) -> sqlite3.Connection:
-        return self._conn_rw()
-
     # ------------------------------------------------------------------ validación DAG
     @staticmethod
     def _normalize(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -87,9 +87,6 @@ class CrashRouter:
     def _conn_rw(self) -> sqlite3.Connection:
         return get_rw_connection(self.db_path, row_factory=True, load_vec=False)
 
-    def _conn(self) -> sqlite3.Connection:
-        return self._conn_rw()
-
     def sync_coredumps(self, limit: int = 100) -> int:
         """Lee los coredumps recientes y registra los nuevos. Devuelve cuántos nuevos.
         FAIL-SOFT: si coredumpctl no existe, devuelve 0 sin lanzar."""
