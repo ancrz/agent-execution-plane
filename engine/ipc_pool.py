@@ -12,8 +12,10 @@ Topos: Pure stdlib leaf module. ZERO external imports, ZERO circular dependencie
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -804,6 +806,26 @@ class UnixSocketMux:
             with contextlib.suppress(OSError):
                 conn.close()
 
+    @staticmethod
+    def _run_awaitable(awaitable: Any) -> Any:
+        """Drive a batch-handler coroutine to completion from a thread that has no running loop."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            if inspect.iscoroutine(awaitable):
+                awaitable.close()
+            return {
+                "status": "ERROR",
+                "error": "Batch handler is async but the calling thread already runs an event loop.",
+            }
+
+        async def _await() -> Any:
+            return await awaitable
+
+        return asyncio.run(_await())
+
     def _dispatch_message(self, line_bytes: bytes) -> dict[str, Any]:
         try:
             req = json.loads(line_bytes.decode("utf-8"))
@@ -852,18 +874,10 @@ class UnixSocketMux:
                     self._stats["batches_executed"] += 1
                 try:
                     res = self._batch_handler(req)
-                    # If async coroutine was returned
-                    if hasattr(res, "__await__"):
-                        import asyncio
-
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                res = asyncio.run_coroutine_threadsafe(res, loop).result(timeout=30)
-                            else:
-                                res = loop.run_until_complete(res)
-                        except RuntimeError:
-                            res = asyncio.run(res)
+                    # Async handler: the socket worker thread owns no event loop, so run the coroutine on a
+                    # fresh one. A running loop in this thread would deadlock a blocking run: refuse explicitly.
+                    if inspect.isawaitable(res):
+                        res = self._run_awaitable(res)
                     return res if isinstance(res, dict) else {"status": "OK", "result": res}
                 except Exception as e:  # noqa: BLE001
                     return {"status": "ERROR", "error": f"Batch handler failed: {e}"}
