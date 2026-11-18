@@ -528,7 +528,105 @@ def extract_code(graph: ThreadGraph, src: Sources, info: ExtractionInfo) -> dict
     for fn in funcs.values():
         ctx_imports = module_imports.get(fn.module, _Imports())
         _add_function_edges(graph, fn, ctx_imports, fn_ids, class_names, project, tables, types)
+    _add_registry_edges(graph, src, funcs, module_imports, fn_ids, class_names, project, types)
     return funcs
+
+
+def _registry_members(
+    tree: ast.Module, mod: str, imports: _Imports, fn_ids: _FnIndex, class_names: dict[str, set[str]], project: set[str]
+) -> dict[str, tuple[set[str], list[tuple[str, str]]]]:
+    """Registros de despacho de un módulo: `NOMBRE = {k: funcion | lambda: funcion(...) | **OTRO}` a nivel de módulo.
+
+    Devuelve nombre -> (ids de función referenciados, registros expandidos con `**` como (módulo, nombre))."""
+    out: dict[str, tuple[set[str], list[tuple[str, str]]]] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            name, value = stmt.targets[0].id, stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.value is not None:
+            name, value = stmt.target.id, stmt.value
+        else:
+            continue
+        if not isinstance(value, ast.Dict):
+            continue
+        members: set[str] = set()
+        spreads: list[tuple[str, str]] = []
+        for key, val in zip(value.keys, value.values, strict=True):
+            if key is None and isinstance(val, ast.Name):
+                exp = _expand_parts([val.id], mod, "", imports)
+                spreads.append((".".join(exp[:-1]), exp[-1]))
+                continue
+            # Solo Names desnudos o lambdas que los invocan; las llamadas (`_desc(...)`) no son despacho.
+            refs = [val] if isinstance(val, ast.Name) else [n for n in ast.walk(val) if isinstance(n, ast.Name)]
+            if not isinstance(val, ast.Name | ast.Lambda):
+                continue
+            for ref in refs:
+                if isinstance(ref.ctx, ast.Load):
+                    target = _resolve_fn(_expand_parts([ref.id], mod, "", imports), fn_ids, class_names, project)
+                    if target:
+                        members.add(target)
+        if members or spreads:
+            out[name] = (members, spreads)
+    return out
+
+
+def _add_registry_edges(
+    graph: ThreadGraph,
+    src: Sources,
+    funcs: dict[str, _FuncInfo],
+    module_imports: dict[str, _Imports],
+    fn_ids: _FnIndex,
+    class_names: dict[str, set[str]],
+    project: set[str],
+    types: _TypeIndex,
+) -> None:
+    """ONT-69 T4: una función que referencia un registro de despacho (dict de módulo) consume sus miembros.
+
+    La extracción estática no ve `RUNNERS[name](...)`; las aristas son débiles (`weak`), igual que el resto de las
+    referencias no tipadas, y solo añaden consumes entre funciones: no alteran Req ni gaps."""
+    registries: dict[tuple[str, str], tuple[set[str], list[tuple[str, str]]]] = {}
+    for rel, pf in src.code.items():
+        if pf.tree is None:
+            continue
+        mod = module_name(rel)
+        for name, entry in _registry_members(
+            pf.tree, mod, module_imports.get(mod, _Imports()), fn_ids, class_names, project
+        ).items():
+            registries[(mod, name)] = entry
+    if not registries:
+        return
+
+    resolved: dict[tuple[str, str], frozenset[str]] = {}
+
+    def flatten(key: tuple[str, str], seen: frozenset[tuple[str, str]]) -> frozenset[str]:
+        if key in resolved:
+            return resolved[key]
+        members, spreads = registries[key]
+        acc = set(members)
+        for other in spreads:
+            if other in registries and other not in seen:
+                acc |= flatten(other, seen | {key})
+        resolved[key] = frozenset(acc)
+        return resolved[key]
+
+    reg_names = {name for _, name in registries}
+    for fn in funcs.values():
+        imports = module_imports.get(fn.module, _Imports())
+        for node in types.facts(fn.tree).nodes:
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in reg_names:
+                chain = [node.id]
+            elif isinstance(node, ast.Attribute) and node.attr in reg_names:
+                chain = _chain(node) or []
+            else:
+                continue
+            if not chain:
+                continue
+            exp = _expand_parts(chain, fn.module, fn.cls, imports)
+            key = (".".join(exp[:-1]), exp[-1])
+            if key not in registries:
+                continue
+            for target in sorted(flatten(key, frozenset())):
+                if target != fn.node_id:
+                    graph.add_edge(fn.node_id, target, "consumes", weak=True)
 
 
 def _add_function(
