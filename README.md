@@ -11,7 +11,7 @@
 [![FastMCP Protocol](https://img.shields.io/badge/FastMCP-17_Tools_%2F_19_Caps-FF6F00?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Ubuntu Linux](https://img.shields.io/badge/Platform-Ubuntu_%2F_Linux_Kernel-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-1751_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-1755_Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
 
 > [!IMPORTANT]
 > **Runtime Architecture & Agent Execution Plane**
@@ -1131,6 +1131,21 @@ flowchart LR
     M2 --> M3["M3: verified (Dokimos, 261 passed, 6 xfailed; ONT-40b) ✅"]
     M3 --> M4["M4: documented (Graphos G1 and G2) ✅"]
     M4 --> M5["M5: committed (Hermon) ✅"]
+```
+
+**ONT-69 revisión autoevol (Short; VERIFIED en un ciclo; 1755 passed, 0 failed en serie; gaps 0; sin commit, rama `ont69`):** AEP corrige los hallazgos de su propia revisión. La ruta por lotes del socket IPC ejecuta los handlers asíncronos con `asyncio.run` en su hilo de trabajo; si ya hay un bucle corriendo en ese hilo, responde con ERROR en lugar de bloquear 30 s. Se retiran seis funciones muertas. Los dos riesgos de Bernstein quedan en 0: las funciones de `catalog` que usa `kanban` trabajan sobre la conexión del llamador, y `threads_events` usa una consulta de auditoría propia. La cobertura "none" baja de 45 a 8: el extractor de hilos añade aristas `consumes` débiles para el despacho por registro de diccionario, que antes no seguía. Detalle: `docs/pipeline/feature_20261118_ont69_autoevol_findings.md`.
+
+```mermaid
+flowchart LR
+    I69["Intent: revisión autoevol (ONT-69)"] --> M1["M1: hallazgos triados (orquestador) ✅"]
+    M1 --> M2["M2: batch IPC sin deadlock (T1, Pragma) ✅"]
+    M2 --> M3["M3: código muerto retirado (T2, Pragma) ✅"]
+    M3 --> M4["M4: hazards de Bernstein 2 a 0 (T3, Pragma) ✅"]
+    M4 --> M5["M5: cobertura none 45 a 8 (T4, Pragma) ✅"]
+    M5 --> M6["M6: Dokimos VERIFIED 1755 passed, gaps 0 ✅"]
+    M6 --> M7["M7: documentado (Graphos G2) ✅"]
+    M7 --> M8["M8: commit en dev (Hermon) ⏳"]
+    M8 --> M9["M9: publicación en main (decisión del usuario) ⏳"]
 ```
 
 **ONT-68 hallazgos reportados por AEP (Short; VERIFIED tras dos ciclos; 1751 passed, 0 failed en serie; gaps 0; PUBLICADO en `dev` y `main` en `6a359f7`):** AEP corrige tres hallazgos de su propio runtime. La caché de binarios ELF en disco solo se confía si su sha256 coincide con el hash del catálogo (`get_binary_hash`); si no coincide, se reescribe desde el catálogo. `AEP_EMBED_IDLE_S` fijado solo en `toolchain.env` sobrevive a la reescritura del archivo al ejecutar `setup.sh`. La extracción en frío de `test_ont40_acceptance` usa muestreo adaptativo y es menos sensible a la carga del host, con la misma cota de 2,0 s. El magic ELF que ONT-67 señalaba como roto era un falso positivo (un byte 0x7f en bruto, comprobado con `od`).

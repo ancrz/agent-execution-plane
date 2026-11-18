@@ -997,3 +997,29 @@ Pendientes para futuros ONT:
 - Reconexión del front tras la publicación: `aep_ctl ipc harness_reconnect` con `execute` devuelve NOOP si `front_stale` es false; se forzó con `{mode:"execute", confirm:true, force:true}`, con aprobación explícita del usuario, por la ruta `tty_inject`; `sysctl legacy_tiocsti` se fijó a 0 antes y después.
 
 Lecciones: (1) comprobar los bytes con `od` antes de declarar un bug en un literal, porque `grep` oculta los bytes de control; (2) un test nuevo sin `covers` de bordes es un gap que rompe `GAPS_BASELINE=0` y arrastra fallos en cascada.
+
+---
+
+## 36. Revisión autoevol ONT-69: batch IPC, código muerto, hazards de Bernstein y cobertura none (2026-11-18)
+
+Modo Short; base `dev` `80d8da5`; rama `ont69` en el worktree `aep-ont69`; VERIFIED en un ciclo (1755 passed, 0 failed en serie; gaps 0; codep 0; hazards 0). Sin commit: Hermon commiteará en `dev`; la publicación a `main` queda a decisión del usuario. Registro: `docs/pipeline/feature_20261118_ont69_autoevol_findings.md`.
+
+| Hito | Descripción | Responsable | Estado |
+|------|-------------|-------------|--------|
+| M1 | Hallazgos de `autoevol` triados: 2 riesgos de Bernstein, 45 funciones "none", 1 hueco IPC | Orquestador | ✅ |
+| M2 | T1 `UnixSocketMux._run_awaitable` con `asyncio.run` en hilo de trabajo; ERROR en lugar de bloqueo de 30 s; prueba de bucle corriendo con mutación | Pragma | ✅ |
+| M3 | T2 retirada de 6 funciones muertas (`_conn` x3, `ArtifactCatalog._get_connection`, `server._get_git_commit`, `threads_field._has_strict_fr_marker`) | Pragma | ✅ |
+| M4 | T3 hazards 2 a 0: funciones de `catalog` usadas por `kanban` sobre la conexión del llamador (atomicidad con rollback) y `security.audit_entry_exists` usado por `threads_events` | Pragma | ✅ |
+| M5 | T4 aristas `consumes` débiles para miembros de registro de diccionario; cobertura none 45 a 8 (directa 521, transitiva 487, funciones 1016) | Pragma | ✅ |
+| M6 | Dokimos VERIFIED en el ciclo 1 (1755 passed, gaps 0, R `d97fe270` determinista, cota de arranque en frío aprobada, md5 de la DB real sin cambios) | Dokimos | ✅ |
+| M7 | Documentación: feature ONT-69, rollup 66..70, STATE, COMPACT, README (badge 1755 y párrafo) y esta sección | Graphos G2 | ✅ |
+| M8 | Commit en `dev` | Hermon | ⏳ |
+| M9 | Publicación en `main` | Usuario (decisión) | ⏳ |
+
+Pendientes para futuros ONT:
+- 8 funciones siguen en cobertura "none": escribir pruebas o confirmar que son inalcanzables y retirarlas.
+- Guardas de regresión de T1: la ruta antigua funcionaba en 3.14 sin bucle corriendo; solo el test de bucle corriendo demuestra el arreglo.
+- Carrera benigna en la caché ELF (ONT-68): sin cambios.
+- `test_ont40_acceptance`: mitigado en ONT-68; sensible a la carga del host.
+
+Lecciones: (1) un "none" de cobertura puede ser falso negativo del extractor por despacho desde registros de diccionario; verificar con registro de llamadas en tiempo de ejecución antes de borrar (38 de 45 se ejecutaban); (2) una prueba de regresión que pasa con el código viejo y el nuevo no demuestra el arreglo; comprobarla con mutación.
