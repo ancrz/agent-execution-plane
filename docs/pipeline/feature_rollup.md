@@ -17,9 +17,9 @@ Cadena: `feature_20261115_ont65_zero_gaps.md` (último documento del rollup 61..
 | ONT-66 | AEP ruidoso: `aep_notice` en todas las respuestas, `autoevol` `notices`/`ack`, análisis caliente, push MCP `aep.notice`, `ask_user` para reenviar | `7129048`..`5c93d12` (base `69b1b76`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR: presupuesto terse 414 > 400, literal de conteo, `_INSTRUCTIONS` 9465 > 9400, prueba vacua y bug de `cached_analysis`) | 1700 passed, 0 failed (reportado por Dokimos) | 0 |
 | ONT-67 | uso de RAM medido: memfd sellado, descarga del embedder, caché sin AST, zstd en tmpfs y línea Memory | `47b1c14`..`e2f1e19` (base `2317d8d`) | VERIFIED en un ciclo | 1740 passed, 0 failed | 0 |
 | ONT-68 | hallazgos reportados por AEP: caché ELF con hash de catálogo (T1, falso positivo corregido), `KEEP_EMBED_IDLE` reaplicado (T2, bug real) y extracción en frío robusta a carga (T3) | `3b18e75`..`6a359f7` (base `dev` `c4345e8`) | VERIFIED tras dos ciclos (ciclo 1 LOGIC_ERROR solo en tests: 3 tests sin `covers` de bordes, 3 gaps y 7 fallos) | 1751 passed, 0 failed (serie) | 0 |
-| ONT-69 | revisión autoevol: batch IPC sin deadlock (T1), código muerto retirado (T2), hazards de Bernstein 2 a 0 (T3) y cobertura none 45 a 8 por despacho por registro (T4) | sin commit al cierre; rama `ont69` en worktree `aep-ont69` (base `dev` `80d8da5`) | VERIFIED en un ciclo (sin correcciones) | 1755 passed, 0 failed (serie, 309 s) | 0 (hazards 0, codep 0) |
+| ONT-69 | revisión autoevol: batch IPC sin deadlock (T1), código muerto retirado (T2), hazards de Bernstein 2 a 0 (T3) y cobertura none 45 a 8 por despacho por registro (T4) | publicado en `dev` y `main` (código `8502287`..`92ca91b`, docs `3c1a01d`) | VERIFIED en un ciclo (sin correcciones) | 1755 passed, 0 failed (serie, 309 s) | 0 (hazards 0, codep 0) |
 
-**Ciclos de Dokimos por track:** ONT-66 2, ONT-67 1, ONT-68 2, ONT-69 1. ONT-66 a ONT-68 publicados en `dev` y `main`; ONT-69 pendiente de commit en `dev` por Hermon y de publicación en `main` a decisión del usuario.
+**Ciclos de Dokimos por track:** ONT-66 2, ONT-67 1, ONT-68 2, ONT-69 1. ONT-66 a ONT-69 publicados en `dev` y `main`.
 
 ## Rollup de cadena: ONT-61 a ONT-65 (2026-11-15)
 
@@ -478,6 +478,6 @@ Cadena desde Rollup 6: `feature_20261113_080406_ont45_topos_residue.md` → `fea
 
 **Documento activo:** [`feature_20261118_ont69_autoevol_findings.md`](feature_20261118_ont69_autoevol_findings.md)
 
-**Próximo rollup:** cadena 66..70; se dispara con ONT-70 (4 de 5 tras `feature_20261116_ont68_aep_findings.md`: ONT-66, ONT-67, ONT-68 publicados en `main` `6a359f7`, y ONT-69 documentado y VERIFIED, pendiente de commit y publicación). Las filas 65 y 66 se añadieron aquí porque faltaban en el registro.
+**Próximo rollup:** cadena 66..70; se dispara con ONT-70 (4 de 5 tras `feature_20261116_ont68_aep_findings.md`: ONT-66, ONT-67, ONT-68 publicados en `main` `6a359f7`, y ONT-69 publicado en `main` con código `92ca91b`). Las filas 65 y 66 se añadieron aquí porque faltaban en el registro.
 
 **Corrección de registro:** el hallazgo 1 de `feature_20261116_ont67_ram_efficiency.md` (magic ELF "nunca coincide") era falso positivo, verificado con `od` en ONT-68. El hallazgo 3 (`KEEP_EMBED_IDLE`) era un bug real y queda resuelto en ONT-68.

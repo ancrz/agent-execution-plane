@@ -1133,7 +1133,7 @@ flowchart LR
     M4 --> M5["M5: committed (Hermon) ✅"]
 ```
 
-**ONT-69 revisión autoevol (Short; VERIFIED en un ciclo; 1755 passed, 0 failed en serie; gaps 0; sin commit, rama `ont69`):** AEP corrige los hallazgos de su propia revisión. La ruta por lotes del socket IPC ejecuta los handlers asíncronos con `asyncio.run` en su hilo de trabajo; si ya hay un bucle corriendo en ese hilo, responde con ERROR en lugar de bloquear 30 s. Se retiran seis funciones muertas. Los dos riesgos de Bernstein quedan en 0: las funciones de `catalog` que usa `kanban` trabajan sobre la conexión del llamador, y `threads_events` usa una consulta de auditoría propia. La cobertura "none" baja de 45 a 8: el extractor de hilos añade aristas `consumes` débiles para el despacho por registro de diccionario, que antes no seguía. Detalle: `docs/pipeline/feature_20261118_ont69_autoevol_findings.md`.
+**ONT-69 revisión autoevol (Short; VERIFIED en un ciclo; 1755 passed, 0 failed en serie; gaps 0; publicado en `dev` y `main` (código `8502287`..`92ca91b`, docs `3c1a01d`)):** AEP corrige los hallazgos de su propia revisión. La ruta por lotes del socket IPC ejecuta los handlers asíncronos con `asyncio.run` en su hilo de trabajo; si ya hay un bucle corriendo en ese hilo, responde con ERROR en lugar de bloquear 30 s. Se retiran seis funciones muertas. Los dos riesgos de Bernstein quedan en 0: las funciones de `catalog` que usa `kanban` trabajan sobre la conexión del llamador, y `threads_events` usa una consulta de auditoría propia. La cobertura "none" baja de 45 a 8: el extractor de hilos añade aristas `consumes` débiles para el despacho por registro de diccionario, que antes no seguía. Detalle: `docs/pipeline/feature_20261118_ont69_autoevol_findings.md`.
 
 ```mermaid
 flowchart LR
@@ -1144,8 +1144,8 @@ flowchart LR
     M4 --> M5["M5: cobertura none 45 a 8 (T4, Pragma) ✅"]
     M5 --> M6["M6: Dokimos VERIFIED 1755 passed, gaps 0 ✅"]
     M6 --> M7["M7: documentado (Graphos G2) ✅"]
-    M7 --> M8["M8: commit en dev (Hermon) ⏳"]
-    M8 --> M9["M9: publicación en main (decisión del usuario) ⏳"]
+    M7 --> M8["M8: commit en dev (Hermon) ✅"]
+    M8 --> M9["M9: publicado en main (autorizado por el usuario) ✅"]
 ```
 
 **ONT-68 hallazgos reportados por AEP (Short; VERIFIED tras dos ciclos; 1751 passed, 0 failed en serie; gaps 0; PUBLICADO en `dev` y `main` en `6a359f7`):** AEP corrige tres hallazgos de su propio runtime. La caché de binarios ELF en disco solo se confía si su sha256 coincide con el hash del catálogo (`get_binary_hash`); si no coincide, se reescribe desde el catálogo. `AEP_EMBED_IDLE_S` fijado solo en `toolchain.env` sobrevive a la reescritura del archivo al ejecutar `setup.sh`. La extracción en frío de `test_ont40_acceptance` usa muestreo adaptativo y es menos sensible a la carga del host, con la misma cota de 2,0 s. El magic ELF que ONT-67 señalaba como roto era un falso positivo (un byte 0x7f en bruto, comprobado con `od`).

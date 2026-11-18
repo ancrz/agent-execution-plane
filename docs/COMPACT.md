@@ -1,8 +1,8 @@
-# Compact: AEP ONT-69 verificado, sin commit (dev base 80d8da5)
-Preserve: rama `ont69` en worktree `aep-ont69` con cambios sin commit; `dev` en `80d8da5`; `main` sin cambios (publicación de ONT-66 a ONT-68 ya hecha, `6a359f7`); ONT-69 VERIFIED en un ciclo, 1755 passed, 0 failed, gaps 0, codep 0, hazards 0; modo de pipeline Short por defecto.
-Preserve reglas permanentes: push a `main` sujeto a autorización del usuario por track; `dev` sólo ff tras VERIFIED; nunca force; los tests nunca tocan la DB real; sin sysctl, zram, KSM ni THP en el host (salvo aprobación explícita); avisos de AEP al usuario como "AEP reporta X, ¿quieres mejorarlo?"; verificar bytes sospechosos con `od` antes de declarar un bug de literal; confirmar falsos "none" de cobertura con registro de llamadas antes de borrar código.
-Preserve decisiones del usuario: ONT-66 a ONT-68 publicados en `main` sin force; ONT-69 en Short sobre el worktree `aep-ont69`, commit por Hermon en `dev`; publicación a `main` de ONT-69 a decisión del usuario.
-Preserve abiertos (baja prioridad, no bloquean): 8 funciones en cobertura "none" tras ONT-69; guardas de regresión de T1 (solo el test de bucle corriendo demuestra el arreglo); carrera benigna en caché ELF; `test_ont40_acceptance` sensible a carga; presión de swap del host (no AEP); rollup 66..70 se cierra con ONT-70.
-Drop: salida de pytest, tablas de cobertura, logs de subagentes, detalle de hallazgos ya registrado en `docs/pipeline/feature_20261118_ont69_autoevol_findings.md` y `docs/pipeline/feature_20261116_ont68_aep_findings.md`, planes superados.
-Next actions: (1) Hermon commit de ONT-69 en `dev` cuando el usuario lo autorice; (2) decidir si cubrir las 8 funciones "none" en ONT-70; (3) decidir la publicación de ONT-69 a `main`.
-Recovery: leer `docs/COMPACT.md`, `docs/STATE.md`, `docs/pipeline/feature_20261118_ont69_autoevol_findings.md` y `docs/pipeline/feature_rollup.md`; luego `git status` y `git log --oneline -1 dev` en el repo principal y en el worktree `aep-ont69`.
+# Compact: AEP ONT-69 publicado (dev = main, código 92ca91b)
+Preserve: `main` = `dev` = `origin/*` (código ONT-69 `8502287`..`92ca91b`, docs posteriores); 1755 passed (serie), gaps 0, codep 0, hazards 0, cobertura none 8; backend en el head, `stale` false; modo de pipeline Short por defecto.
+Preserve: reglas: push a `main` con autorización por track; `dev` solo ff tras VERIFIED; nunca force; tests nunca tocan la DB real (AEP_DATA_HOME tmp); sin sysctl/zram/KSM/THP en el host; avisos de AEP al usuario como "AEP reporta X, ¿quieres mejorarlo?"; `harness_reconnect force` solo con aprobación explícita; verificar literales de bytes con `od`.
+Preserve: trabajo en worktree aislado (`git worktree add ../aep-ontNN`) para que el servidor vivo no recargue código a medio editar.
+Open (opcional): 8 funciones "none" (privadas); rollup 66..70 se cierra con ONT-70; swap del host por otra sesión (no AEP).
+Drop: salidas de pytest, logs de subagentes, planes superados, diffs ya commiteados.
+Recovery: `docs/STATE.md`, `docs/pipeline/feature_rollup.md`, `docs/pipeline/feature_20261118_ont69_autoevol_findings.md`, `git log -1 main dev`.
+Hint: las cifras de cobertura y hazards se confirman con `autoevol(action="graph", persist=false)`.

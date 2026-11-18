@@ -993,7 +993,7 @@ Pendientes para futuros ONT:
 - Carrera benigna en la caché ELF: se puede ejecutar un binario entre el reemplazo del archivo y `register_artifact`; se autocorrige en la siguiente lectura.
 - `test_ont40_acceptance`: mitigado, no eliminado; sensible a la carga del host.
 - Presión de swap del host por otra sesión (no AEP): observación abierta, fuera del alcance de AEP.
-- ONT-69 sin intent definido; el rollup 66..70 se cierra con ONT-70.
+- ONT-69 definido como revisión autoevol (sección 36); el rollup 66..70 se cierra con ONT-70.
 - Reconexión del front tras la publicación: `aep_ctl ipc harness_reconnect` con `execute` devuelve NOOP si `front_stale` es false; se forzó con `{mode:"execute", confirm:true, force:true}`, con aprobación explícita del usuario, por la ruta `tty_inject`; `sysctl legacy_tiocsti` se fijó a 0 antes y después.
 
 Lecciones: (1) comprobar los bytes con `od` antes de declarar un bug en un literal, porque `grep` oculta los bytes de control; (2) un test nuevo sin `covers` de bordes es un gap que rompe `GAPS_BASELINE=0` y arrastra fallos en cascada.
@@ -1013,8 +1013,8 @@ Modo Short; base `dev` `80d8da5`; rama `ont69` en el worktree `aep-ont69`; VERIF
 | M5 | T4 aristas `consumes` débiles para miembros de registro de diccionario; cobertura none 45 a 8 (directa 521, transitiva 487, funciones 1016) | Pragma | ✅ |
 | M6 | Dokimos VERIFIED en el ciclo 1 (1755 passed, gaps 0, R `d97fe270` determinista, cota de arranque en frío aprobada, md5 de la DB real sin cambios) | Dokimos | ✅ |
 | M7 | Documentación: feature ONT-69, rollup 66..70, STATE, COMPACT, README (badge 1755 y párrafo) y esta sección | Graphos G2 | ✅ |
-| M8 | Commit en `dev` | Hermon | ⏳ |
-| M9 | Publicación en `main` | Usuario (decisión) | ⏳ |
+| M8 | Commit en `dev`: 5 commits `8502287`..`3c1a01d` (ff sobre `80d8da5`, sin force) | Hermon | ✅ |
+| M9 | Publicación en `main` (autorizada por el usuario, ff, sin force); reconexión del harness, `stale` false, autoevol sin gaps ni hazards | Orquestador / Hermon | ✅ |
 
 Pendientes para futuros ONT:
 - 8 funciones siguen en cobertura "none": escribir pruebas o confirmar que son inalcanzables y retirarlas.

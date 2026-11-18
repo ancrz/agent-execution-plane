@@ -1,7 +1,7 @@
 # ONT-69 — Hallazgos de la revisión autoevol: riesgos de Bernstein, cobertura "none" y batch IPC (Short)
 
 **Modo:** Short. **Agente:** Graphos G2 (registro tras el veredicto de Dokimos).
-**Base:** `dev` `80d8da5`. **Rama de trabajo:** `ont69` en el worktree `aep-ont69`. **Estado:** VERIFIED, sin commit. Hermon commiteará en `dev` y la publicación a `main` queda a decisión del usuario. Graphos no hace commits.
+**Base:** `dev` `80d8da5`. **Rama de trabajo:** `ont69` en el worktree `aep-ont69`. **Estado:** VERIFIED; publicado en `dev` y `main` (código `8502287`..`92ca91b`, docs `3c1a01d`). Tras publicar: reconexión del harness, `stale` false, autoevol con gaps 0, hazards 0 y sin propuestas de reconcile.
 **Veredicto:** VERIFIED en el ciclo 1 (sin ciclos de corrección). Suite 1755 passed (serie, 309 s); gaps 0; codep 0; hazards 0; cota de arranque en frío aprobada; md5 de la DB real sin cambios.
 **Origen:** la revisión de `autoevol` encontró 2 riesgos de Bernstein y 45 funciones con cobertura "none". Una corrida con registro de llamadas en tiempo de ejecución sobre toda la suite mostró que 38 de esas 45 sí se ejecutan (falsos negativos del despacho por registro), 6 están muertas y 1 es un hueco real (ruta por lotes del socket IPC).
 
@@ -66,8 +66,8 @@ flowchart LR
     A2 --> A3["A.3: Pragma T1 a T4 y pruebas"]
     A3 --> A4["A.4: Dokimos VERIFIED ciclo 1 (1755 passed, gaps 0)"]
     A4 --> A5["A.5: documentado (Graphos G2, este documento)"]
-    A5 --> A6["A.6: commit en dev (Hermon) pendiente"]
-    A6 --> A7["A.7: publicación en main pendiente de decisión del usuario"]
+    A5 --> A6["A.6: commit en dev (Hermon) ✅"]
+    A6 --> A7["A.7: publicado en main (autorizado) ✅"]
 ```
 
 ## 6. Métricas del run
@@ -81,7 +81,7 @@ flowchart LR
 
 **Decisiones del usuario:**
 - Ejecutar el track ONT-69 en Short sobre el worktree `aep-ont69` (rama `ont69`).
-- Commit en `dev` por Hermon; la publicación a `main` queda a decisión del usuario.
+- Commit en `dev` por Hermon y publicación en `main` autorizada por el usuario: hechos.
 
 **Pendientes que cruzan documentos:**
 1. **8 funciones con cobertura "none"** tras T4. Son funciones sin ninguna prueba que las alcance. Un ONT futuro puede escribir pruebas para ellas o confirmar que son código inalcanzable para eliminarlo.
@@ -115,6 +115,6 @@ flowchart LR
     M4 --> M5["M5: cobertura none 45 a 8 (T4, Pragma) ✅"]
     M5 --> M6["M6: Dokimos VERIFIED 1755 passed, gaps 0 ✅"]
     M6 --> M7["M7: documentado (Graphos G2) ✅"]
-    M7 --> M8["M8: commit en dev (Hermon) ⏳"]
-    M8 --> M9["M9: publicación en main (decisión del usuario) ⏳"]
+    M7 --> M8["M8: commit en dev (Hermon) ✅"]
+    M8 --> M9["M9: publicado en main ✅"]
 ```
