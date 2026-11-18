@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from engine import ponder  # motor de ponderación multidimensional COMPARTIDO (artefactos + playbooks)
+from engine.catalog import get_artifact_stats_row, list_reusable_artifact_stats, set_artifact_promotion
 from engine.db import get_ro_connection, get_rw_connection, transaction_immediate
 from engine.paths import data_home
 
@@ -165,9 +166,7 @@ class KanbanBoard:
         if not name:
             return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
         try:
-            row = conn.execute(
-                "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name = ?", (name,)
-            ).fetchone()
+            row = get_artifact_stats_row(conn, name)
             if not row:
                 return {"success_rate": 1.0, "execution_count": 0, "exists": False, "days_since": 0.0}
             return {
@@ -607,9 +606,7 @@ class KanbanBoard:
                 )
                 if stats["exists"]:
                     # Marca el artefacto como reutilizable y guarda su ponderación.
-                    conn.execute(
-                        "UPDATE artifacts SET reusable=1, promotion_score=? WHERE name=?", (score, t["artifact_name"])
-                    )
+                    set_artifact_promotion(conn, t["artifact_name"], score=score, reusable=True)
             return {
                 "status": "PROMOTED",
                 "artifact_name": t["artifact_name"],
@@ -651,20 +648,14 @@ class KanbanBoard:
                 score = 0.0
                 verdict = "DEMOTED"
                 if eff_artifact:
-                    r = conn.execute(
-                        "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name=?",
-                        (eff_artifact,),
-                    ).fetchone()
+                    r = get_artifact_stats_row(conn, eff_artifact)
                     if r:
                         p = self._ponder(
                             False, False, r["success_rate"], r["execution_count"], ponder.days_since(r["updated_at"])
                         )
                         score = p["effective"]
                         verdict = p["verdict"]
-                        conn.execute(
-                            "UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
-                            (score, eff_artifact),
-                        )
+                        set_artifact_promotion(conn, eff_artifact, score=score, reusable=False)
                     elif not task_id:
                         return {"status": "ERROR", "error": f"artefacto '{eff_artifact}' no existe"}
 
@@ -690,9 +681,7 @@ class KanbanBoard:
         kept = 0
         with self._conn_rw() as conn:
             with transaction_immediate(conn):
-                rows = conn.execute(
-                    "SELECT name, success_rate, execution_count, updated_at FROM artifacts WHERE reusable=1"
-                ).fetchall()
+                rows = list_reusable_artifact_stats(conn)
                 for r in rows:
                     # Un artefacto reusable fue promovido (lint+canary pasaron); el cambio real
                     # viene de su éxito histórico y frescura.
@@ -707,10 +696,7 @@ class KanbanBoard:
                         "REJECT",
                     )
                     if should_demote:
-                        conn.execute(
-                            "UPDATE artifacts SET reusable=0, promotion_score=? WHERE name=?",
-                            (p["effective"], r["name"]),
-                        )
+                        set_artifact_promotion(conn, r["name"], score=p["effective"], reusable=False)
                         demoted.append(
                             {
                                 "name": r["name"],
@@ -720,7 +706,7 @@ class KanbanBoard:
                             }
                         )
                     else:
-                        conn.execute("UPDATE artifacts SET promotion_score=? WHERE name=?", (p["effective"], r["name"]))
+                        set_artifact_promotion(conn, r["name"], score=p["effective"])
                         kept += 1
         return {
             "status": "OK",

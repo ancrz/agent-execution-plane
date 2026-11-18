@@ -29,7 +29,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-from engine.security import record_audit_event, sanitize_dict
+from engine.security import audit_entry_exists, record_audit_event, sanitize_dict
 
 ENV_DIR = "AEP_AUTOEVOL_DIR"
 DEFAULT_DIR = "/dev/shm/aep_autoevol"
@@ -274,13 +274,7 @@ def mirror_to_ledger(
         if mirrored >= MIRROR_MAX_LINES:
             break
         target = digest[:32]
-        try:
-            seen = conn.execute(
-                "SELECT 1 FROM security_audit_log WHERE action = ? AND target = ? LIMIT 1", (LEDGER_ACTION, target)
-            ).fetchone()
-        except sqlite3.OperationalError:
-            seen = None  # la tabla aún no existe: record_audit_event la crea
-        if seen:
+        if audit_entry_exists(conn, LEDGER_ACTION, target):  # False también si la tabla aún no existe
             skipped += 1
             continue
         record_audit_event(

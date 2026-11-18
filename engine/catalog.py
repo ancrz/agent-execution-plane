@@ -49,12 +49,39 @@ DEFAULT_SEMANTIC_THRESHOLD = 0.32
 STATS_HISTORY_MAX = 5  # ONT-60/G62: generaciones archivadas conservadas por artefacto
 
 
+def set_artifact_promotion(conn: sqlite3.Connection, name: str, *, score: float, reusable: bool | None = None) -> None:
+    """Persist an artifact's promotion score (and optionally `reusable`) on the CALLER's connection.
+
+    The catalog owns the `artifacts` table; kanban passes its own connection so the write stays inside its transaction.
+    """
+    if reusable is None:
+        conn.execute("UPDATE artifacts SET promotion_score=? WHERE name=?", (score, name))
+    else:
+        conn.execute(
+            "UPDATE artifacts SET reusable=?, promotion_score=? WHERE name=?", (1 if reusable else 0, score, name)
+        )
+
+
+def get_artifact_stats_row(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
+    """Reliability inputs (success_rate, execution_count, updated_at) of one artifact, read on the caller's connection."""
+    return conn.execute(
+        "SELECT success_rate, execution_count, updated_at FROM artifacts WHERE name = ?", (name,)
+    ).fetchone()
+
+
+def list_reusable_artifact_stats(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Reliability inputs of every `reusable=1` artifact, read on the caller's connection."""
+    return conn.execute(
+        "SELECT name, success_rate, execution_count, updated_at FROM artifacts WHERE reusable=1"
+    ).fetchall()
+
+
 class ArtifactCatalog:
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DB_DEFAULT_PATH
         self._secure_storage()
         # Estado de disponibilidad del tier vectorial: se fija UNA vez en _init_db y
-        # es de solo-lectura después (fix Ontos HF-2: _get_connection no lo reescribe).
+        # es de solo-lectura después (fix Ontos HF-2: las conexiones no lo reescriben).
         self._vec_available = False
         self._init_db()
 
@@ -84,10 +111,6 @@ class ArtifactCatalog:
     def _get_rw_conn(self) -> sqlite3.Connection:
         """Obtiene conexion estandarizada de lectura/escritura con isolation_level=None."""
         return get_rw_connection(self.db_path, row_factory=True, load_vec=True)
-
-    def _get_connection(self) -> sqlite3.Connection:
-        """Obtiene conexión estandarizada con mmap de 256MB, caché de 64MB y sqlite-vec."""
-        return self._get_rw_conn()
 
     def storage_telemetry(self) -> dict[str, Any]:
         """Telemetría del motor de almacenamiento SQLite (mmap, caché, WAL)."""

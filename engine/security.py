@@ -142,6 +142,17 @@ def _ensure_audit_table(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_security_audit_action ON security_audit_log(action)")
 
 
+def audit_entry_exists(conn: sqlite3.Connection, action: str, target: str) -> bool:
+    """True if `security_audit_log` already holds an entry for (action, target); False when the table is not created yet."""
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM security_audit_log WHERE action = ? AND target = ? LIMIT 1", (action, target)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return False
+    return row is not None
+
+
 def record_audit_event(
     conn: sqlite3.Connection,
     agent_id: str,
